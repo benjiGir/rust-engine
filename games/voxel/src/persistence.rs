@@ -70,24 +70,25 @@ impl VoxelGame {
     /// L'état du jeu à écrire dans `world.ron`.
     fn world_meta(&self) -> WorldMeta {
         let selected = self
-            .hotbar
-            .get(self.selected)
-            .map(|&id| self.registry.def(id).key.clone());
+            .inventory
+            .selected_item()
+            .map(|id| self.registry.def(id).key.clone());
         WorldMeta {
             format_version: FORMAT_VERSION,
-            seed: self.streamer.generator().seed(),
+            seed: self.streamer().generator().seed(),
             time_of_day: self.day.time,
             player: Some(PlayerSave {
-                position: self.player.eye(1.0).to_array(),
+                position: crate::player::eye(&self.ecs, self.player, 1.0).to_array(),
                 yaw: self.camera.yaw,
                 pitch: self.camera.pitch,
-                mode: match self.player.mode {
+                mode: match crate::player::mode(&self.ecs, self.player) {
                     MoveMode::Walk => "walk".into(),
                     MoveMode::Fly => "fly".into(),
                 },
                 selected_block: selected,
             }),
             mods: loaded_mods(&self.registry),
+            inventory: self.inventory.to_save(&self.registry),
         }
     }
 
@@ -97,7 +98,8 @@ impl VoxelGame {
         let Some(store) = self.store.clone() else {
             return;
         };
-        if let Some(result) = self.streamer.poll_save() {
+        let polled = self.streamer_mut().poll_save();
+        if let Some(result) = polled {
             let elapsed = self.save_started.elapsed();
             match result {
                 Ok(report) => log::info!(
@@ -118,7 +120,7 @@ impl VoxelGame {
         if let Err(err) = store.save_meta(&self.world_meta()) {
             log::error!("sauvegarde de world.ron : {err:#}");
         }
-        if self.streamer.begin_save() {
+        if self.streamer_mut().begin_save() {
             self.save_started = Instant::now();
         }
     }
@@ -130,7 +132,8 @@ impl VoxelGame {
         };
         let start = Instant::now();
         let meta = store.save_meta(&self.world_meta());
-        match (meta, self.streamer.save_blocking()) {
+        let saved = self.streamer_mut().save_blocking();
+        match (meta, saved) {
             (Ok(()), Ok(report)) => log::info!(
                 "monde sauvegardé dans {} : {} chunks, {:.1} Ko, en {:.0?}",
                 store.dir().display(),

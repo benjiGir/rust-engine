@@ -31,21 +31,50 @@ const TEXTURE_MIPS: u32 = 5;
 pub const CHUNK_SHADER_SOURCE: &str = include_str!("chunk_shader.wgsl");
 pub const CHUNK_SHADER_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/chunk_shader.wgsl");
 
-/// Un cube à dessiner : sa position (coin minimum) et sa couleur.
+/// Une boîte à dessiner (les entités sont faites de boîtes colorées) : son centre,
+/// sa taille, sa couleur, sa rotation autour de la verticale et la lumière qu'elle reçoit.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct CubeInstance {
-    pub position: [f32; 3],
+    pub center: [f32; 3],
+    pub size: [f32; 3],
     pub color: [f32; 3],
+    /// Rotation autour de l'axe vertical, en radians (même convention que la caméra).
+    pub yaw: f32,
+    /// Lumière du ciel et des blocs à cet endroit, de 0 à 1.
+    pub light: [f32; 2],
 }
 
 impl CubeInstance {
-    pub fn new(position: Vec3, color: Vec3) -> Self {
+    /// Une boîte de taille `size` centrée en `center`, en plein jour.
+    pub fn new(center: Vec3, size: Vec3, color: Vec3) -> Self {
         Self {
-            position: position.to_array(),
+            center: center.to_array(),
+            size: size.to_array(),
             color: color.to_array(),
+            yaw: 0.0,
+            light: [1.0, 0.0],
         }
     }
+
+    pub fn with_yaw(mut self, yaw: f32) -> Self {
+        self.yaw = yaw;
+        self
+    }
+
+    pub fn with_light(mut self, sky: f32, block: f32) -> Self {
+        self.light = [sky, block];
+        self
+    }
+}
+
+/// L'interface egui d'une image, prête à dessiner (voir `egui::Context::tessellate`).
+pub struct UiFrame {
+    pub primitives: Vec<egui::ClippedPrimitive>,
+    /// Les textures qu'egui ajoute, modifie ou libère (police, images...).
+    pub textures: egui::TexturesDelta,
+    /// Pixels physiques par point egui (2 sur un écran Retina).
+    pub pixels_per_point: f32,
 }
 
 /// Une image dessinée hors écran par [`Renderer::capture`].
@@ -154,6 +183,9 @@ pub struct Renderer {
     camera_layout: wgpu::BindGroupLayout,
     texture_layout: wgpu::BindGroupLayout,
     texture_bind_group: wgpu::BindGroup,
+    /// Le moteur de rendu d'egui (l'interface : inventaire, inspecteur).
+    egui: egui_wgpu::Renderer,
+    egui_free: Vec<egui::TextureId>,
     meshes: HashMap<MeshId, GpuMesh>,
     next_mesh_id: u64,
     lines: Lines,
@@ -213,6 +245,10 @@ impl Renderer {
         }
         // `AutoVsync` : synchronisé sur l'écran. `AutoNoVsync` pour mesurer les FPS max.
         config.present_mode = wgpu::PresentMode::AutoVsync;
+        // egui produit des couleurs déjà « encodées » pour l'écran. Dessinées dans une vue
+        // sRGB, elles seraient encodées une seconde fois (couleurs délavées). On autorise
+        // donc une seconde vue, sans conversion sRGB, de la même image.
+        config.view_formats = vec![config.format.remove_srgb_suffix()];
         surface.configure(&device, &config);
         let format = config.format;
         let depth_view = create_depth_view(&device, &config);
@@ -259,7 +295,9 @@ impl Renderer {
             Some(wgpu::VertexBufferLayout {
                 array_stride: size_of::<CubeInstance>() as u64,
                 step_mode: wgpu::VertexStepMode::Instance,
-                attributes: &wgpu::vertex_attr_array![2 => Float32x3, 3 => Float32x3],
+                attributes: &wgpu::vertex_attr_array![
+                    2 => Float32x3, 3 => Float32x3, 4 => Float32x3, 5 => Float32, 6 => Float32x2
+                ],
             }),
         ];
         let pipeline = create_pipeline(
@@ -317,6 +355,11 @@ impl Renderer {
         });
 
         let lines = Lines::new(&device, &camera_layout, format, DEPTH_FORMAT);
+        let egui = egui_wgpu::Renderer::new(
+            &device,
+            format.remove_srgb_suffix(),
+            egui_wgpu::RendererOptions::default(),
+        );
 
         let instance_capacity = 1024;
         let instance_buffer = create_instance_buffer(&device, instance_capacity);
@@ -342,6 +385,8 @@ impl Renderer {
             camera_layout,
             texture_layout,
             texture_bind_group,
+            egui,
+            egui_free: Vec::new(),
             lines,
             outline: None,
             crosshair: false,
@@ -479,7 +524,12 @@ impl Renderer {
 
     /// Dessine une image vue par `camera` et renvoie ce qui a été dessiné,
     /// ou `None` si l'image a été sautée (fenêtre cachée, surface à reconfigurer).
-    pub fn render(&mut self, camera: &Camera) -> Result<Option<RenderStats>> {
+    pub fn render(
+        &mut self,
+        camera: &Camera,
+        mut ui: Option<UiFrame>,
+    ) -> Result<Option<RenderStats>> {
+        self.prepare_ui(&mut ui);
         // Un `enum` riche : chaque cas porte (ou non) une texture. `match` nous oblige
         // à traiter tous les cas, sinon le code ne compile pas.
         use wgpu::CurrentSurfaceTexture as Current;
@@ -508,8 +558,13 @@ impl Renderer {
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        let ui_view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(self.config.format.remove_srgb_suffix()),
+            ..Default::default()
+        });
 
-        let stats = self.draw_scene(&view, &self.depth_view, camera, self.aspect());
+        let size = [self.config.width, self.config.height];
+        let stats = self.draw_scene(&view, &ui_view, None, camera, size, ui);
         self.queue.present(frame);
         if suboptimal {
             self.surface.configure(&self.device, &self.config);
@@ -521,12 +576,20 @@ impl Renderer {
     /// `&self` suffit : wgpu ne demande qu'une référence partagée pour envoyer des données
     /// (`write_buffer`) ou des commandes (`submit`) au GPU.
     fn draw_scene(
-        &self,
+        &mut self,
         view: &wgpu::TextureView,
-        depth_view: &wgpu::TextureView,
+        ui_view: &wgpu::TextureView,
+        depth_override: Option<&wgpu::TextureView>,
         camera: &Camera,
-        aspect: f32,
+        size: [u32; 2],
+        ui: Option<UiFrame>,
     ) -> RenderStats {
+        let aspect = size[0] as f32 / size[1].max(1) as f32;
+        // `depth_override` : la profondeur d'une capture ; sinon celle de l'écran.
+        // On lit le champ directement (et pas via une méthode) : Rust voit alors que
+        // `self.depth_view` (lu) et `self.egui` (modifié plus bas) sont deux champs
+        // distincts, et accepte les deux emprunts en même temps.
+        let depth_view = depth_override.unwrap_or(&self.depth_view);
         let view_proj = camera.view_projection(aspect);
         // Sans brouillard, on le repousse très loin. Pas `f32::MAX` : `smoothstep`
         // diviserait par `end - start`, ici 0, et le shader renverrait n'importe quoi.
@@ -643,8 +706,65 @@ impl Renderer {
             self.lines
                 .draw(&mut pass, self.outline.is_some(), self.crosshair);
         }
-        self.queue.submit([encoder.finish()]);
+
+        // L'interface egui, dans sa propre passe, par-dessus tout (sans profondeur).
+        if let Some(ui) = &ui {
+            let screen = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: size,
+                pixels_per_point: ui.pixels_per_point,
+            };
+            let extra = self.egui.update_buffers(
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                &ui.primitives,
+                &screen,
+            );
+            let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("egui"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: ui_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        // `Load` : on garde l'image de la scène et on dessine par-dessus.
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+            // egui demande une passe `'static` : `forget_lifetime` la détache de
+            // l'encodeur (wgpu vérifie alors à l'exécution qu'on la termine avant lui).
+            let mut pass = pass.forget_lifetime();
+            self.egui.render(&mut pass, &ui.primitives, &screen);
+            drop(pass);
+            self.queue
+                .submit(extra.into_iter().chain([encoder.finish()]));
+        } else {
+            self.queue.submit([encoder.finish()]);
+        }
+        // Les textures qu'egui n'utilise plus : libérées après une image dessinée.
+        for id in std::mem::take(&mut self.egui_free) {
+            self.egui.free_texture(&id);
+        }
         stats
+    }
+
+    /// Envoie au GPU les textures nouvelles ou modifiées d'egui (la police, les icônes).
+    /// Fait dès le début de l'image, même si elle est ensuite sautée : sinon une texture
+    /// créée pendant une image sautée serait perdue (et egui panique si on oublie ses
+    /// modifications).
+    fn prepare_ui(&mut self, ui: &mut Option<UiFrame>) {
+        let Some(ui) = ui else { return };
+        let textures = std::mem::take(&mut ui.textures);
+        for (id, deltas) in &textures.set {
+            for delta in deltas {
+                self.egui
+                    .update_texture(&self.device, &self.queue, *id, delta);
+            }
+        }
+        self.egui_free.extend(textures.free.iter().copied());
     }
 
     /// Dessine une image hors de l'écran et renvoie ses pixels.
@@ -653,7 +773,14 @@ impl Renderer {
     /// dans une texture à nous, puis on la recopie dans un tampon que le processeur
     /// peut lire. `width` est arrondie à un multiple de 64 : wgpu exige que chaque
     /// ligne copiée fasse un multiple de 256 octets (64 pixels × 4 octets).
-    pub fn capture(&self, camera: &Camera, width: u32, height: u32) -> Result<Capture> {
+    pub fn capture(
+        &mut self,
+        camera: &Camera,
+        width: u32,
+        height: u32,
+        mut ui: Option<UiFrame>,
+    ) -> Result<Capture> {
+        self.prepare_ui(&mut ui);
         let width = width.div_ceil(64).max(1) * 64;
         let height = height.max(1);
         let size = wgpu::Extent3d {
@@ -670,11 +797,15 @@ impl Renderer {
             // Le même format que l'écran : nos pipelines sont créés pour lui.
             format: self.config.format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
+            view_formats: &[self.config.format.remove_srgb_suffix()],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let ui_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(self.config.format.remove_srgb_suffix()),
+            ..Default::default()
+        });
         let depth = create_depth_texture_view(&self.device, width, height);
-        let stats = self.draw_scene(&view, &depth, camera, width as f32 / height as f32);
+        let stats = self.draw_scene(&view, &ui_view, Some(&depth), camera, [width, height], ui);
 
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("capture readback"),

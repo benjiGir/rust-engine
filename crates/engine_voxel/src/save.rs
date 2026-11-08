@@ -74,6 +74,10 @@ pub struct WorldMeta {
     pub player: Option<PlayerSave>,
     /// Les espaces de noms chargés lors de la sauvegarde (`core`, `example`...).
     pub mods: Vec<String>,
+    /// L'inventaire : (identifiant texte, quantité) par case. `default` : un monde
+    /// sauvegardé avant l'arrivée de l'inventaire se charge quand même, avec un inventaire vide.
+    #[serde(default)]
+    pub inventory: Vec<Option<(String, u32)>>,
 }
 
 /// Un chunk sur disque : sa palette et ses blocs (indices dans la palette).
@@ -546,9 +550,19 @@ pub(crate) mod tests {
                 selected_block: Some("core:stone".into()),
             }),
             mods: vec!["core".into(), "example".into()],
+            inventory: vec![Some(("core:stone".into(), 12)), None],
         };
         store.save_meta(&meta).unwrap();
         assert_eq!(store.load_meta().unwrap(), Some(meta));
+    }
+
+    #[test]
+    fn old_world_files_without_inventory_still_load() {
+        let store = SaveStore::open(temp_dir("old-meta")).unwrap();
+        let old = "(format_version: 1, seed: 3, time_of_day: 0.5, player: None, mods: [\"core\"])";
+        std::fs::write(store.dir().join("world.ron"), old).unwrap();
+        let meta = store.load_meta().unwrap().unwrap();
+        assert!(meta.inventory.is_empty());
     }
 
     #[test]

@@ -1,0 +1,13 @@
+// Le mod d'exemple ajoute un slime : une créature hostile qui avance par bonds.
+[
+    (
+        id: "example:slime", name: "Slime", health: 8.0, speed: 2.4, size: (0.8, 0.8),
+        hostile: true, damage: 2.0, hops: true,
+        spawn_on: ["core:grass", "core:sand"],
+        parts: [
+            (offset: (0.0, 0.4, 0.0), size: (0.8, 0.8, 0.8), color: (0.35, 0.8, 0.3)),
+            (offset: (0.41, 0.52, 0.16), size: (0.04, 0.14, 0.12), color: (0.05, 0.15, 0.05)),
+            (offset: (0.41, 0.52, -0.16), size: (0.04, 0.14, 0.12), color: (0.05, 0.15, 0.05)),
+        ],
+    ),
+]

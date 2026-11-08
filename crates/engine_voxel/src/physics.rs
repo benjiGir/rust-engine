@@ -46,6 +46,10 @@ pub struct PlayerBody {
     pub on_ground: bool,
     /// Vrai si une partie du corps est dans un liquide (l'eau).
     pub in_liquid: bool,
+    /// Largeur (x et z) et hauteur de la boîte : celles du joueur par défaut. Un cochon
+    /// ou un slime utilisent la même physique avec une autre taille.
+    pub width: f32,
+    pub height: f32,
 }
 
 impl PlayerBody {
@@ -55,6 +59,17 @@ impl PlayerBody {
             velocity: Vec3::ZERO,
             on_ground: false,
             in_liquid: false,
+            width: PLAYER_WIDTH,
+            height: PLAYER_HEIGHT,
+        }
+    }
+
+    /// Une boîte d'une autre taille (une créature).
+    pub fn with_size(position: Vec3, width: f32, height: f32) -> Self {
+        Self {
+            width,
+            height,
+            ..Self::new(position)
         }
     }
 
@@ -64,9 +79,9 @@ impl PlayerBody {
 
     /// Coins minimum et maximum de la boîte.
     pub fn bounds(&self) -> (Vec3, Vec3) {
-        let half = PLAYER_WIDTH / 2.0;
+        let half = self.width / 2.0;
         let min = self.position - Vec3::new(half, 0.0, half);
-        let max = self.position + Vec3::new(half, PLAYER_HEIGHT, half);
+        let max = self.position + Vec3::new(half, self.height, half);
         (min, max)
     }
 

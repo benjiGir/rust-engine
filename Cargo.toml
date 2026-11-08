@@ -6,6 +6,9 @@ members = [
     "crates/engine_core",
     "crates/engine_render",
     "crates/engine_voxel",
+    "crates/engine_ecs",
+    "crates/engine_inspect",
+    "crates/engine_inspect_derive",
     "games/voxel",
     "tools/assetgen",
 ]
@@ -22,6 +25,9 @@ license = "MIT OR Apache-2.0"
 engine_core = { path = "crates/engine_core" }
 engine_render = { path = "crates/engine_render" }
 engine_voxel = { path = "crates/engine_voxel" }
+engine_ecs = { path = "crates/engine_ecs" }
+engine_inspect = { path = "crates/engine_inspect" }
+engine_inspect_derive = { path = "crates/engine_inspect_derive" }
 winit = "0.30.13"
 wgpu = "30.0.1"
 glam = { version = "0.34", features = ["bytemuck"] }
@@ -49,6 +55,16 @@ image = { version = "0.25.10", default-features = false, features = ["png"] }
 notify = "8"
 # Audio.
 kira = { version = "0.12.6", default-features = false, features = ["cpal", "wav", "pcm"] }
+# Interface de debug et d'inventaire (mêmes versions de wgpu et winit que le moteur).
+egui = { version = "0.37.0", features = ["default_fonts"] }
+egui-wgpu = "0.37.0"
+egui-winit = { version = "0.37.0", default-features = false }
+# Macro procédurale `#[derive(Inspect)]`.
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+# ECS de référence, pour comparer le nôtre.
+hecs = "0.11.2"
 # Benchmarks : `cargo bench -p engine_voxel`.
 criterion = "0.8.2"
 

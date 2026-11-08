@@ -30,7 +30,7 @@ pub use generator::{Biome, Column, SEA_LEVEL, TerrainGenerator, WORLD_HEIGHT_CHU
 pub use light::{ColumnLight, LightRegion, MAX_LIGHT, apply_column_light, update_light};
 pub use mesh::{ChunkMesh, MeshVertex, Mesher, Neighbourhood, mesh_culled, mesh_greedy};
 pub use physics::{PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
-pub use raycast::{RayHit, raycast};
+pub use raycast::{RayHit, ray_aabb, raycast};
 pub use registry::{BlockDef, BlockRegistry, BlockSounds, CORE_NAMESPACE};
 pub use save::{
     ChunkToSave, FORMAT_VERSION, LoadedChunk, PlayerSave, REGION_SIZE, SaveReport, SaveStore,

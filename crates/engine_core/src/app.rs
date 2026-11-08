@@ -92,6 +92,14 @@ pub trait Game: Sized {
     /// La fenêtre a changé de taille (en pixels physiques).
     fn resized(&mut self, _ctx: &mut Context, _size: PhysicalSize<u32>) {}
 
+    /// Chaque événement brut de la fenêtre, avant que le moteur ne le traite. Utile pour
+    /// une interface (egui) qui a besoin des clics, du texte, de la molette...
+    /// Renvoyer `true` signifie « consommé » : le moteur ne le compte pas comme une
+    /// entrée du jeu (un clic sur un bouton ne casse pas un bloc derrière).
+    fn window_event(&mut self, _ctx: &mut Context, _event: &WindowEvent) -> bool {
+        false
+    }
+
     /// Appelé une fois juste avant de quitter (fenêtre fermée ou `ctx.exit()`).
     /// C'est le moment de sauvegarder.
     fn exit(&mut self, _ctx: &mut Context) {}
@@ -179,6 +187,7 @@ impl<G: Game> ApplicationHandler for App<G> {
             return;
         };
         let Running { ctx, game, .. } = running;
+        let consumed = game.window_event(ctx, &event);
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
@@ -187,7 +196,7 @@ impl<G: Game> ApplicationHandler for App<G> {
                 ctx.input.clear();
                 ctx.set_cursor_captured(false);
             }
-            WindowEvent::KeyboardInput { event, .. } => {
+            WindowEvent::KeyboardInput { event, .. } if !consumed => {
                 // On ignore la répétition automatique du clavier.
                 if let PhysicalKey::Code(code) = event.physical_key
                     && !event.repeat
@@ -195,7 +204,7 @@ impl<G: Game> ApplicationHandler for App<G> {
                     ctx.input.on_key(code, event.state.is_pressed());
                 }
             }
-            WindowEvent::MouseInput { state, button, .. } => {
+            WindowEvent::MouseInput { state, button, .. } if !consumed => {
                 ctx.input.on_mouse_button(button, state.is_pressed());
             }
             WindowEvent::RedrawRequested => running.frame(&self.config.title),

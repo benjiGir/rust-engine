@@ -18,20 +18,26 @@ use glam::{IVec3, Vec3};
 
 use crate::VoxelGame;
 use crate::daytime::TimeSpeed;
-use crate::player::MoveMode;
+use crate::player::{self, MoveMode};
+
+/// Où poser les créatures de la capture.
+const MOB_SPOT: (i32, i32) = (12, -6);
 
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
 /// Images à attendre une fois le monde prêt : le temps que tout soit envoyé au GPU.
 const SETTLE_FRAMES: u32 = 10;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scene {
     Spawn,
     Sunset,
     Torches,
     Lake,
     Cave,
+    Mobs,
+    Inventory,
+    Inspector,
 }
 
 struct Shot {
@@ -40,7 +46,7 @@ struct Shot {
     scene: Scene,
 }
 
-const SHOTS: [Shot; 6] = [
+const SHOTS: [Shot; 9] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -70,6 +76,21 @@ const SHOTS: [Shot; 6] = [
         name: "6-grotte",
         time: 0.5,
         scene: Scene::Cave,
+    },
+    Shot {
+        name: "7-creatures",
+        time: 0.45,
+        scene: Scene::Mobs,
+    },
+    Shot {
+        name: "8-inventaire",
+        time: 0.45,
+        scene: Scene::Inventory,
+    },
+    Shot {
+        name: "9-inspecteur",
+        time: 0.45,
+        scene: Scene::Inspector,
     },
 ];
 
@@ -119,16 +140,18 @@ impl VoxelGame {
             return Ok(());
         };
         let stage = tour.stage;
-        let ready = self.streamer.is_idle();
+        let ready = self.streamer().is_idle();
         match stage {
             Stage::Move => {
                 self.day.time = shot.time;
                 self.day.speed = TimeSpeed::Frozen;
-                if self.player.mode != MoveMode::Fly {
-                    self.player.toggle_mode();
+                if player::mode(&self.ecs, self.player) != MoveMode::Fly {
+                    player::toggle_mode(&mut self.ecs, self.player);
                 }
                 let (eye, yaw, pitch) = self.viewpoint(shot.scene);
-                self.player.set_fly_eye(eye);
+                player::set_eye(&self.ecs, self.player, eye);
+                self.ui.inventory_open = shot.scene == Scene::Inventory;
+                self.ui.inspector_open = shot.scene == Scene::Inspector;
                 self.camera.yaw = yaw.to_radians();
                 self.camera.pitch = pitch.to_radians();
                 self.set_stage(Stage::Build);
@@ -142,7 +165,11 @@ impl VoxelGame {
                     self.set_stage(Stage::Settle(frames + 1));
                 } else {
                     let start = Instant::now();
-                    let capture = self.renderer.capture(&self.camera, WIDTH, HEIGHT)?;
+                    // L'interface aussi : la barre d'objets, l'inventaire ou l'inspecteur.
+                    let (ui, _) = self.build_ui(crate::ui::offscreen_input(WIDTH, HEIGHT));
+                    let capture = self
+                        .renderer
+                        .capture(&self.camera, WIDTH, HEIGHT, Some(ui))?;
                     let elapsed = start.elapsed();
                     let dir = self
                         .tour
@@ -176,12 +203,12 @@ impl VoxelGame {
     /// Mesure le temps d'une image complète à la résolution native d'une fenêtre
     /// 1280 × 720 sur écran Retina (2560 × 1440), lecture des pixels comprise :
     /// une borne haute du travail du GPU par image, même écran éteint.
-    fn measure_gpu(&self) -> Result<()> {
+    fn measure_gpu(&mut self) -> Result<()> {
         const FRAMES: u32 = 10;
-        self.renderer.capture(&self.camera, 2560, 1440)?; // préchauffage
+        self.renderer.capture(&self.camera, 2560, 1440, None)?; // préchauffage
         let start = Instant::now();
         for _ in 0..FRAMES {
-            self.renderer.capture(&self.camera, 2560, 1440)?;
+            self.renderer.capture(&self.camera, 2560, 1440, None)?;
         }
         log::info!(
             "rendu hors écran 2560 × 1440 : {:.2} ms par image (lecture des pixels comprise)",
@@ -197,7 +224,7 @@ impl VoxelGame {
     }
 
     fn ground(&self, x: i32, z: i32) -> i32 {
-        self.streamer.generator().column(x, z).height
+        self.streamer().generator().column(x, z).height
     }
 
     /// Position des yeux, cap et inclinaison (en degrés) pour chaque scène.
@@ -224,6 +251,16 @@ impl VoxelGame {
                 let floor = self.cave_floor();
                 (floor.as_vec3() + Vec3::new(-2.5, 1.7, -2.5), 45.0, -15.0)
             }
+            Scene::Mobs | Scene::Inspector => {
+                let (x, z) = MOB_SPOT;
+                let g = self.ground(x, z) as f32;
+                (
+                    Vec3::new(x as f32 - 7.0, g + 5.0, z as f32 - 7.0),
+                    45.0,
+                    -22.0,
+                )
+            }
+            Scene::Inventory => (Vec3::new(0.5, spawn + 20.0, 0.5), 45.0, -20.0),
         }
     }
 
@@ -239,7 +276,7 @@ impl VoxelGame {
                     let pos = IVec3::new(x, self.ground(x, z) + 1, z);
                     let block = if (dx, dz) == (0, 0) { glow } else { torch };
                     if let Some(block) = block {
-                        self.streamer.set_block(pos, block);
+                        self.streamer_mut().set_block(pos, block);
                     }
                 }
             }
@@ -254,16 +291,45 @@ impl VoxelGame {
                             let wall = x.abs() == 4 || z.abs() == 4 || y == -1 || y == 3;
                             let block = if wall { stone } else { Some(BlockId::AIR) };
                             if let Some(block) = block {
-                                self.streamer.set_block(pos, block);
+                                self.streamer_mut().set_block(pos, block);
                             }
                         }
                     }
                 }
                 if let Some(torch) = torch {
-                    self.streamer.set_block(floor + IVec3::new(1, 0, 1), torch);
+                    self.streamer_mut()
+                        .set_block(floor + IVec3::new(1, 0, 1), torch);
                 }
             }
-            Scene::Spawn | Scene::Sunset | Scene::Lake => {}
+            Scene::Mobs => {
+                // Quelques créatures posées devant la caméra (en plus de celles du hasard).
+                let registry = self
+                    .ecs
+                    .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+                    .clone();
+                let (x, z) = MOB_SPOT;
+                for (i, (dx, dz)) in [(0, 0), (2, -1), (-1, 2), (3, 2), (1, 4)]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let key = if i % 2 == 0 {
+                        "core:pig"
+                    } else {
+                        "example:slime"
+                    };
+                    let Some(kind) = registry.id(key) else {
+                        continue;
+                    };
+                    let (px, pz) = (x + dx, z + dz);
+                    let y = self.ground(px, pz) as f32 + 1.0;
+                    crate::mobs::spawn_mob(
+                        &mut self.ecs,
+                        kind,
+                        Vec3::new(px as f32 + 0.5, y, pz as f32 + 0.5),
+                    );
+                }
+            }
+            Scene::Spawn | Scene::Sunset | Scene::Lake | Scene::Inventory | Scene::Inspector => {}
         }
     }
 

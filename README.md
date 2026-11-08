@@ -26,13 +26,16 @@ Le code de départ est dans `exercises/game_of_life/src/main.rs`.
 Cargo.toml              # workspace : ajoute chaque nouvelle crate dans `members`
 exercises/              # exercices d'apprentissage (phase 0)
 crates/engine_core      # fenêtre, boucle à pas fixe, entrées
+crates/engine_ecs       # ECS « sparse set » fait main : entités, requêtes, systèmes, événements
+crates/engine_inspect   # trait Inspect (egui) + crates/engine_inspect_derive : #[derive(Inspect)]
 crates/engine_render    # rendu wgpu : chunks texturés (opaque + translucide), frustum culling, jour/nuit, captures
 crates/engine_voxel     # blocs (registre moddable), chunks 32³, terrain, lumière, maillage, chargement, sauvegarde
-games/voxel             # le mini-Minecraft (F : vol, T : temps, F1 : culling / greedy, F2 : frustum)
+games/voxel             # le mini-Minecraft v1 (E : inventaire, F3 : inspecteur, F : vol, T : temps, F1/F2 : rendu)
 assets/core/            # blocks.ron (les blocs de base), textures/ (PNG 16×16), sounds/ (WAV)
 tools/assetgen          # génère les textures et les sons : cargo run -p assetgen
 saves/                  # les mondes sauvegardés (ignoré par git)
-mods/                   # un dossier par mod : blocks.ron, textures/, sounds/ (ex. mods/example)
+assets/core/entities.ron # les créatures (taille, vie, vitesse, boîtes qui les dessinent)
+mods/                   # un dossier par mod : blocks.ron, entities.ron, textures/, sounds/ (ex. mods/example)
 games/                  # à venir : railway (city builder)
 .github/workflows/      # CI sur macOS et Windows : fmt, clippy, test
 ```
@@ -44,6 +47,7 @@ cargo run --release -p voxel                             # le jeu, optimisé
 RUST_LOG=info,engine_core=debug cargo run -p voxel       # FPS et triangles dans les logs
 VOXEL_AUTOFLY=1 cargo run --release -p voxel             # la caméra avance seule : mesure du chargement
 cargo bench -p engine_voxel                              # génération d'un chunk, culling contre greedy
+cargo bench -p engine_ecs                                # notre ECS contre hecs
 ```
 
 Variables du jeu :

@@ -1,0 +1,19 @@
+[package]
+name = "engine_inspect_derive"
+description = "La macro procédurale #[derive(Inspect)]."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# Une crate `proc-macro` est un plugin du compilateur : elle s'exécute pendant la
+# compilation, reçoit le code d'une struct et produit du nouveau code.
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { workspace = true }
+quote = { workspace = true }
+proc-macro2 = { workspace = true }
+
+[lints]
+workspace = true

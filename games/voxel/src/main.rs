@@ -1,10 +1,12 @@
 //! Le futur mini-Minecraft.
 //!
-//! Étape actuelle : un monde infini, généré en tâche de fond, où l'on marche,
-//! saute, casse et pose des blocs. Les blocs viennent de `assets/core/blocks.ron`
-//! et des mods (`mods/<nom>/blocks.ron`).
-//! - Clic gauche : capturer la souris, puis casser le bloc visé.
-//!   Clic droit : poser le bloc choisi. Touches 1 à 9 : choisir le bloc.
+//! Étape actuelle (« mini-Minecraft v1 ») : un monde infini où l'on marche, casse et
+//! pose des blocs avec un inventaire, au milieu de créatures. Le joueur et les créatures
+//! sont des entités de l'ECS (`engine_ecs`). Les blocs et les créatures viennent de
+//! `assets/core/` et des mods (`mods/<nom>/`).
+//! - Clic gauche : capturer la souris, puis casser le bloc visé ou frapper une créature.
+//!   Clic droit : poser le bloc choisi. Touches 1 à 9 : choisir la case de la barre.
+//! - E : ouvrir l'inventaire (déplacer les piles à la souris). F3 : l'inspecteur.
 //! - ZQSD (AZERTY) ou WASD (QWERTY) : se déplacer. Espace : sauter (en vol : monter).
 //!   Maj : descendre (en vol). Ctrl gauche : courir.
 //! - F : basculer entre marche et vol libre. Dans l'eau, Espace fait remonter.
@@ -34,13 +36,19 @@
 
 mod assets;
 mod audio;
+mod components;
 mod daytime;
+mod events;
 mod hot_reload;
+mod inventory;
+mod mobs;
 mod persistence;
 mod player;
 mod screenshots;
 mod stats;
+mod ui;
 
+use std::cell::{Ref, RefMut};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -49,8 +57,10 @@ use std::time::Instant;
 use anyhow::{Context as _, Result};
 use engine_core::winit::dpi::PhysicalSize;
 use engine_core::winit::event::MouseButton;
+use engine_core::winit::event::WindowEvent;
 use engine_core::winit::keyboard::KeyCode;
 use engine_core::{AppConfig, Context, Game};
+use engine_ecs::{Entity, EventReader, Events, Schedule, Stage};
 use engine_render::{Aabb, Camera, ColorVertex, Fog, MeshId, RenderStats, Renderer, Sun};
 use engine_voxel::{
     BlockId, BlockRegistry, CHUNK_SIZE, ChunkMesh, ChunkStreamer, MeshVertex, RayHit, StreamEvent,
@@ -58,8 +68,12 @@ use engine_voxel::{
 };
 use glam::{IVec3, Vec2, Vec3};
 
+use components::{Collider, Health, Transform, Velocity};
 use daytime::DayCycle;
-use player::{FLY_SPEED, FLY_SPRINT_FACTOR, MoveMode, Player, SPRINT_SPEED, WALK_SPEED};
+use events::{BlockBroken, BlockPlaced, EntityDied, PlayerDamaged};
+use inventory::Inventory;
+use mobs::MobRegistry;
+use player::{FLY_SPEED, FLY_SPRINT_FACTOR, MoveMode, SPRINT_SPEED, WALK_SPEED};
 use stats::FrameStats;
 
 const MOUSE_SENSITIVITY: f32 = 0.0025;
@@ -72,6 +86,8 @@ const UPLOAD_BUDGET: usize = 16;
 const FLY_ALTITUDE: f32 = 30.0;
 /// Portée du joueur, en blocs.
 const REACH: f32 = 6.0;
+/// Dégâts d'un coup de poing.
+const PUNCH_DAMAGE: f32 = 4.0;
 const HOTBAR_KEYS: [KeyCode; 9] = [
     KeyCode::Digit1,
     KeyCode::Digit2,
@@ -88,14 +104,22 @@ struct VoxelGame {
     renderer: Renderer,
     camera: Camera,
     mouse_captured: bool,
-    streamer: ChunkStreamer,
+    /// Le monde ECS : le joueur, les créatures, et des ressources partagées par les
+    /// systèmes (le streamer des chunks, le registre des créatures, les événements).
+    ecs: engine_ecs::World,
+    schedule: Schedule,
     registry: Arc<BlockRegistry>,
     /// Le maillage GPU de chaque chunk affiché.
     meshes: HashMap<IVec3, MeshId>,
-    player: Player,
-    /// Les blocs plaçables du registre (touches 1 à 9) et celui choisi.
-    hotbar: Vec<BlockId>,
-    selected: usize,
+    /// L'entité du joueur dans `ecs`.
+    player: Entity,
+    inventory: Inventory,
+    /// Les pixels des textures de blocs (pour les icônes de l'inventaire).
+    block_textures: Vec<Vec<u8>>,
+    ui: ui::GameUi,
+    debug: ui::DebugInfo,
+    /// Le jeu s'abonne lui-même à ses événements (pour les sons) : un lecteur par type.
+    readers: EventReaders,
     /// Le bloc visé, mis à jour à chaque image.
     target: Option<RayHit>,
     /// `Some(vitesse)` en mode vol automatique.
@@ -129,8 +153,16 @@ impl Game for VoxelGame {
         renderer.crosshair = true;
 
         let registry = Arc::new(load_registry()?);
-        let hotbar: Vec<BlockId> = registry.placeable().collect();
-        renderer.set_block_textures(&assets::load_textures(&registry));
+        let block_textures = assets::load_textures(&registry);
+        renderer.set_block_textures(&block_textures);
+        let assets = assets_dir();
+        let mob_registry = MobRegistry::load(
+            &assets,
+            assets.parent().map(|root| root.join("mods")).as_deref(),
+            &registry,
+        )
+        .context("chargement des créatures")?;
+        log::info!("{} types de créatures", mob_registry.len());
 
         // Les modes automatiques n'écrivent pas dans le monde du joueur, sauf demande explicite.
         let automatic = ["VOXEL_DEMO", "VOXEL_AUTOFLY", "VOXEL_SCREENSHOTS"]
@@ -210,20 +242,48 @@ impl Game for VoxelGame {
         );
         // Un monde sauvegardé reprend là où on l'a laissé.
         let (eye, yaw, pitch, mode) = persistence::saved_eye(meta.as_ref()).unwrap_or(default_view);
-        let player = Player::new(eye, mode);
+        // Le monde ECS : le streamer et les registres deviennent des ressources, que les
+        // systèmes (physique, IA) lisent sans que le jeu ait à les leur passer.
+        let mut ecs = engine_ecs::World::new();
+        events::register(&mut ecs);
+        ecs.insert_resource(streamer);
+        ecs.insert_resource(Arc::new(mob_registry));
+        ecs.insert_resource(mobs::FixedDt(ctx.fixed_dt));
+        ecs.insert_resource(mobs::GameRng(0x2545_F491_4F6C_DD1D ^ seed as u64));
+        ecs.insert_resource(mobs::SimClock::default());
+        let player = player::spawn(&mut ecs, eye, mode);
+        ecs.insert_resource(mobs::PlayerEntity(player));
+        let mut schedule = Schedule::new();
+        schedule
+            .add(Stage::FixedUpdate, "tick", mobs::tick)
+            .add(Stage::FixedUpdate, "créatures : apparition", mobs::spawn)
+            .add(Stage::FixedUpdate, "créatures : IA", mobs::wander)
+            .add(Stage::FixedUpdate, "physique", mobs::physics)
+            .add(Stage::FixedUpdate, "créatures : attaque", mobs::attack)
+            .add(Stage::FixedUpdate, "créatures : mort", mobs::cleanup);
+        let readers = EventReaders::new(&ecs);
+
         let camera = Camera {
-            position: player.eye(1.0),
+            position: player::eye(&ecs, player, 1.0),
             yaw,
             pitch,
             far: view_distance * 1.5,
             ..Camera::default()
         };
-        let selected = meta
+        // L'inventaire sauvegardé, ou un petit nécessaire de départ pour un nouveau monde.
+        let mut inventory = match meta.as_ref().filter(|m| !m.inventory.is_empty()) {
+            Some(meta) => Inventory::from_save(&meta.inventory, &registry),
+            None => starter_inventory(&registry),
+        };
+        if let Some(key) = meta
             .as_ref()
             .and_then(|m| m.player.as_ref()?.selected_block.as_deref())
-            .and_then(|key| registry.id(key))
-            .and_then(|id| hotbar.iter().position(|&b| b == id))
-            .unwrap_or(0);
+            && let Some(id) = registry.id(key)
+            && let Some(slot) =
+                (0..inventory::HOTBAR).find(|&i| inventory.slots[i].is_some_and(|s| s.item == id))
+        {
+            inventory.selected = slot;
+        }
         let time = meta
             .as_ref()
             .map(|m| m.time_of_day)
@@ -241,12 +301,16 @@ impl Game for VoxelGame {
             renderer,
             camera,
             mouse_captured: false,
-            streamer,
+            ecs,
+            schedule,
             registry,
             meshes: HashMap::new(),
             player,
-            hotbar,
-            selected,
+            inventory,
+            block_textures,
+            ui: ui::GameUi::new(&ctx.window),
+            debug: ui::DebugInfo::default(),
+            readers,
             target: None,
             autofly,
             demo,
@@ -266,11 +330,13 @@ impl Game for VoxelGame {
         })
     }
 
-    /// La physique du joueur, à 60 Hz exactement.
+    /// La simulation, à 60 Hz exactement : les entrées du joueur, puis les systèmes.
     fn fixed_update(&mut self, ctx: &mut Context) {
         let input = &ctx.input;
+        let busy = self.ui.inventory_open;
         let (walk, jump) = match &self.demo {
-            Some(_) => Demo::walk(&self.player, &self.camera, &self.streamer),
+            Some(_) => Demo::walk(&self.ecs, self.player, &self.camera),
+            None if busy => (Vec3::ZERO, false),
             None => {
                 let speed = if input.key_held(KeyCode::ControlLeft) {
                     SPRINT_SPEED
@@ -281,13 +347,33 @@ impl Game for VoxelGame {
                 (direction * speed, input.key_held(KeyCode::Space))
             }
         };
-        self.player
-            .fixed_update(&self.streamer, walk, jump, ctx.fixed_dt);
+        player::set_intent(&self.ecs, self.player, walk, jump);
+        self.schedule.run(Stage::FixedUpdate, &mut self.ecs);
         self.footsteps(ctx.fixed_dt);
+        self.respawn_if_dead();
+    }
+
+    fn window_event(&mut self, ctx: &mut Context, event: &WindowEvent) -> bool {
+        self.ui.on_window_event(&ctx.window, event)
     }
 
     fn update(&mut self, ctx: &mut Context, dt: f32) {
-        let click_used = self.handle_mouse_capture(ctx);
+        // E : l'inventaire. Ouvert, il libère la souris ; fermé, la pile tenue est rangée.
+        let close = self.ui.inventory_open && ctx.input.key_pressed(KeyCode::Escape);
+        if ctx.input.key_pressed(KeyCode::KeyE) || close {
+            self.ui.inventory_open = !self.ui.inventory_open;
+            if self.ui.inventory_open {
+                self.mouse_captured = false;
+                ctx.set_cursor_captured(false);
+            } else if let Some(held) = self.inventory.cursor.take() {
+                self.inventory.add(held.item, held.count);
+            }
+        }
+        let click_used = if self.ui.inventory_open {
+            true
+        } else {
+            self.handle_mouse_capture(ctx)
+        };
         if self.mouse_captured {
             self.look(ctx.input.mouse_delta());
         }
@@ -297,7 +383,7 @@ impl Game for VoxelGame {
             audio.update_ambience(self.day.daylight());
         }
 
-        if self.player.mode == MoveMode::Fly {
+        if player::mode(&self.ecs, self.player) == MoveMode::Fly {
             match self.autofly {
                 Some(speed) => self.autofly(speed, dt),
                 None => {
@@ -305,22 +391,46 @@ impl Game for VoxelGame {
                     if ctx.input.key_held(KeyCode::ControlLeft) {
                         speed *= FLY_SPRINT_FACTOR;
                     }
-                    let direction = self.wish_direction(ctx, true);
-                    self.player.fly(direction, speed, dt);
+                    let direction = if self.ui.inventory_open {
+                        Vec3::ZERO
+                    } else {
+                        self.wish_direction(ctx, true)
+                    };
+                    player::fly(&self.ecs, self.player, direction, speed, dt);
                 }
             }
         }
 
         // Le bloc visé, depuis la caméra de la dernière image.
-        self.target = raycast(
-            self.streamer.world(),
+        // Le `Ref` du streamer doit être rendu avant d'écrire dans `self.target` : on
+        // calcule d'abord dans une variable locale.
+        let target = raycast(
+            self.streamer().world(),
             self.camera.position,
             self.camera.forward(),
             REACH,
         );
+        self.target = target;
         if self.mouse_captured && !click_used {
             if ctx.input.mouse_pressed(MouseButton::Left) {
-                self.break_target();
+                // Une créature devant le bloc visé ? On la frappe plutôt que de casser.
+                let block_distance = self.target.map_or(REACH, |hit| hit.distance);
+                match mobs::hit_mob(
+                    &self.ecs,
+                    self.camera.position,
+                    self.camera.forward(),
+                    block_distance,
+                ) {
+                    Some((mob, _)) => {
+                        mobs::damage_mob(&mut self.ecs, mob, PUNCH_DAMAGE, self.camera.forward());
+                        if let Some(audio) = &mut self.audio {
+                            audio.play("core:break_soft");
+                        }
+                    }
+                    None => {
+                        self.break_target();
+                    }
+                }
             }
             if ctx.input.mouse_pressed(MouseButton::Right) {
                 self.place_at_target();
@@ -345,9 +455,15 @@ impl Game for VoxelGame {
             ctx.exit();
         }
 
+        self.schedule.run(Stage::Update, &mut self.ecs);
+        self.play_event_sounds();
+        // Fin de l'image : les événements lus tournent leurs tampons.
+        events::update(&self.ecs);
+
         // Tout le travail du monde côté thread principal : on le chronomètre.
         let start = Instant::now();
-        self.streamer.update(self.player.eye(1.0));
+        let eye = player::eye(&self.ecs, self.player, 1.0);
+        self.streamer_mut().update(eye);
         let streamed = Instant::now();
         let uploads = self.apply_stream_events();
         self.frame_stats
@@ -356,7 +472,9 @@ impl Game for VoxelGame {
 
     fn render(&mut self, ctx: &mut Context, alpha: f32) {
         // Entre deux pas de physique : la caméra est interpolée (voir `player.rs`).
-        self.camera.position = self.player.eye(alpha);
+        self.camera.position = player::eye(&self.ecs, self.player, alpha);
+        let mob_boxes = mobs::instances(&self.ecs, alpha);
+        self.renderer.set_instances(&mob_boxes);
         // L'heure décide du soleil et de la couleur du ciel, donc du brouillard.
         self.renderer.sun = Sun {
             direction: self.day.sun_direction(),
@@ -370,8 +488,13 @@ impl Game for VoxelGame {
             Aabb::new(min, min + Vec3::ONE)
         });
 
+        // L'interface de cette image.
+        let raw = self.ui.take_input(&ctx.window);
+        let (ui_frame, platform) = self.build_ui(raw);
+        self.ui.handle_output(&ctx.window, platform);
+
         let start = Instant::now();
-        let result = self.renderer.render(&self.camera);
+        let result = self.renderer.render(&self.camera, Some(ui_frame));
         self.frame_stats.record_render(start.elapsed());
         match result {
             Ok(Some(stats)) => self.last_render = stats,
@@ -423,19 +546,21 @@ impl VoxelGame {
             log::info!("temps {} ({})", self.day.speed.name(), self.day.clock());
         }
         if input.key_pressed(KeyCode::KeyF) {
-            self.player.toggle_mode();
-            log::info!("mode {}", self.player.mode.name());
+            player::toggle_mode(&mut self.ecs, self.player);
+            log::info!("mode {}", player::mode(&self.ecs, self.player).name());
         }
-        // `zip` associe chaque touche à un bloc ; s'il y a moins de 9 blocs, on s'arrête avant.
-        for (i, (key, _)) in HOTBAR_KEYS.iter().zip(&self.hotbar).enumerate() {
+        for (i, key) in HOTBAR_KEYS.iter().enumerate() {
             if input.key_pressed(*key) {
-                self.selected = i;
+                self.inventory.selected = i;
             }
         }
+        if input.key_pressed(KeyCode::F3) {
+            self.ui.inspector_open = !self.ui.inspector_open;
+        }
         if input.key_pressed(KeyCode::F1) {
-            let mesher = self.streamer.config().mesher.other();
+            let mesher = self.streamer().config().mesher.other();
             log::info!("maillage {} : on remaille tout", mesher.name());
-            self.streamer.set_mesher(mesher);
+            self.streamer_mut().set_mesher(mesher);
         }
         if input.key_pressed(KeyCode::F2) {
             self.renderer.frustum_culling = !self.renderer.frustum_culling;
@@ -466,13 +591,9 @@ impl VoxelGame {
             let mods = assets.parent().map(|root| root.join("mods"));
             match hot_reload::reload_registry(&self.registry, &assets, mods.as_deref()) {
                 hot_reload::RegistryReload::Applied(fresh) => {
-                    let selected = self.hotbar.get(self.selected).copied();
                     self.registry = Arc::new(fresh);
-                    self.hotbar = self.registry.placeable().collect();
-                    self.selected = selected
-                        .and_then(|b| self.hotbar.iter().position(|&h| h == b))
-                        .unwrap_or(0);
-                    self.streamer.replace_registry(self.registry.clone());
+                    let registry = self.registry.clone();
+                    self.streamer_mut().replace_registry(registry);
                     textures = true;
                     log::info!("blocs rechargés : lumière et maillages recalculés");
                 }
@@ -488,8 +609,9 @@ impl VoxelGame {
             audio.reload(&self.registry);
         }
         if textures {
-            self.renderer
-                .set_block_textures(&assets::load_textures(&self.registry));
+            self.block_textures = assets::load_textures(&self.registry);
+            self.renderer.set_block_textures(&self.block_textures);
+            self.ui.clear_icons();
             log::info!("{} textures rechargées", self.registry.textures().len());
         }
     }
@@ -501,68 +623,163 @@ impl VoxelGame {
             .then_some(hit.block_pos)
     }
 
-    /// Pose le bloc choisi contre la face visée. Renvoie sa position si c'est fait.
+    /// Pose le bloc de la case choisie contre la face visée. Renvoie sa position si c'est fait.
     fn place_at_target(&mut self) -> Option<IVec3> {
         let hit = self.target?;
-        let block = *self.hotbar.get(self.selected)?;
+        let block = self.inventory.selected_item()?;
+        if !self.registry.def(block).placeable {
+            return None;
+        }
         let pos = hit.block_pos + hit.normal;
         // Normale nulle : le rayon part de l'intérieur d'un bloc, pas de face où poser.
         // On peut poser dans l'air ou à la place d'un liquide (l'eau).
-        let target = self.streamer.world().block(pos);
+        let target = self.streamer().world().block(pos);
         let replaceable = target.is_air() || self.registry.def(target).liquid;
         if hit.normal == IVec3::ZERO || !replaceable {
             return None;
         }
-        if self.player.current_body().overlaps_block(pos) {
-            log::debug!("impossible de poser un bloc dans le joueur");
+        if player::body(&self.ecs, self.player).overlaps_block(pos) || self.mob_overlaps(pos) {
+            log::debug!("impossible de poser un bloc dans une entité");
             return None;
         }
-        self.edit(pos, block).then_some(pos)
+        let placed = self.edit(pos, block);
+        if placed {
+            self.inventory.consume_selected();
+        }
+        placed.then_some(pos)
+    }
+
+    /// Une créature occupe-t-elle ce bloc ?
+    fn mob_overlaps(&self, pos: IVec3) -> bool {
+        let mut overlap = false;
+        self.ecs
+            .query::<(&Transform, &Collider, &components::Mob)>()
+            .for_each(|_, (transform, collider, _)| {
+                let body = engine_voxel::PlayerBody::with_size(
+                    transform.position,
+                    collider.width,
+                    collider.height,
+                );
+                overlap |= body.overlaps_block(pos);
+            });
+        overlap
     }
 
     fn edit(&mut self, pos: IVec3, block: BlockId) -> bool {
-        let old = self.streamer.world().block(pos);
+        let old = self.streamer().world().block(pos);
         let start = Instant::now();
-        let done = self.streamer.set_block(pos, block);
+        let done = self.streamer_mut().set_block(pos, block);
         if done {
             self.frame_stats.record_edit(start.elapsed());
             // Le bloc a changé : le rayon doit être relancé à la prochaine image.
             self.target = None;
-            // Casser : le son de l'ancien bloc. Poser : celui du nouveau.
-            if let Some(audio) = &mut self.audio {
-                if block.is_air() {
-                    audio.play_block(&self.registry, old, audio::BlockSound::Break);
-                } else {
-                    audio.play_block(&self.registry, block, audio::BlockSound::Place);
+            // On annonce le changement : le son (et plus tard les mods) s'y abonnent.
+            if block.is_air() {
+                events::send(&self.ecs, BlockBroken { pos, block: old });
+                // Le bloc cassé va dans l'inventaire (s'il se pose : pas l'eau).
+                if self.registry.def(old).placeable {
+                    self.inventory.add(old, 1);
                 }
+            } else {
+                events::send(&self.ecs, BlockPlaced { pos, block });
             }
         }
         done
     }
 
-    /// Les bruits de pas (selon le bloc sous les pieds) et l'éclaboussure en entrant dans l'eau.
-    fn footsteps(&mut self, dt: f32) {
-        let body = self.player.body;
+    /// Le jeu écoute ses propres événements pour jouer les sons.
+    fn play_event_sounds(&mut self) {
         let Some(audio) = &mut self.audio else {
             return;
         };
-        if self.player.mode != MoveMode::Walk || self.player.frozen {
+        for event in self
+            .readers
+            .broken
+            .read(&self.ecs.resource::<Events<BlockBroken>>())
+        {
+            audio.play_block(&self.registry, event.block, audio::BlockSound::Break);
+        }
+        for event in self
+            .readers
+            .placed
+            .read(&self.ecs.resource::<Events<BlockPlaced>>())
+        {
+            audio.play_block(&self.registry, event.block, audio::BlockSound::Place);
+        }
+        for event in self
+            .readers
+            .died
+            .read(&self.ecs.resource::<Events<EntityDied>>())
+        {
+            log::info!("{} est mort", event.kind);
+            audio.play("core:break_soft");
+        }
+        for event in self
+            .readers
+            .damaged
+            .read(&self.ecs.resource::<Events<PlayerDamaged>>())
+        {
+            log::info!("aïe : -{} ({} restants)", event.amount, event.health_left);
+            audio.play("core:place_hard");
+        }
+    }
+
+    /// Mort : on réapparaît au point de départ, en pleine forme.
+    fn respawn_if_dead(&mut self) {
+        let health = player::health(&self.ecs, self.player);
+        if health.current > 0.0 {
             return;
         }
-        if body.in_liquid && !self.was_in_liquid && body.velocity.y < -1.0 {
+        let ground = self.streamer().generator().column(0, 0).height as f32;
+        player::set_eye(&self.ecs, self.player, Vec3::new(0.5, ground + 3.0, 0.5));
+        if let Some(mut health) = self.ecs.get_mut::<Health>(self.player) {
+            health.current = health.max;
+        }
+        log::info!("le joueur est mort : retour au point de départ");
+    }
+
+    /// Le streamer des chunks, rangé comme ressource du monde ECS.
+    fn streamer(&self) -> Ref<'_, ChunkStreamer> {
+        self.ecs.resource::<ChunkStreamer>()
+    }
+
+    fn streamer_mut(&self) -> RefMut<'_, ChunkStreamer> {
+        self.ecs.resource_mut::<ChunkStreamer>()
+    }
+
+    /// Les bruits de pas (selon le bloc sous les pieds) et l'éclaboussure en entrant dans l'eau.
+    fn footsteps(&mut self, dt: f32) {
+        if player::mode(&self.ecs, self.player) != MoveMode::Walk
+            || player::frozen(&self.ecs, self.player)
+        {
+            return;
+        }
+        let (Some(collider), Some(velocity), Some(transform)) = (
+            self.ecs.get::<Collider>(self.player).map(|c| *c),
+            self.ecs.get::<Velocity>(self.player).map(|v| v.0),
+            self.ecs.get::<Transform>(self.player).map(|t| t.position),
+        ) else {
+            return;
+        };
+        let below_block = self
+            .streamer()
+            .world()
+            .block((transform - Vec3::Y * 0.05).floor().as_ivec3());
+        let Some(audio) = &mut self.audio else {
+            return;
+        };
+        if collider.in_liquid && !self.was_in_liquid && velocity.y < -1.0 {
             audio.play(audio::SPLASH);
         }
-        self.was_in_liquid = body.in_liquid;
-        if !body.on_ground || body.in_liquid {
+        self.was_in_liquid = collider.in_liquid;
+        if !collider.on_ground || collider.in_liquid {
             return;
         }
         // Un pas tous les 1,7 bloc parcourus à l'horizontale.
-        self.step_distance += Vec2::new(body.velocity.x, body.velocity.z).length() * dt;
+        self.step_distance += Vec2::new(velocity.x, velocity.z).length() * dt;
         if self.step_distance >= 1.7 {
             self.step_distance = 0.0;
-            let below = (body.position - glam::Vec3::Y * 0.05).floor().as_ivec3();
-            let block = self.streamer.world().block(below);
-            audio.play_block(&self.registry, block, audio::BlockSound::Step);
+            audio.play_block(&self.registry, below_block, audio::BlockSound::Step);
         }
     }
 
@@ -571,7 +788,7 @@ impl VoxelGame {
     fn apply_stream_events(&mut self) -> usize {
         let mut uploads = 0;
         while uploads < UPLOAD_BUDGET {
-            let Some(event) = self.streamer.next_event() else {
+            let Some(event) = self.streamer_mut().next_event() else {
                 break;
             };
             match event {
@@ -598,31 +815,31 @@ impl VoxelGame {
     }
 
     fn show_stats(&mut self, ctx: &mut Context) {
-        let stream = self.streamer.stats();
+        let stream = self.streamer().stats();
         let render = self.last_render;
         let pending = stream.queued + stream.in_flight + stream.meshes_waiting;
         let triangles = render.triangles as f64 / 1e6;
-        let block = self
-            .hotbar
-            .get(self.selected)
-            .map_or("aucun", |&b| self.registry.def(b).name.as_str());
-        let frozen = if self.player.frozen && self.player.mode == MoveMode::Walk {
+        let frozen = if player::frozen(&self.ecs, self.player) {
             " (chargement…)"
         } else {
             ""
         };
         ctx.status = format!(
-            "{} | {}{frozen} | {block} [{}/{}] | {} chunks | {pending} en attente | {}/{} dessinés | {triangles:.2} M tri",
+            "{} | {}{frozen} | {} entités | {} chunks | {pending} en attente | {}/{} dessinés | {triangles:.2} M tri",
             self.day.clock(),
-            self.player.mode.name(),
-            self.selected + 1,
-            self.hotbar.len(),
+            player::mode(&self.ecs, self.player).name(),
+            self.ecs.len(),
             stream.loaded,
             render.meshes_drawn,
             render.meshes_total,
         );
 
         if let Some(report) = self.frame_stats.tick() {
+            self.debug = ui::DebugInfo {
+                fps: 1000.0 / report.avg_frame_ms.max(0.001),
+                frame_ms: report.avg_frame_ms,
+                max_frame_ms: report.max_frame_ms,
+            };
             log::info!(
                 "image : moy {:.2} ms, max {:.2} ms | streaming : max {:.2} ms, envois GPU : max {:.2} ms ({} au total) | \
                  rendu : max {:.2} ms | modifs : {} (max {:.2} ms) | chunks : {} chargés, {} à générer, {} en cours | \
@@ -671,15 +888,16 @@ impl VoxelGame {
 
     /// Avance tout droit en suivant le relief, pour mesurer le chargement.
     fn autofly(&mut self, speed: f32, dt: f32) {
-        let mut eye = self.player.eye(1.0) + self.camera.forward_flat() * speed * dt;
+        let mut eye =
+            player::eye(&self.ecs, self.player, 1.0) + self.camera.forward_flat() * speed * dt;
         let ground = self
-            .streamer
+            .streamer()
             .generator()
             .column(eye.x.floor() as i32, eye.z.floor() as i32)
             .height as f32;
         // On rejoint doucement l'altitude visée au lieu de sauter d'un coup.
         eye.y += (ground + FLY_ALTITUDE - eye.y) * (dt * 2.0).min(1.0);
-        self.player.set_fly_eye(eye);
+        player::set_eye(&self.ecs, self.player, eye);
     }
 
     /// Une action de démo par seconde : casser, puis poser, en alternance.
@@ -688,7 +906,7 @@ impl VoxelGame {
             return;
         };
         demo.timer += dt;
-        if demo.timer < 1.0 || self.player.frozen {
+        if demo.timer < 1.0 || player::frozen(&self.ecs, self.player) {
             return;
         }
         demo.timer = 0.0;
@@ -696,7 +914,13 @@ impl VoxelGame {
         let breaking = demo.breaking;
         // On essaie aussi les blocs des mods : à chaque pose, le suivant de la barre.
         if !breaking {
-            self.selected = (self.selected + 1) % self.hotbar.len().max(1);
+            // La case suivante qui contient quelque chose.
+            for _ in 0..inventory::HOTBAR {
+                self.inventory.selected = (self.inventory.selected + 1) % inventory::HOTBAR;
+                if self.inventory.selected_item().is_some() {
+                    break;
+                }
+            }
         }
         let before = Instant::now();
         let result = if breaking {
@@ -705,12 +929,18 @@ impl VoxelGame {
             self.place_at_target()
         };
         let elapsed = before.elapsed();
-        let body = self.player.body;
+        let body = engine_voxel::PlayerBody {
+            on_ground: self
+                .ecs
+                .get::<Collider>(self.player)
+                .is_some_and(|c| c.on_ground),
+            ..player::body(&self.ecs, self.player)
+        };
         let action = if breaking { "cassé" } else { "posé" };
         let block = self
-            .hotbar
-            .get(self.selected)
-            .map_or("?", |&b| self.registry.def(b).key.as_str());
+            .inventory
+            .selected_item()
+            .map_or("?", |b| self.registry.def(b).key.as_str());
         match result {
             Some(pos) => log::info!(
                 "démo : {action} {} en {:.2} ms ({}) | pieds {:.1?} au sol : {} | {} maillages en attente",
@@ -719,7 +949,7 @@ impl VoxelGame {
                 if breaking { "-" } else { block },
                 body.position.to_array(),
                 body.on_ground,
-                self.streamer.stats().meshes_waiting,
+                self.streamer().stats().meshes_waiting,
             ),
             None => log::info!(
                 "démo : rien à {} (cible {:?}) | pieds {:.1?}",
@@ -746,12 +976,52 @@ impl Demo {
     }
 
     /// Avance tout droit en courant ; saute quand un bloc barre le chemin.
-    fn walk(player: &Player, camera: &Camera, streamer: &ChunkStreamer) -> (Vec3, bool) {
+    fn walk(ecs: &engine_ecs::World, player: Entity, camera: &Camera) -> (Vec3, bool) {
         let forward = camera.forward_flat();
-        let ahead = player.body.position + forward * 0.8 + Vec3::Y * 0.5;
-        let blocked = streamer.world().is_solid(ahead.floor().as_ivec3());
+        let feet = player::body(ecs, player).position;
+        let ahead = feet + forward * 0.8 + Vec3::Y * 0.5;
+        let blocked = ecs
+            .resource::<ChunkStreamer>()
+            .world()
+            .is_solid(ahead.floor().as_ivec3());
         (forward * SPRINT_SPEED, blocked)
     }
+}
+
+/// Les curseurs du jeu sur ses propres événements.
+struct EventReaders {
+    broken: EventReader,
+    placed: EventReader,
+    died: EventReader,
+    damaged: EventReader,
+}
+
+impl EventReaders {
+    fn new(ecs: &engine_ecs::World) -> Self {
+        Self {
+            broken: ecs.resource::<Events<BlockBroken>>().reader(),
+            placed: ecs.resource::<Events<BlockPlaced>>().reader(),
+            died: ecs.resource::<Events<EntityDied>>().reader(),
+            damaged: ecs.resource::<Events<PlayerDamaged>>().reader(),
+        }
+    }
+}
+
+/// Un petit nécessaire pour un nouveau monde : de quoi s'éclairer et construire.
+fn starter_inventory(registry: &BlockRegistry) -> Inventory {
+    let mut inventory = Inventory::default();
+    for (key, count) in [
+        ("core:torch", 32),
+        ("core:glass", 16),
+        ("core:glowstone", 8),
+        ("core:stone", 32),
+        ("example:ruby", 4),
+    ] {
+        if let Some(id) = registry.id(key) {
+            inventory.add(id, count);
+        }
+    }
+    inventory
 }
 
 /// Lit le registre des blocs : `assets/core` puis les mods de `mods/`.

@@ -1,0 +1,20 @@
+[package]
+name = "engine_ecs"
+description = "Un ECS « sparse set » fait main : entités, composants, requêtes, ressources, systèmes, événements."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# Aucune dépendance : tout est écrit à la main, pour apprendre.
+[dependencies]
+
+[dev-dependencies]
+criterion = { workspace = true }
+hecs = { workspace = true }
+
+[[bench]]
+name = "ecs"
+harness = false
+
+[lints]
+workspace = true

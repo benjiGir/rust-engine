@@ -80,6 +80,34 @@ pub fn raycast(world: &World, origin: Vec3, dir: Vec3, max_distance: f32) -> Opt
     }
 }
 
+/// La distance à laquelle le rayon `origin + t · dir` entre dans la boîte `[min, max]`,
+/// ou `None` s'il la manque (ou si elle est derrière). Sert à viser les créatures.
+///
+/// Méthode des « tranches » (slabs) : sur chaque axe, le rayon est entre les deux plans
+/// de la boîte pendant un intervalle de `t`. Il est dans la boîte là où les trois
+/// intervalles se chevauchent.
+pub fn ray_aabb(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
+    let mut t_enter = 0.0f32;
+    let mut t_exit = f32::INFINITY;
+    for axis in 0..3 {
+        if dir[axis].abs() < 1e-8 {
+            // Parallèle à ces plans : il faut déjà être entre les deux.
+            if origin[axis] < min[axis] || origin[axis] > max[axis] {
+                return None;
+            }
+            continue;
+        }
+        let t1 = (min[axis] - origin[axis]) / dir[axis];
+        let t2 = (max[axis] - origin[axis]) / dir[axis];
+        t_enter = t_enter.max(t1.min(t2));
+        t_exit = t_exit.min(t1.max(t2));
+        if t_enter > t_exit {
+            return None;
+        }
+    }
+    Some(t_enter)
+}
+
 fn sign(x: f32) -> i32 {
     if x > 0.0 {
         1
@@ -186,6 +214,28 @@ mod tests {
         assert_eq!(
             (hit.block_pos, hit.normal),
             (IVec3::new(-4, -1, -2), IVec3::X)
+        );
+    }
+
+    #[test]
+    fn ray_hits_and_misses_boxes() {
+        let (min, max) = (Vec3::new(4.0, 0.0, -0.5), Vec3::new(5.0, 2.0, 0.5));
+        let t = ray_aabb(Vec3::new(0.0, 1.0, 0.0), Vec3::X, min, max).unwrap();
+        assert!((t - 4.0).abs() < 1e-6);
+        assert_eq!(
+            ray_aabb(Vec3::new(0.0, 1.0, 0.0), Vec3::NEG_X, min, max),
+            None,
+            "derrière"
+        );
+        assert_eq!(
+            ray_aabb(Vec3::new(0.0, 3.0, 0.0), Vec3::X, min, max),
+            None,
+            "au-dessus"
+        );
+        // Depuis l'intérieur : distance nulle.
+        assert_eq!(
+            ray_aabb(Vec3::new(4.5, 1.0, 0.0), Vec3::X, min, max),
+            Some(0.0)
         );
     }
 

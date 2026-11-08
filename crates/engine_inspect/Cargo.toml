@@ -1,0 +1,17 @@
+[package]
+name = "engine_inspect"
+description = "Le trait Inspect : afficher et modifier une valeur dans l'interface egui."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+egui = { workspace = true }
+glam = { workspace = true }
+engine_inspect_derive = { workspace = true }
+
+[dev-dependencies]
+glam = { workspace = true }
+
+[lints]
+workspace = true
