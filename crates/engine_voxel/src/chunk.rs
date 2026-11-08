@@ -60,6 +60,19 @@ impl Chunk {
         self.blocks[Self::index(x, y, z)] = block;
     }
 
+    /// Tous les blocs, dans l'ordre de [`Chunk::index`].
+    pub fn blocks(&self) -> &[BlockId] {
+        &self.blocks
+    }
+
+    /// Un chunk à partir de ses blocs (lumière par défaut). `None` si la taille est fausse.
+    pub fn from_blocks(blocks: Vec<BlockId>) -> Option<Self> {
+        (blocks.len() == VOLUME).then(|| Self {
+            blocks: blocks.into_boxed_slice(),
+            light: vec![DEFAULT_LIGHT; VOLUME].into_boxed_slice(),
+        })
+    }
+
     /// Lumière du ciel, de 0 à 15. `>> 4` garde les 4 bits de poids fort.
     #[inline]
     pub fn sky_light(&self, x: usize, y: usize, z: usize) -> u8 {

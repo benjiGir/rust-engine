@@ -58,6 +58,8 @@ use crate::chunk::Chunk;
 use crate::generator::{TerrainGenerator, WORLD_HEIGHT_CHUNKS};
 use crate::light::{ColumnLight, LightRegion, apply_column_light, update_light};
 use crate::mesh::{ChunkMesh, Mesher, Neighbourhood};
+use crate::registry::BlockRegistry;
+use crate::save::{ChunkToSave, SaveReport, SaveStore, UnknownBlocks};
 use crate::world::World;
 
 /// Les réglages du chargement.
@@ -156,6 +158,8 @@ enum JobResult {
     Generated {
         pos: IVec3,
         chunk: Option<Chunk>,
+        /// Relu depuis la sauvegarde (avec ses blocs inconnus) plutôt que généré.
+        saved: Option<UnknownBlocks>,
     },
     Lit {
         column: IVec2,
@@ -197,10 +201,19 @@ pub struct ChunkStreamer {
     events: VecDeque<StreamEvent>,
     /// Chunks chargés modifiés par le joueur depuis leur génération.
     edited: HashSet<IVec3>,
-    /// Chunks modifiés puis déchargés : on les garde en mémoire et on les rend
-    /// au lieu de les régénérer, sinon les modifications seraient perdues.
-    /// (La sauvegarde sur disque viendra plus tard.)
+    /// Chunks modifiés puis déchargés avant d'être sauvegardés : on les garde en
+    /// mémoire et on les rend au lieu de les régénérer, sinon les modifications
+    /// seraient perdues. Une fois écrits sur disque, on peut les oublier.
     saved_edits: HashMap<IVec3, Arc<Chunk>>,
+    /// La sauvegarde du monde, si elle est activée.
+    store: Option<Arc<SaveStore>>,
+    /// Chunks modifiés depuis la dernière sauvegarde.
+    dirty: HashSet<IVec3>,
+    /// Blocs de mods absents, par chunk (voir `save.rs`).
+    unknown: HashMap<IVec3, UnknownBlocks>,
+    /// La sauvegarde en cours en tâche de fond : les chunks qu'elle écrit et le canal
+    /// par lequel elle rendra son résultat.
+    saving: Option<(Vec<IVec3>, Receiver<anyhow::Result<SaveReport>>)>,
 }
 
 impl ChunkStreamer {
@@ -232,7 +245,124 @@ impl ChunkStreamer {
             events: VecDeque::new(),
             edited: HashSet::new(),
             saved_edits: HashMap::new(),
+            store: None,
+            dirty: HashSet::new(),
+            unknown: HashMap::new(),
+            saving: None,
         }
+    }
+
+    /// Active la sauvegarde : les chunks déjà sauvegardés seront relus au lieu d'être
+    /// générés, et [`ChunkStreamer::begin_save`] écrira les chunks modifiés.
+    pub fn with_save(mut self, store: Arc<SaveStore>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    /// Vrai s'il y a des modifications pas encore écrites sur disque.
+    pub fn has_unsaved_changes(&self) -> bool {
+        !self.dirty.is_empty() || self.saving.is_some()
+    }
+
+    /// Lance une sauvegarde en tâche de fond. Ne fait rien (et renvoie `false`) sans
+    /// sauvegarde activée, sans modification, ou si une sauvegarde tourne déjà.
+    ///
+    /// Le thread principal ne fait que rassembler des `Arc` des chunks modifiés : aucune
+    /// copie de blocs, aucun verrou. Le joueur peut continuer à modifier ces chunks pendant
+    /// l'écriture : `Arc::make_mut` lui donnera une copie, la sauvegarde garde la version
+    /// du moment où elle a commencé (un « instantané »).
+    pub fn begin_save(&mut self) -> bool {
+        let Some(store) = self.store.clone() else {
+            return false;
+        };
+        if self.saving.is_some() || self.dirty.is_empty() {
+            return false;
+        }
+        let chunks = self.snapshot_dirty();
+        let positions: Vec<IVec3> = chunks.iter().map(|c| c.pos).collect();
+        let registry = self.world.registry().clone();
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        // Un thread à part, pas le pool : la sauvegarde ne doit pas retarder le chargement.
+        std::thread::Builder::new()
+            .name("sauvegarde".into())
+            .spawn(move || {
+                let _ = sender.send(store.save_chunks(&chunks, &registry));
+            })
+            .expect("impossible de lancer le thread de sauvegarde");
+        self.saving = Some((positions, receiver));
+        true
+    }
+
+    /// Le résultat de la sauvegarde en tâche de fond, quand elle se termine.
+    pub fn poll_save(&mut self) -> Option<anyhow::Result<SaveReport>> {
+        let (_, receiver) = self.saving.as_ref()?;
+        let result = receiver.try_recv().ok()?;
+        Some(self.finish_save(result))
+    }
+
+    /// Sauvegarde tout, et attend la fin (à la fermeture du jeu).
+    pub fn save_blocking(&mut self) -> anyhow::Result<SaveReport> {
+        let mut total = SaveReport::default();
+        // D'abord, laisser finir une sauvegarde déjà en route.
+        if let Some((_, receiver)) = self.saving.as_ref() {
+            let result = receiver
+                .recv()
+                .unwrap_or_else(|_| Err(anyhow::anyhow!("le thread de sauvegarde s'est arrêté")));
+            total = self.finish_save(result)?;
+        }
+        let Some(store) = self.store.clone() else {
+            return Ok(total);
+        };
+        if self.dirty.is_empty() {
+            return Ok(total);
+        }
+        let chunks = self.snapshot_dirty();
+        let positions = chunks.iter().map(|c| c.pos).collect();
+        let result = store.save_chunks(&chunks, self.world.registry());
+        self.saving = Some((positions, crossbeam_channel::never()));
+        let report = self.finish_save(result)?;
+        Ok(SaveReport {
+            chunks: total.chunks + report.chunks,
+            regions: total.regions + report.regions,
+            bytes: total.bytes + report.bytes,
+        })
+    }
+
+    /// Prend des `Arc` des chunks modifiés et vide la liste des modifications.
+    fn snapshot_dirty(&mut self) -> Vec<ChunkToSave> {
+        // `drain` vide l'ensemble en rendant ses éléments.
+        self.dirty
+            .drain()
+            .map(|pos| ChunkToSave {
+                pos,
+                chunk: self
+                    .world
+                    .chunk_arc(pos)
+                    .or_else(|| self.saved_edits.get(&pos).cloned())
+                    .unwrap_or_default(),
+                unknown: self.unknown.get(&pos).cloned().unwrap_or_default(),
+            })
+            .collect()
+    }
+
+    fn finish_save(&mut self, result: anyhow::Result<SaveReport>) -> anyhow::Result<SaveReport> {
+        let Some((positions, _)) = self.saving.take() else {
+            return result;
+        };
+        match &result {
+            Ok(_) => {
+                // Sur disque maintenant : les chunks déchargés entre-temps peuvent quitter
+                // la mémoire (sauf s'ils ont été remodifiés depuis le début de la sauvegarde).
+                for pos in positions {
+                    if !self.dirty.contains(&pos) && self.saved_edits.remove(&pos).is_some() {
+                        self.unknown.remove(&pos);
+                    }
+                }
+            }
+            // Échec : on réessaiera à la prochaine sauvegarde.
+            Err(_) => self.dirty.extend(positions),
+        }
+        result
     }
 
     pub fn world(&self) -> &World {
@@ -279,6 +409,12 @@ impl ChunkStreamer {
         // version et nous modifions une copie (voir `World::chunk_mut`).
         self.world.set_block(pos, block);
         self.edited.insert(chunk);
+        self.dirty.insert(chunk);
+        // Le bloc inconnu qui était là (s'il y en avait un) est remplacé : on l'oublie.
+        if let Some(unknown) = self.unknown.get_mut(&chunk) {
+            let local = World::split(pos).1;
+            unknown.remove(&Chunk::index(local[0], local[1], local[2]));
+        }
 
         // La lumière. On sépare les champs empruntés : `columns` en lecture pendant
         // que `world` est modifié. Le compilateur l'accepte car ce sont deux champs distincts.
@@ -357,6 +493,29 @@ impl ChunkStreamer {
         } else {
             self.slots.insert(pos, Slot::Generated(MeshState::Missing));
             self.mesh_candidates.insert(pos);
+        }
+    }
+
+    /// Remplace le registre des blocs (rechargement à chaud de `blocks.ron`).
+    ///
+    /// Le nouveau registre doit avoir les mêmes blocs dans le même ordre : seules leurs
+    /// propriétés changent (couleur, texture, lumière...). La lumière et les maillages
+    /// dépendent de ces propriétés : on recalcule toute la lumière, ce qui remaillera tout.
+    /// Les anciens maillages restent affichés jusque-là.
+    pub fn replace_registry(&mut self, registry: Arc<BlockRegistry>) {
+        self.world.set_registry(registry);
+        for (&column, info) in &mut self.columns {
+            if info.light != LightState::Missing {
+                // Une tâche d'éclairage en route sera jetée à l'arrivée (état changé).
+                info.light = LightState::Missing;
+                self.light_candidates.insert(column);
+            }
+        }
+        for (&pos, slot) in &mut self.slots {
+            if let Slot::Generated(state @ (MeshState::Meshing(_) | MeshState::Done)) = slot {
+                *state = MeshState::Missing;
+                self.mesh_candidates.insert(pos);
+            }
         }
     }
 
@@ -458,8 +617,13 @@ impl ChunkStreamer {
             // retire le maillage, et les `wgpu::Buffer` sont libérés par leur `Drop`.
             let chunk = self.world.remove(pos);
             if self.edited.remove(&pos) {
-                // Un chunk modifié devenu tout vide n'est plus dans le monde : on garde un chunk d'air.
-                self.saved_edits.insert(pos, chunk.unwrap_or_default());
+                if self.store.is_none() || self.dirty.contains(&pos) || self.is_being_saved(pos) {
+                    // Pas encore sur disque : on le garde en mémoire.
+                    self.saved_edits.insert(pos, chunk.unwrap_or_default());
+                } else {
+                    // Déjà sauvegardé : il sera relu depuis le disque.
+                    self.unknown.remove(&pos);
+                }
             }
             self.mesh_candidates.remove(&pos);
             self.events
@@ -511,13 +675,21 @@ impl ChunkStreamer {
         while let Ok(result) = self.receiver.try_recv() {
             self.in_flight -= 1;
             match result {
-                JobResult::Generated { pos, chunk } => {
+                JobResult::Generated { pos, chunk, saved } => {
                     // Le chunk a pu être déchargé pendant sa génération : on jette le résultat.
                     if self.slots.get(&pos) != Some(&Slot::Generating) {
                         continue;
                     }
                     if let Some(chunk) = chunk {
                         self.world.insert(pos, Arc::new(chunk));
+                    }
+                    if let Some(unknown) = saved {
+                        // Un chunk relu de la sauvegarde diffère de la génération : il doit
+                        // être gardé comme un chunk modifié.
+                        self.edited.insert(pos);
+                        if !unknown.is_empty() {
+                            self.unknown.insert(pos, unknown);
+                        }
                     }
                     self.mark_generated(pos);
                 }
@@ -663,16 +835,35 @@ impl ChunkStreamer {
         self.next_ticket
     }
 
+    fn is_being_saved(&self, pos: IVec3) -> bool {
+        self.saving
+            .as_ref()
+            .is_some_and(|(positions, _)| positions.contains(&pos))
+    }
+
     fn spawn_generation(&mut self, pos: IVec3) {
         // On clone l'`Arc` (un compteur +1) et le `Sender` : la closure `move`
         // en prend possession et les emporte sur le thread de fond.
         let generator = Arc::clone(&self.generator);
+        let store = self.store.clone();
+        let registry = self.world.registry().clone();
         let sender = self.sender.clone();
         self.in_flight += 1;
         self.pool.spawn(move || {
-            let chunk = generator.generate(pos);
+            // D'abord la sauvegarde : un chunk modifié par le joueur y est peut-être.
+            let loaded = store.and_then(|store| match store.load_chunk(pos, &registry) {
+                Ok(loaded) => loaded,
+                Err(err) => {
+                    log::error!("{err:#} : on le régénère");
+                    None
+                }
+            });
+            let (chunk, saved) = match loaded {
+                Some(loaded) => (Some(loaded.chunk), Some(loaded.unknown)),
+                None => (generator.generate(pos), None),
+            };
             // Si le jeu s'est fermé entre-temps, le `Receiver` n'existe plus : on ignore.
-            let _ = sender.send(JobResult::Generated { pos, chunk });
+            let _ = sender.send(JobResult::Generated { pos, chunk, saved });
         });
     }
 
@@ -744,7 +935,6 @@ mod tests {
 
     use super::*;
     use crate::mesh::mesh_greedy;
-    use crate::registry::BlockRegistry;
     use crate::registry::test_blocks::{snow, stone};
 
     const RADIUS: i32 = 2;
@@ -939,7 +1129,8 @@ mod tests {
         let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let registry = BlockRegistry::load(&repo.join("assets"), Some(&repo.join("mods"))).unwrap();
         let ruby = registry.id("example:ruby").unwrap();
-        let ruby_color = registry.def(ruby).color;
+        let ruby_texture = registry.def(ruby).face_textures[0];
+        assert_ne!(ruby_texture, 0);
         let generator = TerrainGenerator::with_registry(7, Arc::new(registry)).unwrap();
         let config = StreamingConfig {
             view_radius: RADIUS,
@@ -948,14 +1139,15 @@ mod tests {
         let mut s = ChunkStreamer::new(generator, config);
         pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
 
-        // Un rubis seul dans le ciel : 6 faces, toutes de sa couleur.
+        // Un rubis seul dans le ciel : 6 faces.
         let pos = IVec3::new(8, 120, 8);
         assert!(s.set_block(pos, ruby));
         let Some(StreamEvent::Mesh(_, mesh)) = s.next_event() else {
             panic!("pas de maillage");
         };
         assert_eq!(mesh.quad_count(), 6);
-        assert!(mesh.vertices.iter().all(|v| v.color[..3] == ruby_color));
+        // Le rubis a une texture : ses faces portent sa couche.
+        assert!(mesh.vertices.iter().all(|v| v.texture == ruby_texture));
     }
 
     #[test]
@@ -976,6 +1168,102 @@ mod tests {
         for (pos, mesh) in meshed(&events) {
             assert_eq!(mesh, &mesh_greedy(s.world(), pos), "chunk {pos}");
         }
+    }
+
+    fn saving_streamer(dir: &std::path::Path) -> ChunkStreamer {
+        let store = Arc::new(crate::save::SaveStore::open(dir).unwrap());
+        streamer().with_save(store)
+    }
+
+    /// Le test d'intégration de la sauvegarde : on modifie, on sauvegarde, on « relance
+    /// le jeu » avec un streamer neuf sur le même dossier, et le monde doit être identique.
+    #[test]
+    fn reloaded_world_has_the_same_blocks() {
+        let dir = crate::save::tests::temp_dir("streamer");
+        let player = Vec3::new(5.0, 40.0, 5.0);
+        let mut first = saving_streamer(&dir);
+        pump(&mut first, player);
+        let edits = [
+            (IVec3::new(3, 20, 3), BlockId::AIR),
+            (IVec3::new(8, 120, 8), snow()), // dans un chunk de ciel, vide à la génération
+            (IVec3::new(31, 40, 5), stone()), // en bordure de chunk
+            (IVec3::new(-20, 39, -7), stone()),
+        ];
+        for (pos, block) in edits {
+            assert!(first.set_block(pos, block));
+        }
+        assert!(first.has_unsaved_changes());
+        let report = first.save_blocking().unwrap();
+        assert_eq!(report.chunks, 4);
+        assert!(!first.has_unsaved_changes());
+
+        let mut second = saving_streamer(&dir);
+        pump(&mut second, player);
+        for (pos, block) in edits {
+            assert_eq!(second.world().block(pos), block, "en {pos}");
+        }
+        // Tous les chunks chargés sont identiques, bloc pour bloc.
+        for pos in first.world().chunk_positions() {
+            let a = first.world().chunk(pos).map(|c| c.blocks().to_vec());
+            let b = second.world().chunk(pos).map(|c| c.blocks().to_vec());
+            assert_eq!(a, b, "chunk {pos}");
+        }
+    }
+
+    #[test]
+    fn background_save_finishes_and_frees_unloaded_chunks() {
+        let dir = crate::save::tests::temp_dir("background");
+        let mut s = saving_streamer(&dir);
+        pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        assert!(!s.begin_save(), "rien à sauvegarder");
+        assert!(s.set_block(IVec3::new(3, 20, 3), BlockId::AIR));
+        // On part loin : le chunk modifié est gardé en mémoire, pas encore sauvegardé.
+        pump(&mut s, Vec3::new(20.0 * 32.0, 40.0, 5.0));
+        assert!(s.saved_edits.contains_key(&IVec3::new(0, 0, 0)));
+
+        assert!(s.begin_save());
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        let report = loop {
+            if let Some(result) = s.poll_save() {
+                break result.unwrap();
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(report.chunks, 1);
+        // Écrit sur disque : plus besoin de le garder en mémoire...
+        assert!(s.saved_edits.is_empty());
+        // ... et en revenant, il est relu depuis le disque.
+        pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        assert!(s.world().block(IVec3::new(3, 20, 3)).is_air());
+    }
+
+    #[test]
+    fn replacing_the_registry_relights_and_remeshes() {
+        let mut s = streamer();
+        let first = pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        // Même blocs, propriétés changées : la pierre devient une source de lumière.
+        let text = include_str!("../../../assets/core/blocks.ron").replace(
+            r#"id: "core:stone", name: "Pierre", color: (0.5, 0.5, 0.52), texture: "stone","#,
+            r#"id: "core:stone", name: "Pierre", color: (0.5, 0.5, 0.52), texture: "stone", light_emission: 5,"#,
+        );
+        let mut registry = BlockRegistry::empty();
+        registry.add_source("core", &text, "test").unwrap();
+        assert_eq!(registry.light_emission(stone()), 5);
+        s.replace_registry(Arc::new(registry));
+        let second = pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        assert_eq!(
+            meshed(&first).len(),
+            meshed(&second).len(),
+            "tout est remaillé"
+        );
+        // Une pierre à l'air libre éclaire maintenant ses voisins.
+        let lit = s.world().chunk_positions().any(|c| {
+            s.world()
+                .chunk(c)
+                .is_some_and(|ch| ch.light_data().iter().any(|l| l & 0x0F > 0))
+        });
+        assert!(lit);
     }
 
     #[test]

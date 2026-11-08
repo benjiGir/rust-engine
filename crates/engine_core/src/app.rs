@@ -91,6 +91,10 @@ pub trait Game: Sized {
 
     /// La fenêtre a changé de taille (en pixels physiques).
     fn resized(&mut self, _ctx: &mut Context, _size: PhysicalSize<u32>) {}
+
+    /// Appelé une fois juste avant de quitter (fenêtre fermée ou `ctx.exit()`).
+    /// C'est le moment de sauvegarder.
+    fn exit(&mut self, _ctx: &mut Context) {}
 }
 
 /// Lance le jeu `G` et ne rend la main qu'à la fermeture de la fenêtre.
@@ -208,6 +212,13 @@ impl<G: Game> ApplicationHandler for App<G> {
         if let (Some(running), DeviceEvent::MouseMotion { delta }) = (self.running.as_mut(), event)
         {
             running.ctx.input.on_mouse_motion(delta.0, delta.1);
+        }
+    }
+
+    /// winit nous prévient que la boucle se termine : dernier appel au jeu.
+    fn exiting(&mut self, _: &ActiveEventLoop) {
+        if let Some(running) = self.running.as_mut() {
+            running.game.exit(&mut running.ctx);
         }
     }
 

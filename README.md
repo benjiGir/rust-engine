@@ -26,11 +26,13 @@ Le code de départ est dans `exercises/game_of_life/src/main.rs`.
 Cargo.toml              # workspace : ajoute chaque nouvelle crate dans `members`
 exercises/              # exercices d'apprentissage (phase 0)
 crates/engine_core      # fenêtre, boucle à pas fixe, entrées
-crates/engine_render    # rendu wgpu : chunks (opaque + translucide), frustum culling, jour/nuit, captures
-crates/engine_voxel     # blocs (registre moddable), chunks 32³, terrain, lumière, maillage, chargement en tâche de fond
+crates/engine_render    # rendu wgpu : chunks texturés (opaque + translucide), frustum culling, jour/nuit, captures
+crates/engine_voxel     # blocs (registre moddable), chunks 32³, terrain, lumière, maillage, chargement, sauvegarde
 games/voxel             # le mini-Minecraft (F : vol, T : temps, F1 : culling / greedy, F2 : frustum)
-assets/core/blocks.ron  # les blocs de base
-mods/                   # un dossier par mod (ex. mods/example/blocks.ron)
+assets/core/            # blocks.ron (les blocs de base), textures/ (PNG 16×16), sounds/ (WAV)
+tools/assetgen          # génère les textures et les sons : cargo run -p assetgen
+saves/                  # les mondes sauvegardés (ignoré par git)
+mods/                   # un dossier par mod : blocks.ron, textures/, sounds/ (ex. mods/example)
 games/                  # à venir : railway (city builder)
 .github/workflows/      # CI sur macOS et Windows : fmt, clippy, test
 ```
@@ -49,7 +51,12 @@ Variables du jeu :
 - `VOXEL_TIME` (heure de départ : 0 minuit, 0.5 midi, 0.75 coucher), `VOXEL_DAY_LENGTH` (secondes, 600) ;
 - `VOXEL_AUTOFLY` (`1` = vitesse du sprint, ou une vitesse en blocs par seconde) ;
 - `VOXEL_DEMO=1` (le joueur marche, casse et pose seul) ;
-- `VOXEL_SCREENSHOTS=dossier` (enregistre 6 captures PNG puis quitte, même écran éteint).
+- `VOXEL_SCREENSHOTS=dossier` (enregistre 6 captures PNG puis quitte, même écran éteint) ;
+- `VOXEL_WORLD=nom` (le monde à ouvrir dans `saves/`, « world » par défaut ; sauvegarde toutes les 30 s et à la fermeture) ;
+- `VOXEL_MUTE=1`, `VOXEL_VOLUME_EFFECTS`, `VOXEL_VOLUME_AMBIENCE` (volumes de 0 à 1) ;
+- `VOXEL_QUIT_AFTER=secondes` (quitter proprement, avec sauvegarde).
+
+En jeu, modifier un shader, une texture, un son ou un `blocks.ron` le recharge aussitôt (F5 pour forcer).
 
 ## Avant chaque commit
 

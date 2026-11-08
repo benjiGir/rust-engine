@@ -13,28 +13,57 @@
 // - alpha (1.0) : opacité du rendu, en dessous de 1 le bloc est translucide ;
 // - liquid (false) : on peut y nager et poser un bloc à sa place ;
 // - light_emission (0) : lumière émise, de 0 à 15 ;
-// - light_opacity (15 si opaque, 0 si transparent) : lumière absorbée, de 0 à 15.
+// - light_opacity (15 si opaque, 0 si transparent) : lumière absorbée, de 0 à 15 ;
+// - texture : une texture pour toutes les faces (`textures/<nom>.png` du même dossier),
+//   ou textures : (top, side, bottom) pour le dessus, les côtés et le dessous ;
+// - sounds : (step, break, place), des sons de `sounds/<nom>.wav`.
+// Un nom sans espace de noms désigne un fichier de ce dossier ; `autre:nom` celui d'un autre.
 //
 // L'ordre compte : il fixe les identifiants numériques (1, 2, 3...) de cette partie.
 [
-    (id: "core:grass", name: "Herbe", color: (0.36, 0.62, 0.25)),
-    (id: "core:dirt", name: "Terre", color: (0.45, 0.32, 0.2)),
-    (id: "core:stone", name: "Pierre", color: (0.5, 0.5, 0.52)),
-    (id: "core:sand", name: "Sable", color: (0.86, 0.78, 0.52)),
-    (id: "core:snow", name: "Neige", color: (0.95, 0.96, 1.0)),
+    (
+        id: "core:grass", name: "Herbe", color: (0.36, 0.62, 0.25),
+        textures: (top: "grass_top", side: "grass_side", bottom: "dirt"),
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:dirt", name: "Terre", color: (0.45, 0.32, 0.2), texture: "dirt",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:stone", name: "Pierre", color: (0.5, 0.5, 0.52), texture: "stone",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    (
+        id: "core:sand", name: "Sable", color: (0.86, 0.78, 0.52), texture: "sand",
+        sounds: (step: "step_sand", break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:snow", name: "Neige", color: (0.95, 0.96, 1.0), texture: "snow",
+        sounds: (step: "step_snow", break: "break_soft", place: "place_soft"),
+    ),
     (
         id: "core:water", name: "Eau", color: (0.15, 0.35, 0.75),
         solid: false, transparent: true, selectable: false, placeable: false, alpha: 0.6,
-        liquid: true, light_opacity: 2,
+        liquid: true, light_opacity: 2, texture: "water",
     ),
     (
         id: "core:glass", name: "Verre", color: (0.75, 0.88, 0.95),
-        transparent: true, alpha: 0.3,
+        transparent: true, alpha: 0.45, texture: "glass",
+        sounds: (step: "step_hard", break: "break_glass", place: "place_hard"),
     ),
     // Une torche simplifiée : un cube lumineux qu'on traverse.
     (
         id: "core:torch", name: "Torche", color: (1.0, 0.75, 0.3),
-        solid: false, light_emission: 14, light_opacity: 0,
+        solid: false, light_emission: 14, light_opacity: 0, texture: "torch",
+        sounds: (break: "break_soft", place: "place_soft"),
     ),
-    (id: "core:glowstone", name: "Pierre lumineuse", color: (0.98, 0.85, 0.5), light_emission: 15),
+    // Remplace, au chargement d'une sauvegarde, un bloc dont le mod n'est plus installé.
+    // Son vrai identifiant est gardé à côté et réécrit à la sauvegarde suivante.
+    (id: "core:unknown", name: "Bloc inconnu", color: (1.0, 0.0, 1.0), placeable: false),
+    (
+        id: "core:glowstone", name: "Pierre lumineuse", color: (0.98, 0.85, 0.5),
+        light_emission: 15, texture: "glowstone",
+        sounds: (step: "step_hard", break: "break_glass", place: "place_hard"),
+    ),
 ]

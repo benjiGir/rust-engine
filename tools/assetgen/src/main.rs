@@ -1,0 +1,74 @@
+//! `cargo run -p assetgen` : génère les textures et les sons de base du jeu.
+//!
+//! Le jeu n'a pas encore d'artiste : ce petit outil dessine des textures pixel-art
+//! 16 × 16 et synthétise des sons courts. Tout est déterministe (même résultat à
+//! chaque lancement) grâce à un générateur pseudo-aléatoire maison à partir d'une graine.
+//! Les fichiers produits sont versionnés dans le dépôt ; on ne relance l'outil que
+//! pour les modifier.
+
+mod sounds;
+mod textures;
+
+use std::path::{Path, PathBuf};
+
+use anyhow::Result;
+
+fn main() -> Result<()> {
+    // La racine du dépôt, connue à la compilation (`tools/assetgen/../..`).
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let written = textures::generate(&root)?
+        .into_iter()
+        .chain(sounds::generate(&root)?)
+        .collect::<Vec<PathBuf>>();
+    for path in &written {
+        println!(
+            "écrit : {}",
+            path.strip_prefix(&root).unwrap_or(path).display()
+        );
+    }
+    println!("{} fichiers générés", written.len());
+    Ok(())
+}
+
+/// Un générateur pseudo-aléatoire minuscule (xorshift) : rapide et reproductible.
+/// Pas besoin de la crate `rand` pour du bruit décoratif.
+pub struct Rng(u64);
+
+impl Rng {
+    pub fn new(seed: u64) -> Self {
+        // Une graine nulle bloquerait xorshift sur 0 pour toujours.
+        Self(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1)
+    }
+
+    pub fn next_u64(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    /// Un nombre entre 0 et 1.
+    pub fn next_f32(&mut self) -> f32 {
+        (self.next_u64() >> 40) as f32 / (1u64 << 24) as f32
+    }
+
+    /// Un nombre entre -1 et 1.
+    pub fn signed(&mut self) -> f32 {
+        self.next_f32() * 2.0 - 1.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rng_is_deterministic_and_in_range() {
+        let (mut a, mut b) = (Rng::new(5), Rng::new(5));
+        for _ in 0..1000 {
+            let x = a.next_f32();
+            assert_eq!(x, b.next_f32());
+            assert!((0.0..1.0).contains(&x));
+        }
+    }
+}

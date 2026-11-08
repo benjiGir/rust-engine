@@ -50,6 +50,10 @@ pub struct MeshVertex {
     pub color: [f32; 4],
     /// Lumière du ciel, lumière des blocs et occlusion ambiante, chacune de 0 à 1.
     pub light: [f32; 3],
+    /// Couche de la texture (0 = pas de texture). Les coordonnées de texture, elles,
+    /// sont calculées dans le shader à partir de la position : la texture se répète
+    /// toute seule sur un quad fusionné par le greedy.
+    pub texture: u32,
 }
 
 /// Le maillage d'un chunk : 4 sommets et 6 indices (2 triangles) par quad.
@@ -121,6 +125,7 @@ impl ChunkMesh {
                     corner.block as f32 / LIGHT_SCALE,
                     corner.ao as f32 / 3.0,
                 ],
+                texture: look.texture,
             });
         }
         // Un quad se coupe en deux triangles par une diagonale. Si l'éclairage varie
@@ -201,6 +206,7 @@ impl CornerLight {
 struct FaceLook {
     block: BlockId,
     color: [f32; 4],
+    texture: u32,
     translucent: bool,
     corners: [CornerLight; 4],
 }
@@ -340,9 +346,19 @@ impl Neighbourhood {
                 ao,
             }
         });
+        // Dessus, côtés ou dessous.
+        let texture = match (face.axis, face.positive) {
+            (1, true) => def.face_textures[0],
+            (1, false) => def.face_textures[2],
+            _ => def.face_textures[1],
+        };
+        // Une face texturée prend les couleurs de sa texture : la couleur du registre ne
+        // sert plus que de repli pour les blocs sans texture.
+        let rgb = if texture == 0 { def.color } else { [1.0; 3] };
         FaceLook {
             block,
-            color: [def.color[0], def.color[1], def.color[2], def.alpha],
+            texture,
+            color: [rgb[0], rgb[1], rgb[2], def.alpha],
             translucent: self.registry.is_translucent(block),
             corners,
         }

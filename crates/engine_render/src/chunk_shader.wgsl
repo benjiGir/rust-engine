@@ -16,12 +16,19 @@ struct Camera {
 @group(0) @binding(0)
 var<uniform> camera: Camera;
 
+// Les textures des blocs : un tableau de couches 16 × 16 (la couche 0 est blanche).
+@group(1) @binding(0)
+var block_textures: texture_2d_array<f32>;
+@group(1) @binding(1)
+var block_sampler: sampler;
+
 struct VertexIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) color: vec4<f32>,
     // x : lumière du ciel, y : lumière des blocs, z : occlusion ambiante (1 = dégagé).
     @location(3) light: vec3<f32>,
+    @location(4) texture: u32,
 };
 
 struct VertexOut {
@@ -30,6 +37,8 @@ struct VertexOut {
     @location(1) normal: vec3<f32>,
     @location(2) world_position: vec3<f32>,
     @location(3) light: vec3<f32>,
+    // `flat` : un entier ne s'interpole pas, on garde la valeur du premier sommet.
+    @location(4) @interpolate(flat) texture: u32,
 };
 
 @vertex
@@ -41,6 +50,7 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
     out.world_position = vertex.position;
     // Interpolée entre les sommets : c'est ce qui rend la lumière « douce ».
     out.light = vertex.light;
+    out.texture = vertex.texture;
     return out;
 }
 
@@ -50,8 +60,24 @@ fn brightness(level: f32) -> f32 {
     return pow(0.8, (1.0 - level) * 15.0);
 }
 
+// Coordonnées de texture tirées de la position dans le monde, selon l'orientation de la
+// face : un bloc = une texture entière, et un grand quad fusionné la répète toute seule.
+// Sur les côtés, v suit -y : le haut de l'image est en haut du bloc.
+fn face_uv(position: vec3<f32>, normal: vec3<f32>) -> vec2<f32> {
+    let n = abs(normal);
+    if n.y > 0.5 {
+        return position.xz;
+    }
+    if n.x > 0.5 {
+        return vec2<f32>(position.z, -position.y);
+    }
+    return vec2<f32>(position.x, -position.y);
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    let texel = textureSample(block_textures, block_sampler, face_uv(in.world_position, in.normal), in.texture);
+    let albedo = in.color * texel;
     let daylight = camera.sun.w;
     let sun_direction = normalize(camera.sun.xyz);
 
@@ -68,11 +94,11 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     var light = max(sky, torch) + ambient;
     // Occlusion ambiante : un coin enfermé descend à 45 % de la lumière.
     light *= 0.45 + 0.55 * in.light.z;
-    let lit = in.color.rgb * light;
+    let lit = albedo.rgb * light;
 
     // Brouillard : distance horizontale, le brouillard forme un cylindre comme le
     // rayon de chargement. `smoothstep` : 0 avant le début, 1 après la fin.
     let offset = in.world_position.xz - camera.position_fog_start.xz;
     let fog = smoothstep(camera.position_fog_start.w, camera.fog_color_end.w, length(offset));
-    return vec4<f32>(mix(lit, camera.fog_color_end.rgb, fog), in.color.a);
+    return vec4<f32>(mix(lit, camera.fog_color_end.rgb, fog), albedo.a);
 }

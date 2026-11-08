@@ -10,6 +10,8 @@
 //! - F : basculer entre marche et vol libre. Dans l'eau, Espace fait remonter.
 //! - T : temps normal, accéléré (×40) ou figé.
 //! - F1 : maillage « culling » ou « greedy ». F2 : frustum culling.
+//! - F5 : recharger shaders, textures, sons et blocs (c'est aussi automatique quand
+//!   un fichier change dans `assets/`, `mods/` ou le dossier des shaders).
 //! - Échap : libérer la souris (deuxième Échap : quitter).
 //!
 //! Variables d'environnement :
@@ -20,12 +22,21 @@
 //!   `VOXEL_AUTOFLY=100` : à 100 blocs par seconde.
 //! - `VOXEL_TIME=0.75` : l'heure de départ (0 minuit, 0,25 lever, 0,5 midi, 0,75 coucher).
 //! - `VOXEL_DAY_LENGTH=120` : la durée d'une journée en secondes (600 par défaut).
+//! - `VOXEL_WORLD=nom` : le monde à ouvrir dans `saves/` (« world » par défaut). Il est
+//!   sauvegardé toutes les 30 secondes et à la fermeture.
+//! - `VOXEL_MUTE=1` : couper le son. `VOXEL_VOLUME_EFFECTS=0.8`, `VOXEL_VOLUME_AMBIENCE=0.35` :
+//!   volumes des effets et de l'ambiance, de 0 à 1.
+//! - `VOXEL_QUIT_AFTER=20` : quitter proprement après 20 secondes (pour les tests).
 //! - `VOXEL_SCREENSHOTS=dossier` : enregistre des captures (midi, coucher, nuit, torches,
 //!   lac, grotte) dans ce dossier, puis quitte. Marche même écran éteint.
 //! - `VOXEL_DEMO=1` : le joueur marche, saute, casse et pose des blocs tout seul
 //!   (macOS empêche les outils de test d'envoyer des touches).
 
+mod assets;
+mod audio;
 mod daytime;
+mod hot_reload;
+mod persistence;
 mod player;
 mod screenshots;
 mod stats;
@@ -93,6 +104,20 @@ struct VoxelGame {
     /// `Some` en mode `VOXEL_SCREENSHOTS` : la visite guidée en cours.
     tour: Option<screenshots::Tour>,
     day: DayCycle,
+    /// La sauvegarde (absente en mode démo, vol automatique ou captures, sauf si
+    /// `VOXEL_WORLD` est donné : ces modes modifient le monde).
+    store: Option<Arc<engine_voxel::SaveStore>>,
+    last_autosave: Instant,
+    save_started: Instant,
+    /// `VOXEL_QUIT_AFTER=secondes` : quitter proprement (avec sauvegarde) après ce délai.
+    quit_at: Option<Instant>,
+    /// La surveillance des fichiers (shaders, textures, sons, blocs).
+    hot_reload: Option<hot_reload::HotReload>,
+    /// `None` si le son est coupé ou sans carte son.
+    audio: Option<audio::Audio>,
+    /// Distance marchée depuis le dernier bruit de pas.
+    step_distance: f32,
+    was_in_liquid: bool,
     frame_stats: FrameStats,
     last_render: RenderStats,
 }
@@ -105,8 +130,29 @@ impl Game for VoxelGame {
 
         let registry = Arc::new(load_registry()?);
         let hotbar: Vec<BlockId> = registry.placeable().collect();
+        renderer.set_block_textures(&assets::load_textures(&registry));
 
-        let seed = env_parse("VOXEL_SEED").unwrap_or(DEFAULT_SEED);
+        // Les modes automatiques n'écrivent pas dans le monde du joueur, sauf demande explicite.
+        let automatic = ["VOXEL_DEMO", "VOXEL_AUTOFLY", "VOXEL_SCREENSHOTS"]
+            .iter()
+            .any(|v| std::env::var(v).is_ok());
+        let (store, meta) = if automatic && std::env::var("VOXEL_WORLD").is_err() {
+            log::info!("mode automatique : pas de sauvegarde");
+            (None, None)
+        } else {
+            let (store, meta) = persistence::open_world(persistence::world_dir(&assets_dir()))?;
+            (Some(store), meta)
+        };
+        if let Some(meta) = &meta {
+            persistence::check_mods(meta, &registry);
+        }
+
+        // Un monde existant garde sa graine.
+        let seed = meta
+            .as_ref()
+            .map(|m| m.seed)
+            .or_else(|| env_parse("VOXEL_SEED"))
+            .unwrap_or(DEFAULT_SEED);
         let config = StreamingConfig {
             view_radius: env_parse("VOXEL_RADIUS").unwrap_or(16),
             ..StreamingConfig::default()
@@ -123,7 +169,10 @@ impl Game for VoxelGame {
             config.worker_threads
         );
         let generator = TerrainGenerator::with_registry(seed, registry.clone())?;
-        let streamer = ChunkStreamer::new(generator, config);
+        let mut streamer = ChunkStreamer::new(generator, config);
+        if let Some(store) = &store {
+            streamer = streamer.with_save(store.clone());
+        }
 
         // `std::env::var` renvoie `Err` si la variable n'existe pas : `.ok()` en fait un `Option`.
         let autofly = std::env::var("VOXEL_AUTOFLY").ok().map(|v| {
@@ -153,14 +202,33 @@ impl Game for VoxelGame {
         } else {
             FLY_ALTITUDE
         };
-        let player = Player::new(Vec3::new(0.5, ground + altitude, 0.5), mode);
+        let default_view = (
+            Vec3::new(0.5, ground + altitude, 0.5),
+            45f32.to_radians(),
+            if demo.is_some() { -35f32 } else { -20f32 }.to_radians(),
+            mode,
+        );
+        // Un monde sauvegardé reprend là où on l'a laissé.
+        let (eye, yaw, pitch, mode) = persistence::saved_eye(meta.as_ref()).unwrap_or(default_view);
+        let player = Player::new(eye, mode);
         let camera = Camera {
             position: player.eye(1.0),
-            yaw: 45f32.to_radians(),
-            pitch: if demo.is_some() { -35f32 } else { -20f32 }.to_radians(),
+            yaw,
+            pitch,
             far: view_distance * 1.5,
             ..Camera::default()
         };
+        let selected = meta
+            .as_ref()
+            .and_then(|m| m.player.as_ref()?.selected_block.as_deref())
+            .and_then(|key| registry.id(key))
+            .and_then(|id| hotbar.iter().position(|&b| b == id))
+            .unwrap_or(0);
+        let time = meta
+            .as_ref()
+            .map(|m| m.time_of_day)
+            .or_else(|| env_parse("VOXEL_TIME"))
+            .unwrap_or(0.3);
         if let Some(speed) = autofly {
             log::info!("vol automatique à {speed} blocs/s");
         }
@@ -168,6 +236,7 @@ impl Game for VoxelGame {
             log::info!("démo : le joueur marche, saute, casse et pose des blocs tout seul");
         }
 
+        let audio = audio::Audio::new(&registry, audio::AudioSettings::from_env());
         Ok(Self {
             renderer,
             camera,
@@ -177,15 +246,21 @@ impl Game for VoxelGame {
             meshes: HashMap::new(),
             player,
             hotbar,
-            selected: 0,
+            selected,
             target: None,
             autofly,
             demo,
             tour,
-            day: DayCycle::new(
-                env_parse("VOXEL_TIME").unwrap_or(0.3),
-                env_parse("VOXEL_DAY_LENGTH").unwrap_or(600.0),
-            ),
+            day: DayCycle::new(time, env_parse("VOXEL_DAY_LENGTH").unwrap_or(600.0)),
+            store,
+            last_autosave: Instant::now(),
+            save_started: Instant::now(),
+            hot_reload: start_hot_reload(),
+            audio,
+            step_distance: 0.0,
+            was_in_liquid: false,
+            quit_at: env_parse::<u64>("VOXEL_QUIT_AFTER")
+                .map(|s| Instant::now() + std::time::Duration::from_secs(s)),
             frame_stats: FrameStats::new(),
             last_render: RenderStats::default(),
         })
@@ -208,6 +283,7 @@ impl Game for VoxelGame {
         };
         self.player
             .fixed_update(&self.streamer, walk, jump, ctx.fixed_dt);
+        self.footsteps(ctx.fixed_dt);
     }
 
     fn update(&mut self, ctx: &mut Context, dt: f32) {
@@ -217,6 +293,9 @@ impl Game for VoxelGame {
         }
         self.handle_keys(ctx);
         self.day.update(dt);
+        if let Some(audio) = &mut self.audio {
+            audio.update_ambience(self.day.daylight());
+        }
 
         if self.player.mode == MoveMode::Fly {
             match self.autofly {
@@ -249,6 +328,17 @@ impl Game for VoxelGame {
         }
         if self.demo.is_some() {
             self.run_demo(dt);
+        }
+        self.autosave();
+        let changes = self.hot_reload.as_mut().and_then(|h| h.poll());
+        if ctx.input.key_pressed(KeyCode::F5) {
+            log::info!("F5 : rechargement de tous les assets");
+            self.reload(hot_reload::Changes::ALL);
+        } else if let Some(changes) = changes {
+            self.reload(changes);
+        }
+        if self.quit_at.is_some_and(|t| Instant::now() >= t) {
+            ctx.exit();
         }
         if let Err(err) = self.run_tour(ctx) {
             log::error!("captures : {err:#}");
@@ -294,6 +384,10 @@ impl Game for VoxelGame {
 
     fn resized(&mut self, _ctx: &mut Context, size: PhysicalSize<u32>) {
         self.renderer.resize(size.width, size.height);
+    }
+
+    fn exit(&mut self, _ctx: &mut Context) {
+        self.save_now();
     }
 }
 
@@ -354,6 +448,52 @@ impl VoxelGame {
         }
     }
 
+    /// Recharge ce qui a changé sur le disque. Une erreur est affichée dans les logs,
+    /// et l'ancienne version reste en place : le jeu ne plante jamais pour un asset.
+    fn reload(&mut self, changes: hot_reload::Changes) {
+        if changes.shader {
+            let result = std::fs::read_to_string(engine_render::CHUNK_SHADER_PATH)
+                .map_err(anyhow::Error::from)
+                .and_then(|source| self.renderer.reload_chunk_shader(&source));
+            match result {
+                Ok(()) => log::info!("shader des chunks rechargé"),
+                Err(err) => log::error!("{err:#}"),
+            }
+        }
+        let mut textures = changes.textures;
+        if changes.blocks {
+            let assets = assets_dir();
+            let mods = assets.parent().map(|root| root.join("mods"));
+            match hot_reload::reload_registry(&self.registry, &assets, mods.as_deref()) {
+                hot_reload::RegistryReload::Applied(fresh) => {
+                    let selected = self.hotbar.get(self.selected).copied();
+                    self.registry = Arc::new(fresh);
+                    self.hotbar = self.registry.placeable().collect();
+                    self.selected = selected
+                        .and_then(|b| self.hotbar.iter().position(|&h| h == b))
+                        .unwrap_or(0);
+                    self.streamer.replace_registry(self.registry.clone());
+                    textures = true;
+                    log::info!("blocs rechargés : lumière et maillages recalculés");
+                }
+                hot_reload::RegistryReload::Incompatible(reason) => log::warn!("{reason}"),
+                hot_reload::RegistryReload::Failed(err) => {
+                    log::error!("blocks.ron invalide, l'ancien est gardé : {err:#}")
+                }
+            }
+        }
+        if (changes.sounds || textures)
+            && let Some(audio) = &mut self.audio
+        {
+            audio.reload(&self.registry);
+        }
+        if textures {
+            self.renderer
+                .set_block_textures(&assets::load_textures(&self.registry));
+            log::info!("{} textures rechargées", self.registry.textures().len());
+        }
+    }
+
     /// Casse le bloc visé. Renvoie sa position si c'est fait.
     fn break_target(&mut self) -> Option<IVec3> {
         let hit = self.target?;
@@ -381,14 +521,49 @@ impl VoxelGame {
     }
 
     fn edit(&mut self, pos: IVec3, block: BlockId) -> bool {
+        let old = self.streamer.world().block(pos);
         let start = Instant::now();
         let done = self.streamer.set_block(pos, block);
         if done {
             self.frame_stats.record_edit(start.elapsed());
             // Le bloc a changé : le rayon doit être relancé à la prochaine image.
             self.target = None;
+            // Casser : le son de l'ancien bloc. Poser : celui du nouveau.
+            if let Some(audio) = &mut self.audio {
+                if block.is_air() {
+                    audio.play_block(&self.registry, old, audio::BlockSound::Break);
+                } else {
+                    audio.play_block(&self.registry, block, audio::BlockSound::Place);
+                }
+            }
         }
         done
+    }
+
+    /// Les bruits de pas (selon le bloc sous les pieds) et l'éclaboussure en entrant dans l'eau.
+    fn footsteps(&mut self, dt: f32) {
+        let body = self.player.body;
+        let Some(audio) = &mut self.audio else {
+            return;
+        };
+        if self.player.mode != MoveMode::Walk || self.player.frozen {
+            return;
+        }
+        if body.in_liquid && !self.was_in_liquid && body.velocity.y < -1.0 {
+            audio.play(audio::SPLASH);
+        }
+        self.was_in_liquid = body.in_liquid;
+        if !body.on_ground || body.in_liquid {
+            return;
+        }
+        // Un pas tous les 1,7 bloc parcourus à l'horizontale.
+        self.step_distance += Vec2::new(body.velocity.x, body.velocity.z).length() * dt;
+        if self.step_distance >= 1.7 {
+            self.step_distance = 0.0;
+            let below = (body.position - glam::Vec3::Y * 0.05).floor().as_ivec3();
+            let block = self.streamer.world().block(below);
+            audio.play_block(&self.registry, block, audio::BlockSound::Step);
+        }
     }
 
     /// Applique les résultats du streamer côté GPU, dans la limite du budget.
@@ -594,6 +769,21 @@ fn load_registry() -> Result<BlockRegistry> {
     Ok(registry)
 }
 
+/// Démarre la surveillance des assets, des mods et des shaders (si les dossiers existent).
+fn start_hot_reload() -> Option<hot_reload::HotReload> {
+    let assets = assets_dir();
+    let mut dirs = vec![assets.clone()];
+    if let Some(root) = assets.parent() {
+        dirs.push(root.join("mods"));
+    }
+    if let Some(shaders) = std::path::Path::new(engine_render::CHUNK_SHADER_PATH).parent() {
+        dirs.push(shaders.to_path_buf());
+    }
+    hot_reload::HotReload::new(&dirs)
+        .map_err(|err| log::warn!("rechargement à chaud indisponible : {err:#}"))
+        .ok()
+}
+
 /// `VOXEL_ASSETS`, sinon `./assets`, sinon le dossier du dépôt (connu à la compilation).
 fn assets_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("VOXEL_ASSETS") {
@@ -657,12 +847,14 @@ mod tests {
             normal: [0.0, 1.0, 0.0],
             color: [0.5, 0.25, 0.125, 0.6],
             light: [1.0, 0.5, 0.25],
+            texture: 7,
         };
         let gpu = gpu_vertices(std::slice::from_ref(&vertex))[0];
         assert_eq!(gpu.position, vertex.position);
         assert_eq!(gpu.normal, vertex.normal);
         assert_eq!(gpu.color, vertex.color);
         assert_eq!(gpu.light, vertex.light);
+        assert_eq!(gpu.texture, vertex.texture);
     }
 
     #[test]

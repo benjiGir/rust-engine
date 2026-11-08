@@ -53,6 +53,12 @@ impl World {
         &self.registry
     }
 
+    /// Remplace le registre (rechargement à chaud). Les numéros de blocs doivent
+    /// désigner les mêmes blocs dans l'ancien et le nouveau registre.
+    pub fn set_registry(&mut self, registry: Arc<BlockRegistry>) {
+        self.registry = registry;
+    }
+
     /// Lumière (ciel, blocs) à une position monde, chacune de 0 à 15.
     ///
     /// Un chunk absent est de l'air en plein ciel (15, 0) ; sous le monde, tout est noir.

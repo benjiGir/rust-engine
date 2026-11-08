@@ -20,7 +20,7 @@
 //! et la retraduire au chargement avec le registre du moment.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context as _, Result, bail};
@@ -61,8 +61,36 @@ pub struct BlockDef {
     /// Combien la lumière perd en traversant ce bloc : 0 = rien (air, verre),
     /// 15 = tout (bloc opaque). L'eau en absorbe un peu.
     pub light_opacity: u8,
+    /// Couche de texture de chaque face : dessus, côtés, dessous.
+    /// 0 = pas de texture (la couleur seule).
+    pub face_textures: [u32; 3],
+    /// Sons du bloc (identifiants namespacés, par exemple `core:step_soft`).
+    pub sounds: BlockSounds,
     /// D'où vient la définition, pour les messages d'erreur.
     pub source: String,
+}
+
+/// Les sons d'un bloc. `None` : silence.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlockSounds {
+    #[serde(default)]
+    pub step: Option<String>,
+    /// `break` est un mot réservé de Rust : le champ s'appelle `break_` dans le code,
+    /// et `rename` lui garde le nom `break` dans les fichiers.
+    #[serde(default, rename = "break")]
+    pub break_: Option<String>,
+    #[serde(default)]
+    pub place: Option<String>,
+}
+
+/// Les textures d'un bloc dans un fichier : une par face (dessus, côtés, dessous).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FaceTextures {
+    top: String,
+    side: String,
+    bottom: String,
 }
 
 /// Un bloc tel qu'écrit dans un fichier `blocks.ron`.
@@ -92,6 +120,14 @@ struct BlockFileEntry {
     /// `None` si absent : on le déduit de `transparent` (0 ou 15).
     #[serde(default)]
     light_opacity: Option<u8>,
+    /// Une texture pour toutes les faces...
+    #[serde(default)]
+    texture: Option<String>,
+    /// ... ou une par face.
+    #[serde(default)]
+    textures: Option<FaceTextures>,
+    #[serde(default)]
+    sounds: BlockSounds,
 }
 
 fn one() -> f32 {
@@ -107,6 +143,11 @@ fn yes() -> bool {
 pub struct BlockRegistry {
     defs: Vec<BlockDef>,
     by_key: HashMap<String, BlockId>,
+    /// Les textures, dans l'ordre de leurs couches (la couche 0, blanche, n'y est pas).
+    textures: Vec<String>,
+    /// Le dossier de chaque espace de noms : `assets/core`, `mods/example`...
+    /// Les fichiers d'un mod sont cherchés dans le sien.
+    asset_dirs: HashMap<String, PathBuf>,
 }
 
 impl BlockRegistry {
@@ -124,11 +165,15 @@ impl BlockRegistry {
             liquid: false,
             light_emission: 0,
             light_opacity: 0,
+            face_textures: [0; 3],
+            sounds: BlockSounds::default(),
             source: "intégré".into(),
         };
         Self {
             by_key: HashMap::from([(air.key.clone(), BlockId::AIR)]),
             defs: vec![air],
+            textures: Vec::new(),
+            asset_dirs: HashMap::new(),
         }
     }
 
@@ -190,6 +235,11 @@ impl BlockRegistry {
     fn add_file(&mut self, namespace: &str, path: &Path) -> Result<()> {
         let source = std::fs::read_to_string(path)
             .with_context(|| format!("lecture de {}", path.display()))?;
+        // Le dossier qui contient `blocks.ron` contient aussi `textures/` et `sounds/`.
+        if let Some(dir) = path.parent() {
+            self.asset_dirs
+                .insert(namespace.to_string(), dir.to_path_buf());
+        }
         self.add_source(namespace, &source, &path.display().to_string())
     }
 
@@ -216,6 +266,28 @@ impl BlockRegistry {
                 .map(BlockId)
                 .context("trop de blocs (65 535 au maximum)")?;
             let (r, g, b) = entry.color;
+            // Textures : `texture` (toutes les faces) ou `textures` (dessus, côtés, dessous).
+            let names = match (&entry.texture, &entry.textures) {
+                (Some(_), Some(_)) => {
+                    bail!(
+                        "{origin} : « {} » : `texture` ou `textures`, pas les deux",
+                        entry.id
+                    )
+                }
+                (Some(all), None) => Some([all.clone(), all.clone(), all.clone()]),
+                (None, Some(f)) => Some([f.top.clone(), f.side.clone(), f.bottom.clone()]),
+                (None, None) => None,
+            };
+            let face_textures = match names {
+                Some(names) => names.map(|name| self.texture_layer(&qualify(&name, namespace))),
+                None => [0; 3],
+            };
+            let q = |name: &Option<String>| name.as_ref().map(|n| qualify(n, namespace));
+            let sounds = BlockSounds {
+                step: q(&entry.sounds.step),
+                break_: q(&entry.sounds.break_),
+                place: q(&entry.sounds.place),
+            };
             if entry.light_emission > 15 || entry.light_opacity.is_some_and(|o| o > 15) {
                 bail!("{origin} : « {} » : la lumière va de 0 à 15", entry.id);
             }
@@ -240,10 +312,37 @@ impl BlockRegistry {
                 liquid: entry.liquid,
                 light_emission: entry.light_emission,
                 light_opacity,
+                face_textures,
+                sounds,
                 source: origin.to_string(),
             });
         }
         Ok(())
+    }
+
+    /// La couche d'une texture (créée au premier usage). La couche 0 est réservée au blanc.
+    fn texture_layer(&mut self, key: &str) -> u32 {
+        let index = match self.textures.iter().position(|t| t == key) {
+            Some(index) => index,
+            None => {
+                self.textures.push(key.to_string());
+                self.textures.len() - 1
+            }
+        };
+        index as u32 + 1
+    }
+
+    /// Les textures dans l'ordre de leurs couches : la couche `i + 1` est `textures()[i]`.
+    pub fn textures(&self) -> &[String] {
+        &self.textures
+    }
+
+    /// Le fichier d'un asset : `core:dirt` en `textures` → `assets/core/textures/dirt.png`.
+    /// `None` si l'espace de noms n'a pas de dossier (registre intégré, tests).
+    pub fn asset_path(&self, key: &str, kind: &str, extension: &str) -> Option<PathBuf> {
+        let (namespace, name) = key.split_once(':')?;
+        let dir = self.asset_dirs.get(namespace)?;
+        Some(dir.join(kind).join(format!("{name}.{extension}")))
     }
 
     /// Le numéro d'un bloc à partir de son identifiant texte.
@@ -309,6 +408,16 @@ impl BlockRegistry {
 
     pub fn is_empty(&self) -> bool {
         self.defs.is_empty()
+    }
+}
+
+/// `stone` dans le fichier de `core` devient `core:stone` ; `other:stone` reste tel quel
+/// (un mod peut réutiliser la texture d'un autre).
+fn qualify(name: &str, namespace: &str) -> String {
+    if name.contains(':') {
+        name.to_string()
+    } else {
+        format!("{namespace}:{name}")
     }
 }
 
@@ -483,6 +592,61 @@ mod tests {
                 .add_source("mymod", &entry("mymod:ruby_2"), "m")
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn textures_per_face_and_for_all_faces() {
+        let mut registry = BlockRegistry::empty();
+        let source = r#"[
+            (id: "test:grass", name: "G", color: (0.0, 1.0, 0.0),
+             textures: (top: "grass_top", side: "grass_side", bottom: "dirt"),
+             sounds: (step: "step_soft", break: "core:break_soft")),
+            (id: "test:dirt", name: "D", color: (0.5, 0.3, 0.1), texture: "dirt"),
+            (id: "test:plain", name: "P", color: (1.0, 1.0, 1.0)),
+        ]"#;
+        registry.add_source("test", source, "t").unwrap();
+        let grass = registry.def(registry.id("test:grass").unwrap());
+        let dirt = registry.def(registry.id("test:dirt").unwrap());
+        let plain = registry.def(registry.id("test:plain").unwrap());
+        assert_eq!(
+            registry.textures(),
+            ["test:grass_top", "test:grass_side", "test:dirt"]
+        );
+        assert_eq!(grass.face_textures, [1, 2, 3]);
+        // La même texture garde la même couche.
+        assert_eq!(dirt.face_textures, [3, 3, 3]);
+        assert_eq!(plain.face_textures, [0, 0, 0]);
+        assert_eq!(grass.sounds.step.as_deref(), Some("test:step_soft"));
+        assert_eq!(grass.sounds.break_.as_deref(), Some("core:break_soft"));
+        assert_eq!(grass.sounds.place, None);
+    }
+
+    #[test]
+    fn texture_and_textures_together_are_refused() {
+        let mut registry = BlockRegistry::empty();
+        let source = r#"[(id: "test:x", name: "X", color: (0.0, 0.0, 0.0), texture: "a",
+            textures: (top: "a", side: "a", bottom: "a"))]"#;
+        assert!(registry.add_source("test", source, "t").is_err());
+    }
+
+    #[test]
+    fn asset_paths_follow_the_namespace() {
+        let registry =
+            BlockRegistry::load(&repo().join("assets"), Some(&repo().join("mods"))).unwrap();
+        let path = registry
+            .asset_path("example:ruby", "textures", "png")
+            .unwrap();
+        assert!(path.ends_with("mods/example/textures/ruby.png"));
+        assert!(path.exists(), "{}", path.display());
+        let sound = registry
+            .asset_path("core:step_soft", "sounds", "wav")
+            .unwrap();
+        assert!(sound.exists(), "{}", sound.display());
+        // Chaque texture déclarée par core et le mod existe sur le disque.
+        for key in registry.textures() {
+            let path = registry.asset_path(key, "textures", "png").unwrap();
+            assert!(path.exists(), "texture manquante : {}", path.display());
+        }
     }
 
     #[test]

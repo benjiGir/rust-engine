@@ -25,6 +25,8 @@ pub struct ColorVertex {
     pub color: [f32; 4],
     /// Lumière du ciel, lumière des blocs et occlusion ambiante, de 0 à 1.
     pub light: [f32; 3],
+    /// Couche de texture (0 : pas de texture, blanc).
+    pub texture: u32,
 }
 
 /// Pour chaque face : sa normale et ses 4 coins, dans l'ordre anti-horaire vu de l'extérieur.

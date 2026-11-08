@@ -22,6 +22,14 @@ use crate::lines::Lines;
 use crate::mesh::{self, ColorVertex, Vertex};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+/// Côté des textures de blocs, en pixels.
+pub const TEXTURE_SIZE: u32 = 16;
+/// 16, 8, 4, 2, 1 : cinq niveaux de mipmap.
+const TEXTURE_MIPS: u32 = 5;
+/// Le shader des chunks, intégré au binaire. Son chemin sur le disque permet au jeu
+/// de le surveiller et de le recharger à chaud pendant le développement.
+pub const CHUNK_SHADER_SOURCE: &str = include_str!("chunk_shader.wgsl");
+pub const CHUNK_SHADER_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/chunk_shader.wgsl");
 
 /// Un cube à dessiner : sa position (coin minimum) et sa couleur.
 #[repr(C)]
@@ -142,6 +150,10 @@ pub struct Renderer {
     instance_count: u32,
     chunk_pipeline: wgpu::RenderPipeline,
     translucent_pipeline: wgpu::RenderPipeline,
+    format: wgpu::TextureFormat,
+    camera_layout: wgpu::BindGroupLayout,
+    texture_layout: wgpu::BindGroupLayout,
+    texture_bind_group: wgpu::BindGroup,
     meshes: HashMap<MeshId, GpuMesh>,
     next_mesh_id: u64,
     lines: Lines,
@@ -252,7 +264,7 @@ impl Renderer {
         ];
         let pipeline = create_pipeline(
             &device,
-            &camera_layout,
+            &[Some(&camera_layout)],
             format,
             &device.create_shader_module(wgpu::include_wgsl!("shader.wgsl")),
             &cube_layouts,
@@ -260,34 +272,36 @@ impl Renderer {
             false,
         );
 
-        // Pipeline des chunks : un seul tampon, un sommet = position, normale, couleur
-        // (avec alpha), lumière (ciel, blocs, occlusion ambiante).
-        let chunk_layouts = [Some(wgpu::VertexBufferLayout {
-            array_stride: size_of::<ColorVertex>() as u64,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &wgpu::vertex_attr_array![
-                0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32x3
+        // Les textures des blocs : un « tableau de textures » (une couche par texture)
+        // et un échantillonneur, liés au groupe 1 des shaders de chunks.
+        let texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("block textures"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
-        })];
-        let chunk_shader = device.create_shader_module(wgpu::include_wgsl!("chunk_shader.wgsl"));
-        let chunk_pipeline = create_pipeline(
+        });
+        let texture_bind_group = create_texture_bind_group(&device, &queue, &texture_layout, &[]);
+        let (chunk_pipeline, translucent_pipeline) = create_chunk_pipelines(
             &device,
             &camera_layout,
+            &texture_layout,
             format,
-            &chunk_shader,
-            &chunk_layouts,
-            "chunks",
-            false,
-        );
-        // Même shader, mais avec mélange alpha et sans écriture de profondeur.
-        let translucent_pipeline = create_pipeline(
-            &device,
-            &camera_layout,
-            format,
-            &chunk_shader,
-            &chunk_layouts,
-            "translucent chunks",
-            true,
+            CHUNK_SHADER_SOURCE,
         );
 
         let (vertices, indices) = mesh::cube();
@@ -324,6 +338,10 @@ impl Renderer {
             instance_count: 0,
             chunk_pipeline,
             translucent_pipeline,
+            format,
+            camera_layout,
+            texture_layout,
+            texture_bind_group,
             lines,
             outline: None,
             crosshair: false,
@@ -339,6 +357,36 @@ impl Renderer {
                 a: 1.0,
             },
         })
+    }
+
+    /// Remplace les textures des blocs. `layers[i]` devient la couche `i + 1`
+    /// (la couche 0 est blanche : les blocs sans texture gardent leur couleur).
+    /// Chaque couche : 16 × 16 pixels RGBA, 1 024 octets.
+    pub fn set_block_textures(&mut self, layers: &[Vec<u8>]) {
+        self.texture_bind_group =
+            create_texture_bind_group(&self.device, &self.queue, &self.texture_layout, layers);
+    }
+
+    /// Recompile le shader des chunks à partir de `source`. En cas d'erreur (WGSL
+    /// invalide), on garde l'ancien pipeline et on renvoie l'erreur : le jeu ne plante pas.
+    ///
+    /// Par défaut, wgpu panique sur une erreur de validation. Une « portée d'erreur »
+    /// (`push_error_scope`) les capture à la place : on crée le shader et les pipelines,
+    /// puis on regarde si une erreur est survenue.
+    pub fn reload_chunk_shader(&mut self, source: &str) -> Result<()> {
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let pipelines = create_chunk_pipelines(
+            &self.device,
+            &self.camera_layout,
+            &self.texture_layout,
+            self.format,
+            source,
+        );
+        if let Some(error) = pollster::block_on(scope.pop()) {
+            anyhow::bail!("shader invalide, l'ancien est gardé :\n{error}");
+        }
+        (self.chunk_pipeline, self.translucent_pipeline) = pipelines;
+        Ok(())
     }
 
     pub fn aspect(&self) -> f32 {
@@ -555,6 +603,7 @@ impl Renderer {
                 .collect();
 
             // Passe 1 : l'opaque, dans n'importe quel ordre (le tampon de profondeur trie).
+            pass.set_bind_group(1, &self.texture_bind_group, &[]);
             pass.set_pipeline(&self.chunk_pipeline);
             for mesh in &visible {
                 stats.meshes_drawn += 1;
@@ -722,9 +771,160 @@ fn create_instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffe
 
 /// Crée un pipeline. Les deux pipelines du renderer ne diffèrent que par
 /// leur shader et le format de leurs sommets ; le reste de l'état est commun.
-fn create_pipeline(
+/// Les deux pipelines des chunks (opaque et translucide), à partir du source WGSL.
+fn create_chunk_pipelines(
     device: &wgpu::Device,
     camera_layout: &wgpu::BindGroupLayout,
+    texture_layout: &wgpu::BindGroupLayout,
+    format: wgpu::TextureFormat,
+    source: &str,
+) -> (wgpu::RenderPipeline, wgpu::RenderPipeline) {
+    // Un sommet = position, normale, couleur (avec alpha), lumière (ciel, blocs,
+    // occlusion ambiante), couche de texture.
+    let layouts = [Some(wgpu::VertexBufferLayout {
+        array_stride: size_of::<ColorVertex>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &wgpu::vertex_attr_array![
+            0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32x3, 4 => Uint32
+        ],
+    })];
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("chunk shader"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    let groups = [Some(camera_layout), Some(texture_layout)];
+    let opaque = create_pipeline(device, &groups, format, &shader, &layouts, "chunks", false);
+    // Même shader, mais avec mélange alpha et sans écriture de profondeur.
+    let translucent = create_pipeline(
+        device,
+        &groups,
+        format,
+        &shader,
+        &layouts,
+        "translucent chunks",
+        true,
+    );
+    (opaque, translucent)
+}
+
+/// Crée le tableau de textures (couche 0 blanche, puis `layers`) avec ses mipmaps.
+fn create_texture_bind_group(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layout: &wgpu::BindGroupLayout,
+    layers: &[Vec<u8>],
+) -> wgpu::BindGroup {
+    let pixels = (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize;
+    let white = vec![255u8; pixels];
+    let all: Vec<&[u8]> = std::iter::once(white.as_slice())
+        .chain(layers.iter().map(|l| l.as_slice()))
+        .collect();
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("block textures"),
+        size: wgpu::Extent3d {
+            width: TEXTURE_SIZE,
+            height: TEXTURE_SIZE,
+            depth_or_array_layers: all.len() as u32,
+        },
+        mip_level_count: TEXTURE_MIPS,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        // sRGB : les PNG sont en sRGB, le GPU les reconvertit en linéaire à la lecture.
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    for (layer, data) in all.iter().enumerate() {
+        // Une image de la mauvaise taille est remplacée par du blanc plutôt que de planter.
+        let mut level: Vec<u8> = if data.len() == pixels {
+            data.to_vec()
+        } else {
+            white.clone()
+        };
+        let mut size = TEXTURE_SIZE;
+        for mip in 0..TEXTURE_MIPS {
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: mip,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: layer as u32,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &level,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(size * 4),
+                    rows_per_image: Some(size),
+                },
+                wgpu::Extent3d {
+                    width: size,
+                    height: size,
+                    depth_or_array_layers: 1,
+                },
+            );
+            level = downsample(&level, size);
+            size /= 2;
+        }
+    }
+    let view = texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("block sampler"),
+        // `Repeat` : la texture se répète sur les grands quads du greedy.
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        // `Nearest` : des pixels nets, le style « pixel art ». Les mipmaps évitent le
+        // scintillement au loin ; on les mélange en douceur (`Linear`).
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
+        ..Default::default()
+    });
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("block textures"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+    })
+}
+
+/// Le niveau de mipmap suivant : chaque pixel est la moyenne d'un carré de 2 × 2.
+fn downsample(pixels: &[u8], size: u32) -> Vec<u8> {
+    let half = (size / 2).max(1);
+    let mut out = vec![0u8; (half * half * 4) as usize];
+    for y in 0..half {
+        for x in 0..half {
+            for c in 0..4 {
+                let mut sum = 0u32;
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    let sx = (x * 2 + dx).min(size - 1);
+                    let sy = (y * 2 + dy).min(size - 1);
+                    sum += pixels[((sx + sy * size) * 4 + c) as usize] as u32;
+                }
+                out[((x + y * half) * 4 + c) as usize] = (sum / 4) as u8;
+            }
+        }
+    }
+    out
+}
+
+fn create_pipeline(
+    device: &wgpu::Device,
+    bind_group_layouts: &[Option<&wgpu::BindGroupLayout>],
     format: wgpu::TextureFormat,
     shader: &wgpu::ShaderModule,
     vertex_layouts: &[Option<wgpu::VertexBufferLayout<'_>>],
@@ -733,7 +933,7 @@ fn create_pipeline(
 ) -> wgpu::RenderPipeline {
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(label),
-        bind_group_layouts: &[Some(camera_layout)],
+        bind_group_layouts,
         ..Default::default()
     });
 
