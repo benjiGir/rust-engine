@@ -59,6 +59,7 @@ impl Chunk {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::registry::test_blocks::stone;
 
     #[test]
     fn index_covers_the_whole_volume_once() {
@@ -79,8 +80,8 @@ mod tests {
     fn set_then_get() {
         let mut chunk = Chunk::new();
         assert!(chunk.is_empty());
-        chunk.set(1, 2, 3, BlockId::STONE);
-        assert_eq!(chunk.get(1, 2, 3), BlockId::STONE);
+        chunk.set(1, 2, 3, stone());
+        assert_eq!(chunk.get(1, 2, 3), stone());
         assert_eq!(chunk.get(3, 2, 1), BlockId::AIR);
         assert!(!chunk.is_empty());
     }

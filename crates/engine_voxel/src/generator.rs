@@ -9,11 +9,15 @@
 //! sur toutes les machines. On peut donc générer n'importe quel chunk, n'importe
 //! quand, dans n'importe quel ordre et sur n'importe quel thread.
 
+use std::sync::Arc;
+
+use anyhow::{Context as _, Result};
 use glam::IVec3;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
+use crate::registry::BlockRegistry;
 use crate::world::World;
 
 /// Hauteur utile du monde, en chunks : les blocs vont de y = 0 à y = 32 × 5 - 1.
@@ -38,6 +42,34 @@ pub struct Column {
     pub biome: Biome,
 }
 
+/// Les blocs dont le générateur a besoin, retrouvés par leur nom au démarrage.
+#[derive(Debug, Clone, Copy)]
+struct TerrainBlocks {
+    grass: BlockId,
+    dirt: BlockId,
+    stone: BlockId,
+    sand: BlockId,
+    snow: BlockId,
+}
+
+impl TerrainBlocks {
+    fn resolve(registry: &BlockRegistry) -> Result<Self> {
+        // Une closure qui transforme un `None` en erreur explicite.
+        let id = |key: &str| {
+            registry
+                .id(key)
+                .with_context(|| format!("le générateur a besoin du bloc « {key} »"))
+        };
+        Ok(Self {
+            grass: id("core:grass")?,
+            dirt: id("core:dirt")?,
+            stone: id("core:stone")?,
+            sand: id("core:sand")?,
+            snow: id("core:snow")?,
+        })
+    }
+}
+
 /// Le générateur de terrain. Il ne contient que des tables de bruit en lecture seule :
 /// il est donc `Send + Sync` et peut être partagé entre threads avec un `Arc`
 /// (voir `streaming.rs`), sans verrou.
@@ -55,10 +87,21 @@ pub struct TerrainGenerator {
     /// Deux champs 3D : une grotte passe là où les deux sont proches de zéro.
     cave_a: Perlin,
     cave_b: Perlin,
+    registry: Arc<BlockRegistry>,
+    blocks: TerrainBlocks,
 }
 
 impl TerrainGenerator {
+    /// Un générateur avec les blocs de base intégrés.
     pub fn new(seed: u32) -> Self {
+        Self::with_registry(seed, BlockRegistry::builtin())
+            .expect("les blocs de base intégrés sont complets")
+    }
+
+    /// Un générateur qui utilise ce registre (core + mods). Échoue s'il manque
+    /// un des blocs de base dont le terrain a besoin.
+    pub fn with_registry(seed: u32, registry: Arc<BlockRegistry>) -> Result<Self> {
+        let blocks = TerrainBlocks::resolve(&registry)?;
         // Chaque bruit reçoit une graine différente, dérivée de la graine du monde,
         // pour qu'ils ne se ressemblent pas. `wrapping_add` : pas de panique si ça déborde.
         let fbm = |offset: u32, octaves: usize, frequency: f64| {
@@ -68,7 +111,7 @@ impl TerrainGenerator {
                 .set_lacunarity(2.0)
                 .set_persistence(0.5)
         };
-        Self {
+        Ok(Self {
             seed,
             hills: fbm(0, 5, 1.0 / 300.0),
             mountain_mask: fbm(1, 3, 1.0 / 700.0),
@@ -76,7 +119,13 @@ impl TerrainGenerator {
             temperature: fbm(3, 2, 1.0 / 900.0),
             cave_a: Perlin::new(seed.wrapping_add(4)),
             cave_b: Perlin::new(seed.wrapping_add(5)),
-        }
+            registry,
+            blocks,
+        })
+    }
+
+    pub fn registry(&self) -> &Arc<BlockRegistry> {
+        &self.registry
     }
 
     pub fn seed(&self) -> u32 {
@@ -123,15 +172,16 @@ impl TerrainGenerator {
     }
 
     /// Le bloc d'une colonne à l'altitude `y` (sans les grottes).
-    fn layer(column: Column, y: i32) -> BlockId {
+    fn layer(&self, column: Column, y: i32) -> BlockId {
+        let b = self.blocks;
         let depth = column.height - y;
         match column.biome {
-            _ if column.height >= SNOW_LINE && depth == 0 => BlockId::SNOW,
-            Biome::Desert if depth < 4 => BlockId::SAND,
-            Biome::Mountains if column.height > 75 => BlockId::STONE,
-            Biome::Plains | Biome::Mountains if depth == 0 => BlockId::GRASS,
-            Biome::Plains | Biome::Mountains if depth < 4 => BlockId::DIRT,
-            _ => BlockId::STONE,
+            _ if column.height >= SNOW_LINE && depth == 0 => b.snow,
+            Biome::Desert if depth < 4 => b.sand,
+            Biome::Mountains if column.height > 75 => b.stone,
+            Biome::Plains | Biome::Mountains if depth == 0 => b.grass,
+            Biome::Plains | Biome::Mountains if depth < 4 => b.dirt,
+            _ => b.stone,
         }
     }
 
@@ -174,7 +224,7 @@ impl TerrainGenerator {
                         break;
                     }
                     if !self.is_cave(x, y, z) {
-                        chunk.set(lx, ly as usize, lz, Self::layer(column, y));
+                        chunk.set(lx, ly as usize, lz, self.layer(column, y));
                     }
                 }
             }
@@ -186,7 +236,7 @@ impl TerrainGenerator {
     /// Génère d'un coup une région de `chunks_x × chunks_z` colonnes de chunks
     /// (sur toute la hauteur du monde). Pratique pour les tests et les benchmarks.
     pub fn generate_region(&self, chunks_x: i32, chunks_z: i32) -> World {
-        let mut world = World::new();
+        let mut world = World::with_registry(self.registry.clone());
         for x in 0..chunks_x {
             for z in 0..chunks_z {
                 for y in 0..WORLD_HEIGHT_CHUNKS {

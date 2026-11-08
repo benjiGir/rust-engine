@@ -7,6 +7,7 @@ use glam::IVec3;
 
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
+use crate::registry::BlockRegistry;
 
 const SIZE: i32 = CHUNK_SIZE as i32;
 
@@ -20,14 +21,46 @@ const SIZE: i32 = CHUNK_SIZE as i32;
 /// différents. Cloner un `Arc` ne copie pas les 64 Ko du chunk, cela incrémente
 /// juste un compteur. C'est ce qui permet d'envoyer un chunk et ses voisins à un
 /// thread de maillage pendant que le thread principal continue à les lire.
-#[derive(Debug, Default, Clone)]
+///
+/// Le monde garde aussi le [`BlockRegistry`] : lui seul sait si un numéro de bloc
+/// est solide, transparent, de quelle couleur...
+#[derive(Debug, Clone)]
 pub struct World {
     chunks: HashMap<IVec3, Arc<Chunk>>,
+    registry: Arc<BlockRegistry>,
+}
+
+impl Default for World {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl World {
+    /// Un monde vide avec les blocs de base intégrés.
     pub fn new() -> Self {
-        Self::default()
+        Self::with_registry(BlockRegistry::builtin())
+    }
+
+    pub fn with_registry(registry: Arc<BlockRegistry>) -> Self {
+        Self {
+            chunks: HashMap::new(),
+            registry,
+        }
+    }
+
+    pub fn registry(&self) -> &Arc<BlockRegistry> {
+        &self.registry
+    }
+
+    /// Vrai si le bloc à cette position arrête le joueur.
+    pub fn is_solid(&self, pos: IVec3) -> bool {
+        self.registry.is_solid(self.block(pos))
+    }
+
+    /// Vrai si le joueur peut viser le bloc à cette position.
+    pub fn is_selectable(&self, pos: IVec3) -> bool {
+        self.registry.is_selectable(self.block(pos))
     }
 
     /// Sépare une position monde en (chunk, position locale dans ce chunk).
@@ -118,6 +151,7 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::registry::test_blocks::{dirt, sand, stone};
 
     #[test]
     fn split_handles_negative_coordinates() {
@@ -137,11 +171,11 @@ mod tests {
         let mut world = World::new();
         let positions = [IVec3::new(-1, 0, 0), IVec3::new(32, 5, -40)];
         for pos in positions {
-            world.set_block(pos, BlockId::DIRT);
+            world.set_block(pos, dirt());
         }
         assert_eq!(world.chunk_count(), 2);
         for pos in positions {
-            assert_eq!(world.block(pos), BlockId::DIRT);
+            assert_eq!(world.block(pos), dirt());
         }
         assert_eq!(world.block(IVec3::new(1000, 0, 0)), BlockId::AIR);
     }
@@ -149,12 +183,12 @@ mod tests {
     #[test]
     fn editing_a_shared_chunk_copies_it() {
         let mut world = World::new();
-        world.set_block(IVec3::ZERO, BlockId::STONE);
+        world.set_block(IVec3::ZERO, stone());
         // Un « thread de maillage » garde une référence sur l'ancienne version.
         let snapshot = world.chunk_arc(IVec3::ZERO).unwrap();
-        world.set_block(IVec3::ZERO, BlockId::SAND);
-        assert_eq!(snapshot.get(0, 0, 0), BlockId::STONE);
-        assert_eq!(world.block(IVec3::ZERO), BlockId::SAND);
+        world.set_block(IVec3::ZERO, sand());
+        assert_eq!(snapshot.get(0, 0, 0), stone());
+        assert_eq!(world.block(IVec3::ZERO), sand());
     }
 
     #[test]

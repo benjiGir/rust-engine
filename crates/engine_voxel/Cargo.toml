@@ -12,6 +12,9 @@ bytemuck = { workspace = true }
 noise = { workspace = true }
 rayon = { workspace = true }
 crossbeam-channel = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }
+anyhow = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

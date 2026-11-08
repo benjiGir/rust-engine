@@ -6,18 +6,19 @@
 use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use engine_voxel::{BlockId, CHUNK_SIZE, TerrainGenerator, World, mesh_culled, mesh_greedy};
+use engine_voxel::{BlockRegistry, CHUNK_SIZE, TerrainGenerator, World, mesh_culled, mesh_greedy};
 use glam::IVec3;
 
 /// Le pire cas pour le greedy : un damier 3D, où aucune face ne peut être fusionnée.
 fn checkerboard() -> World {
+    let stone = BlockRegistry::builtin().id("core:stone").unwrap();
     let mut world = World::new();
     let chunk = world.chunk_mut(IVec3::ZERO);
     for y in 0..CHUNK_SIZE {
         for z in 0..CHUNK_SIZE {
             for x in 0..CHUNK_SIZE {
                 if (x + y + z) % 2 == 0 {
-                    chunk.set(x, y, z, BlockId::STONE);
+                    chunk.set(x, y, z, stone);
                 }
             }
         }

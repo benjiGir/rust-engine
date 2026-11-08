@@ -1,13 +1,15 @@
 //! `engine_render` : le rendu 3D avec wgpu.
 //!
-//! Deux façons de dessiner, éclairées par un soleil fixe et vues par une caméra
+//! Trois façons de dessiner, éclairées par un soleil fixe et vues par une caméra
 //! perspective, avec un tampon de profondeur :
 //! - des cubes instanciés ([`CubeInstance`]) : un seul maillage répété ;
 //! - des maillages quelconques ([`Renderer::add_mesh`]), un par chunk, triés
-//!   par frustum culling ([`Frustum`]).
+//!   par frustum culling ([`Frustum`]) ;
+//! - des lignes : le contour d'une boîte ([`Renderer::outline`]) et un réticule.
 
 mod camera;
 mod frustum;
+mod lines;
 mod mesh;
 mod renderer;
 

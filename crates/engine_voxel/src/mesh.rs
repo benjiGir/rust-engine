@@ -20,6 +20,7 @@ use glam::{IVec3, Vec3};
 
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
+use crate::registry::BlockRegistry;
 use crate::world::World;
 
 const SIZE: i32 = CHUNK_SIZE as i32;
@@ -76,7 +77,7 @@ impl ChunkMesh {
     /// `u` et `v`, sont pris dans l'ordre circulaire x → y → z → x. Ce choix garantit
     /// `e_u × e_v = e_axis` : les coins p0, p1, p2, p3 tournent alors dans le sens
     /// anti-horaire vu depuis +axis. Pour une face négative, on inverse l'ordre.
-    fn push_quad(&mut self, face: Face, corner: IVec3, width: i32, height: i32, block: BlockId) {
+    fn push_quad(&mut self, face: Face, corner: IVec3, width: i32, height: i32, color: [f32; 3]) {
         let (u, v) = face.tangents();
         let p0 = corner.as_vec3();
         let du = (u * width).as_vec3();
@@ -89,7 +90,6 @@ impl ChunkMesh {
 
         let base = self.vertices.len() as u32;
         let normal = face.normal().as_vec3().to_array();
-        let color = block.color();
         self.vertices.extend(corners.map(|position| MeshVertex {
             position: position.to_array(),
             normal,
@@ -151,6 +151,8 @@ pub struct Neighbourhood {
     center: Arc<Chunk>,
     /// Dans l'ordre de `Face::ALL`. `None` : chunk absent, donc de l'air.
     neighbours: [Option<Arc<Chunk>>; 6],
+    /// Pour savoir quels blocs sont transparents, et leur couleur.
+    registry: Arc<BlockRegistry>,
 }
 
 impl Neighbourhood {
@@ -163,6 +165,7 @@ impl Neighbourhood {
             position: chunk_pos,
             center,
             neighbours,
+            registry: world.registry().clone(),
         })
     }
 
@@ -196,11 +199,23 @@ impl Neighbourhood {
         }
     }
 
-    /// Le bloc à `p`, s'il est plein et que sa face `face` donne sur l'air.
+    /// Le bloc à `p`, si sa face `face` doit être dessinée : le bloc n'est pas de l'air
+    /// et son voisin de ce côté est transparent (de l'air, ou un bloc transparent
+    /// d'un autre type : entre deux blocs de verre identiques, pas de face).
     #[inline]
     fn visible_face(&self, p: IVec3, face: Face) -> Option<BlockId> {
         let block = self.get(p);
-        (!block.is_air() && self.get(p + face.normal()).is_air()).then_some(block)
+        if block.is_air() {
+            return None;
+        }
+        let neighbour = self.get(p + face.normal());
+        let visible =
+            neighbour.is_air() || (neighbour != block && self.registry.is_transparent(neighbour));
+        visible.then_some(block)
+    }
+
+    fn color(&self, block: BlockId) -> [f32; 3] {
+        self.registry.def(block).color
     }
 }
 
@@ -267,7 +282,8 @@ fn culled(hood: &Neighbourhood) -> ChunkMesh {
                 let p = IVec3::new(x, y, z);
                 for face in Face::ALL {
                     if let Some(block) = hood.visible_face(p, face) {
-                        mesh.push_quad(face, face_corner(origin, p, face), 1, 1, block);
+                        let corner = face_corner(origin, p, face);
+                        mesh.push_quad(face, corner, 1, 1, hood.color(block));
                     }
                 }
             }
@@ -327,7 +343,7 @@ fn greedy(hood: &Neighbourhood) -> ChunkMesh {
 
                     let p = n_axis * slice + u * i as i32 + v * j as i32;
                     let corner = face_corner(origin, p, face);
-                    mesh.push_quad(face, corner, width as i32, height as i32, block);
+                    mesh.push_quad(face, corner, width as i32, height as i32, hood.color(block));
 
                     for dj in 0..height {
                         // `fill` remplit une tranche du tableau d'un coup.
@@ -345,6 +361,7 @@ fn greedy(hood: &Neighbourhood) -> ChunkMesh {
 mod tests {
     use super::*;
     use crate::generator::TerrainGenerator;
+    use crate::registry::test_blocks::{grass, stone};
 
     fn terrain(chunks: i32) -> World {
         TerrainGenerator::new(42).generate_region(chunks, chunks)
@@ -353,7 +370,7 @@ mod tests {
     fn world_with(blocks: &[IVec3]) -> World {
         let mut world = World::new();
         for &p in blocks {
-            world.set_block(p, BlockId::STONE);
+            world.set_block(p, stone());
         }
         world
     }
@@ -398,7 +415,7 @@ mod tests {
         let mut world = World::new();
         for x in 0..SIZE {
             for z in 0..SIZE {
-                world.set_block(IVec3::new(x, 0, z), BlockId::GRASS);
+                world.set_block(IVec3::new(x, 0, z), grass());
             }
         }
         let culled = mesh_culled(&world, IVec3::ZERO);
@@ -419,6 +436,28 @@ mod tests {
     }
 
     #[test]
+    fn transparent_neighbours_keep_faces_visible() {
+        let mut registry = BlockRegistry::builtin().as_ref().clone();
+        registry
+            .add_source(
+                "test",
+                r#"[(id: "test:glass", name: "Verre", color: (0.8, 0.9, 1.0), transparent: true)]"#,
+                "test",
+            )
+            .unwrap();
+        let glass = registry.id("test:glass").unwrap();
+        let mut world = World::with_registry(Arc::new(registry));
+        world.set_block(IVec3::new(0, 0, 0), stone());
+        world.set_block(IVec3::new(1, 0, 0), glass);
+        world.set_block(IVec3::new(2, 0, 0), glass);
+        let mesh = mesh_culled(&world, IVec3::ZERO);
+        // Pierre : 6 faces (celle contre le verre reste visible à travers lui).
+        // Premier verre : 4 faces (cachées contre la pierre, opaque, et contre l'autre verre).
+        // Second verre : 5 faces (pas de face entre deux blocs de verre identiques).
+        assert_eq!(mesh.quad_count(), 6 + 4 + 5);
+    }
+
+    #[test]
     fn missing_chunk_gives_empty_mesh() {
         let world = World::new();
         assert!(mesh_culled(&world, IVec3::ZERO).is_empty());
@@ -428,7 +467,7 @@ mod tests {
     #[test]
     fn different_blocks_are_not_merged() {
         let mut world = world_with(&[IVec3::new(0, 0, 0)]);
-        world.set_block(IVec3::new(1, 0, 0), BlockId::GRASS);
+        world.set_block(IVec3::new(1, 0, 0), grass());
         let greedy = mesh_greedy(&world, IVec3::ZERO);
         // Le dessus reste en deux quads : pierre et herbe n'ont pas la même couleur.
         assert_eq!(quads_facing(&greedy, Vec3::Y), 2);

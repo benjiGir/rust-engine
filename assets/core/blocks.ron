@@ -1,0 +1,21 @@
+// Les blocs de base du jeu, chargés au démarrage par `BlockRegistry`.
+//
+// Chaque bloc a un identifiant texte « espace:nom ». L'espace de noms `core`
+// est réservé au jeu ; un mod utilise le nom de son dossier (voir mods/example).
+//
+// Propriétés (valeurs par défaut entre parenthèses) :
+// - name : nom affiché ;
+// - color : couleur linéaire (r, g, b), entre 0 et 1 ;
+// - solid (true) : le joueur ne peut pas le traverser ;
+// - transparent (false) : on voit à travers (les faces derrière sont dessinées) ;
+// - selectable (true) : le rayon du joueur peut le viser et le casser ;
+// - placeable (true) : il apparaît dans la barre de blocs.
+//
+// L'ordre compte : il fixe les identifiants numériques (1, 2, 3...) de cette partie.
+[
+    (id: "core:grass", name: "Herbe", color: (0.36, 0.62, 0.25)),
+    (id: "core:dirt", name: "Terre", color: (0.45, 0.32, 0.2)),
+    (id: "core:stone", name: "Pierre", color: (0.5, 0.5, 0.52)),
+    (id: "core:sand", name: "Sable", color: (0.86, 0.78, 0.52)),
+    (id: "core:snow", name: "Neige", color: (0.95, 0.96, 1.0)),
+]

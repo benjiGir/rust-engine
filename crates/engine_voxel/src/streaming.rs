@@ -40,7 +40,8 @@ use std::sync::Arc;
 use crossbeam_channel::{Receiver, Sender};
 use glam::{IVec3, Vec3};
 
-use crate::chunk::Chunk;
+use crate::block::BlockId;
+use crate::chunk::{CHUNK_SIZE, Chunk};
 use crate::generator::{TerrainGenerator, WORLD_HEIGHT_CHUNKS};
 use crate::mesh::{ChunkMesh, Mesher, Neighbourhood};
 use crate::world::World;
@@ -155,6 +156,12 @@ pub struct ChunkStreamer {
     sender: Sender<JobResult>,
     receiver: Receiver<JobResult>,
     events: VecDeque<StreamEvent>,
+    /// Chunks chargés modifiés par le joueur depuis leur génération.
+    edited: HashSet<IVec3>,
+    /// Chunks modifiés puis déchargés : on les garde en mémoire et on les rend
+    /// au lieu de les régénérer, sinon les modifications seraient perdues.
+    /// (La sauvegarde sur disque viendra plus tard.)
+    saved_edits: HashMap<IVec3, Arc<Chunk>>,
 }
 
 impl ChunkStreamer {
@@ -170,8 +177,9 @@ impl ChunkStreamer {
         Self {
             config,
             pool,
+            // Le monde partage le registre du générateur (avant que `generator` soit déplacé).
+            world: World::with_registry(generator.registry().clone()),
             generator: Arc::new(generator),
-            world: World::new(),
             slots: HashMap::new(),
             load_queue: VecDeque::new(),
             mesh_candidates: HashSet::new(),
@@ -181,6 +189,8 @@ impl ChunkStreamer {
             sender,
             receiver,
             events: VecDeque::new(),
+            edited: HashSet::new(),
+            saved_edits: HashMap::new(),
         }
     }
 
@@ -194,6 +204,79 @@ impl ChunkStreamer {
 
     pub fn config(&self) -> &StreamingConfig {
         &self.config
+    }
+
+    /// Vrai si les blocs de ce chunk sont connus (généré, ou hors de la hauteur du monde,
+    /// où il n'y a que de l'air). Le joueur ne doit pas bouger tant que son chunk n'est
+    /// pas prêt, sinon il tomberait à travers un sol pas encore chargé.
+    pub fn is_generated(&self, chunk: IVec3) -> bool {
+        !(0..WORLD_HEIGHT_CHUNKS).contains(&chunk.y)
+            || matches!(self.slots.get(&chunk), Some(Slot::Generated(_)))
+    }
+
+    /// Change un bloc et remaille tout de suite ce qui doit l'être.
+    ///
+    /// Renvoie `false` (et ne fait rien) si le chunk n'est pas encore généré.
+    /// Les maillages arrivent en tête de la file d'événements : le jeu les envoie
+    /// au GPU dès cette image, sans attendre derrière le chargement normal.
+    pub fn set_block(&mut self, pos: IVec3, block: BlockId) -> bool {
+        let (chunk, local) = World::split(pos);
+        if !matches!(self.slots.get(&chunk), Some(Slot::Generated(_))) {
+            return false;
+        }
+        if self.world.block(pos) == block {
+            return true;
+        }
+        // Copy-on-write : si une tâche de maillage lit encore ce chunk, elle garde
+        // l'ancienne version et nous modifions une copie (voir `World::chunk_mut`).
+        self.world.set_block(pos, block);
+        self.edited.insert(chunk);
+
+        // Un bloc au bord du chunk change aussi les faces du voisin qui le touche.
+        let mut to_remesh = vec![chunk];
+        for axis in 0..3 {
+            let mut offset = IVec3::ZERO;
+            if local[axis] == 0 {
+                offset[axis] = -1;
+            } else if local[axis] == CHUNK_SIZE - 1 {
+                offset[axis] = 1;
+            } else {
+                continue;
+            }
+            to_remesh.push(chunk + offset);
+        }
+        // Dans l'ordre inverse : `push_front` met donc le chunk modifié en premier.
+        for pos in to_remesh.into_iter().rev() {
+            self.remesh_now(pos);
+        }
+        true
+    }
+
+    /// Remaille un chunk sur ce thread, immédiatement.
+    ///
+    /// Un maillage prend moins d'une demi-milliseconde : pour 1 à 4 chunks, c'est plus
+    /// simple et plus réactif que de passer par les threads de fond, dont la file est
+    /// peut-être pleine de chunks à charger.
+    fn remesh_now(&mut self, pos: IVec3) {
+        if !matches!(self.slots.get(&pos), Some(Slot::Generated(_))) {
+            return;
+        }
+        if !self.neighbours_generated(pos) {
+            // Il sera maillé normalement quand ses voisins arriveront.
+            self.slots.insert(pos, Slot::Generated(MeshState::Missing));
+            self.mesh_candidates.insert(pos);
+            return;
+        }
+        let mesh = Neighbourhood::from_world(&self.world, pos)
+            .map_or_else(ChunkMesh::default, |hood| self.config.mesher.mesh(&hood));
+        // `Done` : si une tâche de fond maillait l'ancienne version, son résultat
+        // (qui attend `Meshing`) sera jeté à l'arrivée.
+        self.slots.insert(pos, Slot::Generated(MeshState::Done));
+        // Un ancien maillage en attente ne doit pas écraser le nouveau.
+        self.events
+            .retain(|e| !matches!(e, StreamEvent::Mesh(p, _) if *p == pos));
+        // Un maillage vide est envoyé aussi : le jeu retire alors l'ancien.
+        self.events.push_front(StreamEvent::Mesh(pos, mesh));
     }
 
     /// Change d'algorithme de maillage et remaille tout ce qui est chargé.
@@ -267,7 +350,11 @@ impl ChunkStreamer {
             // Le dernier `Arc` disparaît ici (ou à la fin de la tâche qui le lit encore) :
             // `Drop` libère alors les 64 Ko du chunk. Côté GPU, c'est pareil : le jeu
             // retire le maillage, et les `wgpu::Buffer` sont libérés par leur `Drop`.
-            self.world.remove(pos);
+            let chunk = self.world.remove(pos);
+            if self.edited.remove(&pos) {
+                // Un chunk modifié devenu tout vide n'est plus dans le monde : on garde un chunk d'air.
+                self.saved_edits.insert(pos, chunk.unwrap_or_default());
+            }
             self.mesh_candidates.remove(&pos);
             self.events
                 .retain(|e| !matches!(e, StreamEvent::Mesh(p, _) if *p == pos));
@@ -359,8 +446,19 @@ impl ChunkStreamer {
             };
             // L'API `entry` : une seule recherche dans la table pour tester et insérer.
             if let Entry::Vacant(entry) = self.slots.entry(pos) {
-                entry.insert(Slot::Generating);
-                self.spawn_generation(pos);
+                // Un chunk modifié par le joueur revient tel qu'il l'a laissé.
+                if let Some(chunk) = self.saved_edits.remove(&pos) {
+                    entry.insert(Slot::Generated(MeshState::Missing));
+                    self.world.insert(pos, chunk);
+                    self.edited.insert(pos);
+                    self.mesh_candidates.insert(pos);
+                    for offset in NEIGHBOUR_OFFSETS {
+                        self.mesh_candidates.insert(pos + offset);
+                    }
+                } else {
+                    entry.insert(Slot::Generating);
+                    self.spawn_generation(pos);
+                }
             }
         }
     }
@@ -373,12 +471,14 @@ impl ChunkStreamer {
         let view = self.config.view_radius;
         self.slots.get(&pos) == Some(&Slot::Generated(MeshState::Missing))
             && horizontal_distance_sq(pos, centre) <= view * view
-            && NEIGHBOUR_OFFSETS.iter().all(|&offset| {
-                let neighbour = pos + offset;
-                // Au-dessus et en dessous du monde, il n'y a rien à attendre.
-                !(0..WORLD_HEIGHT_CHUNKS).contains(&neighbour.y)
-                    || matches!(self.slots.get(&neighbour), Some(Slot::Generated(_)))
-            })
+            && self.neighbours_generated(pos)
+    }
+
+    /// Les 6 voisins sont générés (au-dessus et en dessous du monde, rien à attendre).
+    fn neighbours_generated(&self, pos: IVec3) -> bool {
+        NEIGHBOUR_OFFSETS
+            .iter()
+            .all(|&offset| self.is_generated(pos + offset))
     }
 
     fn spawn_generation(&mut self, pos: IVec3) {
@@ -434,6 +534,7 @@ mod tests {
 
     use super::*;
     use crate::mesh::mesh_greedy;
+    use crate::registry::test_blocks::{snow, stone};
 
     const RADIUS: i32 = 2;
 
@@ -547,6 +648,104 @@ mod tests {
                 .keys()
                 .all(|p| horizontal_distance_sq(*p, IVec3::new(20, 0, 0)) <= 4 * 4)
         );
+    }
+
+    /// Le bloc opposé : de l'air devient de la pierre, un bloc plein devient de l'air.
+    fn toggled(s: &ChunkStreamer, pos: IVec3) -> BlockId {
+        if s.world().block(pos).is_air() {
+            stone()
+        } else {
+            BlockId::AIR
+        }
+    }
+
+    #[test]
+    fn editing_a_border_block_remeshes_both_chunks_at_once() {
+        let mut s = streamer();
+        pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        // x = 31 : dernier bloc du chunk x = 0, collé au chunk x = 1.
+        let pos = IVec3::new(31, 40, 5);
+        let block = toggled(&s, pos);
+        assert!(s.set_block(pos, block));
+        assert_eq!(s.world().block(pos), block);
+
+        // Les deux maillages sont en tête de file, sans attendre de tâche de fond.
+        let first: Vec<StreamEvent> = std::iter::from_fn(|| s.next_event()).take(2).collect();
+        let positions: Vec<IVec3> = first
+            .iter()
+            .map(|e| match e {
+                StreamEvent::Mesh(p, mesh) => {
+                    assert_eq!(mesh, &mesh_greedy(s.world(), *p), "maillage à jour");
+                    *p
+                }
+                StreamEvent::Unload(p) => panic!("déchargement inattendu de {p}"),
+            })
+            .collect();
+        assert_eq!(positions, [IVec3::new(0, 1, 0), IVec3::new(1, 1, 0)]);
+    }
+
+    #[test]
+    fn interior_edit_remeshes_only_its_chunk() {
+        let mut s = streamer();
+        pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        let pos = IVec3::new(10, 40, 10);
+        assert!(s.set_block(pos, toggled(&s, pos)));
+        let events: Vec<StreamEvent> = std::iter::from_fn(|| s.next_event()).collect();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], StreamEvent::Mesh(p, _) if p == IVec3::new(0, 1, 0)));
+    }
+
+    #[test]
+    fn edits_outside_loaded_chunks_are_refused() {
+        let mut s = streamer();
+        pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        assert!(!s.set_block(IVec3::new(5000, 40, 0), stone()));
+    }
+
+    #[test]
+    fn edits_survive_unloading() {
+        let mut s = streamer();
+        pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        let dug = IVec3::new(3, 20, 3); // sous terre : de la pierre (ou une grotte)
+        let built = IVec3::new(8, 120, 8); // dans le ciel
+        let dug_block = toggled(&s, dug);
+        assert!(s.set_block(dug, dug_block));
+        assert!(s.set_block(built, snow()));
+
+        // On part loin : tout est déchargé...
+        pump(&mut s, Vec3::new(20.0 * 32.0, 40.0, 5.0));
+        assert!(s.world().chunk(IVec3::ZERO).is_none());
+        // ... puis on revient : les modifications sont toujours là.
+        let events = pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        assert_eq!(s.world().block(dug), dug_block);
+        assert_eq!(s.world().block(built), snow());
+        // Et le chunk du ciel, vide à la génération, a bien un maillage pour ce bloc.
+        assert!(meshed(&events).contains_key(&IVec3::new(0, 3, 0)));
+    }
+
+    #[test]
+    fn mod_blocks_can_be_placed_and_meshed() {
+        use crate::registry::BlockRegistry;
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let registry = BlockRegistry::load(&repo.join("assets"), Some(&repo.join("mods"))).unwrap();
+        let ruby = registry.id("example:ruby").unwrap();
+        let ruby_color = registry.def(ruby).color;
+        let generator = TerrainGenerator::with_registry(7, Arc::new(registry)).unwrap();
+        let config = StreamingConfig {
+            view_radius: RADIUS,
+            ..StreamingConfig::default()
+        };
+        let mut s = ChunkStreamer::new(generator, config);
+        pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+
+        // Un rubis seul dans le ciel : 6 faces, toutes de sa couleur.
+        let pos = IVec3::new(8, 120, 8);
+        assert!(s.set_block(pos, ruby));
+        let Some(StreamEvent::Mesh(_, mesh)) = s.next_event() else {
+            panic!("pas de maillage");
+        };
+        assert_eq!(mesh.quad_count(), 6);
+        assert!(mesh.vertices.iter().all(|v| v.color == ruby_color));
     }
 
     #[test]

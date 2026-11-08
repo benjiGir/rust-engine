@@ -18,6 +18,7 @@ use winit::window::Window;
 
 use crate::camera::Camera;
 use crate::frustum::{Aabb, Frustum};
+use crate::lines::Lines;
 use crate::mesh::{self, ColorVertex, Vertex};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -106,6 +107,11 @@ pub struct Renderer {
     chunk_pipeline: wgpu::RenderPipeline,
     meshes: HashMap<MeshId, GpuMesh>,
     next_mesh_id: u64,
+    lines: Lines,
+    /// Une boîte dont on dessine les arêtes, par exemple le bloc visé.
+    pub outline: Option<Aabb>,
+    /// Une croix au centre de l'écran.
+    pub crosshair: bool,
     /// Couleur du ciel.
     pub clear_color: wgpu::Color,
     /// Ne dessine que les maillages dont la boîte touche le champ de vision.
@@ -242,6 +248,8 @@ impl Renderer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
+        let lines = Lines::new(&device, &camera_layout, format, DEPTH_FORMAT);
+
         let instance_capacity = 1024;
         let instance_buffer = create_instance_buffer(&device, instance_capacity);
 
@@ -261,6 +269,9 @@ impl Renderer {
             instance_capacity,
             instance_count: 0,
             chunk_pipeline,
+            lines,
+            outline: None,
+            crosshair: false,
             meshes: HashMap::new(),
             next_mesh_id: 0,
             frustum_culling: true,
@@ -400,6 +411,9 @@ impl Renderer {
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
+        // Les écritures de tampons partent avant les commandes de cette image.
+        self.lines
+            .upload(&self.queue, self.outline.as_ref(), self.aspect());
 
         let mut encoder = self
             .device
@@ -457,6 +471,10 @@ impl Renderer {
                 stats.meshes_drawn += 1;
                 stats.triangles += (mesh.index_count / 3) as usize;
             }
+
+            // En dernier, par-dessus le décor.
+            self.lines
+                .draw(&mut pass, self.outline.is_some(), self.crosshair);
         }
         self.queue.submit([encoder.finish()]);
         self.queue.present(frame);

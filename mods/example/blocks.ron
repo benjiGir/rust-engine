@@ -1,0 +1,8 @@
+// Un mod d'exemple : il ajoute un bloc de rubis.
+//
+// Un mod est un dossier dans `mods/`. Son nom (ici `example`) est son espace
+// de noms : tous ses identifiants doivent commencer par `example:`.
+// Les mods sont chargés après `core`, par ordre alphabétique de dossier.
+[
+    (id: "example:ruby", name: "Rubis", color: (0.7, 0.05, 0.12)),
+]

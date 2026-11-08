@@ -1,54 +1,87 @@
 //! Le futur mini-Minecraft.
 //!
-//! Étape actuelle : un monde infini, généré et maillé sur des threads de fond
-//! autour de la caméra.
-//! - Clic gauche : capturer la souris. Échap : la libérer (deuxième Échap : quitter).
-//! - ZQSD (AZERTY) ou WASD (QWERTY) : se déplacer. Espace / Maj : monter / descendre.
-//! - Ctrl gauche : aller plus vite.
-//! - F1 : basculer entre maillage « culling » et « greedy ».
-//! - F2 : activer / désactiver le frustum culling.
+//! Étape actuelle : un monde infini, généré en tâche de fond, où l'on marche,
+//! saute, casse et pose des blocs. Les blocs viennent de `assets/core/blocks.ron`
+//! et des mods (`mods/<nom>/blocks.ron`).
+//! - Clic gauche : capturer la souris, puis casser le bloc visé.
+//!   Clic droit : poser le bloc choisi. Touches 1 à 9 : choisir le bloc.
+//! - ZQSD (AZERTY) ou WASD (QWERTY) : se déplacer. Espace : sauter (en vol : monter).
+//!   Maj : descendre (en vol). Ctrl gauche : courir.
+//! - F : basculer entre marche et vol libre.
+//! - F1 : maillage « culling » ou « greedy ». F2 : frustum culling.
+//! - Échap : libérer la souris (deuxième Échap : quitter).
 //!
 //! Variables d'environnement :
 //! - `VOXEL_SEED=123` : la graine du monde (42 par défaut).
 //! - `VOXEL_RADIUS=24` : le rayon de vue en chunks (16 par défaut).
-//! - `VOXEL_AUTOFLY=1` : la caméra avance seule, à la vitesse du sprint, pour mesurer
-//!   le chargement sans toucher au clavier. `VOXEL_AUTOFLY=100` : 100 blocs par seconde.
+//! - `VOXEL_ASSETS=chemin` : le dossier `assets` (les mods sont dans `../mods`).
+//! - `VOXEL_AUTOFLY=1` : vol automatique, pour mesurer le chargement.
+//!   `VOXEL_AUTOFLY=100` : à 100 blocs par seconde.
+//! - `VOXEL_DEMO=1` : le joueur marche, saute, casse et pose des blocs tout seul
+//!   (macOS empêche les outils de test d'envoyer des touches).
+
+mod player;
+mod stats;
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use engine_core::winit::dpi::PhysicalSize;
 use engine_core::winit::event::MouseButton;
 use engine_core::winit::keyboard::KeyCode;
 use engine_core::{AppConfig, Context, Game};
 use engine_render::{Aabb, Camera, ColorVertex, Fog, MeshId, RenderStats, Renderer};
 use engine_voxel::{
-    CHUNK_SIZE, ChunkMesh, ChunkStreamer, MeshVertex, StreamEvent, StreamingConfig,
-    TerrainGenerator,
+    BlockId, BlockRegistry, CHUNK_SIZE, ChunkMesh, ChunkStreamer, MeshVertex, RayHit, StreamEvent,
+    StreamingConfig, TerrainGenerator, raycast,
 };
 use glam::{IVec3, Vec2, Vec3};
 
+use player::{FLY_SPEED, FLY_SPRINT_FACTOR, MoveMode, Player, SPRINT_SPEED, WALK_SPEED};
+use stats::FrameStats;
+
 const MOUSE_SENSITIVITY: f32 = 0.0025;
-const MOVE_SPEED: f32 = 12.0;
-const SPRINT_FACTOR: f32 = 3.0;
 const DEFAULT_SEED: u32 = 42;
 /// Maillages envoyés au GPU au maximum par image. Chaque envoi crée deux tampons :
 /// les étaler sur plusieurs images évite une saccade quand 50 chunks arrivent d'un coup.
+/// Les maillages d'un bloc modifié passent en tête de file : ils sont envoyés tout de suite.
 const UPLOAD_BUDGET: usize = 16;
 /// Hauteur de vol au départ et en mode `VOXEL_AUTOFLY`, au-dessus du sol.
 const FLY_ALTITUDE: f32 = 30.0;
-const STATS_LOG_INTERVAL: Duration = Duration::from_secs(2);
+/// Portée du joueur, en blocs.
+const REACH: f32 = 6.0;
+const HOTBAR_KEYS: [KeyCode; 9] = [
+    KeyCode::Digit1,
+    KeyCode::Digit2,
+    KeyCode::Digit3,
+    KeyCode::Digit4,
+    KeyCode::Digit5,
+    KeyCode::Digit6,
+    KeyCode::Digit7,
+    KeyCode::Digit8,
+    KeyCode::Digit9,
+];
 
 struct VoxelGame {
     renderer: Renderer,
     camera: Camera,
     mouse_captured: bool,
     streamer: ChunkStreamer,
+    registry: Arc<BlockRegistry>,
     /// Le maillage GPU de chaque chunk affiché.
     meshes: HashMap<IVec3, MeshId>,
+    player: Player,
+    /// Les blocs plaçables du registre (touches 1 à 9) et celui choisi.
+    hotbar: Vec<BlockId>,
+    selected: usize,
+    /// Le bloc visé, mis à jour à chaque image.
+    target: Option<RayHit>,
     /// `Some(vitesse)` en mode vol automatique.
     autofly: Option<f32>,
+    demo: Option<Demo>,
     frame_stats: FrameStats,
     last_render: RenderStats,
 }
@@ -57,6 +90,10 @@ impl Game for VoxelGame {
     fn new(ctx: &mut Context) -> Result<Self> {
         // `?` remonte l'erreur au moteur, qui l'affichera à la fermeture.
         let mut renderer = Renderer::new(ctx.window.clone())?;
+        renderer.crosshair = true;
+
+        let registry = Arc::new(load_registry()?);
+        let hotbar: Vec<BlockId> = registry.placeable().collect();
 
         let seed = env_parse("VOXEL_SEED").unwrap_or(DEFAULT_SEED);
         let config = StreamingConfig {
@@ -74,32 +111,47 @@ impl Game for VoxelGame {
             config.view_radius,
             config.worker_threads
         );
-        let streamer = ChunkStreamer::new(TerrainGenerator::new(seed), config);
+        let generator = TerrainGenerator::with_registry(seed, registry.clone())?;
+        let streamer = ChunkStreamer::new(generator, config);
 
-        // On démarre au-dessus du sol, quelle que soit la graine.
+        // `std::env::var` renvoie `Err` si la variable n'existe pas : `.ok()` en fait un `Option`.
+        let autofly = std::env::var("VOXEL_AUTOFLY").ok().map(|v| {
+            let speed: f32 = v.parse().unwrap_or(0.0);
+            // `VOXEL_AUTOFLY=1` veut dire « oui », pas « 1 bloc par seconde ».
+            if speed <= 1.0 {
+                FLY_SPEED * FLY_SPRINT_FACTOR
+            } else {
+                speed
+            }
+        });
+        let demo = std::env::var("VOXEL_DEMO").ok().map(|_| Demo::new());
+
+        // On démarre au-dessus du sol, quelle que soit la graine. En marche, le joueur
+        // tombe jusqu'au sol dès que le terrain est chargé.
         let ground = streamer.generator().column(0, 0).height as f32;
+        let mode = if autofly.is_some() {
+            MoveMode::Fly
+        } else {
+            MoveMode::Walk
+        };
+        let altitude = if mode == MoveMode::Walk {
+            3.0
+        } else {
+            FLY_ALTITUDE
+        };
+        let player = Player::new(Vec3::new(0.5, ground + altitude, 0.5), mode);
         let camera = Camera {
-            position: Vec3::new(0.5, ground + FLY_ALTITUDE, 0.5),
+            position: player.eye(1.0),
             yaw: 45f32.to_radians(),
-            pitch: -20f32.to_radians(),
+            pitch: if demo.is_some() { -35f32 } else { -20f32 }.to_radians(),
             far: view_distance * 1.5,
             ..Camera::default()
         };
-
-        // `std::env::var` renvoie `Err` si la variable n'existe pas : `.ok()` en fait un `Option`.
-        let autofly = std::env::var("VOXEL_AUTOFLY")
-            .ok()
-            .map(|v| v.parse().unwrap_or(MOVE_SPEED * SPRINT_FACTOR))
-            // `VOXEL_AUTOFLY=1` veut dire « oui », pas « 1 bloc par seconde ».
-            .map(|speed: f32| {
-                if speed <= 1.0 {
-                    MOVE_SPEED * SPRINT_FACTOR
-                } else {
-                    speed
-                }
-            });
         if let Some(speed) = autofly {
             log::info!("vol automatique à {speed} blocs/s");
+        }
+        if demo.is_some() {
+            log::info!("démo : le joueur marche, saute, casse et pose des blocs tout seul");
         }
 
         Ok(Self {
@@ -107,48 +159,95 @@ impl Game for VoxelGame {
             camera,
             mouse_captured: false,
             streamer,
+            registry,
             meshes: HashMap::new(),
+            player,
+            hotbar,
+            selected: 0,
+            target: None,
             autofly,
+            demo,
             frame_stats: FrameStats::new(),
             last_render: RenderStats::default(),
         })
     }
 
+    /// La physique du joueur, à 60 Hz exactement.
+    fn fixed_update(&mut self, ctx: &mut Context) {
+        let input = &ctx.input;
+        let (walk, jump) = match &self.demo {
+            Some(_) => Demo::walk(&self.player, &self.camera, &self.streamer),
+            None => {
+                let speed = if input.key_held(KeyCode::ControlLeft) {
+                    SPRINT_SPEED
+                } else {
+                    WALK_SPEED
+                };
+                let direction = self.wish_direction(ctx, false);
+                (direction * speed, input.key_held(KeyCode::Space))
+            }
+        };
+        self.player
+            .fixed_update(&self.streamer, walk, jump, ctx.fixed_dt);
+    }
+
     fn update(&mut self, ctx: &mut Context, dt: f32) {
-        self.handle_mouse_capture(ctx);
+        let click_used = self.handle_mouse_capture(ctx);
         if self.mouse_captured {
             self.look(ctx.input.mouse_delta());
         }
-        match self.autofly {
-            Some(speed) => self.autofly(speed, dt),
-            None => self.fly(ctx, dt),
+        self.handle_keys(ctx);
+
+        if self.player.mode == MoveMode::Fly {
+            match self.autofly {
+                Some(speed) => self.autofly(speed, dt),
+                None => {
+                    let mut speed = FLY_SPEED;
+                    if ctx.input.key_held(KeyCode::ControlLeft) {
+                        speed *= FLY_SPRINT_FACTOR;
+                    }
+                    let direction = self.wish_direction(ctx, true);
+                    self.player.fly(direction, speed, dt);
+                }
+            }
         }
 
-        if ctx.input.key_pressed(KeyCode::F1) {
-            let mesher = self.streamer.config().mesher.other();
-            log::info!("maillage {} : on remaille tout", mesher.name());
-            self.streamer.set_mesher(mesher);
+        // Le bloc visé, depuis la caméra de la dernière image.
+        self.target = raycast(
+            self.streamer.world(),
+            self.camera.position,
+            self.camera.forward(),
+            REACH,
+        );
+        if self.mouse_captured && !click_used {
+            if ctx.input.mouse_pressed(MouseButton::Left) {
+                self.break_target();
+            }
+            if ctx.input.mouse_pressed(MouseButton::Right) {
+                self.place_at_target();
+            }
         }
-        if ctx.input.key_pressed(KeyCode::F2) {
-            self.renderer.frustum_culling = !self.renderer.frustum_culling;
-            let state = if self.renderer.frustum_culling {
-                "activé"
-            } else {
-                "désactivé"
-            };
-            log::info!("frustum culling {state}");
+        if self.demo.is_some() {
+            self.run_demo(dt);
         }
 
         // Tout le travail du monde côté thread principal : on le chronomètre.
         let start = Instant::now();
-        self.streamer.update(self.camera.position);
+        self.streamer.update(self.player.eye(1.0));
         let streamed = Instant::now();
         let uploads = self.apply_stream_events();
         self.frame_stats
             .record_streaming(streamed - start, streamed.elapsed(), uploads);
     }
 
-    fn render(&mut self, ctx: &mut Context, _alpha: f32) {
+    fn render(&mut self, ctx: &mut Context, alpha: f32) {
+        // Entre deux pas de physique : la caméra est interpolée (voir `player.rs`).
+        self.camera.position = self.player.eye(alpha);
+        self.renderer.outline = self.target.map(|hit| {
+            let min = hit.block_pos.as_vec3();
+            Aabb::new(min, min + Vec3::ONE)
+        });
+
         let start = Instant::now();
         let result = self.renderer.render(&self.camera);
         self.frame_stats.record_render(start.elapsed());
@@ -167,6 +266,92 @@ impl Game for VoxelGame {
 }
 
 impl VoxelGame {
+    /// Direction voulue d'après les touches. Horizontale en marche ; en vol,
+    /// Espace et Maj ajoutent la verticale.
+    fn wish_direction(&self, ctx: &Context, vertical: bool) -> Vec3 {
+        let input = &ctx.input;
+        let mut bindings = vec![
+            (KeyCode::KeyW, self.camera.forward_flat()),
+            (KeyCode::KeyS, -self.camera.forward_flat()),
+            (KeyCode::KeyD, self.camera.right()),
+            (KeyCode::KeyA, -self.camera.right()),
+        ];
+        if vertical {
+            bindings.push((KeyCode::Space, Vec3::Y));
+            bindings.push((KeyCode::ShiftLeft, -Vec3::Y));
+        }
+        // Chaque touche ajoute une direction ; on somme puis on normalise.
+        // `normalize_or_zero` évite une division par zéro quand aucune touche n'est tenue.
+        bindings
+            .iter()
+            .filter(|(key, _)| input.key_held(*key))
+            .map(|(_, dir)| *dir)
+            .sum::<Vec3>()
+            .normalize_or_zero()
+    }
+
+    fn handle_keys(&mut self, ctx: &Context) {
+        let input = &ctx.input;
+        if input.key_pressed(KeyCode::KeyF) {
+            self.player.toggle_mode();
+            log::info!("mode {}", self.player.mode.name());
+        }
+        // `zip` associe chaque touche à un bloc ; s'il y a moins de 9 blocs, on s'arrête avant.
+        for (i, (key, _)) in HOTBAR_KEYS.iter().zip(&self.hotbar).enumerate() {
+            if input.key_pressed(*key) {
+                self.selected = i;
+            }
+        }
+        if input.key_pressed(KeyCode::F1) {
+            let mesher = self.streamer.config().mesher.other();
+            log::info!("maillage {} : on remaille tout", mesher.name());
+            self.streamer.set_mesher(mesher);
+        }
+        if input.key_pressed(KeyCode::F2) {
+            self.renderer.frustum_culling = !self.renderer.frustum_culling;
+            let state = if self.renderer.frustum_culling {
+                "activé"
+            } else {
+                "désactivé"
+            };
+            log::info!("frustum culling {state}");
+        }
+    }
+
+    /// Casse le bloc visé. Renvoie sa position si c'est fait.
+    fn break_target(&mut self) -> Option<IVec3> {
+        let hit = self.target?;
+        self.edit(hit.block_pos, BlockId::AIR)
+            .then_some(hit.block_pos)
+    }
+
+    /// Pose le bloc choisi contre la face visée. Renvoie sa position si c'est fait.
+    fn place_at_target(&mut self) -> Option<IVec3> {
+        let hit = self.target?;
+        let block = *self.hotbar.get(self.selected)?;
+        let pos = hit.block_pos + hit.normal;
+        // Normale nulle : le rayon part de l'intérieur d'un bloc, pas de face où poser.
+        if hit.normal == IVec3::ZERO || !self.streamer.world().block(pos).is_air() {
+            return None;
+        }
+        if self.player.current_body().overlaps_block(pos) {
+            log::debug!("impossible de poser un bloc dans le joueur");
+            return None;
+        }
+        self.edit(pos, block).then_some(pos)
+    }
+
+    fn edit(&mut self, pos: IVec3, block: BlockId) -> bool {
+        let start = Instant::now();
+        let done = self.streamer.set_block(pos, block);
+        if done {
+            self.frame_stats.record_edit(start.elapsed());
+            // Le bloc a changé : le rayon doit être relancé à la prochaine image.
+            self.target = None;
+        }
+        done
+    }
+
     /// Applique les résultats du streamer côté GPU, dans la limite du budget.
     /// Renvoie le nombre de maillages envoyés.
     fn apply_stream_events(&mut self) -> usize {
@@ -203,9 +388,20 @@ impl VoxelGame {
         let render = self.last_render;
         let pending = stream.queued + stream.in_flight + stream.meshes_waiting;
         let triangles = render.triangles as f64 / 1e6;
+        let block = self
+            .hotbar
+            .get(self.selected)
+            .map_or("aucun", |&b| self.registry.def(b).name.as_str());
+        let frozen = if self.player.frozen && self.player.mode == MoveMode::Walk {
+            " (chargement…)"
+        } else {
+            ""
+        };
         ctx.status = format!(
-            "{} | {} chunks chargés | {pending} en attente | {}/{} dessinés | {triangles:.2} M triangles",
-            self.streamer.config().mesher.name(),
+            "{}{frozen} | {block} [{}/{}] | {} chunks | {pending} en attente | {}/{} dessinés | {triangles:.2} M tri",
+            self.player.mode.name(),
+            self.selected + 1,
+            self.hotbar.len(),
             stream.loaded,
             render.meshes_drawn,
             render.meshes_total,
@@ -213,32 +409,35 @@ impl VoxelGame {
 
         if let Some(report) = self.frame_stats.tick() {
             log::info!(
-                "image : moy {:.2} ms, max {:.2} ms | streaming : max {:.2} ms, envois GPU : max {:.2} ms ({} au total) | rendu : max {:.2} ms | \
-                 chunks : {} chargés, {} à générer, {} en cours, {} à envoyer | \
-                 dessinés {}/{}, {triangles:.2} M triangles | caméra {:.0?}",
+                "image : moy {:.2} ms, max {:.2} ms | streaming : max {:.2} ms, envois GPU : max {:.2} ms ({} au total) | \
+                 rendu : max {:.2} ms | modifs : {} (max {:.2} ms) | chunks : {} chargés, {} à générer, {} en cours | \
+                 dessinés {}/{}, {triangles:.2} M triangles",
                 report.avg_frame_ms,
                 report.max_frame_ms,
                 report.max_streaming_ms,
                 report.max_upload_ms,
                 report.uploads,
                 report.max_render_ms,
+                report.edits,
+                report.max_edit_ms,
                 stream.loaded,
                 stream.queued,
                 stream.in_flight,
-                stream.meshes_waiting,
                 render.meshes_drawn,
                 render.meshes_total,
-                self.camera.position.to_array(),
             );
         }
     }
 
-    fn handle_mouse_capture(&mut self, ctx: &mut Context) {
+    /// Renvoie `true` si ce clic a servi à capturer la souris (il ne casse donc rien).
+    fn handle_mouse_capture(&mut self, ctx: &mut Context) -> bool {
         let input = &ctx.input;
         if !self.mouse_captured && input.mouse_pressed(MouseButton::Left) {
             self.mouse_captured = true;
             ctx.set_cursor_captured(true);
-        } else if input.key_pressed(KeyCode::Escape) {
+            return true;
+        }
+        if input.key_pressed(KeyCode::Escape) {
             if self.mouse_captured {
                 self.mouse_captured = false;
                 ctx.set_cursor_captured(false);
@@ -246,6 +445,7 @@ impl VoxelGame {
                 ctx.exit();
             }
         }
+        false
     }
 
     fn look(&mut self, delta: Vec2) {
@@ -254,44 +454,117 @@ impl VoxelGame {
             .clamp(-Camera::MAX_PITCH, Camera::MAX_PITCH);
     }
 
-    fn fly(&mut self, ctx: &Context, dt: f32) {
-        let input = &ctx.input;
-        // Chaque touche ajoute une direction ; on somme puis on normalise.
-        let bindings = [
-            (KeyCode::KeyW, self.camera.forward_flat()),
-            (KeyCode::KeyS, -self.camera.forward_flat()),
-            (KeyCode::KeyD, self.camera.right()),
-            (KeyCode::KeyA, -self.camera.right()),
-            (KeyCode::Space, Vec3::Y),
-            (KeyCode::ShiftLeft, -Vec3::Y),
-        ];
-        let direction: Vec3 = bindings
-            .iter()
-            .filter(|(key, _)| input.key_held(*key))
-            .map(|(_, dir)| *dir)
-            .sum();
-
-        let mut speed = MOVE_SPEED;
-        if input.key_held(KeyCode::ControlLeft) {
-            speed *= SPRINT_FACTOR;
-        }
-        // `normalize_or_zero` évite une division par zéro quand aucune touche n'est tenue.
-        self.camera.position += direction.normalize_or_zero() * speed * dt;
-    }
-
     /// Avance tout droit en suivant le relief, pour mesurer le chargement.
     fn autofly(&mut self, speed: f32, dt: f32) {
-        self.camera.position += self.camera.forward_flat() * speed * dt;
-        let p = self.camera.position;
+        let mut eye = self.player.eye(1.0) + self.camera.forward_flat() * speed * dt;
         let ground = self
             .streamer
             .generator()
-            .column(p.x.floor() as i32, p.z.floor() as i32)
+            .column(eye.x.floor() as i32, eye.z.floor() as i32)
             .height as f32;
         // On rejoint doucement l'altitude visée au lieu de sauter d'un coup.
-        let target = ground + FLY_ALTITUDE;
-        self.camera.position.y += (target - p.y) * (dt * 2.0).min(1.0);
+        eye.y += (ground + FLY_ALTITUDE - eye.y) * (dt * 2.0).min(1.0);
+        self.player.set_fly_eye(eye);
     }
+
+    /// Une action de démo par seconde : casser, puis poser, en alternance.
+    fn run_demo(&mut self, dt: f32) {
+        let Some(demo) = self.demo.as_mut() else {
+            return;
+        };
+        demo.timer += dt;
+        if demo.timer < 1.0 || self.player.frozen {
+            return;
+        }
+        demo.timer = 0.0;
+        demo.breaking = !demo.breaking;
+        let breaking = demo.breaking;
+        // On essaie aussi les blocs des mods : à chaque pose, le suivant de la barre.
+        if !breaking {
+            self.selected = (self.selected + 1) % self.hotbar.len().max(1);
+        }
+        let before = Instant::now();
+        let result = if breaking {
+            self.break_target()
+        } else {
+            self.place_at_target()
+        };
+        let elapsed = before.elapsed();
+        let body = self.player.body;
+        let action = if breaking { "cassé" } else { "posé" };
+        let block = self
+            .hotbar
+            .get(self.selected)
+            .map_or("?", |&b| self.registry.def(b).key.as_str());
+        match result {
+            Some(pos) => log::info!(
+                "démo : {action} {} en {:.2} ms ({}) | pieds {:.1?} au sol : {} | {} maillages en attente",
+                pos,
+                elapsed.as_secs_f32() * 1000.0,
+                if breaking { "-" } else { block },
+                body.position.to_array(),
+                body.on_ground,
+                self.streamer.stats().meshes_waiting,
+            ),
+            None => log::info!(
+                "démo : rien à {} (cible {:?}) | pieds {:.1?}",
+                if breaking { "casser" } else { "poser" },
+                self.target.map(|t| t.block_pos),
+                body.position.to_array()
+            ),
+        }
+    }
+}
+
+/// Le mode `VOXEL_DEMO` : un joueur automatique pour tester sans clavier.
+struct Demo {
+    timer: f32,
+    breaking: bool,
+}
+
+impl Demo {
+    fn new() -> Self {
+        Self {
+            timer: 0.0,
+            breaking: false,
+        }
+    }
+
+    /// Avance tout droit en courant ; saute quand un bloc barre le chemin.
+    fn walk(player: &Player, camera: &Camera, streamer: &ChunkStreamer) -> (Vec3, bool) {
+        let forward = camera.forward_flat();
+        let ahead = player.body.position + forward * 0.8 + Vec3::Y * 0.5;
+        let blocked = streamer.world().is_solid(ahead.floor().as_ivec3());
+        (forward * SPRINT_SPEED, blocked)
+    }
+}
+
+/// Lit le registre des blocs : `assets/core` puis les mods de `mods/`.
+fn load_registry() -> Result<BlockRegistry> {
+    let assets = assets_dir();
+    let mods = assets.parent().map(|root| root.join("mods"));
+    let registry = BlockRegistry::load(&assets, mods.as_deref())
+        .with_context(|| format!("chargement des blocs depuis {}", assets.display()))?;
+    let keys: Vec<&str> = registry
+        .iter()
+        .skip(1)
+        .map(|(_, def)| def.key.as_str())
+        .collect();
+    log::info!("{} blocs chargés : {}", keys.len(), keys.join(", "));
+    Ok(registry)
+}
+
+/// `VOXEL_ASSETS`, sinon `./assets`, sinon le dossier du dépôt (connu à la compilation).
+fn assets_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("VOXEL_ASSETS") {
+        return dir.into();
+    }
+    let local = PathBuf::from("assets");
+    if local.is_dir() {
+        return local;
+    }
+    // `env!` lit une variable au moment de la compilation : ici, le dossier de cette crate.
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets")
 }
 
 /// Envoie un maillage au GPU. `None` s'il est vide.
@@ -318,83 +591,6 @@ fn gpu_vertices(vertices: &[MeshVertex]) -> &[ColorVertex] {
 /// `T: FromStr` : n'importe quel type qui sait se lire depuis du texte.
 fn env_parse<T: std::str::FromStr>(name: &str) -> Option<T> {
     std::env::var(name).ok()?.parse().ok()
-}
-
-/// Temps d'image moyen et maximum, pour vérifier qu'il n'y a pas de saccade.
-struct FrameStats {
-    window_start: Instant,
-    last_frame: Instant,
-    frames: u32,
-    max_frame: Duration,
-    /// Travail du streamer sur le thread principal (tri, réception, lancement des tâches).
-    max_streaming: Duration,
-    /// Création des tampons GPU.
-    max_upload: Duration,
-    /// `Renderer::render` (attente de l'image suivante comprise).
-    max_render: Duration,
-    uploads: usize,
-}
-
-struct FrameReport {
-    avg_frame_ms: f32,
-    max_frame_ms: f32,
-    max_streaming_ms: f32,
-    max_upload_ms: f32,
-    max_render_ms: f32,
-    uploads: usize,
-}
-
-impl FrameStats {
-    fn new() -> Self {
-        let now = Instant::now();
-        Self {
-            window_start: now,
-            last_frame: now,
-            frames: 0,
-            max_frame: Duration::ZERO,
-            max_streaming: Duration::ZERO,
-            max_upload: Duration::ZERO,
-            max_render: Duration::ZERO,
-            uploads: 0,
-        }
-    }
-
-    fn record_streaming(&mut self, streaming: Duration, upload: Duration, uploads: usize) {
-        self.max_streaming = self.max_streaming.max(streaming);
-        self.max_upload = self.max_upload.max(upload);
-        self.uploads += uploads;
-    }
-
-    fn record_render(&mut self, time: Duration) {
-        self.max_render = self.max_render.max(time);
-    }
-
-    /// À appeler une fois par image. Renvoie un bilan toutes les `STATS_LOG_INTERVAL`.
-    fn tick(&mut self) -> Option<FrameReport> {
-        let now = Instant::now();
-        self.max_frame = self.max_frame.max(now - self.last_frame);
-        self.last_frame = now;
-        self.frames += 1;
-
-        let elapsed = now - self.window_start;
-        if elapsed < STATS_LOG_INTERVAL {
-            return None;
-        }
-        let report = FrameReport {
-            avg_frame_ms: elapsed.as_secs_f32() * 1000.0 / self.frames as f32,
-            max_frame_ms: self.max_frame.as_secs_f32() * 1000.0,
-            max_streaming_ms: self.max_streaming.as_secs_f32() * 1000.0,
-            max_upload_ms: self.max_upload.as_secs_f32() * 1000.0,
-            max_render_ms: self.max_render.as_secs_f32() * 1000.0,
-            uploads: self.uploads,
-        };
-        // On repart à zéro ; `..Self::new()` remplit les champs non cités.
-        *self = Self {
-            last_frame: now,
-            ..Self::new()
-        };
-        Some(report)
-    }
 }
 
 fn main() -> Result<()> {
@@ -437,5 +633,16 @@ mod tests {
             gpu.as_ptr().cast::<u8>(),
             mesh.vertices.as_ptr().cast::<u8>()
         );
+    }
+
+    #[test]
+    fn game_finds_core_and_mod_blocks() {
+        let registry = load_registry().unwrap();
+        let hotbar: Vec<&str> = registry
+            .placeable()
+            .map(|id| registry.def(id).key.as_str())
+            .collect();
+        assert_eq!(hotbar.first(), Some(&"core:grass"));
+        assert!(hotbar.contains(&"example:ruby"), "{hotbar:?}");
     }
 }
