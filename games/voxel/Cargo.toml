@@ -1,0 +1,20 @@
+[package]
+name = "voxel"
+description = "Le futur mini-Minecraft. Pour l'instant : un monde infini chargé en tâche de fond et une caméra FPS."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+engine_core = { workspace = true }
+engine_render = { workspace = true }
+engine_voxel = { workspace = true }
+winit = { workspace = true }
+glam = { workspace = true }
+bytemuck = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+
+[lints]
+workspace = true

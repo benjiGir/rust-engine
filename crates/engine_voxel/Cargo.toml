@@ -1,0 +1,30 @@
+[package]
+name = "engine_voxel"
+description = "Monde voxel : blocs, chunks, génération procédurale, maillage et chargement en tâche de fond."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# Aucune dépendance graphique : on peut tester et mesurer le maillage sans GPU.
+[dependencies]
+glam = { workspace = true }
+bytemuck = { workspace = true }
+noise = { workspace = true }
+rayon = { workspace = true }
+crossbeam-channel = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+# `harness = false` : criterion fournit sa propre fonction `main` à la place
+# du lanceur de tests intégré à Rust.
+[[bench]]
+name = "meshing"
+harness = false
+
+[[bench]]
+name = "generation"
+harness = false
+
+[lints]
+workspace = true

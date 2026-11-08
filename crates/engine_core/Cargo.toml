@@ -1,0 +1,15 @@
+[package]
+name = "engine_core"
+description = "Fenêtre, boucle de jeu à pas fixe et entrées."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+winit = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+glam = { workspace = true }
+
+[lints]
+workspace = true

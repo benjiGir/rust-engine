@@ -1,0 +1,53 @@
+[workspace]
+resolver = "3"
+# Ajoute chaque nouvelle crate ici au fil des phases.
+members = [
+    "exercises/game_of_life",
+    "crates/engine_core",
+    "crates/engine_render",
+    "crates/engine_voxel",
+    "games/voxel",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+
+# Versions partagées par toutes les crates du workspace.
+# Une crate les utilise avec `winit = { workspace = true }`.
+# On fige winit et wgpu : leur API change souvent entre deux versions.
+[workspace.dependencies]
+engine_core = { path = "crates/engine_core" }
+engine_render = { path = "crates/engine_render" }
+engine_voxel = { path = "crates/engine_voxel" }
+winit = "0.30.13"
+wgpu = "30.0.1"
+glam = { version = "0.34", features = ["bytemuck"] }
+bytemuck = { version = "1.25", features = ["derive"] }
+pollster = "1.0"
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.11"
+# Bruit procédural (Perlin, fBm) pour le terrain.
+noise = "0.9.0"
+# Pool de threads (« work stealing ») et canaux entre threads.
+rayon = "1.12.0"
+crossbeam-channel = "0.5.17"
+# Benchmarks : `cargo bench -p engine_voxel`.
+criterion = "0.8.2"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+# Optimise les dépendances même en debug : indispensable dès qu'on fait du rendu.
+[profile.dev.package."*"]
+opt-level = 2
+
+# `"*"` ne vise que les dépendances externes, pas nos crates. Le maillage parcourt
+# des millions de blocs : sans optimisation, mailler le monde prend plusieurs secondes.
+[profile.dev.package.engine_voxel]
+opt-level = 3
