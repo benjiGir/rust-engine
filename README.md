@@ -26,9 +26,11 @@ Le code de départ est dans `exercises/game_of_life/src/main.rs`.
 Cargo.toml              # workspace : ajoute chaque nouvelle crate dans `members`
 exercises/              # exercices d'apprentissage (phase 0)
 crates/engine_core      # fenêtre, boucle à pas fixe, entrées
-crates/engine_render    # rendu wgpu : cubes instanciés, maillages de chunks, frustum culling
-crates/engine_voxel     # blocs, chunks 32³, terrain procédural, maillage, chargement en tâche de fond
-games/voxel             # le mini-Minecraft (F1 : culling / greedy, F2 : frustum culling)
+crates/engine_render    # rendu wgpu : chunks (opaque + translucide), frustum culling, jour/nuit, captures
+crates/engine_voxel     # blocs (registre moddable), chunks 32³, terrain, lumière, maillage, chargement en tâche de fond
+games/voxel             # le mini-Minecraft (F : vol, T : temps, F1 : culling / greedy, F2 : frustum)
+assets/core/blocks.ron  # les blocs de base
+mods/                   # un dossier par mod (ex. mods/example/blocks.ron)
 games/                  # à venir : railway (city builder)
 .github/workflows/      # CI sur macOS et Windows : fmt, clippy, test
 ```
@@ -42,8 +44,12 @@ VOXEL_AUTOFLY=1 cargo run --release -p voxel             # la caméra avance seu
 cargo bench -p engine_voxel                              # génération d'un chunk, culling contre greedy
 ```
 
-Variables du jeu : `VOXEL_SEED` (graine, 42 par défaut), `VOXEL_RADIUS` (rayon de vue en chunks, 16),
-`VOXEL_AUTOFLY` (`1` = vitesse du sprint, ou une vitesse en blocs par seconde).
+Variables du jeu :
+- `VOXEL_SEED` (graine, 42 par défaut), `VOXEL_RADIUS` (rayon de vue en chunks, 16) ;
+- `VOXEL_TIME` (heure de départ : 0 minuit, 0.5 midi, 0.75 coucher), `VOXEL_DAY_LENGTH` (secondes, 600) ;
+- `VOXEL_AUTOFLY` (`1` = vitesse du sprint, ou une vitesse en blocs par seconde) ;
+- `VOXEL_DEMO=1` (le joueur marche, casse et pose seul) ;
+- `VOXEL_SCREENSHOTS=dossier` (enregistre 6 captures PNG puis quitte, même écran éteint).
 
 ## Avant chaque commit
 

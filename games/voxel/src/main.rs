@@ -7,7 +7,8 @@
 //!   Clic droit : poser le bloc choisi. Touches 1 à 9 : choisir le bloc.
 //! - ZQSD (AZERTY) ou WASD (QWERTY) : se déplacer. Espace : sauter (en vol : monter).
 //!   Maj : descendre (en vol). Ctrl gauche : courir.
-//! - F : basculer entre marche et vol libre.
+//! - F : basculer entre marche et vol libre. Dans l'eau, Espace fait remonter.
+//! - T : temps normal, accéléré (×40) ou figé.
 //! - F1 : maillage « culling » ou « greedy ». F2 : frustum culling.
 //! - Échap : libérer la souris (deuxième Échap : quitter).
 //!
@@ -17,10 +18,16 @@
 //! - `VOXEL_ASSETS=chemin` : le dossier `assets` (les mods sont dans `../mods`).
 //! - `VOXEL_AUTOFLY=1` : vol automatique, pour mesurer le chargement.
 //!   `VOXEL_AUTOFLY=100` : à 100 blocs par seconde.
+//! - `VOXEL_TIME=0.75` : l'heure de départ (0 minuit, 0,25 lever, 0,5 midi, 0,75 coucher).
+//! - `VOXEL_DAY_LENGTH=120` : la durée d'une journée en secondes (600 par défaut).
+//! - `VOXEL_SCREENSHOTS=dossier` : enregistre des captures (midi, coucher, nuit, torches,
+//!   lac, grotte) dans ce dossier, puis quitte. Marche même écran éteint.
 //! - `VOXEL_DEMO=1` : le joueur marche, saute, casse et pose des blocs tout seul
 //!   (macOS empêche les outils de test d'envoyer des touches).
 
+mod daytime;
 mod player;
+mod screenshots;
 mod stats;
 
 use std::collections::HashMap;
@@ -33,13 +40,14 @@ use engine_core::winit::dpi::PhysicalSize;
 use engine_core::winit::event::MouseButton;
 use engine_core::winit::keyboard::KeyCode;
 use engine_core::{AppConfig, Context, Game};
-use engine_render::{Aabb, Camera, ColorVertex, Fog, MeshId, RenderStats, Renderer};
+use engine_render::{Aabb, Camera, ColorVertex, Fog, MeshId, RenderStats, Renderer, Sun};
 use engine_voxel::{
     BlockId, BlockRegistry, CHUNK_SIZE, ChunkMesh, ChunkStreamer, MeshVertex, RayHit, StreamEvent,
     StreamingConfig, TerrainGenerator, raycast,
 };
 use glam::{IVec3, Vec2, Vec3};
 
+use daytime::DayCycle;
 use player::{FLY_SPEED, FLY_SPRINT_FACTOR, MoveMode, Player, SPRINT_SPEED, WALK_SPEED};
 use stats::FrameStats;
 
@@ -82,6 +90,9 @@ struct VoxelGame {
     /// `Some(vitesse)` en mode vol automatique.
     autofly: Option<f32>,
     demo: Option<Demo>,
+    /// `Some` en mode `VOXEL_SCREENSHOTS` : la visite guidée en cours.
+    tour: Option<screenshots::Tour>,
+    day: DayCycle,
     frame_stats: FrameStats,
     last_render: RenderStats,
 }
@@ -125,6 +136,9 @@ impl Game for VoxelGame {
             }
         });
         let demo = std::env::var("VOXEL_DEMO").ok().map(|_| Demo::new());
+        let tour = std::env::var("VOXEL_SCREENSHOTS")
+            .ok()
+            .map(|dir| screenshots::Tour::new(dir.into()));
 
         // On démarre au-dessus du sol, quelle que soit la graine. En marche, le joueur
         // tombe jusqu'au sol dès que le terrain est chargé.
@@ -167,6 +181,11 @@ impl Game for VoxelGame {
             target: None,
             autofly,
             demo,
+            tour,
+            day: DayCycle::new(
+                env_parse("VOXEL_TIME").unwrap_or(0.3),
+                env_parse("VOXEL_DAY_LENGTH").unwrap_or(600.0),
+            ),
             frame_stats: FrameStats::new(),
             last_render: RenderStats::default(),
         })
@@ -197,6 +216,7 @@ impl Game for VoxelGame {
             self.look(ctx.input.mouse_delta());
         }
         self.handle_keys(ctx);
+        self.day.update(dt);
 
         if self.player.mode == MoveMode::Fly {
             match self.autofly {
@@ -230,6 +250,10 @@ impl Game for VoxelGame {
         if self.demo.is_some() {
             self.run_demo(dt);
         }
+        if let Err(err) = self.run_tour(ctx) {
+            log::error!("captures : {err:#}");
+            ctx.exit();
+        }
 
         // Tout le travail du monde côté thread principal : on le chronomètre.
         let start = Instant::now();
@@ -243,6 +267,14 @@ impl Game for VoxelGame {
     fn render(&mut self, ctx: &mut Context, alpha: f32) {
         // Entre deux pas de physique : la caméra est interpolée (voir `player.rs`).
         self.camera.position = self.player.eye(alpha);
+        // L'heure décide du soleil et de la couleur du ciel, donc du brouillard.
+        self.renderer.sun = Sun {
+            direction: self.day.sun_direction(),
+            daylight: self.day.daylight(),
+            color: self.day.sun_color(),
+        };
+        let sky = self.day.sky_color().as_dvec3();
+        self.renderer.clear_color = engine_render::wgpu_color(sky.x, sky.y, sky.z);
         self.renderer.outline = self.target.map(|hit| {
             let min = hit.block_pos.as_vec3();
             Aabb::new(min, min + Vec3::ONE)
@@ -292,6 +324,10 @@ impl VoxelGame {
 
     fn handle_keys(&mut self, ctx: &Context) {
         let input = &ctx.input;
+        if input.key_pressed(KeyCode::KeyT) {
+            self.day.cycle_speed();
+            log::info!("temps {} ({})", self.day.speed.name(), self.day.clock());
+        }
         if input.key_pressed(KeyCode::KeyF) {
             self.player.toggle_mode();
             log::info!("mode {}", self.player.mode.name());
@@ -331,7 +367,10 @@ impl VoxelGame {
         let block = *self.hotbar.get(self.selected)?;
         let pos = hit.block_pos + hit.normal;
         // Normale nulle : le rayon part de l'intérieur d'un bloc, pas de face où poser.
-        if hit.normal == IVec3::ZERO || !self.streamer.world().block(pos).is_air() {
+        // On peut poser dans l'air ou à la place d'un liquide (l'eau).
+        let target = self.streamer.world().block(pos);
+        let replaceable = target.is_air() || self.registry.def(target).liquid;
+        if hit.normal == IVec3::ZERO || !replaceable {
             return None;
         }
         if self.player.current_body().overlaps_block(pos) {
@@ -398,7 +437,8 @@ impl VoxelGame {
             ""
         };
         ctx.status = format!(
-            "{}{frozen} | {block} [{}/{}] | {} chunks | {pending} en attente | {}/{} dessinés | {triangles:.2} M tri",
+            "{} | {}{frozen} | {block} [{}/{}] | {} chunks | {pending} en attente | {}/{} dessinés | {triangles:.2} M tri",
+            self.day.clock(),
             self.player.mode.name(),
             self.selected + 1,
             self.hotbar.len(),
@@ -573,6 +613,7 @@ fn upload(renderer: &mut Renderer, mesh: &ChunkMesh) -> Option<MeshId> {
     renderer.add_mesh(
         gpu_vertices(&mesh.vertices),
         &mesh.indices,
+        &mesh.translucent_indices,
         Aabb::new(min, max),
     )
 }
@@ -614,12 +655,14 @@ mod tests {
         let vertex = MeshVertex {
             position: [1.0, 2.0, 3.0],
             normal: [0.0, 1.0, 0.0],
-            color: [0.5, 0.25, 0.125],
+            color: [0.5, 0.25, 0.125, 0.6],
+            light: [1.0, 0.5, 0.25],
         };
         let gpu = gpu_vertices(std::slice::from_ref(&vertex))[0];
         assert_eq!(gpu.position, vertex.position);
         assert_eq!(gpu.normal, vertex.normal);
         assert_eq!(gpu.color, vertex.color);
+        assert_eq!(gpu.light, vertex.light);
     }
 
     #[test]

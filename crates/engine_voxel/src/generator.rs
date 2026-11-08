@@ -25,6 +25,9 @@ pub const WORLD_HEIGHT_CHUNKS: i32 = 5;
 const MAX_HEIGHT: i32 = WORLD_HEIGHT_CHUNKS * CHUNK_SIZE as i32 - 2;
 /// Au-dessus de cette altitude, le sommet des colonnes est enneigé.
 const SNOW_LINE: i32 = 100;
+/// Niveau de la mer : les creux du terrain sous cette altitude se remplissent d'eau.
+/// À 38, environ 16 % des colonnes sont sous l'eau (mesuré sur 6 000 × 6 000 blocs).
+pub const SEA_LEVEL: i32 = 38;
 
 /// Le type de paysage d'une colonne.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +53,7 @@ struct TerrainBlocks {
     stone: BlockId,
     sand: BlockId,
     snow: BlockId,
+    water: BlockId,
 }
 
 impl TerrainBlocks {
@@ -66,6 +70,7 @@ impl TerrainBlocks {
             stone: id("core:stone")?,
             sand: id("core:sand")?,
             snow: id("core:snow")?,
+            water: id("core:water")?,
         })
     }
 }
@@ -178,6 +183,8 @@ impl TerrainGenerator {
         match column.biome {
             _ if column.height >= SNOW_LINE && depth == 0 => b.snow,
             Biome::Desert if depth < 4 => b.sand,
+            // Plages et fonds de lacs : du sable au bord et sous l'eau.
+            _ if column.height <= SEA_LEVEL + 1 && depth < 3 => b.sand,
             Biome::Mountains if column.height > 75 => b.stone,
             Biome::Plains | Biome::Mountains if depth == 0 => b.grass,
             Biome::Plains | Biome::Mountains if depth < 4 => b.dirt,
@@ -209,21 +216,31 @@ impl TerrainGenerator {
             .flatten()
             .map(|c| c.height)
             .max()
-            .unwrap_or(0);
+            .unwrap_or(0)
+            .max(SEA_LEVEL);
         if origin.y > highest {
-            return None; // Tout le chunk est au-dessus du sol.
+            return None; // Tout le chunk est au-dessus du sol et de la mer.
         }
 
         let mut chunk = Chunk::new();
         for (lx, row) in columns.iter().enumerate() {
             for (lz, &column) in row.iter().enumerate() {
                 let (x, z) = (origin.x + lx as i32, origin.z + lz as i32);
+                // Pas de grotte juste sous un lac : elle viderait l'eau (qui ne coule pas encore).
+                let cave_ceiling = if column.height < SEA_LEVEL + 2 {
+                    column.height - 6
+                } else {
+                    column.height
+                };
                 for ly in 0..size {
                     let y = origin.y + ly;
                     if y > column.height {
-                        break;
-                    }
-                    if !self.is_cave(x, y, z) {
+                        // Au-dessus du sol : de l'eau jusqu'au niveau de la mer, puis de l'air.
+                        if y > SEA_LEVEL {
+                            break;
+                        }
+                        chunk.set(lx, ly as usize, lz, self.blocks.water);
+                    } else if y > cave_ceiling || !self.is_cave(x, y, z) {
                         chunk.set(lx, ly as usize, lz, self.layer(column, y));
                     }
                 }
@@ -286,11 +303,14 @@ mod tests {
     fn surface_matches_column_height() {
         let generator = TerrainGenerator::new(42);
         let world = generator.generate_region(1, 1);
+        let water = generator.blocks.water;
         let mut checked = 0;
         for x in 0..32 {
             for z in 0..32 {
                 let height = generator.column(x, z).height;
-                assert!(world.block(IVec3::new(x, height + 1, z)).is_air());
+                // Au-dessus du sol : de l'air, ou de l'eau sous le niveau de la mer.
+                let above = world.block(IVec3::new(x, height + 1, z));
+                assert!(above.is_air() || (above == water && height < SEA_LEVEL));
                 // La surface peut être percée par une grotte : on compte les autres.
                 if !world.block(IVec3::new(x, height, z)).is_air() {
                     checked += 1;
@@ -335,5 +355,34 @@ mod tests {
             .filter(|&(x, z)| (2..20).any(|y| generator.is_cave(x * 3, y, z * 3)))
             .count();
         assert!(caves > 0, "aucune grotte");
+    }
+
+    #[test]
+    fn low_ground_is_under_water() {
+        let generator = TerrainGenerator::new(42);
+        // On cherche une colonne sous le niveau de la mer.
+        let (x, z, column) = (-2000..2000)
+            .step_by(16)
+            .flat_map(|x| (-2000..2000).step_by(16).map(move |z| (x, z)))
+            .map(|(x, z)| (x, z, generator.column(x, z)))
+            .find(|(_, _, c)| c.height < SEA_LEVEL - 2)
+            .expect("aucun lac sur 4 000 × 4 000 blocs");
+        let column_pos = World::split(IVec3::new(x, 0, z)).0;
+        let mut world = World::new();
+        for cy in 0..WORLD_HEIGHT_CHUNKS {
+            let pos = IVec3::new(column_pos.x, cy, column_pos.z);
+            if let Some(chunk) = generator.generate(pos) {
+                world.insert(pos, chunk.into());
+            }
+        }
+        assert_eq!(
+            world.block(IVec3::new(x, SEA_LEVEL, z)),
+            generator.blocks.water
+        );
+        assert!(world.block(IVec3::new(x, SEA_LEVEL + 1, z)).is_air());
+        assert_eq!(
+            world.block(IVec3::new(x, column.height, z)),
+            generator.blocks.sand
+        );
     }
 }

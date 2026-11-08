@@ -37,6 +37,8 @@ noise = "0.9.0"
 # Pool de threads (« work stealing ») et canaux entre threads.
 rayon = "1.12.0"
 crossbeam-channel = "0.5.17"
+# Écriture des captures d'écran (mode VOXEL_SCREENSHOTS du jeu).
+png = "0.18.1"
 # Benchmarks : `cargo bench -p engine_voxel`.
 criterion = "0.8.2"
 

@@ -14,14 +14,17 @@ pub struct Vertex {
     pub normal: [f32; 3],
 }
 
-/// Un sommet de maillage coloré, pour les chunks : la couleur est par sommet
-/// au lieu d'être par instance.
+/// Un sommet de maillage coloré et éclairé, pour les chunks : la couleur est par
+/// sommet au lieu d'être par instance.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct ColorVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
-    pub color: [f32; 3],
+    /// Couleur et opacité.
+    pub color: [f32; 4],
+    /// Lumière du ciel, lumière des blocs et occlusion ambiante, de 0 à 1.
+    pub light: [f32; 3],
 }
 
 /// Pour chaque face : sa normale et ses 4 coins, dans l'ordre anti-horaire vu de l'extérieur.

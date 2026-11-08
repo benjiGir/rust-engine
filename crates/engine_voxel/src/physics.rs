@@ -24,6 +24,12 @@ pub const GRAVITY: f32 = 32.0;
 pub const JUMP_SPEED: f32 = 9.0;
 /// Vitesse de chute maximale.
 const MAX_FALL_SPEED: f32 = 60.0;
+/// Dans l'eau : vitesses multipliées par ce facteur.
+const SWIM_FACTOR: f32 = 0.4;
+/// Vitesse de remontée quand on tient Espace dans l'eau.
+const SWIM_UP_SPEED: f32 = 4.0;
+/// Vitesse de chute maximale dans l'eau.
+const SWIM_SINK_SPEED: f32 = 2.5;
 /// Plus grand pas de déplacement testé d'un coup.
 const MAX_STEP: f32 = 0.4;
 /// Petit écart laissé entre le joueur et un bloc, pour qu'il ne soit pas
@@ -38,6 +44,8 @@ pub struct PlayerBody {
     pub velocity: Vec3,
     /// Vrai si le joueur repose sur un bloc : lui seul permet de sauter.
     pub on_ground: bool,
+    /// Vrai si une partie du corps est dans un liquide (l'eau).
+    pub in_liquid: bool,
 }
 
 impl PlayerBody {
@@ -46,6 +54,7 @@ impl PlayerBody {
             position,
             velocity: Vec3::ZERO,
             on_ground: false,
+            in_liquid: false,
         }
     }
 
@@ -73,13 +82,26 @@ impl PlayerBody {
     ///
     /// `walk` est la vitesse horizontale voulue (blocs par seconde, `y` ignoré) :
     /// pas d'inertie, le joueur s'arrête dès qu'on lâche la touche, comme dans Minecraft.
+    ///
+    /// Dans l'eau : on avance moins vite, on coule lentement, et `jump` (Espace tenu)
+    /// fait remonter : c'est une nage très simple.
     pub fn step(&mut self, world: &World, walk: Vec3, jump: bool, dt: f32) {
-        self.velocity.x = walk.x;
-        self.velocity.z = walk.z;
-        if jump && self.on_ground {
-            self.velocity.y = JUMP_SPEED;
+        self.in_liquid = self.touches_liquid(world);
+        let swim = if self.in_liquid { SWIM_FACTOR } else { 1.0 };
+        self.velocity.x = walk.x * swim;
+        self.velocity.z = walk.z * swim;
+        if self.in_liquid {
+            self.velocity.y = if jump {
+                SWIM_UP_SPEED
+            } else {
+                (self.velocity.y - GRAVITY * SWIM_FACTOR * dt).max(-SWIM_SINK_SPEED)
+            };
+        } else {
+            if jump && self.on_ground {
+                self.velocity.y = JUMP_SPEED;
+            }
+            self.velocity.y = (self.velocity.y - GRAVITY * dt).max(-MAX_FALL_SPEED);
         }
-        self.velocity.y = (self.velocity.y - GRAVITY * dt).max(-MAX_FALL_SPEED);
 
         let delta = self.velocity * dt;
         self.on_ground = false;
@@ -87,6 +109,18 @@ impl PlayerBody {
         for axis in [1, 0, 2] {
             self.move_axis(world, axis, delta[axis]);
         }
+    }
+
+    /// Un des blocs que touche la boîte est-il un liquide ?
+    fn touches_liquid(&self, world: &World) -> bool {
+        let (min, max) = self.bounds();
+        let (first, last) = (min.floor().as_ivec3(), max.ceil().as_ivec3() - IVec3::ONE);
+        let registry = world.registry();
+        (first.x..=last.x).any(|x| {
+            (first.y..=last.y).any(|y| {
+                (first.z..=last.z).any(|z| registry.def(world.block(IVec3::new(x, y, z))).liquid)
+            })
+        })
     }
 
     fn move_axis(&mut self, world: &World, axis: usize, amount: f32) {
@@ -264,6 +298,28 @@ mod tests {
             "la tête traverse le plafond : {highest_head}"
         );
         assert!(body.on_ground);
+    }
+
+    #[test]
+    fn water_slows_the_fall_and_space_swims_up() {
+        let water = crate::registry::BlockRegistry::builtin()
+            .id("core:water")
+            .unwrap();
+        let mut world = floor();
+        for x in -8..8 {
+            for z in -8..8 {
+                for y in 1..10 {
+                    world.set_block(IVec3::new(x, y, z), water);
+                }
+            }
+        }
+        let mut body = PlayerBody::new(Vec3::new(0.5, 8.0, 0.5));
+        run(&mut body, &world, Vec3::ZERO, false, 30);
+        assert!(body.in_liquid);
+        assert!(body.velocity.y >= -SWIM_SINK_SPEED, "on coule lentement");
+        let low = body.position.y;
+        run(&mut body, &world, Vec3::ZERO, true, 30);
+        assert!(body.position.y > low + 1.0, "Espace fait remonter");
     }
 
     #[test]

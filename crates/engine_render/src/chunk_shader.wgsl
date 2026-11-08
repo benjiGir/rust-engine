@@ -1,5 +1,5 @@
-// Shader des chunks : chaque sommet porte déjà sa position monde, sa normale
-// et sa couleur. Pas d'instance : un chunk = un tampon de sommets.
+// Shader des chunks : chaque sommet porte déjà sa position monde, sa normale,
+// sa couleur et sa lumière. Pas d'instance : un chunk = un tampon de sommets.
 
 struct Camera {
     view_proj: mat4x4<f32>,
@@ -7,6 +7,10 @@ struct Camera {
     position_fog_start: vec4<f32>,
     // rgb : couleur du brouillard (le ciel), w : fin du brouillard.
     fog_color_end: vec4<f32>,
+    // xyz : direction vers le soleil, w : intensité du jour (0 la nuit, 1 à midi).
+    sun: vec4<f32>,
+    // rgb : teinte de la lumière du ciel.
+    sun_color: vec4<f32>,
 };
 
 @group(0) @binding(0)
@@ -15,14 +19,17 @@ var<uniform> camera: Camera;
 struct VertexIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
-    @location(2) color: vec3<f32>,
+    @location(2) color: vec4<f32>,
+    // x : lumière du ciel, y : lumière des blocs, z : occlusion ambiante (1 = dégagé).
+    @location(3) light: vec3<f32>,
 };
 
 struct VertexOut {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec3<f32>,
+    @location(0) color: vec4<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) world_position: vec3<f32>,
+    @location(3) light: vec3<f32>,
 };
 
 @vertex
@@ -32,21 +39,40 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
     out.color = vertex.color;
     out.normal = vertex.normal;
     out.world_position = vertex.position;
+    // Interpolée entre les sommets : c'est ce qui rend la lumière « douce ».
+    out.light = vertex.light;
     return out;
 }
 
-// Même éclairage que les cubes instanciés, plus un brouillard qui fond
-// les chunks lointains dans la couleur du ciel : la limite de vue disparaît.
+// Un niveau de lumière (0 à 1) vers une luminosité. Chaque niveau en moins divise
+// par 1,25 environ, comme dans Minecraft : 15 donne 1, 7 donne 0,17, 0 donne 0,04.
+fn brightness(level: f32) -> f32 {
+    return pow(0.8, (1.0 - level) * 15.0);
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-    let sun = normalize(vec3<f32>(0.4, 1.0, 0.3));
-    let diffuse = max(dot(normalize(in.normal), sun), 0.0);
-    let light = 0.35 + 0.65 * diffuse;
-    let lit = in.color * light;
+    let daylight = camera.sun.w;
+    let sun_direction = normalize(camera.sun.xyz);
 
-    // Distance horizontale : le brouillard forme un cylindre, comme le rayon de chargement.
+    // Le ciel : sa lumière stockée, multipliée par l'intensité du jour. Le soleil
+    // éclaire plus les faces tournées vers lui (éclairage diffus) ; sous l'horizon,
+    // il n'éclaire plus directement.
+    let facing = max(dot(normalize(in.normal), sun_direction), 0.0) * step(0.0, sun_direction.y);
+    let sky = brightness(in.light.x) * daylight * (0.6 + 0.4 * facing) * camera.sun_color.rgb;
+    // Les torches : une lumière chaude, la même jour et nuit.
+    let torch = brightness(in.light.y) * vec3<f32>(1.0, 0.82, 0.6);
+    // Un peu de lumière partout, pour ne jamais voir du noir complet.
+    let ambient = 0.03;
+    // On garde la plus forte des deux, comme Minecraft (on ne les additionne pas).
+    var light = max(sky, torch) + ambient;
+    // Occlusion ambiante : un coin enfermé descend à 45 % de la lumière.
+    light *= 0.45 + 0.55 * in.light.z;
+    let lit = in.color.rgb * light;
+
+    // Brouillard : distance horizontale, le brouillard forme un cylindre comme le
+    // rayon de chargement. `smoothstep` : 0 avant le début, 1 après la fin.
     let offset = in.world_position.xz - camera.position_fog_start.xz;
-    // `smoothstep` : 0 avant le début, 1 après la fin, une courbe douce entre les deux.
     let fog = smoothstep(camera.position_fog_start.w, camera.fog_color_end.w, length(offset));
-    return vec4<f32>(mix(lit, camera.fog_color_end.rgb, fog), 1.0);
+    return vec4<f32>(mix(lit, camera.fog_color_end.rgb, fog), in.color.a);
 }

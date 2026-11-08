@@ -40,6 +40,15 @@ impl CubeInstance {
     }
 }
 
+/// Une image dessinée hors écran par [`Renderer::capture`].
+pub struct Capture {
+    pub width: u32,
+    pub height: u32,
+    /// 4 octets par pixel (rouge, vert, bleu, alpha), ligne par ligne depuis le haut.
+    pub rgba: Vec<u8>,
+    pub stats: RenderStats,
+}
+
 /// Ce qui a été dessiné pendant la dernière image.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RenderStats {
@@ -73,9 +82,32 @@ pub struct Fog {
 /// qui rendent leur mémoire au GPU. C'est le RAII, comme `using` en C# mais automatique.
 struct GpuMesh {
     vertex_buffer: wgpu::Buffer,
+    /// Les indices opaques, puis les translucides, dans un seul tampon.
     index_buffer: wgpu::Buffer,
-    index_count: u32,
+    opaque_count: u32,
+    translucent_count: u32,
     bounds: Aabb,
+}
+
+/// Le soleil : direction (vers le soleil) et intensité de la lumière du jour,
+/// de 0 (nuit noire) à 1 (plein midi). La lumière du ciel stockée dans les blocs
+/// est multipliée par cette intensité : la nuit tombe sans rien recalculer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sun {
+    pub direction: Vec3,
+    pub daylight: f32,
+    /// Teinte de la lumière du ciel : blanche à midi, orangée au coucher, bleutée la nuit.
+    pub color: Vec3,
+}
+
+impl Default for Sun {
+    fn default() -> Self {
+        Self {
+            direction: Vec3::new(0.4, 1.0, 0.3).normalize(),
+            daylight: 1.0,
+            color: Vec3::ONE,
+        }
+    }
 }
 
 #[repr(C)]
@@ -86,6 +118,10 @@ struct CameraUniform {
     camera_fog_start: [f32; 4],
     /// Couleur du brouillard (rgb) et fin du brouillard (w).
     fog_color_end: [f32; 4],
+    /// Direction du soleil (xyz) et intensité du jour (w).
+    sun: [f32; 4],
+    /// Teinte de la lumière du ciel (xyz).
+    sun_color: [f32; 4],
 }
 
 pub struct Renderer {
@@ -105,6 +141,7 @@ pub struct Renderer {
     instance_capacity: usize,
     instance_count: u32,
     chunk_pipeline: wgpu::RenderPipeline,
+    translucent_pipeline: wgpu::RenderPipeline,
     meshes: HashMap<MeshId, GpuMesh>,
     next_mesh_id: u64,
     lines: Lines,
@@ -118,6 +155,7 @@ pub struct Renderer {
     pub frustum_culling: bool,
     /// `None` : pas de brouillard.
     pub fog: Option<Fog>,
+    pub sun: Sun,
 }
 
 impl Renderer {
@@ -219,21 +257,37 @@ impl Renderer {
             &device.create_shader_module(wgpu::include_wgsl!("shader.wgsl")),
             &cube_layouts,
             "cubes",
+            false,
         );
 
-        // Pipeline des chunks : un seul tampon, un sommet = position, normale, couleur.
+        // Pipeline des chunks : un seul tampon, un sommet = position, normale, couleur
+        // (avec alpha), lumière (ciel, blocs, occlusion ambiante).
         let chunk_layouts = [Some(wgpu::VertexBufferLayout {
             array_stride: size_of::<ColorVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3],
+            attributes: &wgpu::vertex_attr_array![
+                0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32x3
+            ],
         })];
+        let chunk_shader = device.create_shader_module(wgpu::include_wgsl!("chunk_shader.wgsl"));
         let chunk_pipeline = create_pipeline(
             &device,
             &camera_layout,
             format,
-            &device.create_shader_module(wgpu::include_wgsl!("chunk_shader.wgsl")),
+            &chunk_shader,
             &chunk_layouts,
             "chunks",
+            false,
+        );
+        // Même shader, mais avec mélange alpha et sans écriture de profondeur.
+        let translucent_pipeline = create_pipeline(
+            &device,
+            &camera_layout,
+            format,
+            &chunk_shader,
+            &chunk_layouts,
+            "translucent chunks",
+            true,
         );
 
         let (vertices, indices) = mesh::cube();
@@ -269,6 +323,7 @@ impl Renderer {
             instance_capacity,
             instance_count: 0,
             chunk_pipeline,
+            translucent_pipeline,
             lines,
             outline: None,
             crosshair: false,
@@ -276,6 +331,7 @@ impl Renderer {
             next_mesh_id: 0,
             frustum_culling: true,
             fog: None,
+            sun: Sun::default(),
             clear_color: wgpu::Color {
                 r: 0.45,
                 g: 0.65,
@@ -321,11 +377,14 @@ impl Renderer {
         &mut self,
         vertices: &[ColorVertex],
         indices: &[u32],
+        translucent_indices: &[u32],
         bounds: Aabb,
     ) -> Option<MeshId> {
-        if indices.is_empty() {
+        if indices.is_empty() && translucent_indices.is_empty() {
             return None;
         }
+        // Les deux listes à la suite : on dessinera chaque partie avec une plage d'indices.
+        let all_indices: Vec<u32> = indices.iter().chain(translucent_indices).copied().collect();
         let vertex_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -337,7 +396,7 @@ impl Renderer {
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("chunk indices"),
-                contents: bytemuck::cast_slice(indices),
+                contents: bytemuck::cast_slice(&all_indices),
                 usage: wgpu::BufferUsages::INDEX,
             });
         let id = MeshId(self.next_mesh_id);
@@ -347,7 +406,8 @@ impl Renderer {
             GpuMesh {
                 vertex_buffer,
                 index_buffer,
-                index_count: indices.len() as u32,
+                opaque_count: indices.len() as u32,
+                translucent_count: translucent_indices.len() as u32,
                 bounds,
             },
         );
@@ -379,7 +439,17 @@ impl Renderer {
             Current::Success(frame) => (frame, false),
             Current::Suboptimal(frame) => (frame, true),
             // Fenêtre cachée ou GPU en retard : on saute simplement cette image.
-            Current::Timeout | Current::Occluded => return Ok(None),
+            Current::Timeout => {
+                log::debug!("image sautée : délai dépassé");
+                return Ok(None);
+            }
+            Current::Occluded => {
+                log::debug!("image sautée : fenêtre cachée");
+                // Rien à dessiner : on laisse le processeur se reposer un peu au lieu de
+                // reboucler des centaines de milliers de fois par seconde.
+                std::thread::sleep(std::time::Duration::from_millis(16));
+                return Ok(None);
+            }
             // Surface périmée (fenêtre redimensionnée, écran changé) : on la reconfigure.
             Current::Outdated | Current::Lost => {
                 self.surface.configure(&self.device, &self.config);
@@ -391,7 +461,25 @@ impl Renderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let view_proj = camera.view_projection(self.aspect());
+        let stats = self.draw_scene(&view, &self.depth_view, camera, self.aspect());
+        self.queue.present(frame);
+        if suboptimal {
+            self.surface.configure(&self.device, &self.config);
+        }
+        Ok(Some(stats))
+    }
+
+    /// Dessine la scène dans `view` (l'écran ou une texture) et envoie les commandes.
+    /// `&self` suffit : wgpu ne demande qu'une référence partagée pour envoyer des données
+    /// (`write_buffer`) ou des commandes (`submit`) au GPU.
+    fn draw_scene(
+        &self,
+        view: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
+        camera: &Camera,
+        aspect: f32,
+    ) -> RenderStats {
+        let view_proj = camera.view_projection(aspect);
         // Sans brouillard, on le repousse très loin. Pas `f32::MAX` : `smoothstep`
         // diviserait par `end - start`, ici 0, et le shader renverrait n'importe quoi.
         let fog = self.fog.unwrap_or(Fog {
@@ -403,6 +491,8 @@ impl Renderer {
             view_proj: view_proj.to_cols_array_2d(),
             camera_fog_start: camera.position.extend(fog.start).to_array(),
             fog_color_end: [sky.r as f32, sky.g as f32, sky.b as f32, fog.end],
+            sun: self.sun.direction.extend(self.sun.daylight).to_array(),
+            sun_color: self.sun.color.extend(1.0).to_array(),
         };
         let frustum = Frustum::from_view_proj(view_proj);
         let mut stats = RenderStats {
@@ -413,7 +503,7 @@ impl Renderer {
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
         // Les écritures de tampons partent avant les commandes de cette image.
         self.lines
-            .upload(&self.queue, self.outline.as_ref(), self.aspect());
+            .upload(&self.queue, self.outline.as_ref(), aspect);
 
         let mut encoder = self
             .device
@@ -425,7 +515,7 @@ impl Renderer {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("scene"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -434,7 +524,7 @@ impl Renderer {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_view,
+                    view: depth_view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -456,20 +546,48 @@ impl Renderer {
                 stats.triangles += (self.index_count / 3 * self.instance_count) as usize;
             }
 
-            pass.set_pipeline(&self.chunk_pipeline);
             // `filter` saute les chunks hors champ : ils ne coûtent alors rien au GPU.
             let culling = self.frustum_culling;
-            for mesh in self
+            let visible: Vec<&GpuMesh> = self
                 .meshes
                 .values()
                 .filter(|m| !culling || frustum.intersects(&m.bounds))
-            {
+                .collect();
+
+            // Passe 1 : l'opaque, dans n'importe quel ordre (le tampon de profondeur trie).
+            pass.set_pipeline(&self.chunk_pipeline);
+            for mesh in &visible {
+                stats.meshes_drawn += 1;
+                stats.triangles += ((mesh.opaque_count + mesh.translucent_count) / 3) as usize;
+                if mesh.opaque_count == 0 {
+                    continue;
+                }
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 // Indices en `u32` : un chunk peut dépasser les 65 536 sommets d'un `u16`.
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-                stats.meshes_drawn += 1;
-                stats.triangles += (mesh.index_count / 3) as usize;
+                pass.draw_indexed(0..mesh.opaque_count, 0, 0..1);
+            }
+
+            // Passe 2 : le translucide. Le mélange alpha dépend de l'ordre : un objet
+            // translucide doit être dessiné après ce qu'il y a derrière lui. On trie donc
+            // les chunks du plus loin au plus proche (un tri grossier, par chunk et pas
+            // par face : suffisant pour de l'eau et du verre).
+            let mut translucent: Vec<(f32, &GpuMesh)> = visible
+                .iter()
+                .filter(|m| m.translucent_count > 0)
+                .map(|m| {
+                    let centre = (m.bounds.min + m.bounds.max) / 2.0;
+                    (centre.distance_squared(camera.position), *m)
+                })
+                .collect();
+            // `total_cmp` : une comparaison complète des flottants (gère NaN), à l'envers.
+            translucent.sort_by(|a, b| b.0.total_cmp(&a.0));
+            pass.set_pipeline(&self.translucent_pipeline);
+            for (_, mesh) in translucent {
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                let start = mesh.opaque_count;
+                pass.draw_indexed(start..start + mesh.translucent_count, 0, 0..1);
             }
 
             // En dernier, par-dessus le décor.
@@ -477,11 +595,94 @@ impl Renderer {
                 .draw(&mut pass, self.outline.is_some(), self.crosshair);
         }
         self.queue.submit([encoder.finish()]);
-        self.queue.present(frame);
-        if suboptimal {
-            self.surface.configure(&self.device, &self.config);
+        stats
+    }
+
+    /// Dessine une image hors de l'écran et renvoie ses pixels.
+    ///
+    /// Utile pour des captures d'écran, même quand la fenêtre est cachée : on dessine
+    /// dans une texture à nous, puis on la recopie dans un tampon que le processeur
+    /// peut lire. `width` est arrondie à un multiple de 64 : wgpu exige que chaque
+    /// ligne copiée fasse un multiple de 256 octets (64 pixels × 4 octets).
+    pub fn capture(&self, camera: &Camera, width: u32, height: u32) -> Result<Capture> {
+        let width = width.div_ceil(64).max(1) * 64;
+        let height = height.max(1);
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("capture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            // Le même format que l'écran : nos pipelines sont créés pour lui.
+            format: self.config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let depth = create_depth_texture_view(&self.device, width, height);
+        let stats = self.draw_scene(&view, &depth, camera, width as f32 / height as f32);
+
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("capture readback"),
+            size: (width * height * 4) as u64,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("capture copy"),
+            });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(width * 4),
+                    rows_per_image: Some(height),
+                },
+            },
+            size,
+        );
+        self.queue.submit([encoder.finish()]);
+
+        // Lire un tampon GPU est asynchrone : on demande la lecture, puis on attend
+        // que le GPU ait fini (`poll`). Le résultat arrive par un petit canal.
+        let slice = buffer.slice(..);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        self.device.poll(wgpu::PollType::wait_indefinitely())?;
+        receiver.recv()??;
+        let mut rgba = slice.get_mapped_range()?.to_vec();
+        buffer.unmap();
+        // L'écran du Mac stocke souvent les pixels en BGRA : on remet dans l'ordre RGBA.
+        if matches!(
+            self.config.format,
+            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+        ) {
+            for pixel in rgba.as_chunks_mut::<4>().0 {
+                pixel.swap(0, 2);
+            }
         }
-        Ok(Some(stats))
+        Ok(Capture {
+            width,
+            height,
+            rgba,
+            stats,
+        })
     }
 }
 
@@ -489,11 +690,15 @@ fn create_depth_view(
     device: &wgpu::Device,
     config: &wgpu::SurfaceConfiguration,
 ) -> wgpu::TextureView {
+    create_depth_texture_view(device, config.width, config.height)
+}
+
+fn create_depth_texture_view(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("depth"),
         size: wgpu::Extent3d {
-            width: config.width,
-            height: config.height,
+            width,
+            height,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -524,6 +729,7 @@ fn create_pipeline(
     shader: &wgpu::ShaderModule,
     vertex_layouts: &[Option<wgpu::VertexBufferLayout<'_>>],
     label: &str,
+    translucent: bool,
 ) -> wgpu::RenderPipeline {
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(label),
@@ -545,19 +751,23 @@ fn create_pipeline(
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
-                blend: None,
+                // Translucide : couleur finale = alpha × la nôtre + (1 - alpha) × celle derrière.
+                blend: translucent.then_some(wgpu::BlendState::ALPHA_BLENDING),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
             compilation_options: Default::default(),
         }),
         primitive: wgpu::PrimitiveState {
-            // On ne dessine pas les faces arrière : moitié moins de travail.
-            cull_mode: Some(wgpu::Face::Back),
+            // On ne dessine pas les faces arrière : moitié moins de travail. Sauf pour le
+            // translucide : sous l'eau, on doit voir la surface par en dessous.
+            cull_mode: (!translucent).then_some(wgpu::Face::Back),
             ..Default::default()
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: DEPTH_FORMAT,
-            depth_write_enabled: Some(true),
+            // Le translucide lit la profondeur (il est caché derrière un mur) mais ne
+            // l'écrit pas : sinon une vitre cacherait l'eau derrière elle.
+            depth_write_enabled: Some(!translucent),
             depth_compare: Some(wgpu::CompareFunction::Less),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),

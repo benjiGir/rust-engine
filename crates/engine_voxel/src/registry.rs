@@ -51,6 +51,16 @@ pub struct BlockDef {
     pub selectable: bool,
     /// Il apparaît dans la barre de blocs.
     pub placeable: bool,
+    /// Opacité du rendu : 1 = opaque. En dessous de 1, le bloc est dessiné dans la
+    /// passe translucide (eau, verre).
+    pub alpha: f32,
+    /// Un liquide : on peut y nager, et poser un bloc à sa place.
+    pub liquid: bool,
+    /// Lumière émise, de 0 (rien) à 15 (le maximum, comme le soleil).
+    pub light_emission: u8,
+    /// Combien la lumière perd en traversant ce bloc : 0 = rien (air, verre),
+    /// 15 = tout (bloc opaque). L'eau en absorbe un peu.
+    pub light_opacity: u8,
     /// D'où vient la définition, pour les messages d'erreur.
     pub source: String,
 }
@@ -73,6 +83,19 @@ struct BlockFileEntry {
     selectable: bool,
     #[serde(default = "yes")]
     placeable: bool,
+    #[serde(default = "one")]
+    alpha: f32,
+    #[serde(default)]
+    liquid: bool,
+    #[serde(default)]
+    light_emission: u8,
+    /// `None` si absent : on le déduit de `transparent` (0 ou 15).
+    #[serde(default)]
+    light_opacity: Option<u8>,
+}
+
+fn one() -> f32 {
+    1.0
 }
 
 fn yes() -> bool {
@@ -97,6 +120,10 @@ impl BlockRegistry {
             transparent: true,
             selectable: false,
             placeable: false,
+            alpha: 0.0,
+            liquid: false,
+            light_emission: 0,
+            light_opacity: 0,
             source: "intégré".into(),
         };
         Self {
@@ -168,8 +195,13 @@ impl BlockRegistry {
 
     /// Ajoute les blocs décrits par `source` (texte RON). `origin` sert aux messages d'erreur.
     pub fn add_source(&mut self, namespace: &str, source: &str, origin: &str) -> Result<()> {
-        let entries: Vec<BlockFileEntry> =
-            ron::from_str(source).with_context(|| format!("{origin} : fichier RON invalide"))?;
+        // `IMPLICIT_SOME` : un champ facultatif s'écrit `light_opacity: 2`
+        // au lieu de `light_opacity: Some(2)`, plus simple pour les auteurs de mods.
+        let options = ron::Options::default()
+            .with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME);
+        let entries: Vec<BlockFileEntry> = options
+            .from_str(source)
+            .with_context(|| format!("{origin} : fichier RON invalide"))?;
         for entry in entries {
             validate_key(&entry.id, namespace).with_context(|| origin.to_string())?;
             if let Some(&existing) = self.by_key.get(&entry.id) {
@@ -184,6 +216,17 @@ impl BlockRegistry {
                 .map(BlockId)
                 .context("trop de blocs (65 535 au maximum)")?;
             let (r, g, b) = entry.color;
+            if entry.light_emission > 15 || entry.light_opacity.is_some_and(|o| o > 15) {
+                bail!("{origin} : « {} » : la lumière va de 0 à 15", entry.id);
+            }
+            if !(0.0..=1.0).contains(&entry.alpha) {
+                bail!("{origin} : « {} » : alpha va de 0 à 1", entry.id);
+            }
+            // Par défaut, un bloc transparent laisse passer la lumière, un opaque l'arrête.
+            let light_opacity =
+                entry
+                    .light_opacity
+                    .unwrap_or(if entry.transparent { 0 } else { 15 });
             self.by_key.insert(entry.id.clone(), id);
             self.defs.push(BlockDef {
                 key: entry.id,
@@ -193,6 +236,10 @@ impl BlockRegistry {
                 transparent: entry.transparent,
                 selectable: entry.selectable,
                 placeable: entry.placeable,
+                alpha: entry.alpha,
+                liquid: entry.liquid,
+                light_emission: entry.light_emission,
+                light_opacity,
                 source: origin.to_string(),
             });
         }
@@ -223,6 +270,22 @@ impl BlockRegistry {
     #[inline]
     pub fn is_selectable(&self, id: BlockId) -> bool {
         self.def(id).selectable
+    }
+
+    /// Dessiné dans la passe translucide (alpha < 1).
+    #[inline]
+    pub fn is_translucent(&self, id: BlockId) -> bool {
+        self.def(id).alpha < 1.0
+    }
+
+    #[inline]
+    pub fn light_emission(&self, id: BlockId) -> u8 {
+        self.def(id).light_emission
+    }
+
+    #[inline]
+    pub fn light_opacity(&self, id: BlockId) -> u8 {
+        self.def(id).light_opacity
     }
 
     /// Les blocs de la barre de blocs, dans l'ordre du registre.
@@ -326,7 +389,17 @@ mod tests {
         assert_eq!(registry.def(stone).name, "Pierre");
         assert!(registry.is_solid(stone) && !registry.is_transparent(stone));
         assert!(!registry.is_solid(BlockId::AIR) && registry.is_transparent(BlockId::AIR));
-        assert_eq!(registry.placeable().count(), 5);
+        assert_eq!(registry.placeable().count(), 8, "tout sauf l'air et l'eau");
+        let water = registry.id("core:water").unwrap();
+        assert!(registry.def(water).liquid && registry.is_translucent(water));
+        assert!(!registry.is_solid(water));
+        let torch = registry.id("core:torch").unwrap();
+        assert_eq!(registry.light_emission(torch), 14);
+        assert_eq!(registry.light_opacity(stone), 15);
+        assert_eq!(
+            registry.light_opacity(registry.id("core:glass").unwrap()),
+            0
+        );
     }
 
     #[test]
@@ -336,8 +409,9 @@ mod tests {
         let ruby = registry
             .id("example:ruby")
             .expect("le bloc du mod est chargé");
-        // Core d'abord : le rubis vient après les 5 blocs de base (et l'air).
-        assert_eq!(ruby, BlockId(6));
+        // Core d'abord : le rubis vient après les blocs de base (et l'air).
+        let core_blocks = BlockRegistry::builtin().len();
+        assert_eq!(ruby, BlockId(core_blocks as u16));
         assert!(registry.def(ruby).placeable);
         assert!(registry.placeable().any(|id| id == ruby));
     }

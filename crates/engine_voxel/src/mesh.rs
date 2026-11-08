@@ -1,13 +1,21 @@
 //! Le maillage : transformer les blocs d'un chunk en triangles.
 //!
 //! Deux algorithmes :
-//! - [`mesh_culled`] (« face culling ») : une face par côté de bloc touchant l'air.
+//! - [`mesh_culled`] (« face culling ») : une face par côté de bloc visible.
 //!   Les faces cachées entre deux blocs pleins disparaissent.
 //! - [`mesh_greedy`] (« greedy meshing ») : on part des mêmes faces, puis on fusionne
-//!   les faces voisines, coplanaires et du même bloc en grands rectangles.
+//!   les faces voisines, coplanaires et **identiques** (même bloc, même lumière, même
+//!   occlusion à chaque coin) en grands rectangles.
 //!
-//! Les deux couvrent exactement la même surface ; le greedy le fait avec bien
-//! moins de triangles.
+//! Chaque sommet porte sa lumière, lissée :
+//! - **lumière douce** : la moyenne des 4 cellules d'air qui touchent ce coin de la
+//!   face, au lieu de la lumière d'une seule cellule (qui ferait des marches d'escalier) ;
+//! - **occlusion ambiante** (AO) : un coin coincé contre des blocs reçoit moins de
+//!   lumière diffuse. On compte les 3 blocs autour du coin (deux côtés et la diagonale),
+//!   méthode décrite par Mikola Lysenko (« 0fps »).
+//!
+//! Les blocs translucides (eau, verre) vont dans une liste d'indices à part, dessinée
+//! dans une seconde passe avec mélange alpha.
 //!
 //! Les positions sont en coordonnées monde : le renderer n'a pas besoin de savoir
 //! où se trouve le chunk. Avec des coordonnées en f32, c'est précis jusqu'à
@@ -24,8 +32,11 @@ use crate::registry::BlockRegistry;
 use crate::world::World;
 
 const SIZE: i32 = CHUNK_SIZE as i32;
+/// La lumière moyenne d'un coin est gardée en entier, de 0 à 60 (4 × 15) :
+/// assez fin pour être lisse, et comparable exactement pour le greedy.
+const LIGHT_SCALE: f32 = 60.0;
 
-/// Un sommet du maillage : position monde, normale de la face, couleur du bloc.
+/// Un sommet du maillage.
 ///
 /// `#[repr(C)]` fixe l'ordre des champs en mémoire, le même que dans le shader.
 /// `Pod` (« plain old data ») dit que ce n'est qu'une suite d'octets : le jeu peut
@@ -35,27 +46,33 @@ const SIZE: i32 = CHUNK_SIZE as i32;
 pub struct MeshVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
-    pub color: [f32; 3],
+    /// Couleur du bloc et opacité (alpha).
+    pub color: [f32; 4],
+    /// Lumière du ciel, lumière des blocs et occlusion ambiante, chacune de 0 à 1.
+    pub light: [f32; 3],
 }
 
 /// Le maillage d'un chunk : 4 sommets et 6 indices (2 triangles) par quad.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct ChunkMesh {
     pub vertices: Vec<MeshVertex>,
+    /// Les triangles opaques.
     pub indices: Vec<u32>,
+    /// Les triangles translucides (eau, verre), dans les mêmes sommets.
+    pub translucent_indices: Vec<u32>,
 }
 
 impl ChunkMesh {
     pub fn is_empty(&self) -> bool {
-        self.indices.is_empty()
+        self.indices.is_empty() && self.translucent_indices.is_empty()
     }
 
     pub fn quad_count(&self) -> usize {
-        self.indices.len() / 6
+        self.triangle_count() / 2
     }
 
     pub fn triangle_count(&self) -> usize {
-        self.indices.len() / 3
+        (self.indices.len() + self.translucent_indices.len()) / 3
     }
 
     /// La boîte englobante des sommets (min, max), ou `None` si le maillage est vide.
@@ -71,31 +88,57 @@ impl ChunkMesh {
         )
     }
 
-    /// Ajoute un rectangle sur la face `dir` d'une boîte de blocs.
+    /// Ajoute un rectangle sur la face `face` d'une boîte de blocs.
     ///
     /// `axis` est l'axe de la normale (0 = x, 1 = y, 2 = z) ; les deux autres axes,
     /// `u` et `v`, sont pris dans l'ordre circulaire x → y → z → x. Ce choix garantit
     /// `e_u × e_v = e_axis` : les coins p0, p1, p2, p3 tournent alors dans le sens
     /// anti-horaire vu depuis +axis. Pour une face négative, on inverse l'ordre.
-    fn push_quad(&mut self, face: Face, corner: IVec3, width: i32, height: i32, color: [f32; 3]) {
+    ///
+    /// `look.corners` est indexé par coin de la face : 0 = (-u, -v), 1 = (+u, -v),
+    /// 2 = (+u, +v), 3 = (-u, +v).
+    fn push_quad(&mut self, face: Face, corner: IVec3, size: (i32, i32), look: FaceLook) {
         let (u, v) = face.tangents();
         let p0 = corner.as_vec3();
-        let du = (u * width).as_vec3();
-        let dv = (v * height).as_vec3();
-        let corners = if face.positive {
-            [p0, p0 + du, p0 + du + dv, p0 + dv]
+        let du = (u * size.0).as_vec3();
+        let dv = (v * size.1).as_vec3();
+        let (positions, order) = if face.positive {
+            ([p0, p0 + du, p0 + du + dv, p0 + dv], [0, 1, 2, 3])
         } else {
-            [p0, p0 + dv, p0 + du + dv, p0 + du]
+            ([p0, p0 + dv, p0 + du + dv, p0 + du], [0, 3, 2, 1])
         };
+        let corners = order.map(|c| look.corners[c]);
 
         let base = self.vertices.len() as u32;
         let normal = face.normal().as_vec3().to_array();
-        self.vertices.extend(corners.map(|position| MeshVertex {
-            position: position.to_array(),
-            normal,
-            color,
-        }));
-        self.indices.extend([0, 1, 2, 0, 2, 3].map(|i| base + i));
+        for (position, corner) in positions.into_iter().zip(corners) {
+            self.vertices.push(MeshVertex {
+                position: position.to_array(),
+                normal,
+                color: look.color,
+                light: [
+                    corner.sky as f32 / LIGHT_SCALE,
+                    corner.block as f32 / LIGHT_SCALE,
+                    corner.ao as f32 / 3.0,
+                ],
+            });
+        }
+        // Un quad se coupe en deux triangles par une diagonale. Si l'éclairage varie
+        // d'un coin à l'autre, le choix de la diagonale se voit : on coupe selon la
+        // diagonale dont les coins sont les plus clairs, sinon l'AO dessine des
+        // traînées en biais (« anisotropie »).
+        let brightness = corners.map(|c| c.brightness());
+        let triangles = if brightness[0] + brightness[2] >= brightness[1] + brightness[3] {
+            [0, 1, 2, 0, 2, 3]
+        } else {
+            [0, 1, 3, 1, 2, 3]
+        };
+        let list = if look.translucent {
+            &mut self.translucent_indices
+        } else {
+            &mut self.indices
+        };
+        list.extend(triangles.map(|i| base + i));
     }
 }
 
@@ -136,10 +179,37 @@ impl Face {
     }
 }
 
-/// Un chunk et ses 6 voisins directs : tout ce qu'il faut pour le mailler.
+/// L'éclairage d'un coin de face.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct CornerLight {
+    /// Lumière moyenne, de 0 à 60 (voir [`LIGHT_SCALE`]).
+    sky: u8,
+    block: u8,
+    /// Occlusion ambiante : 3 = coin dégagé, 0 = coin enfermé.
+    ao: u8,
+}
+
+impl CornerLight {
+    fn brightness(self) -> u32 {
+        self.ao as u32 * 128 + self.sky.max(self.block) as u32
+    }
+}
+
+/// Tout ce qui décide de l'apparence d'une face. Deux faces voisines ne sont
+/// fusionnées par le greedy que si elles sont identiques sur tous ces points.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct FaceLook {
+    block: BlockId,
+    color: [f32; 4],
+    translucent: bool,
+    corners: [CornerLight; 4],
+}
+
+/// Un chunk et ses 26 voisins : tout ce qu'il faut pour le mailler.
 ///
 /// Pour savoir si une face au bord du chunk est cachée, il faut regarder le bloc
-/// dans le chunk d'à côté. On récupère les voisins une fois pour toutes plutôt que
+/// dans le chunk d'à côté ; pour la lumière douce et l'AO d'un coin, il faut même les
+/// chunks en diagonale. On récupère les voisins une fois pour toutes plutôt que
 /// d'interroger la `HashMap` du monde pour chaque bloc du bord.
 ///
 /// La struct possède des `Arc<Chunk>` au lieu d'emprunter le monde (`&World`) :
@@ -148,9 +218,8 @@ impl Face {
 #[derive(Debug, Clone)]
 pub struct Neighbourhood {
     position: IVec3,
-    center: Arc<Chunk>,
-    /// Dans l'ordre de `Face::ALL`. `None` : chunk absent, donc de l'air.
-    neighbours: [Option<Arc<Chunk>>; 6],
+    /// 3 × 3 × 3 chunks, le chunk maillé au centre (indice 13). `None` : chunk d'air.
+    chunks: [Option<Arc<Chunk>>; 27],
     /// Pour savoir quels blocs sont transparents, et leur couleur.
     registry: Arc<BlockRegistry>,
 }
@@ -159,12 +228,12 @@ impl Neighbourhood {
     /// Prend des copies des `Arc` du chunk et de ses voisins (aucun bloc n'est copié).
     /// `None` si le chunk lui-même n'existe pas.
     pub fn from_world(world: &World, chunk_pos: IVec3) -> Option<Self> {
-        let center = world.chunk_arc(chunk_pos)?;
-        let neighbours = Face::ALL.map(|face| world.chunk_arc(chunk_pos + face.normal()));
+        world.chunk(chunk_pos)?;
+        // `from_fn` construit le tableau en appelant la closure pour chaque indice.
+        let chunks = std::array::from_fn(|i| world.chunk_arc(chunk_pos + offset_of(i)));
         Some(Self {
             position: chunk_pos,
-            center,
-            neighbours,
+            chunks,
             registry: world.registry().clone(),
         })
     }
@@ -173,35 +242,48 @@ impl Neighbourhood {
         self.position
     }
 
-    /// Le bloc en coordonnées locales. Une seule coordonnée peut sortir du chunk,
-    /// et d'un bloc au plus : c'est tout ce dont on a besoin pour tester un voisin.
+    /// Le bloc et la lumière (ciel, blocs) en coordonnées locales, de -1 à 32 sur chaque axe.
+    #[inline]
+    fn cell(&self, p: IVec3) -> (BlockId, u8, u8) {
+        let offset = p.div_euclid(IVec3::splat(SIZE));
+        match &self.chunks[index_of(offset)] {
+            Some(chunk) => {
+                let q = p.rem_euclid(IVec3::splat(SIZE));
+                let (x, y, z) = (q.x as usize, q.y as usize, q.z as usize);
+                (
+                    chunk.get(x, y, z),
+                    chunk.sky_light(x, y, z),
+                    chunk.block_light(x, y, z),
+                )
+            }
+            // Un chunk absent est de l'air en plein ciel ; sous le monde, il fait noir.
+            None if self.position.y + offset.y < 0 => (BlockId::AIR, 0, 0),
+            None => (BlockId::AIR, 15, 0),
+        }
+    }
+
     #[inline]
     fn get(&self, p: IVec3) -> BlockId {
         // Cas le plus fréquent d'abord : le bloc est dans le chunk central.
         // `cmpge` / `cmplt` comparent les 3 composantes d'un coup.
-        if p.cmpge(IVec3::ZERO).all() && p.cmplt(IVec3::splat(SIZE)).all() {
-            return self.center.get(p.x as usize, p.y as usize, p.z as usize);
+        if p.cmpge(IVec3::ZERO).all()
+            && p.cmplt(IVec3::splat(SIZE)).all()
+            && let Some(center) = &self.chunks[13]
+        {
+            return center.get(p.x as usize, p.y as usize, p.z as usize);
         }
-        let outside = Face::ALL.iter().position(|face| {
-            let c = p[face.axis];
-            if face.positive { c >= SIZE } else { c < 0 }
-        });
-        match outside {
-            None => self.center.get(p.x as usize, p.y as usize, p.z as usize),
-            // `as_deref` : `&Option<Arc<Chunk>>` devient `Option<&Chunk>`.
-            Some(i) => match self.neighbours[i].as_deref() {
-                None => BlockId::AIR,
-                Some(chunk) => {
-                    let q = p.rem_euclid(IVec3::splat(SIZE));
-                    chunk.get(q.x as usize, q.y as usize, q.z as usize)
-                }
-            },
-        }
+        self.cell(p).0
+    }
+
+    /// Un bloc qui fait de l'ombre aux coins voisins (pour l'AO) et cache la lumière.
+    #[inline]
+    fn occludes(&self, block: BlockId) -> bool {
+        !self.registry.is_transparent(block)
     }
 
     /// Le bloc à `p`, si sa face `face` doit être dessinée : le bloc n'est pas de l'air
     /// et son voisin de ce côté est transparent (de l'air, ou un bloc transparent
-    /// d'un autre type : entre deux blocs de verre identiques, pas de face).
+    /// d'un autre type : entre deux blocs d'eau ou de verre identiques, pas de face).
     #[inline]
     fn visible_face(&self, p: IVec3, face: Face) -> Option<BlockId> {
         let block = self.get(p);
@@ -214,9 +296,69 @@ impl Neighbourhood {
         visible.then_some(block)
     }
 
-    fn color(&self, block: BlockId) -> [f32; 3] {
-        self.registry.def(block).color
+    /// L'apparence de la face `face` du bloc `block` en `p`.
+    fn face_look(&self, p: IVec3, face: Face, block: BlockId) -> FaceLook {
+        let (u, v) = face.tangents();
+        let front = p + face.normal();
+        let def = self.registry.def(block);
+        let corners = [(-1, -1), (1, -1), (1, 1), (-1, 1)].map(|(su, sv)| {
+            // La cellule devant la face, ses deux voisines de côté et la diagonale.
+            let cells = [
+                front,
+                front + u * su,
+                front + v * sv,
+                front + u * su + v * sv,
+            ]
+            .map(|c| self.cell(c));
+            let side1 = self.occludes(cells[1].0);
+            let side2 = self.occludes(cells[2].0);
+            let diagonal = self.occludes(cells[3].0);
+            // Coincé entre deux côtés pleins : le coin est complètement dans l'ombre,
+            // même si la diagonale est vide (la lumière ne peut pas y passer).
+            let ao = if side1 && side2 {
+                0
+            } else {
+                3 - (side1 as u8 + side2 as u8 + diagonal as u8)
+            };
+            // Lumière douce : la moyenne des cellules qui laissent passer la lumière.
+            let mut sky = 0u32;
+            let mut blk = 0u32;
+            let mut count = 0u32;
+            for (k, &(id, s, b)) in cells.iter().enumerate() {
+                let hidden = k == 3 && side1 && side2;
+                if k == 0 || (!self.occludes(id) && !hidden) {
+                    sky += s as u32;
+                    blk += b as u32;
+                    count += 1;
+                }
+            }
+            // Moyenne arrondie, sur l'échelle 0..60 (4 × la lumière).
+            let average = |sum: u32| ((sum * 4 + count / 2) / count) as u8;
+            CornerLight {
+                sky: average(sky),
+                block: average(blk),
+                ao,
+            }
+        });
+        FaceLook {
+            block,
+            color: [def.color[0], def.color[1], def.color[2], def.alpha],
+            translucent: self.registry.is_translucent(block),
+            corners,
+        }
     }
+}
+
+/// Décalage (de -1 à 1 sur chaque axe) du voisin numéro `i` (0 à 26).
+fn offset_of(i: usize) -> IVec3 {
+    let i = i as i32;
+    IVec3::new(i % 3, i / 9, (i / 3) % 3) - IVec3::ONE
+}
+
+/// L'inverse de [`offset_of`].
+#[inline]
+fn index_of(offset: IVec3) -> usize {
+    ((offset.x + 1) + (offset.z + 1) * 3 + (offset.y + 1) * 9) as usize
 }
 
 /// Le coin du quad de taille 1 pour la face `face` du bloc `p` (local),
@@ -282,8 +424,8 @@ fn culled(hood: &Neighbourhood) -> ChunkMesh {
                 let p = IVec3::new(x, y, z);
                 for face in Face::ALL {
                     if let Some(block) = hood.visible_face(p, face) {
-                        let corner = face_corner(origin, p, face);
-                        mesh.push_quad(face, corner, 1, 1, hood.color(block));
+                        let look = hood.face_look(p, face, block);
+                        mesh.push_quad(face, face_corner(origin, p, face), (1, 1), look);
                     }
                 }
             }
@@ -295,16 +437,17 @@ fn culled(hood: &Neighbourhood) -> ChunkMesh {
 /// Greedy meshing : fusionne les faces visibles en rectangles aussi grands que possible.
 ///
 /// Pour chaque direction de face, on découpe le chunk en 32 tranches. Dans chaque
-/// tranche, un « masque » 32×32 note quel bloc montre une face à chaque case.
+/// tranche, un « masque » 32×32 note l'apparence de la face visible à chaque case.
 /// On balaie ce masque : depuis chaque case non vide, on étend le rectangle
-/// le long de `u` tant que le bloc est le même, puis le long de `v` tant que
+/// le long de `u` tant que l'apparence est la même, puis le long de `v` tant que
 /// toute la ligne suivante correspond. On émet ce quad et on efface ses cases.
 fn greedy(hood: &Neighbourhood) -> ChunkMesh {
     let mut mesh = ChunkMesh::default();
     let origin = World::chunk_origin(hood.position);
     let n = CHUNK_SIZE;
     // Un seul masque, réutilisé pour chaque tranche : pas d'allocation dans la boucle.
-    let mut mask = vec![BlockId::AIR; n * n];
+    // `Option<FaceLook>` : `None` là où il n'y a pas de face.
+    let mut mask: Vec<Option<FaceLook>> = vec![None; n * n];
 
     for face in Face::ALL {
         // Les vecteurs unitaires de la tranche : `p = slice·n + i·u + j·v`.
@@ -316,7 +459,9 @@ fn greedy(hood: &Neighbourhood) -> ChunkMesh {
             for j in 0..n {
                 for i in 0..n {
                     let p = n_axis * slice + u * i as i32 + v * j as i32;
-                    mask[i + j * n] = hood.visible_face(p, face).unwrap_or(BlockId::AIR);
+                    mask[i + j * n] = hood
+                        .visible_face(p, face)
+                        .map(|block| hood.face_look(p, face, block));
                 }
             }
 
@@ -324,30 +469,29 @@ fn greedy(hood: &Neighbourhood) -> ChunkMesh {
             for j in 0..n {
                 let mut i = 0;
                 while i < n {
-                    let block = mask[i + j * n];
-                    if block.is_air() {
+                    let Some(look) = mask[i + j * n] else {
                         i += 1;
                         continue;
-                    }
+                    };
                     let mut width = 1;
-                    while i + width < n && mask[i + width + j * n] == block {
+                    while i + width < n && mask[i + width + j * n] == Some(look) {
                         width += 1;
                     }
                     let mut height = 1;
                     // `all` s'arrête au premier `false` : on teste la ligne suivante entière.
                     while j + height < n
-                        && (0..width).all(|k| mask[i + k + (j + height) * n] == block)
+                        && (0..width).all(|k| mask[i + k + (j + height) * n] == Some(look))
                     {
                         height += 1;
                     }
 
                     let p = n_axis * slice + u * i as i32 + v * j as i32;
                     let corner = face_corner(origin, p, face);
-                    mesh.push_quad(face, corner, width as i32, height as i32, hood.color(block));
+                    mesh.push_quad(face, corner, (width as i32, height as i32), look);
 
                     for dj in 0..height {
                         // `fill` remplit une tranche du tableau d'un coup.
-                        mask[i + (j + dj) * n..i + width + (j + dj) * n].fill(BlockId::AIR);
+                        mask[i + (j + dj) * n..i + width + (j + dj) * n].fill(None);
                     }
                     i += width;
                 }
@@ -375,9 +519,19 @@ mod tests {
         world
     }
 
+    fn id(key: &str) -> BlockId {
+        BlockRegistry::builtin().id(key).unwrap()
+    }
+
     /// Aire totale du maillage : la somme des aires des triangles.
     fn surface(mesh: &ChunkMesh) -> f32 {
-        mesh.indices
+        let indices: Vec<u32> = mesh
+            .indices
+            .iter()
+            .chain(&mesh.translucent_indices)
+            .copied()
+            .collect();
+        indices
             .chunks(3)
             .map(|t| {
                 let [a, b, c] =
@@ -387,12 +541,20 @@ mod tests {
             .sum()
     }
 
-    /// Nombre de quads dont la normale vaut `normal`.
-    fn quads_facing(mesh: &ChunkMesh, normal: Vec3) -> usize {
+    /// Les quads dont la normale vaut `normal` (4 sommets chacun).
+    fn quads_facing(mesh: &ChunkMesh, normal: Vec3) -> Vec<&[MeshVertex]> {
         mesh.vertices
             .chunks(4)
             .filter(|q| Vec3::from(q[0].normal) == normal)
-            .count()
+            .collect()
+    }
+
+    #[test]
+    fn neighbour_indices_round_trip() {
+        for i in 0..27 {
+            assert_eq!(index_of(offset_of(i)), i);
+        }
+        assert_eq!(offset_of(13), IVec3::ZERO);
     }
 
     #[test]
@@ -420,8 +582,8 @@ mod tests {
         }
         let culled = mesh_culled(&world, IVec3::ZERO);
         let greedy = mesh_greedy(&world, IVec3::ZERO);
-        assert_eq!(quads_facing(&culled, Vec3::Y), 32 * 32);
-        assert_eq!(quads_facing(&greedy, Vec3::Y), 1);
+        assert_eq!(quads_facing(&culled, Vec3::Y).len(), 32 * 32);
+        assert_eq!(quads_facing(&greedy, Vec3::Y).len(), 1);
         // Dessus, dessous et 4 bandes sur les côtés.
         assert_eq!(greedy.quad_count(), 6);
     }
@@ -437,16 +599,8 @@ mod tests {
 
     #[test]
     fn transparent_neighbours_keep_faces_visible() {
-        let mut registry = BlockRegistry::builtin().as_ref().clone();
-        registry
-            .add_source(
-                "test",
-                r#"[(id: "test:glass", name: "Verre", color: (0.8, 0.9, 1.0), transparent: true)]"#,
-                "test",
-            )
-            .unwrap();
-        let glass = registry.id("test:glass").unwrap();
-        let mut world = World::with_registry(Arc::new(registry));
+        let glass = id("core:glass");
+        let mut world = World::new();
         world.set_block(IVec3::new(0, 0, 0), stone());
         world.set_block(IVec3::new(1, 0, 0), glass);
         world.set_block(IVec3::new(2, 0, 0), glass);
@@ -455,6 +609,27 @@ mod tests {
         // Premier verre : 4 faces (cachées contre la pierre, opaque, et contre l'autre verre).
         // Second verre : 5 faces (pas de face entre deux blocs de verre identiques).
         assert_eq!(mesh.quad_count(), 6 + 4 + 5);
+        // Le verre est translucide : ses 9 faces vont dans la seconde liste.
+        assert_eq!(mesh.translucent_indices.len(), 9 * 6);
+    }
+
+    #[test]
+    fn faces_between_water_blocks_are_hidden() {
+        let water = id("core:water");
+        let mut world = World::new();
+        // Un bassin d'eau 4 × 1 × 4 : seulement le contour extérieur.
+        for x in 0..4 {
+            for z in 0..4 {
+                world.set_block(IVec3::new(x, 5, z), water);
+            }
+        }
+        let mesh = mesh_culled(&world, IVec3::ZERO);
+        assert_eq!(
+            mesh.quad_count(),
+            16 + 16 + 4 * 4,
+            "dessus, dessous, 4 côtés"
+        );
+        assert!(mesh.indices.is_empty(), "rien d'opaque");
     }
 
     #[test]
@@ -470,7 +645,63 @@ mod tests {
         world.set_block(IVec3::new(1, 0, 0), grass());
         let greedy = mesh_greedy(&world, IVec3::ZERO);
         // Le dessus reste en deux quads : pierre et herbe n'ont pas la même couleur.
-        assert_eq!(quads_facing(&greedy, Vec3::Y), 2);
+        assert_eq!(quads_facing(&greedy, Vec3::Y).len(), 2);
+    }
+
+    #[test]
+    fn corner_ambient_occlusion() {
+        // Un sol de 3 × 3 et un bloc posé dessus, dans le coin (2, 1, 2).
+        let mut blocks: Vec<IVec3> = (0..3)
+            .flat_map(|x| (0..3).map(move |z| IVec3::new(x, 0, z)))
+            .collect();
+        blocks.push(IVec3::new(2, 1, 2));
+        let world = world_with(&blocks);
+        let mesh = mesh_culled(&world, IVec3::ZERO);
+        let top_of = |x: f32, z: f32| {
+            quads_facing(&mesh, Vec3::Y)
+                .into_iter()
+                .find(|q| {
+                    q.iter().all(|v| {
+                        v.position[1] == 1.0
+                            && (x..=x + 1.0).contains(&v.position[0])
+                            && (z..=z + 1.0).contains(&v.position[2])
+                    })
+                })
+                .unwrap()
+        };
+        // Le dessus du bloc central du sol (1, 0, 1) : son coin (2, 1, 2) touche le bloc
+        // posé en diagonale (AO 2 sur 3), les trois autres sont dégagés.
+        for v in top_of(1.0, 1.0) {
+            let ao = v.light[2];
+            if v.position[0] == 2.0 && v.position[2] == 2.0 {
+                assert!(
+                    (ao - 2.0 / 3.0).abs() < 1e-6,
+                    "coin occulté par la diagonale : {ao}"
+                );
+            } else {
+                assert_eq!(ao, 1.0, "coin dégagé en {:?}", v.position);
+            }
+        }
+        // Le dessus du sol en (2, 0, 1), collé au bloc posé : ses deux coins côté z = 2
+        // touchent un côté plein.
+        let occluded = top_of(2.0, 1.0).iter().filter(|v| v.light[2] < 1.0).count();
+        assert_eq!(occluded, 2);
+    }
+
+    #[test]
+    fn greedy_does_not_merge_faces_with_different_light() {
+        let mut world = world_with(&(0..8).map(|x| IVec3::new(x, 0, 0)).collect::<Vec<_>>());
+        assert_eq!(
+            quads_facing(&mesh_greedy(&world, IVec3::ZERO), Vec3::Y).len(),
+            1,
+            "même éclairage : un seul quad"
+        );
+        // De la lumière de torche au-dessus de la moitié de la rangée.
+        for x in 0..4 {
+            world.chunk_mut(IVec3::ZERO).set_block_light(x, 1, 0, 10);
+        }
+        let top = quads_facing(&mesh_greedy(&world, IVec3::ZERO), Vec3::Y).len();
+        assert!(top >= 2, "deux éclairages, au moins deux quads : {top}");
     }
 
     #[test]
@@ -482,18 +713,19 @@ mod tests {
             // Chaque face 1×1 a une aire de 1 : l'aire vaut le nombre de faces.
             assert_eq!(surface(&culled), culled.quad_count() as f32);
             assert_eq!(surface(&greedy), surface(&culled));
-            assert!(greedy.quad_count() < culled.quad_count() / 2);
+            assert!(greedy.quad_count() < culled.quad_count());
         }
     }
 
     /// Même règle que pour le cube instancié : sens anti-horaire vu de l'extérieur,
-    /// sinon le backface culling du GPU cache la face.
+    /// sinon le backface culling du GPU cache la face. Vrai aussi pour les quads
+    /// dont on a retourné la diagonale.
     #[test]
     fn triangles_face_outwards() {
         let world = terrain(1);
         for mesh in [
-            mesh_culled(&world, IVec3::ZERO),
-            mesh_greedy(&world, IVec3::ZERO),
+            mesh_culled(&world, IVec3::new(0, 1, 0)),
+            mesh_greedy(&world, IVec3::new(0, 1, 0)),
         ] {
             for tri in mesh.indices.chunks(3) {
                 let [a, b, c] = [tri[0], tri[1], tri[2]]

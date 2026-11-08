@@ -1,15 +1,26 @@
-//! Le monde infini : charger et mailler les chunks autour du joueur, en tâche de fond.
+//! Le monde infini : charger, éclairer et mailler les chunks autour du joueur, en tâche de fond.
 //!
 //! # Qui fait quoi
 //!
 //! - Le **thread principal** possède le [`World`] et l'état de chaque chunk. Il décide
 //!   quoi charger, lance des tâches, et reçoit leurs résultats par un canal.
-//! - Les **threads de fond** (un pool `rayon` à nous) génèrent les chunks et
-//!   calculent les maillages. Ils ne touchent jamais au `World`.
+//! - Les **threads de fond** (un pool `rayon` à nous) génèrent les chunks, calculent
+//!   la lumière et les maillages. Ils ne touchent jamais au `World`.
 //!
 //! Le pool laisse deux cœurs libres : un pour le thread principal (rendu, entrées),
 //! un pour le système et le pilote graphique. Avec un thread de fond par cœur,
 //! le thread principal devait parfois attendre son tour : des images à 40 ms.
+//!
+//! # Trois étapes, trois rayons
+//!
+//! 1. **Génération**, chunk par chunk, jusqu'à `rayon de vue + 3`.
+//! 2. **Lumière**, colonne par colonne (les 5 chunks d'une verticale) : la lumière du
+//!    ciel tombe du haut du monde, il faut donc toute la colonne ; et elle déborde de
+//!    15 blocs sur les côtés, il faut donc les 8 colonnes voisines générées.
+//!    Chaque colonne voisine (diagonales comprises) d'une colonne visible est éclairée.
+//! 3. **Maillage**, chunk par chunk : la lumière douce et l'AO lisent un bloc au-delà
+//!    du bord, diagonales comprises, il faut donc les colonnes voisines éclairées.
+//!    Jusqu'au rayon de vue.
 //!
 //! # Pourquoi pas de `Mutex` sur le monde ?
 //!
@@ -18,8 +29,10 @@
 //! travaille sur ses propres données :
 //! - une tâche de génération ne reçoit qu'une position et un `Arc<TerrainGenerator>`
 //!   (lecture seule), et renvoie un `Chunk` tout neuf ;
-//! - une tâche de maillage reçoit un [`Neighbourhood`], des `Arc<Chunk>` en lecture
-//!   seule. Le thread principal peut continuer à lire ces mêmes chunks en même temps.
+//! - une tâche de lumière ou de maillage reçoit des `Arc<Chunk>` en lecture seule
+//!   ([`LightRegion`], [`Neighbourhood`]). Le thread principal peut continuer à lire
+//!   ces mêmes chunks en même temps, et s'il les modifie, `Arc::make_mut` lui en fait
+//!   une copie : la tâche garde l'ancienne version, intacte.
 //!
 //! # `Send`, `Sync` et canaux
 //!
@@ -38,11 +51,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use crossbeam_channel::{Receiver, Sender};
-use glam::{IVec3, Vec3};
+use glam::{IVec2, IVec3, Vec3};
 
 use crate::block::BlockId;
-use crate::chunk::{CHUNK_SIZE, Chunk};
+use crate::chunk::Chunk;
 use crate::generator::{TerrainGenerator, WORLD_HEIGHT_CHUNKS};
+use crate::light::{ColumnLight, LightRegion, apply_column_light, update_light};
 use crate::mesh::{ChunkMesh, Mesher, Neighbourhood};
 use crate::world::World;
 
@@ -51,7 +65,7 @@ use crate::world::World;
 pub struct StreamingConfig {
     /// Rayon (horizontal, en chunks) dans lequel les chunks sont maillés et dessinés.
     pub view_radius: i32,
-    /// Hystérésis : un chunk n'est déchargé qu'à `view_radius + 1 + unload_margin`.
+    /// Hystérésis : un chunk n'est déchargé qu'à `view_radius + 3 + unload_margin`.
     /// Sans marge, faire un pas d'avant en arrière sur la frontière d'un chunk
     /// chargerait et déchargerait sans cesse la même rangée.
     pub unload_margin: i32,
@@ -93,6 +107,8 @@ pub enum StreamEvent {
 pub struct StreamStats {
     /// Chunks générés et gardés en mémoire (vides compris).
     pub loaded: usize,
+    /// Colonnes dont la lumière est calculée.
+    pub lit_columns: usize,
     /// Chunks qui attendent d'être générés.
     pub queued: usize,
     /// Tâches en cours sur les threads de fond.
@@ -113,8 +129,25 @@ enum Slot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MeshState {
     Missing,
-    /// Une tâche de maillage tourne, lancée pendant cette « époque ».
+    /// Une tâche de maillage tourne ; son numéro (« ticket ») permet de reconnaître
+    /// et de jeter un résultat périmé.
     Meshing(u32),
+    Done,
+}
+
+/// Où en est une colonne de chunks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ColumnInfo {
+    /// Combien de ses chunks sont générés (sur `WORLD_HEIGHT_CHUNKS`).
+    generated: u8,
+    light: LightState,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum LightState {
+    #[default]
+    Missing,
+    Lighting(u32),
     Done,
 }
 
@@ -124,14 +157,19 @@ enum JobResult {
         pos: IVec3,
         chunk: Option<Chunk>,
     },
+    Lit {
+        column: IVec2,
+        ticket: u32,
+        light: ColumnLight,
+    },
     Meshed {
         pos: IVec3,
-        epoch: u32,
+        ticket: u32,
         mesh: ChunkMesh,
     },
 }
 
-/// Charge, maille et décharge les chunks autour d'un point (le joueur).
+/// Charge, éclaire, maille et décharge les chunks autour d'un point (le joueur).
 ///
 /// À appeler à chaque image : [`ChunkStreamer::update`], puis [`ChunkStreamer::next_event`]
 /// jusqu'à épuisement du budget d'envois GPU.
@@ -143,14 +181,15 @@ pub struct ChunkStreamer {
     generator: Arc<TerrainGenerator>,
     world: World,
     slots: HashMap<IVec3, Slot>,
+    columns: HashMap<IVec2, ColumnInfo>,
     /// Chunks à générer, du plus proche au plus lointain.
     load_queue: VecDeque<IVec3>,
-    /// Chunks peut-être prêts à être maillés (on vérifie au moment de lancer).
+    /// Colonnes et chunks peut-être prêts (on vérifie au moment de lancer).
+    light_candidates: HashSet<IVec2>,
     mesh_candidates: HashSet<IVec3>,
     /// Le chunk du joueur lors du dernier tri.
     centre: Option<IVec3>,
-    /// Change à chaque changement de mailleur : les résultats d'une ancienne époque sont jetés.
-    epoch: u32,
+    next_ticket: u32,
     in_flight: usize,
     // Chaque tâche reçoit un clone du `Sender` ; le `Receiver` reste ici.
     sender: Sender<JobResult>,
@@ -181,10 +220,12 @@ impl ChunkStreamer {
             world: World::with_registry(generator.registry().clone()),
             generator: Arc::new(generator),
             slots: HashMap::new(),
+            columns: HashMap::new(),
             load_queue: VecDeque::new(),
+            light_candidates: HashSet::new(),
             mesh_candidates: HashSet::new(),
             centre: None,
-            epoch: 0,
+            next_ticket: 0,
             in_flight: 0,
             sender,
             receiver,
@@ -214,55 +255,82 @@ impl ChunkStreamer {
             || matches!(self.slots.get(&chunk), Some(Slot::Generated(_)))
     }
 
-    /// Change un bloc et remaille tout de suite ce qui doit l'être.
+    /// Vrai si la lumière de la colonne qui contient ce chunk est calculée.
+    pub fn is_lit(&self, chunk: IVec3) -> bool {
+        is_lit(&self.columns, chunk)
+    }
+
+    /// Change un bloc, met à jour la lumière et remaille ce qui doit l'être.
     ///
     /// Renvoie `false` (et ne fait rien) si le chunk n'est pas encore généré.
-    /// Les maillages arrivent en tête de la file d'événements : le jeu les envoie
-    /// au GPU dès cette image, sans attendre derrière le chargement normal.
+    /// Les maillages des chunks dont les blocs changent sont refaits tout de suite et
+    /// arrivent en tête de la file d'événements : le jeu les envoie au GPU dès cette
+    /// image. Ceux dont seule la lumière change (une ombre qui descend loin, la lueur
+    /// d'une torche) partent en priorité sur les threads de fond.
     pub fn set_block(&mut self, pos: IVec3, block: BlockId) -> bool {
-        let (chunk, local) = World::split(pos);
+        let chunk = World::split(pos).0;
         if !matches!(self.slots.get(&chunk), Some(Slot::Generated(_))) {
             return false;
         }
         if self.world.block(pos) == block {
             return true;
         }
-        // Copy-on-write : si une tâche de maillage lit encore ce chunk, elle garde
-        // l'ancienne version et nous modifions une copie (voir `World::chunk_mut`).
+        // Copy-on-write : si une tâche lit encore ce chunk, elle garde l'ancienne
+        // version et nous modifions une copie (voir `World::chunk_mut`).
         self.world.set_block(pos, block);
         self.edited.insert(chunk);
 
-        // Un bloc au bord du chunk change aussi les faces du voisin qui le touche.
-        let mut to_remesh = vec![chunk];
-        for axis in 0..3 {
-            let mut offset = IVec3::ZERO;
-            if local[axis] == 0 {
-                offset[axis] = -1;
-            } else if local[axis] == CHUNK_SIZE - 1 {
-                offset[axis] = 1;
-            } else {
-                continue;
+        // La lumière. On sépare les champs empruntés : `columns` en lecture pendant
+        // que `world` est modifié. Le compilateur l'accepte car ce sont deux champs distincts.
+        let columns = &self.columns;
+        let light_changed = update_light(&mut self.world, pos, |c| is_lit(columns, c));
+
+        // Une colonne voisine en cours d'éclairage a lu les anciens blocs : à refaire.
+        for dx in -1..=1 {
+            for dz in -1..=1 {
+                let column = IVec2::new(chunk.x + dx, chunk.z + dz);
+                if let Some(info) = self.columns.get_mut(&column)
+                    && matches!(info.light, LightState::Lighting(_))
+                {
+                    info.light = LightState::Missing;
+                    self.light_candidates.insert(column);
+                }
             }
-            to_remesh.push(chunk + offset);
         }
-        // Dans l'ordre inverse : `push_front` met donc le chunk modifié en premier.
-        for pos in to_remesh.into_iter().rev() {
-            self.remesh_now(pos);
+
+        // Les chunks qui contiennent le bloc ou un de ses 26 voisins : leurs faces
+        // ou leur AO changent. On les remaille ici même, le chunk modifié en premier
+        // (`push_front` : on les ajoute donc dans l'ordre inverse).
+        let mut geometry: Vec<IVec3> = Vec::new();
+        for offset in NEIGHBOURS_27 {
+            let c = World::split(pos + offset).0;
+            if !geometry.contains(&c) {
+                geometry.push(c);
+            }
+        }
+        for &c in geometry.iter().rev() {
+            self.remesh_now(c);
+        }
+        // Les autres : seule leur lumière a changé.
+        for c in light_changed {
+            if !geometry.contains(&c) {
+                self.remesh_soon(c);
+            }
         }
         true
     }
 
     /// Remaille un chunk sur ce thread, immédiatement.
     ///
-    /// Un maillage prend moins d'une demi-milliseconde : pour 1 à 4 chunks, c'est plus
+    /// Un maillage prend environ une demi-milliseconde : pour quelques chunks, c'est plus
     /// simple et plus réactif que de passer par les threads de fond, dont la file est
     /// peut-être pleine de chunks à charger.
     fn remesh_now(&mut self, pos: IVec3) {
         if !matches!(self.slots.get(&pos), Some(Slot::Generated(_))) {
             return;
         }
-        if !self.neighbours_generated(pos) {
-            // Il sera maillé normalement quand ses voisins arriveront.
+        if !self.surroundings_lit(pos) {
+            // Il sera maillé normalement quand ses voisins seront éclairés.
             self.slots.insert(pos, Slot::Generated(MeshState::Missing));
             self.mesh_candidates.insert(pos);
             return;
@@ -270,7 +338,7 @@ impl ChunkStreamer {
         let mesh = Neighbourhood::from_world(&self.world, pos)
             .map_or_else(ChunkMesh::default, |hood| self.config.mesher.mesh(&hood));
         // `Done` : si une tâche de fond maillait l'ancienne version, son résultat
-        // (qui attend `Meshing`) sera jeté à l'arrivée.
+        // (qui attend `Meshing(son ticket)`) sera jeté à l'arrivée.
         self.slots.insert(pos, Slot::Generated(MeshState::Done));
         // Un ancien maillage en attente ne doit pas écraser le nouveau.
         self.events
@@ -279,12 +347,25 @@ impl ChunkStreamer {
         self.events.push_front(StreamEvent::Mesh(pos, mesh));
     }
 
+    /// Relance le maillage d'un chunk sur un thread de fond, sans attendre la file.
+    fn remesh_soon(&mut self, pos: IVec3) {
+        if !matches!(self.slots.get(&pos), Some(Slot::Generated(_))) {
+            return;
+        }
+        if self.surroundings_lit(pos) {
+            self.spawn_mesh(pos);
+        } else {
+            self.slots.insert(pos, Slot::Generated(MeshState::Missing));
+            self.mesh_candidates.insert(pos);
+        }
+    }
+
     /// Change d'algorithme de maillage et remaille tout ce qui est chargé.
     pub fn set_mesher(&mut self, mesher: Mesher) {
         self.config.mesher = mesher;
-        self.epoch += 1;
         for (&pos, slot) in &mut self.slots {
             if let Slot::Generated(state @ (MeshState::Meshing(_) | MeshState::Done)) = slot {
+                // Les résultats encore en route seront jetés : l'état ne vaut plus `Meshing`.
                 *state = MeshState::Missing;
                 self.mesh_candidates.insert(pos);
             }
@@ -314,6 +395,11 @@ impl ChunkStreamer {
                 .values()
                 .filter(|s| matches!(s, Slot::Generated(_)))
                 .count(),
+            lit_columns: self
+                .columns
+                .values()
+                .filter(|c| c.light == LightState::Done)
+                .count(),
             queued: self.load_queue.len(),
             in_flight: self.in_flight,
             meshes_waiting: self
@@ -328,14 +414,30 @@ impl ChunkStreamer {
     pub fn is_idle(&self) -> bool {
         self.load_queue.is_empty()
             && self.in_flight == 0
+            && self.light_candidates.is_empty()
             && self.mesh_candidates.is_empty()
             && self.events.is_empty()
     }
 
+    /// Le rayon de génération : assez pour éclairer toutes les voisines (même en
+    /// diagonale, à √2 près) des colonnes visibles, plus leurs propres voisines.
+    fn load_radius(&self) -> i32 {
+        self.config.view_radius + 3
+    }
+
+    /// Une colonne doit être éclairée si elle touche (diagonales comprises) une colonne visible.
+    fn wants_light(&self, column: IVec2, centre: IVec2) -> bool {
+        let view_sq = self.config.view_radius.pow(2);
+        (-1..=1).any(|dx| {
+            (-1..=1).any(|dz| (column + IVec2::new(dx, dz) - centre).length_squared() <= view_sq)
+        })
+    }
+
     /// Le joueur a changé de chunk : décharger ce qui est trop loin, retrier la file.
     fn refresh(&mut self, centre: IVec3) {
-        let load_radius = self.config.view_radius + 1;
+        let load_radius = self.load_radius();
         let unload_radius = load_radius + self.config.unload_margin;
+        let flat = IVec2::new(centre.x, centre.z);
 
         // 1. Déchargement. `retain` garde les éléments pour lesquels la closure renvoie `true`.
         let mut unloaded = Vec::new();
@@ -346,9 +448,13 @@ impl ChunkStreamer {
             }
             keep
         });
+        self.columns
+            .retain(|&c, _| (c - flat).length_squared() <= unload_radius * unload_radius);
+        self.light_candidates
+            .retain(|&c| (c - flat).length_squared() <= unload_radius * unload_radius);
         for pos in unloaded {
             // Le dernier `Arc` disparaît ici (ou à la fin de la tâche qui le lit encore) :
-            // `Drop` libère alors les 64 Ko du chunk. Côté GPU, c'est pareil : le jeu
+            // `Drop` libère alors la mémoire du chunk. Côté GPU, c'est pareil : le jeu
             // retire le maillage, et les `wgpu::Buffer` sont libérés par leur `Drop`.
             let chunk = self.world.remove(pos);
             if self.edited.remove(&pos) {
@@ -381,8 +487,15 @@ impl ChunkStreamer {
         wanted.sort_by_key(|&pos| (pos - centre).length_squared());
         self.load_queue = wanted.into();
 
-        // 3. Les chunks déjà générés qui entrent dans le rayon de vue doivent être maillés.
-        let view_sq = self.config.view_radius * self.config.view_radius;
+        // 3. Ce qui entre dans les rayons de lumière et de vue doit être éclairé ou maillé.
+        let to_light: Vec<IVec2> = self
+            .columns
+            .iter()
+            .filter(|(c, info)| info.light == LightState::Missing && self.wants_light(**c, flat))
+            .map(|(c, _)| *c)
+            .collect();
+        self.light_candidates.extend(to_light);
+        let view_sq = self.config.view_radius.pow(2);
         for (&pos, slot) in &self.slots {
             if *slot == Slot::Generated(MeshState::Missing)
                 && horizontal_distance_sq(pos, centre) <= view_sq
@@ -406,15 +519,36 @@ impl ChunkStreamer {
                     if let Some(chunk) = chunk {
                         self.world.insert(pos, Arc::new(chunk));
                     }
-                    self.slots.insert(pos, Slot::Generated(MeshState::Missing));
-                    // Ce chunk, et ses voisins qui n'attendaient peut-être que lui.
-                    self.mesh_candidates.insert(pos);
-                    for offset in NEIGHBOUR_OFFSETS {
-                        self.mesh_candidates.insert(pos + offset);
+                    self.mark_generated(pos);
+                }
+                JobResult::Lit {
+                    column,
+                    ticket,
+                    light,
+                } => {
+                    let Some(info) = self.columns.get_mut(&column) else {
+                        continue; // Colonne déchargée entre-temps.
+                    };
+                    if info.light != LightState::Lighting(ticket) {
+                        continue; // Résultat périmé (un bloc a changé à côté).
+                    }
+                    info.light = LightState::Done;
+                    apply_column_light(&mut self.world, column, light);
+                    // Ses chunks et ceux des colonnes voisines attendaient peut-être cette lumière.
+                    for dx in -1..=1 {
+                        for dz in -1..=1 {
+                            for y in 0..WORLD_HEIGHT_CHUNKS {
+                                self.mesh_candidates.insert(IVec3::new(
+                                    column.x + dx,
+                                    y,
+                                    column.y + dz,
+                                ));
+                            }
+                        }
                     }
                 }
-                JobResult::Meshed { pos, epoch, mesh } => {
-                    if self.slots.get(&pos) == Some(&Slot::Generated(MeshState::Meshing(epoch))) {
+                JobResult::Meshed { pos, ticket, mesh } => {
+                    if self.slots.get(&pos) == Some(&Slot::Generated(MeshState::Meshing(ticket))) {
                         self.slots.insert(pos, Slot::Generated(MeshState::Done));
                         self.events.push_back(StreamEvent::Mesh(pos, mesh));
                     }
@@ -423,14 +557,32 @@ impl ChunkStreamer {
         }
     }
 
-    /// Lance des tâches tant qu'il reste de la place : maillages d'abord
-    /// (ils rendent des chunks visibles), puis générations.
+    /// Un chunk vient d'être généré (ou rendu depuis les modifications gardées).
+    fn mark_generated(&mut self, pos: IVec3) {
+        self.slots.insert(pos, Slot::Generated(MeshState::Missing));
+        let column = IVec2::new(pos.x, pos.z);
+        let info = self.columns.entry(column).or_default();
+        info.generated += 1;
+        if info.generated as i32 == WORLD_HEIGHT_CHUNKS {
+            // Colonne complète : elle et ses voisines peuvent peut-être être éclairées.
+            for dx in -1..=1 {
+                for dz in -1..=1 {
+                    self.light_candidates
+                        .insert(IVec2::new(column.x + dx, column.y + dz));
+                }
+            }
+        }
+    }
+
+    /// Lance des tâches tant qu'il reste de la place : maillages d'abord (ils rendent
+    /// des chunks visibles), puis lumière, puis générations.
     fn schedule(&mut self, centre: IVec3) {
-        if self.in_flight < self.config.max_jobs_in_flight && !self.mesh_candidates.is_empty() {
+        let max = self.config.max_jobs_in_flight;
+        if self.in_flight < max && !self.mesh_candidates.is_empty() {
             let mut candidates: Vec<IVec3> = self.mesh_candidates.iter().copied().collect();
             candidates.sort_by_key(|&pos| (pos - centre).length_squared());
             for pos in candidates {
-                if self.in_flight >= self.config.max_jobs_in_flight {
+                if self.in_flight >= max {
                     break; // Les autres restent candidats pour l'image suivante.
                 }
                 self.mesh_candidates.remove(&pos);
@@ -440,7 +592,22 @@ impl ChunkStreamer {
             }
         }
 
-        while self.in_flight < self.config.max_jobs_in_flight {
+        if self.in_flight < max && !self.light_candidates.is_empty() {
+            let flat = IVec2::new(centre.x, centre.z);
+            let mut candidates: Vec<IVec2> = self.light_candidates.iter().copied().collect();
+            candidates.sort_by_key(|&c| (c - flat).length_squared());
+            for column in candidates {
+                if self.in_flight >= max {
+                    break;
+                }
+                self.light_candidates.remove(&column);
+                if self.ready_to_light(column, flat) {
+                    self.spawn_light(column);
+                }
+            }
+        }
+
+        while self.in_flight < max {
             let Some(pos) = self.load_queue.pop_front() else {
                 break;
             };
@@ -448,13 +615,10 @@ impl ChunkStreamer {
             if let Entry::Vacant(entry) = self.slots.entry(pos) {
                 // Un chunk modifié par le joueur revient tel qu'il l'a laissé.
                 if let Some(chunk) = self.saved_edits.remove(&pos) {
-                    entry.insert(Slot::Generated(MeshState::Missing));
+                    entry.insert(Slot::Generating);
                     self.world.insert(pos, chunk);
                     self.edited.insert(pos);
-                    self.mesh_candidates.insert(pos);
-                    for offset in NEIGHBOUR_OFFSETS {
-                        self.mesh_candidates.insert(pos + offset);
-                    }
+                    self.mark_generated(pos);
                 } else {
                     entry.insert(Slot::Generating);
                     self.spawn_generation(pos);
@@ -463,22 +627,40 @@ impl ChunkStreamer {
         }
     }
 
-    /// On ne maille un chunk que quand ses 6 voisins sont générés : ses faces de
-    /// bordure sont alors justes du premier coup. Si on maillait plus tôt, il faudrait
-    /// le remailler à l'arrivée de chaque voisin (jusqu'à 6 fois le même travail).
-    /// C'est pour ça qu'on génère un chunk de plus que le rayon de vue.
+    /// Une colonne s'éclaire quand elle et ses 8 voisines sont entièrement générées.
+    fn ready_to_light(&self, column: IVec2, centre: IVec2) -> bool {
+        self.wants_light(column, centre)
+            && self
+                .columns
+                .get(&column)
+                .is_some_and(|c| c.light == LightState::Missing)
+            && (-1..=1).all(|dx| {
+                (-1..=1).all(|dz| {
+                    self.columns
+                        .get(&IVec2::new(column.x + dx, column.y + dz))
+                        .is_some_and(|c| c.generated as i32 == WORLD_HEIGHT_CHUNKS)
+                })
+            })
+    }
+
+    /// On ne maille un chunk que quand sa colonne et les 8 voisines sont éclairées :
+    /// ses faces de bordure, sa lumière douce et son AO sont alors justes du premier coup.
+    /// Si on maillait plus tôt, il faudrait le remailler à chaque arrivée d'un voisin.
+    /// C'est pour ça qu'on génère et qu'on éclaire plus loin que le rayon de vue.
     fn ready_to_mesh(&self, pos: IVec3, centre: IVec3) -> bool {
         let view = self.config.view_radius;
         self.slots.get(&pos) == Some(&Slot::Generated(MeshState::Missing))
             && horizontal_distance_sq(pos, centre) <= view * view
-            && self.neighbours_generated(pos)
+            && self.surroundings_lit(pos)
     }
 
-    /// Les 6 voisins sont générés (au-dessus et en dessous du monde, rien à attendre).
-    fn neighbours_generated(&self, pos: IVec3) -> bool {
-        NEIGHBOUR_OFFSETS
-            .iter()
-            .all(|&offset| self.is_generated(pos + offset))
+    fn surroundings_lit(&self, pos: IVec3) -> bool {
+        (-1..=1).all(|dx| (-1..=1).all(|dz| self.is_lit(IVec3::new(pos.x + dx, 0, pos.z + dz))))
+    }
+
+    fn ticket(&mut self) -> u32 {
+        self.next_ticket = self.next_ticket.wrapping_add(1);
+        self.next_ticket
     }
 
     fn spawn_generation(&mut self, pos: IVec3) {
@@ -494,33 +676,61 @@ impl ChunkStreamer {
         });
     }
 
+    fn spawn_light(&mut self, column: IVec2) {
+        let ticket = self.ticket();
+        if let Some(info) = self.columns.get_mut(&column) {
+            info.light = LightState::Lighting(ticket);
+        }
+        let region = LightRegion::from_world(&self.world, column);
+        let sender = self.sender.clone();
+        self.in_flight += 1;
+        self.pool.spawn(move || {
+            let light = region.compute();
+            let _ = sender.send(JobResult::Lit {
+                column,
+                ticket,
+                light,
+            });
+        });
+    }
+
     fn spawn_mesh(&mut self, pos: IVec3) {
         // Un chunk vide n'a rien à dessiner : pas besoin de tâche.
         let Some(hood) = Neighbourhood::from_world(&self.world, pos) else {
             self.slots.insert(pos, Slot::Generated(MeshState::Done));
             return;
         };
-        let epoch = self.epoch;
+        let ticket = self.ticket();
         let mesher = self.config.mesher;
         let sender = self.sender.clone();
         self.slots
-            .insert(pos, Slot::Generated(MeshState::Meshing(epoch)));
+            .insert(pos, Slot::Generated(MeshState::Meshing(ticket)));
         self.in_flight += 1;
         self.pool.spawn(move || {
             let mesh = mesher.mesh(&hood);
-            let _ = sender.send(JobResult::Meshed { pos, epoch, mesh });
+            let _ = sender.send(JobResult::Meshed { pos, ticket, mesh });
         });
     }
 }
 
-const NEIGHBOUR_OFFSETS: [IVec3; 6] = [
-    IVec3::X,
-    IVec3::NEG_X,
-    IVec3::Y,
-    IVec3::NEG_Y,
-    IVec3::Z,
-    IVec3::NEG_Z,
-];
+/// La colonne de ce chunk est éclairée (au-dessus et en dessous du monde : oui).
+fn is_lit(columns: &HashMap<IVec2, ColumnInfo>, chunk: IVec3) -> bool {
+    columns
+        .get(&IVec2::new(chunk.x, chunk.z))
+        .is_some_and(|c| c.light == LightState::Done)
+}
+
+/// Le bloc et ses 26 voisins.
+const NEIGHBOURS_27: [IVec3; 27] = {
+    let mut offsets = [IVec3::ZERO; 27];
+    let mut i = 0;
+    // Une boucle `while` : les boucles `for` ne sont pas encore permises dans un `const`.
+    while i < 27 {
+        offsets[i] = IVec3::new(i as i32 % 3 - 1, i as i32 / 9 - 1, (i as i32 / 3) % 3 - 1);
+        i += 1;
+    }
+    offsets
+};
 
 /// Distance horizontale au carré, en chunks : le rayon de vue est un cercle, pas une sphère.
 fn horizontal_distance_sq(a: IVec3, b: IVec3) -> i32 {
@@ -534,6 +744,7 @@ mod tests {
 
     use super::*;
     use crate::mesh::mesh_greedy;
+    use crate::registry::BlockRegistry;
     use crate::registry::test_blocks::{snow, stone};
 
     const RADIUS: i32 = 2;
@@ -578,8 +789,8 @@ mod tests {
         let mut s = streamer();
         let events = pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
 
-        // Rayon de chargement = rayon de vue + 1.
-        let r = RADIUS + 1;
+        // Rayon de génération = rayon de vue + 3.
+        let r = RADIUS + 3;
         let columns = (-r..=r)
             .flat_map(|x| (-r..=r).map(move |z| x * x + z * z))
             .filter(|&d| d <= r * r)
@@ -642,11 +853,11 @@ mod tests {
             .collect();
         assert!(unloaded.contains(&IVec3::new(0, 0, 0)));
         assert!(s.world().chunk(IVec3::new(0, 0, 0)).is_none());
-        // Il ne reste que des chunks proches de la nouvelle position (rayon 2 + 1 + marge 1).
+        // Il ne reste que des chunks proches de la nouvelle position (rayon 2 + 3 + marge 1).
         assert!(
             s.slots
                 .keys()
-                .all(|p| horizontal_distance_sq(*p, IVec3::new(20, 0, 0)) <= 4 * 4)
+                .all(|p| horizontal_distance_sq(*p, IVec3::new(20, 0, 0)) <= 6 * 6)
         );
     }
 
@@ -725,7 +936,6 @@ mod tests {
 
     #[test]
     fn mod_blocks_can_be_placed_and_meshed() {
-        use crate::registry::BlockRegistry;
         let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let registry = BlockRegistry::load(&repo.join("assets"), Some(&repo.join("mods"))).unwrap();
         let ruby = registry.id("example:ruby").unwrap();
@@ -745,7 +955,27 @@ mod tests {
             panic!("pas de maillage");
         };
         assert_eq!(mesh.quad_count(), 6);
-        assert!(mesh.vertices.iter().all(|v| v.color == ruby_color));
+        assert!(mesh.vertices.iter().all(|v| v.color[..3] == ruby_color));
+    }
+
+    #[test]
+    fn torch_light_reaches_and_remeshes_the_next_chunk() {
+        let mut s = streamer();
+        pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        let torch = BlockRegistry::builtin().id("core:torch").unwrap();
+        // Dans le ciel, à 12 blocs du chunk x = 1 : sa lumière y déborde.
+        let pos = IVec3::new(20, 120, 5);
+        assert!(s.set_block(pos, torch));
+        let events = pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        assert_eq!(s.world().light(pos).1, 14);
+        assert_eq!(s.world().light(IVec3::new(33, 120, 5)).1, 1);
+        // Le chunk voisin n'a pas changé de blocs, seulement de lumière : il est remaillé
+        // en tâche de fond.
+        assert!(meshed(&events).contains_key(&IVec3::new(1, 3, 0)));
+        // Et tout reste cohérent avec un maillage direct.
+        for (pos, mesh) in meshed(&events) {
+            assert_eq!(mesh, &mesh_greedy(s.world(), pos), "chunk {pos}");
+        }
     }
 
     #[test]

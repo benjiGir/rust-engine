@@ -1,0 +1,154 @@
+//! Le cycle jour/nuit.
+//!
+//! L'heure est un nombre de 0 à 1 : 0 = minuit, 0,25 = lever du soleil, 0,5 = midi,
+//! 0,75 = coucher. Rien n'est recalculé dans le monde quand l'heure change : les blocs
+//! gardent leur « lumière du ciel » (0 à 15), et le shader la multiplie par l'intensité
+//! du jour. C'est pour ça que Minecraft sépare lumière du ciel et lumière des torches.
+
+use glam::Vec3;
+
+/// En mode accéléré (touche T), le temps passe 40 fois plus vite.
+const FAST_FACTOR: f32 = 40.0;
+/// La nuit n'est jamais complètement noire : la lune éclaire un peu.
+const MOONLIGHT: f32 = 0.1;
+
+const NIGHT_SKY: Vec3 = Vec3::new(0.008, 0.012, 0.035);
+const DAY_SKY: Vec3 = Vec3::new(0.45, 0.65, 0.9);
+const SUNSET_SKY: Vec3 = Vec3::new(0.95, 0.42, 0.18);
+const SUNSET_LIGHT: Vec3 = Vec3::new(1.0, 0.62, 0.38);
+const MOON_LIGHT: Vec3 = Vec3::new(0.55, 0.65, 1.0);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimeSpeed {
+    Normal,
+    Fast,
+    Frozen,
+}
+
+impl TimeSpeed {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Fast => "accéléré",
+            Self::Frozen => "figé",
+        }
+    }
+}
+
+pub struct DayCycle {
+    /// L'heure, de 0 à 1.
+    pub time: f32,
+    /// Durée d'une journée complète, en secondes réelles.
+    pub day_length: f32,
+    pub speed: TimeSpeed,
+}
+
+impl DayCycle {
+    pub fn new(time: f32, day_length: f32) -> Self {
+        Self {
+            time: time.rem_euclid(1.0),
+            day_length: day_length.max(1.0),
+            speed: TimeSpeed::Normal,
+        }
+    }
+
+    pub fn update(&mut self, dt: f32) {
+        let factor = match self.speed {
+            TimeSpeed::Normal => 1.0,
+            TimeSpeed::Fast => FAST_FACTOR,
+            TimeSpeed::Frozen => 0.0,
+        };
+        // `rem_euclid` : reste toujours entre 0 et 1, même après minuit.
+        self.time = (self.time + dt * factor / self.day_length).rem_euclid(1.0);
+    }
+
+    /// Normal → accéléré → figé → normal.
+    pub fn cycle_speed(&mut self) {
+        self.speed = match self.speed {
+            TimeSpeed::Normal => TimeSpeed::Fast,
+            TimeSpeed::Fast => TimeSpeed::Frozen,
+            TimeSpeed::Frozen => TimeSpeed::Normal,
+        };
+    }
+
+    /// Direction vers le soleil. Il se lève à l'est (+x), passe au sud et se couche à l'ouest.
+    pub fn sun_direction(&self) -> Vec3 {
+        let angle = (self.time - 0.25) * std::f32::consts::TAU;
+        Vec3::new(angle.cos(), angle.sin(), 0.35).normalize()
+    }
+
+    /// 0 quand le soleil est bien sous l'horizon, 1 quand il est haut.
+    fn day_factor(&self) -> f32 {
+        smoothstep(-0.12, 0.3, self.sun_direction().y)
+    }
+
+    /// L'intensité de la lumière du ciel, de [`MOONLIGHT`] (la nuit) à 1.
+    pub fn daylight(&self) -> f32 {
+        MOONLIGHT + (1.0 - MOONLIGHT) * self.day_factor()
+    }
+
+    /// La couleur du ciel (et du brouillard) : bleu le jour, orangé au lever et
+    /// au coucher, presque noir la nuit.
+    pub fn sky_color(&self) -> Vec3 {
+        let base = NIGHT_SKY.lerp(DAY_SKY, self.day_factor());
+        base.lerp(SUNSET_SKY, self.sunset_factor() * 0.75)
+    }
+
+    /// La teinte de la lumière du ciel : orangée près de l'horizon, bleutée la nuit.
+    pub fn sun_color(&self) -> Vec3 {
+        let day = Vec3::ONE.lerp(SUNSET_LIGHT, self.sunset_factor() * 0.85);
+        MOON_LIGHT.lerp(day, self.day_factor())
+    }
+
+    /// 1 quand le soleil touche l'horizon, 0 quand il en est loin (courbe en cloche).
+    fn sunset_factor(&self) -> f32 {
+        (-(self.sun_direction().y / 0.15).powi(2)).exp()
+    }
+
+    /// L'heure sous forme « 14:30 ».
+    pub fn clock(&self) -> String {
+        let minutes = (self.time * 24.0 * 60.0) as u32;
+        format!("{:02}:{:02}", minutes / 60, minutes % 60)
+    }
+}
+
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn noon_is_bright_and_midnight_is_dark() {
+        let noon = DayCycle::new(0.5, 600.0);
+        let midnight = DayCycle::new(0.0, 600.0);
+        assert!(noon.daylight() > 0.95);
+        assert!((midnight.daylight() - MOONLIGHT).abs() < 1e-6);
+        assert!(noon.sun_direction().y > 0.9);
+        assert!(midnight.sun_direction().y < -0.9);
+    }
+
+    #[test]
+    fn sunset_sky_is_orange() {
+        let sunset = DayCycle::new(0.75, 600.0).sky_color();
+        assert!(sunset.x > sunset.z, "plus de rouge que de bleu : {sunset}");
+        let noon = DayCycle::new(0.5, 600.0).sky_color();
+        assert!(noon.z > noon.x);
+    }
+
+    #[test]
+    fn time_wraps_around_and_can_be_frozen() {
+        let mut day = DayCycle::new(0.9, 10.0);
+        day.update(2.0);
+        assert!((day.time - 0.1).abs() < 1e-5, "{}", day.time);
+        day.cycle_speed();
+        day.cycle_speed();
+        assert_eq!(day.speed, TimeSpeed::Frozen);
+        day.update(5.0);
+        assert!((day.time - 0.1).abs() < 1e-5);
+        assert_eq!(DayCycle::new(0.5, 600.0).clock(), "12:00");
+    }
+}

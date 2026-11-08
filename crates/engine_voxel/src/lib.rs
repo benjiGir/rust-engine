@@ -14,6 +14,7 @@
 mod block;
 mod chunk;
 mod generator;
+mod light;
 mod mesh;
 mod physics;
 mod raycast;
@@ -22,8 +23,9 @@ mod streaming;
 mod world;
 
 pub use block::BlockId;
-pub use chunk::{CHUNK_SIZE, Chunk};
-pub use generator::{Biome, Column, TerrainGenerator, WORLD_HEIGHT_CHUNKS};
+pub use chunk::{CHUNK_SIZE, Chunk, DEFAULT_LIGHT};
+pub use generator::{Biome, Column, SEA_LEVEL, TerrainGenerator, WORLD_HEIGHT_CHUNKS};
+pub use light::{ColumnLight, LightRegion, MAX_LIGHT, apply_column_light, update_light};
 pub use mesh::{ChunkMesh, MeshVertex, Mesher, Neighbourhood, mesh_culled, mesh_greedy};
 pub use physics::{PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
 pub use raycast::{RayHit, raycast};

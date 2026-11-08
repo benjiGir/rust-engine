@@ -53,6 +53,19 @@ impl World {
         &self.registry
     }
 
+    /// Lumière (ciel, blocs) à une position monde, chacune de 0 à 15.
+    ///
+    /// Un chunk absent est de l'air en plein ciel (15, 0) ; sous le monde, tout est noir.
+    pub fn light(&self, pos: IVec3) -> (u8, u8) {
+        if pos.y < 0 {
+            return (0, 0);
+        }
+        let (chunk, [x, y, z]) = Self::split(pos);
+        self.chunks
+            .get(&chunk)
+            .map_or((15, 0), |c| (c.sky_light(x, y, z), c.block_light(x, y, z)))
+    }
+
     /// Vrai si le bloc à cette position arrête le joueur.
     pub fn is_solid(&self, pos: IVec3) -> bool {
         self.registry.is_solid(self.block(pos))

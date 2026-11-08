@@ -4,16 +4,25 @@ use crate::block::BlockId;
 
 /// Côté d'un chunk, en blocs.
 pub const CHUNK_SIZE: usize = 32;
-const VOLUME: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+pub(crate) const VOLUME: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+
+/// La lumière d'un bloc tient dans un octet : deux niveaux de 0 à 15 (4 bits chacun).
+/// Les 4 bits de poids fort : la lumière du ciel ; les 4 de poids faible : celle des
+/// blocs (torches...). Deux canaux séparés car le ciel change avec l'heure, pas les torches.
+pub const DEFAULT_LIGHT: u8 = 0xF0;
 
 /// Les blocs d'un chunk, stockés « à plat ».
 ///
 /// `Box<[BlockId]>` est un tableau de taille fixe alloué sur le tas.
 /// On évite `[BlockId; VOLUME]` directement : 64 Ko sur la pile à chaque
 /// déplacement du chunk, c'est lent et peut faire déborder la pile.
+///
+/// À côté des blocs, la lumière : un octet par bloc (voir [`DEFAULT_LIGHT`]).
+/// Par défaut, plein ciel (15) et aucune torche (0), la lumière d'un chunk d'air.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Chunk {
     blocks: Box<[BlockId]>,
+    light: Box<[u8]>,
 }
 
 impl Default for Chunk {
@@ -28,6 +37,7 @@ impl Chunk {
         Self {
             // `vec![x; n]` puis `into_boxed_slice` : on fige la taille du tableau.
             blocks: vec![BlockId::AIR; VOLUME].into_boxed_slice(),
+            light: vec![DEFAULT_LIGHT; VOLUME].into_boxed_slice(),
         }
     }
 
@@ -48,6 +58,45 @@ impl Chunk {
     #[inline]
     pub fn set(&mut self, x: usize, y: usize, z: usize, block: BlockId) {
         self.blocks[Self::index(x, y, z)] = block;
+    }
+
+    /// Lumière du ciel, de 0 à 15. `>> 4` garde les 4 bits de poids fort.
+    #[inline]
+    pub fn sky_light(&self, x: usize, y: usize, z: usize) -> u8 {
+        self.light[Self::index(x, y, z)] >> 4
+    }
+
+    /// Lumière des blocs, de 0 à 15. `& 0x0F` garde les 4 bits de poids faible.
+    #[inline]
+    pub fn block_light(&self, x: usize, y: usize, z: usize) -> u8 {
+        self.light[Self::index(x, y, z)] & 0x0F
+    }
+
+    #[inline]
+    pub fn set_sky_light(&mut self, x: usize, y: usize, z: usize, level: u8) {
+        let cell = &mut self.light[Self::index(x, y, z)];
+        *cell = (*cell & 0x0F) | (level << 4);
+    }
+
+    #[inline]
+    pub fn set_block_light(&mut self, x: usize, y: usize, z: usize, level: u8) {
+        let cell = &mut self.light[Self::index(x, y, z)];
+        *cell = (*cell & 0xF0) | (level & 0x0F);
+    }
+
+    /// Remplace toute la lumière (calculée par une tâche de fond).
+    pub fn set_light_data(&mut self, light: Box<[u8]>) {
+        assert_eq!(light.len(), VOLUME, "taille de lumière invalide");
+        self.light = light;
+    }
+
+    /// Remet la lumière par défaut (plein ciel, aucune torche).
+    pub fn reset_light(&mut self) {
+        self.light.fill(DEFAULT_LIGHT);
+    }
+
+    pub fn light_data(&self) -> &[u8] {
+        &self.light
     }
 
     /// Vrai si le chunk ne contient que de l'air (rien à mailler).
@@ -84,5 +133,22 @@ mod tests {
         assert_eq!(chunk.get(1, 2, 3), stone());
         assert_eq!(chunk.get(3, 2, 1), BlockId::AIR);
         assert!(!chunk.is_empty());
+    }
+
+    #[test]
+    fn light_channels_are_independent() {
+        let mut chunk = Chunk::new();
+        assert_eq!(
+            (chunk.sky_light(1, 2, 3), chunk.block_light(1, 2, 3)),
+            (15, 0)
+        );
+        chunk.set_block_light(1, 2, 3, 9);
+        chunk.set_sky_light(1, 2, 3, 4);
+        assert_eq!(
+            (chunk.sky_light(1, 2, 3), chunk.block_light(1, 2, 3)),
+            (4, 9)
+        );
+        chunk.set_sky_light(1, 2, 3, 0);
+        assert_eq!(chunk.block_light(1, 2, 3), 9);
     }
 }

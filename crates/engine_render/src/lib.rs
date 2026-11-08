@@ -16,4 +16,9 @@ mod renderer;
 pub use camera::Camera;
 pub use frustum::{Aabb, Frustum};
 pub use mesh::ColorVertex;
-pub use renderer::{CubeInstance, Fog, MeshId, RenderStats, Renderer};
+pub use renderer::{Capture, CubeInstance, Fog, MeshId, RenderStats, Renderer, Sun};
+
+/// Une couleur pour [`Renderer::clear_color`], sans que le jeu dépende de wgpu.
+pub fn wgpu_color(r: f64, g: f64, b: f64) -> wgpu::Color {
+    wgpu::Color { r, g, b, a: 1.0 }
+}

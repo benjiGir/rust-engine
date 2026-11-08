@@ -9,7 +9,11 @@
 // - solid (true) : le joueur ne peut pas le traverser ;
 // - transparent (false) : on voit à travers (les faces derrière sont dessinées) ;
 // - selectable (true) : le rayon du joueur peut le viser et le casser ;
-// - placeable (true) : il apparaît dans la barre de blocs.
+// - placeable (true) : il apparaît dans la barre de blocs ;
+// - alpha (1.0) : opacité du rendu, en dessous de 1 le bloc est translucide ;
+// - liquid (false) : on peut y nager et poser un bloc à sa place ;
+// - light_emission (0) : lumière émise, de 0 à 15 ;
+// - light_opacity (15 si opaque, 0 si transparent) : lumière absorbée, de 0 à 15.
 //
 // L'ordre compte : il fixe les identifiants numériques (1, 2, 3...) de cette partie.
 [
@@ -18,4 +22,19 @@
     (id: "core:stone", name: "Pierre", color: (0.5, 0.5, 0.52)),
     (id: "core:sand", name: "Sable", color: (0.86, 0.78, 0.52)),
     (id: "core:snow", name: "Neige", color: (0.95, 0.96, 1.0)),
+    (
+        id: "core:water", name: "Eau", color: (0.15, 0.35, 0.75),
+        solid: false, transparent: true, selectable: false, placeable: false, alpha: 0.6,
+        liquid: true, light_opacity: 2,
+    ),
+    (
+        id: "core:glass", name: "Verre", color: (0.75, 0.88, 0.95),
+        transparent: true, alpha: 0.3,
+    ),
+    // Une torche simplifiée : un cube lumineux qu'on traverse.
+    (
+        id: "core:torch", name: "Torche", color: (1.0, 0.75, 0.3),
+        solid: false, light_emission: 14, light_opacity: 0,
+    ),
+    (id: "core:glowstone", name: "Pierre lumineuse", color: (0.98, 0.85, 0.5), light_emission: 15),
 ]
