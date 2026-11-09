@@ -4,8 +4,23 @@
 // - `density` : en kg/m³ ; négative pour un gaz qui monte.
 // - `temperature` : en kelvins (pour fondre, cuire, refroidir).
 // - `light_emission` : de 0 à 15, comme les blocs.
-// - `color` : rouge, vert, bleu, opacité.
+// - `color` : rouge, vert, bleu, opacité ;
+// - `block` : le bloc qui représente ce fluide dans le monde ;
+// - `compressibility` (0,02) : combien une cellule peut dépasser « plein » sous le poids
+//   du fluide au-dessus. C'est cette petite surpression qui fait remonter le fluide de
+//   l'autre côté d'un tube en U (vases communicants) ;
+// - `damage` (0) : points de vie perdus par seconde quand on est dedans ;
+// - `infinite` (false) : deux cellules pleines de part et d'autre d'un trou le remplissent
+//   sans se vider (une source infinie, comme dans certains jeux du genre). Désactivé par
+//   défaut : le volume est conservé.
 [
-    (id: "core:water", name: "Eau", color: (0.2, 0.4, 0.9, 0.6), viscosity: 5, density: 1000, temperature: 300),
-    (id: "core:lava", name: "Lave", color: (0.95, 0.4, 0.05, 1.0), viscosity: 30, density: 3000, temperature: 1300, light_emission: 15),
+    (
+        id: "core:water", name: "Eau", color: (0.2, 0.4, 0.9, 0.6), block: "water",
+        viscosity: 5, density: 1000, temperature: 300, compressibility: 0.02,
+    ),
+    (
+        id: "core:lava", name: "Lave", color: (0.95, 0.4, 0.05, 1.0), block: "lava",
+        viscosity: 30, density: 3000, temperature: 1300, light_emission: 15, compressibility: 0.01,
+        damage: 4.0,
+    ),
 ]

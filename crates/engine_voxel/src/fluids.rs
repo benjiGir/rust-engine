@@ -29,6 +29,22 @@ pub struct FluidDef {
     pub temperature: u32,
     #[serde(default)]
     pub light_emission: u8,
+    /// Le bloc de ce fluide dans le monde (sans espace de noms : celui du fichier).
+    #[serde(default)]
+    pub block: Option<String>,
+    /// Surpression admise par cellule de profondeur (voir `fluid_sim.rs`).
+    #[serde(default = "default_compressibility")]
+    pub compressibility: f32,
+    /// Dégâts par seconde pour qui s'y trouve.
+    #[serde(default)]
+    pub damage: f32,
+    /// Une règle de source infinie (désactivée par défaut).
+    #[serde(default)]
+    pub infinite: bool,
+}
+
+fn default_compressibility() -> f32 {
+    0.02
 }
 
 #[derive(Debug, Clone, Default)]
@@ -62,9 +78,20 @@ impl FluidRegistry {
     }
 
     pub fn add_source(&mut self, namespace: &str, source: &str, origin: &str) -> Result<()> {
-        let defs: Vec<FluidDef> =
-            ron::from_str(source).with_context(|| format!("{origin} : fichier RON invalide"))?;
-        for def in defs {
+        let options = ron::Options::default()
+            .with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME);
+        let defs: Vec<FluidDef> = options
+            .from_str(source)
+            .with_context(|| format!("{origin} : fichier RON invalide"))?;
+        for mut def in defs {
+            // `water` dans le fichier de `core` : le bloc `core:water`.
+            def.block = def.block.map(|b| {
+                if b.contains(':') {
+                    b
+                } else {
+                    format!("{namespace}:{b}")
+                }
+            });
             if def.id.split_once(':').map(|(ns, _)| ns) != Some(namespace) {
                 bail!(
                     "{origin} : le fluide « {} » doit commencer par « {namespace}: »",

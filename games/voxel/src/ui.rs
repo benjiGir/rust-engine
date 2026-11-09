@@ -200,6 +200,12 @@ impl VoxelGame {
             if let Some(durability) = def.durability {
                 text += &format!("\nUsure : {} / {durability}", stack.damage);
             }
+            if def.key.ends_with("_bucket") && stack.damage > 0 {
+                text += &format!(
+                    "\nContient {:.0} % d'un bloc",
+                    stack.damage as f32 * 100.0 / engine_voxel::FLUID_FULL as f32
+                );
+            }
             if let Some(armor) = def.armor {
                 text += &format!("\nProtection : {}", armor.protection);
             }

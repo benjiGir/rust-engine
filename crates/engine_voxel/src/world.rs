@@ -12,6 +12,7 @@ use glam::IVec3;
 use crate::biome::BiomeRegistry;
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
+use crate::fluids::FluidRegistry;
 use crate::registry::BlockRegistry;
 
 const SIZE: i32 = CHUNK_SIZE as i32;
@@ -35,6 +36,8 @@ pub struct World {
     registry: Arc<BlockRegistry>,
     /// Les biomes (pour les teintes du maillage), s'ils sont connus.
     biomes: Option<Arc<BiomeRegistry>>,
+    /// Les fluides (pour la nage : viscosité, densité), s'ils sont connus.
+    fluids: Option<Arc<FluidRegistry>>,
 }
 
 impl Default for World {
@@ -54,6 +57,7 @@ impl World {
             chunks: HashMap::default(),
             registry,
             biomes: None,
+            fluids: None,
         }
     }
 
@@ -67,6 +71,20 @@ impl World {
 
     pub fn set_biomes(&mut self, biomes: Arc<BiomeRegistry>) {
         self.biomes = Some(biomes);
+    }
+
+    pub fn fluids(&self) -> Option<&Arc<FluidRegistry>> {
+        self.fluids.as_ref()
+    }
+
+    pub fn set_fluids(&mut self, fluids: Arc<FluidRegistry>) {
+        self.fluids = Some(fluids);
+    }
+
+    /// La quantité de fluide d'une cellule (`None` : rien d'enregistré).
+    pub fn fluid_amount(&self, pos: IVec3) -> Option<u16> {
+        let (chunk, [x, y, z]) = Self::split(pos);
+        self.chunk(chunk)?.fluid_amount(x, y, z)
     }
 
     /// Remplace le registre (rechargement à chaud). Les numéros de blocs doivent

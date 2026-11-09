@@ -129,6 +129,13 @@ struct VoxelGame {
     random: u64,
     /// Le bras à la première personne.
     hand: hand::Hand,
+    /// L'eau et la lave qui coulent.
+    fluids: engine_voxel::FluidSim,
+    /// Pas de simulation depuis la dernière étape des fluides (une étape tous les 6 pas :
+    /// 10 par seconde).
+    fluid_steps: u32,
+    /// Le bilan de la dernière étape des fluides.
+    fluid_report: engine_voxel::FluidReport,
     /// Menu principal, jeu ou pause.
     mode: Mode,
     settings: settings::Settings,
@@ -315,6 +322,24 @@ impl VoxelGame {
         );
         let generator = TerrainGenerator::with_registry(seed, registry.clone())?;
         let mut streamer = ChunkStreamer::new(generator, config);
+        // Les fluides : ceux du jeu et des mods (viscosité, densité...), pour la nage et
+        // la simulation.
+        let owned: Vec<(String, PathBuf)> =
+            std::iter::once(("core".to_string(), assets.join("core")))
+                .chain(mod_dirs.iter().cloned())
+                .collect();
+        let fluid_dirs: Vec<(String, &Path)> = owned
+            .iter()
+            .map(|(ns, dir)| (ns.clone(), dir.as_path()))
+            .collect();
+        let fluid_registry = Arc::new(
+            engine_voxel::FluidRegistry::load(&fluid_dirs).unwrap_or_else(|err| {
+                log::error!("fluides : {err:#}");
+                engine_voxel::FluidRegistry::builtin()
+            }),
+        );
+        streamer.set_fluids(fluid_registry.clone());
+        let fluids = engine_voxel::FluidSim::new(&registry, &fluid_registry);
         if let Some(store) = &store {
             streamer = streamer.with_save(store.clone());
         }
@@ -474,6 +499,9 @@ impl VoxelGame {
             mining: None,
             random: 0x853C_49E6_748F_EA9B ^ seed as u64,
             hand,
+            fluids,
+            fluid_steps: 0,
+            fluid_report: engine_voxel::FluidReport::default(),
             mode: if launch.title {
                 Mode::Title(menus::TitlePage::Main)
             } else {
@@ -525,6 +553,7 @@ impl VoxelGame {
             Mode::Title(_) => {
                 player::set_intent(&self.ecs, self.player, Vec3::ZERO, false);
                 self.schedule.run(Stage::FixedUpdate, &mut self.ecs);
+                self.step_fluids();
                 return;
             }
             Mode::Playing => {}
@@ -561,8 +590,45 @@ impl VoxelGame {
             stress::conveyors(&mut self.ecs);
             stress.record(machine_tick.map(|t| t.duration), start.elapsed());
         }
+        self.step_fluids();
+        self.fluid_damage(ctx.fixed_dt);
         self.footsteps(ctx.fixed_dt);
         self.respawn_if_dead();
+    }
+
+    /// Une étape des fluides tous les 6 pas (10 par seconde), dans un budget de temps.
+    fn step_fluids(&mut self) {
+        self.fluid_steps += 1;
+        if self.fluid_steps < FLUID_STEP_EVERY {
+            return;
+        }
+        self.fluid_steps = 0;
+        let report = self.fluids.step(&mut self.world.borrow_mut(), FLUID_BUDGET);
+        self.fluid_report = report;
+    }
+
+    /// La lave brûle : des dégâts par seconde tant qu'on y est.
+    fn fluid_damage(&mut self, dt: f32) {
+        let body = player::body(&self.ecs, self.player);
+        let damage = {
+            let streamer = self.streamer();
+            (0..2)
+                .map(|dy| {
+                    streamer.world().block(
+                        (body.position + Vec3::Y * (0.2 + dy as f32))
+                            .floor()
+                            .as_ivec3(),
+                    )
+                })
+                .filter_map(|block| self.fluids.kind_of(block))
+                .map(|kind| kind.damage)
+                .fold(0.0, f32::max)
+        };
+        if damage > 0.0
+            && let Some(mut health) = self.ecs.get_mut::<Health>(self.player)
+        {
+            health.current = (health.current - damage * dt).max(0.0);
+        }
     }
 
     fn window_event(&mut self, ctx: &mut Context, event: &WindowEvent) -> bool {
@@ -827,6 +893,11 @@ impl VoxelGame {
         self.renderer
     }
 }
+
+/// Une étape des fluides tous les 6 pas de simulation (60 Hz) : 10 par seconde.
+const FLUID_STEP_EVERY: u32 = 6;
+/// Le temps maximal d'une étape des fluides : au-delà, la suite attend l'étape suivante.
+const FLUID_BUDGET: std::time::Duration = std::time::Duration::from_millis(4);
 
 /// Vitesse du survol du menu principal, en blocs par seconde.
 const TITLE_FLY_SPEED: f32 = 4.0;
@@ -1264,8 +1335,12 @@ impl VoxelGame {
 
     /// Pose le bloc de la case choisie contre la face visée. Renvoie sa position si c'est fait.
     fn place_at_target(&mut self) -> Option<IVec3> {
-        let hit = self.target?;
         let item = self.inventory.selected_item()?;
+        if self.content.items.get(item).key.ends_with("bucket") {
+            self.use_bucket(item);
+            return None;
+        }
+        let hit = self.target?;
         let block = self.content.items.get(item).block?;
         let pos = hit.block_pos + hit.normal;
         // Normale nulle : le rayon part de l'intérieur d'un bloc, pas de face où poser.
@@ -1296,6 +1371,80 @@ impl VoxelGame {
             }
         }
         placed.then_some(pos)
+    }
+
+    /// Le seau : vide, il prend le fluide de la première cellule visée ; plein, il le
+    /// reverse dans la cellule devant le bloc visé. La quantité transférée est celle de
+    /// la cellule (jusqu'à un bloc) : elle est gardée dans l'objet (son champ `damage`).
+    fn use_bucket(&mut self, item: engine_voxel::ItemId) {
+        let items = self.content.items.clone();
+        let key = items.get(item).key.clone();
+        let slot = self.inventory.selected;
+        if key == "core:bucket" {
+            // Le long du rayon, la première cellule de fluide.
+            let found = {
+                let streamer = self.streamer();
+                (1..(REACH * 10.0) as i32)
+                    .map(|k| {
+                        (self.camera.position + self.camera.forward() * (k as f32 * 0.1))
+                            .floor()
+                            .as_ivec3()
+                    })
+                    .find(|&p| self.fluids.kind_of(streamer.world().block(p)).is_some())
+            };
+            let Some(pos) = found else { return };
+            let Some((kind, amount)) = self.fluids.take(&mut self.world.borrow_mut(), pos) else {
+                return;
+            };
+            let fluid = self.fluids.kinds()[kind].key.clone();
+            let Some(full) = items.id(&format!("{fluid}_bucket")) else {
+                return;
+            };
+            self.inventory.consume_selected();
+            let filled = inventory::ItemStack {
+                item: full,
+                count: 1,
+                damage: amount as u32,
+            };
+            if self.inventory.slots[slot].is_none() {
+                self.inventory.slots[slot] = Some(filled);
+            } else if self.inventory.add_stack(filled, &items) > 0 {
+                self.drop_stack(pos, filled);
+            }
+            if let Some(audio) = &mut self.audio {
+                audio.play(audio::SPLASH);
+            }
+            self.hand.punch();
+        } else {
+            let Some(hit) = self.target else { return };
+            let Some(stack) = self.inventory.selected_stack() else {
+                return;
+            };
+            let fluid_key = key.trim_end_matches("_bucket");
+            let Some(kind) = self.fluids.kinds().iter().position(|k| k.key == fluid_key) else {
+                return;
+            };
+            let pos = hit.block_pos + hit.normal;
+            let poured =
+                self.fluids
+                    .pour(&mut self.world.borrow_mut(), pos, kind, stack.damage as i32);
+            if poured == 0 {
+                return;
+            }
+            let left = stack.damage as i32 - poured;
+            self.inventory.slots[slot] = Some(if left > 0 {
+                inventory::ItemStack {
+                    damage: left as u32,
+                    ..stack
+                }
+            } else {
+                inventory::ItemStack::new(items.id("core:bucket").unwrap_or(item), 1)
+            });
+            if let Some(audio) = &mut self.audio {
+                audio.play(audio::SPLASH);
+            }
+            self.hand.punch();
+        }
     }
 
     /// Une créature occupe-t-elle ce bloc ?
@@ -1331,6 +1480,8 @@ impl VoxelGame {
             } else {
                 events::send(&self.ecs, BlockPlaced { pos, block });
             }
+            // Les fluides voisins se réveillent (un trou au bord d'un lac se remplit).
+            self.fluids.wake(pos);
             // Le support et la gravité : une fleur sans sol tombe, le sable s'écroule.
             let settled = engine_voxel::settle(&mut self.streamer_mut(), pos);
             for (p, broken) in settled.broken {
@@ -1341,6 +1492,7 @@ impl VoxelGame {
             }
             for (from, to, _) in settled.fallen {
                 for p in [from, to] {
+                    self.fluids.wake(p);
                     let actions = self.mods.block_changed(p);
                     self.apply_machine_actions(actions);
                 }
@@ -1615,6 +1767,14 @@ impl VoxelGame {
                 stream.in_flight,
                 render.meshes_drawn,
                 render.meshes_total,
+            );
+            let fluids = self.fluid_report;
+            log::info!(
+                "fluides : {} cellules calculées, {} actives, {} modifiées, {:.2} ms",
+                fluids.processed,
+                fluids.active,
+                fluids.changed,
+                modding::ms(fluids.duration)
             );
             let tick = self.mods.last_tick;
             log::info!(

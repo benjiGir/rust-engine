@@ -448,4 +448,11 @@
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 2.0, tool: Axe,
     ),
+    // ----- Les fluides -----
+    // Ce que devient la lave au contact de l'eau.
+    (
+        id: "core:volcanic_rock", name: "Roche volcanique", color: (0.18, 0.16, 0.17), texture: "volcanic_rock",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 4.0, tool: Pickaxe, tier: 1,
+    ),
 ]

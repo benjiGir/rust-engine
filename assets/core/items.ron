@@ -72,6 +72,11 @@
         (id: "core:sapphire_chestplate", name: "Plastron en saphir", category: Armor, color: (0.3, 0.5, 0.95), icon: "sapphire_chestplate", durability: 480, armor: (slot: Chest, protection: 8)),
         (id: "core:sapphire_leggings", name: "Jambières en saphir", category: Armor, color: (0.3, 0.5, 0.95), icon: "sapphire_leggings", durability: 480, armor: (slot: Legs, protection: 6)),
         (id: "core:sapphire_boots", name: "Bottes en saphir", category: Armor, color: (0.3, 0.5, 0.95), icon: "sapphire_boots", durability: 480, armor: (slot: Feet, protection: 3)),
+        // Le seau : il prend la quantité de fluide d'une cellule (jusqu'à un bloc) et la
+        // reverse ailleurs. Un seau plein garde sa quantité (affichée en pourcentage).
+        (id: "core:bucket", name: "Seau", category: Tool, color: (0.75, 0.75, 0.78), icon: "bucket", max_stack: 16),
+        (id: "core:water_bucket", name: "Seau d'eau", category: Tool, color: (0.3, 0.45, 0.9), icon: "water_bucket", max_stack: 1),
+        (id: "core:lava_bucket", name: "Seau de lave", category: Tool, color: (0.95, 0.45, 0.1), icon: "lava_bucket", max_stack: 1),
     ],
     // Des groupes d'objets, utilisables dans les recettes (« #planks » : n'importe quelles planches).
     tags: {

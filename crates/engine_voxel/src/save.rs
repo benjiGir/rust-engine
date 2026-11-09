@@ -47,7 +47,8 @@ use crate::registry::BlockRegistry;
 /// Version du format. À augmenter si la structure des fichiers change.
 /// Version 2 : les chunks portent aussi leurs blocs actifs (machines).
 /// Version 3 : les objets des inventaires de blocs (coffres, fours) ont une usure.
-pub const FORMAT_VERSION: u32 = 3;
+/// Version 4 : les quantités de fluide des cellules qui ne sont pas des réservoirs.
+pub const FORMAT_VERSION: u32 = 4;
 /// Côté d'une région, en colonnes de chunks.
 pub const REGION_SIZE: i32 = 16;
 const REGION_MAGIC: &[u8; 4] = b"VXRG";
@@ -115,6 +116,8 @@ struct ChunkData {
     palette: Vec<String>,
     blocks: Vec<u16>,
     block_entities: Vec<(u16, BlockEntity)>,
+    /// (position, quantité en 4096e de bloc) des cellules de fluide non pleines.
+    fluids: Vec<(u16, u16)>,
 }
 
 /// Le format 1, sans blocs actifs. `postcard` n'écrit pas le nom des champs (c'est ce
@@ -339,10 +342,13 @@ fn encode_chunk(
         .map(|(i, e)| (i as u16, e.clone()))
         .collect();
     block_entities.sort_by_key(|(i, _)| *i);
+    let mut fluids: Vec<(u16, u16)> = chunk.fluid_amounts().map(|(i, a)| (i as u16, a)).collect();
+    fluids.sort_unstable();
     let bytes = postcard::to_allocvec(&ChunkData {
         palette,
         blocks,
         block_entities,
+        fluids,
     })?;
     // `prepend_size` : la taille d'origine est écrite au début, pour la décompression.
     Ok(lz4_flex::compress_prepend_size(&bytes))
@@ -382,6 +388,10 @@ fn decode_chunk(bytes: &[u8], registry: &BlockRegistry) -> Result<LoadedChunk> {
         let (x, z, y) = (i % 32, (i / 32) % 32, i / (32 * 32));
         chunk.set_block_entity(x, y, z, Some(entity));
     }
+    for (index, amount) in data.fluids {
+        let i = index as usize;
+        chunk.set_fluid_amount(i % 32, i / (32 * 32), (i / 32) % 32, Some(amount));
+    }
     Ok(LoadedChunk { chunk, unknown })
 }
 
@@ -401,6 +411,7 @@ fn read_region(path: &Path) -> Result<RegionChunks> {
         let data = match region.format_version {
             0 | 1 => upgrade_v1(&data),
             2 => v2::upgrade(&data),
+            3 => upgrade_v3(&data),
             _ => Ok(data),
         }
         .with_context(|| format!("{} : chunk illisible", path.display()))?;
@@ -497,11 +508,35 @@ mod v2 {
             palette: old.palette,
             blocks: old.blocks,
             block_entities,
+            fluids: Vec::new(),
         };
         Ok(lz4_flex::compress_prepend_size(&postcard::to_allocvec(
             &new,
         )?))
     }
+}
+
+/// Le format 3 : sans les quantités de fluide. L'eau d'alors était toujours pleine :
+/// ses blocs deviennent des réservoirs, rien à convertir de plus.
+#[derive(Deserialize)]
+struct ChunkDataV3 {
+    palette: Vec<String>,
+    blocks: Vec<u16>,
+    block_entities: Vec<(u16, BlockEntity)>,
+}
+
+fn upgrade_v3(bytes: &[u8]) -> Result<Vec<u8>> {
+    let raw = lz4_flex::decompress_size_prepended(bytes)?;
+    let old: ChunkDataV3 = postcard::from_bytes(&raw)?;
+    let new = ChunkData {
+        palette: old.palette,
+        blocks: old.blocks,
+        block_entities: old.block_entities,
+        fluids: Vec::new(),
+    };
+    Ok(lz4_flex::compress_prepend_size(&postcard::to_allocvec(
+        &new,
+    )?))
 }
 
 /// Convertit un chunk du format 1 (sans blocs actifs) au format actuel.
@@ -512,6 +547,7 @@ fn upgrade_v1(bytes: &[u8]) -> Result<Vec<u8>> {
         palette: old.palette,
         blocks: old.blocks,
         block_entities: Vec::new(),
+        fluids: Vec::new(),
     };
     Ok(lz4_flex::compress_prepend_size(&postcard::to_allocvec(
         &new,
@@ -780,6 +816,70 @@ pub(crate) mod tests {
         tanks: Vec<crate::capabilities::FluidTank>,
         inventory: Option<InventoryV2>,
         kinetic: Option<crate::capabilities::Kinetic>,
+    }
+
+    #[test]
+    fn fluid_amounts_are_saved_and_reloaded() {
+        let registry = BlockRegistry::builtin();
+        let store = SaveStore::open(temp_dir("fluids")).unwrap();
+        let mut chunk = sample_chunk();
+        let water = registry.id("core:water").unwrap();
+        chunk.set(3, 20, 4, water);
+        chunk.set_fluid_amount(3, 20, 4, Some(1234));
+        chunk.set(5, 20, 4, water); // un réservoir : pas de quantité
+        let pos = IVec3::new(-1, 2, 5);
+        store
+            .save_chunks(
+                &[ChunkToSave {
+                    pos,
+                    chunk: Arc::new(chunk),
+                    unknown: UnknownBlocks::new(),
+                }],
+                &registry,
+            )
+            .unwrap();
+        let loaded = store.load_chunk(pos, &registry).unwrap().unwrap().chunk;
+        assert_eq!(loaded.fluid_amount(3, 20, 4), Some(1234));
+        assert_eq!(loaded.fluid_amount(5, 20, 4), None);
+        assert_eq!(loaded.get(5, 20, 4), water);
+    }
+
+    /// Un chunk du format 3 (avant les quantités de fluide) : son eau devient des réservoirs.
+    #[derive(Serialize)]
+    struct ChunkDataV3Writer {
+        palette: Vec<String>,
+        blocks: Vec<u16>,
+        block_entities: Vec<(u16, BlockEntity)>,
+    }
+
+    #[test]
+    fn format_3_regions_are_upgraded_on_read() {
+        let registry = BlockRegistry::builtin();
+        let store = SaveStore::open(temp_dir("v3")).unwrap();
+        let old = ChunkDataV3Writer {
+            palette: vec!["core:air".into(), "core:water".into()],
+            blocks: (0..32 * 32 * 32).map(|i| (i < 1024) as u16).collect(),
+            block_entities: Vec::new(),
+        };
+        let blob = lz4_flex::compress_prepend_size(&postcard::to_allocvec(&old).unwrap());
+        let region = RegionDataWriter {
+            format_version: 3,
+            chunks: vec![([0, 0, 0], blob)],
+        };
+        let mut bytes = REGION_MAGIC.to_vec();
+        bytes.extend(postcard::to_allocvec(&region).unwrap());
+        std::fs::write(store.dir().join("regions/r.0.0.bin"), bytes).unwrap();
+        let loaded = store
+            .load_chunk(IVec3::ZERO, &registry)
+            .unwrap()
+            .unwrap()
+            .chunk;
+        assert_eq!(loaded.get(5, 0, 5), registry.id("core:water").unwrap());
+        assert_eq!(
+            loaded.fluid_amount(5, 0, 5),
+            None,
+            "l'eau d'avant est un réservoir plein"
+        );
     }
 
     #[test]

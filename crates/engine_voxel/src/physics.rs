@@ -30,6 +30,11 @@ const SWIM_FACTOR: f32 = 0.4;
 const SWIM_UP_SPEED: f32 = 4.0;
 /// Vitesse de chute maximale dans l'eau.
 const SWIM_SINK_SPEED: f32 = 2.5;
+/// En dessous de cette part du corps immergée, on marche (une flaque, un ruisseau).
+pub const SWIM_DEPTH: f32 = 0.15;
+/// La poussée relative d'un corps dans l'eau : un peu plus que son poids une fois
+/// immergé aux 9/10 (il flotte, la tête dehors).
+const BODY_FLOAT: f32 = 1.1;
 /// Plus grand pas de déplacement testé d'un coup.
 const MAX_STEP: f32 = 0.4;
 /// Petit écart laissé entre le joueur et un bloc, pour qu'il ne soit pas
@@ -44,8 +49,11 @@ pub struct PlayerBody {
     pub velocity: Vec3,
     /// Vrai si le joueur repose sur un bloc : lui seul permet de sauter.
     pub on_ground: bool,
-    /// Vrai si une partie du corps est dans un liquide (l'eau).
+    /// Vrai si le corps est assez enfoncé dans un liquide pour nager (au-delà de
+    /// `SWIM_DEPTH` : marcher dans une flaque n'est pas nager).
     pub in_liquid: bool,
+    /// La part de la hauteur du corps sous la surface, de 0 à 1.
+    pub submersion: f32,
     /// Largeur (x et z) et hauteur de la boîte : celles du joueur par défaut. Un cochon
     /// ou un slime utilisent la même physique avec une autre taille.
     pub width: f32,
@@ -59,6 +67,7 @@ impl PlayerBody {
             velocity: Vec3::ZERO,
             on_ground: false,
             in_liquid: false,
+            submersion: 0.0,
             width: PLAYER_WIDTH,
             height: PLAYER_HEIGHT,
         }
@@ -101,17 +110,29 @@ impl PlayerBody {
     /// Dans l'eau : on avance moins vite, on coule lentement, et `jump` (Espace tenu)
     /// fait remonter : c'est une nage très simple.
     pub fn step(&mut self, world: &World, walk: Vec3, jump: bool, dt: f32) {
-        self.in_liquid = self.touches_liquid(world);
-        let swim = if self.in_liquid { SWIM_FACTOR } else { 1.0 };
-        self.velocity.x = walk.x * swim;
-        self.velocity.z = walk.z * swim;
+        let (submersion, fluid) = self.submersion(world);
+        self.submersion = submersion;
+        self.in_liquid = submersion > SWIM_DEPTH;
         if self.in_liquid {
-            self.velocity.y = if jump {
-                SWIM_UP_SPEED
-            } else {
-                (self.velocity.y - GRAVITY * SWIM_FACTOR * dt).max(-SWIM_SINK_SPEED)
-            };
+            // La nage dépend du fluide : la viscosité freine (la lave est 6 fois plus
+            // visqueuse que l'eau), la densité porte (la poussée d'Archimède).
+            let (viscosity, density) = fluid;
+            let drag = (5.0 / viscosity.max(1.0)).sqrt().min(1.0);
+            self.velocity.x = walk.x * SWIM_FACTOR * drag;
+            self.velocity.z = walk.z * SWIM_FACTOR * drag;
+            // La poussée : proportionnelle au volume immergé et à la densité du fluide
+            // (un corps humain flotte à peine dans l'eau : on s'y enfonce jusqu'aux yeux).
+            let buoyancy = GRAVITY * BODY_FLOAT * (density / 1000.0) * submersion;
+            self.velocity.y += (buoyancy - GRAVITY) * SWIM_FACTOR * dt;
+            if jump {
+                self.velocity.y = self.velocity.y.max(SWIM_UP_SPEED * drag);
+            }
+            // Le frottement du fluide amortit la vitesse verticale.
+            self.velocity.y *= 1.0 - (2.0 * dt / drag).min(0.9);
+            self.velocity.y = self.velocity.y.clamp(-SWIM_SINK_SPEED, SWIM_UP_SPEED);
         } else {
+            self.velocity.x = walk.x;
+            self.velocity.z = walk.z;
             if jump && self.on_ground {
                 self.velocity.y = JUMP_SPEED;
             }
@@ -126,16 +147,45 @@ impl PlayerBody {
         }
     }
 
-    /// Un des blocs que touche la boîte est-il un liquide ?
-    fn touches_liquid(&self, world: &World) -> bool {
-        let (min, max) = self.bounds();
-        let (first, last) = (min.floor().as_ivec3(), max.ceil().as_ivec3() - IVec3::ONE);
+    /// La part du corps sous la surface (de 0 à 1), et la viscosité et la densité du
+    /// fluide. La surface d'une cellule dépend de sa quantité de fluide : on peut avoir
+    /// de l'eau aux chevilles dans une flaque.
+    pub fn submersion(&self, world: &World) -> (f32, (f32, f32)) {
         let registry = world.registry();
-        (first.x..=last.x).any(|x| {
-            (first.y..=last.y).any(|y| {
-                (first.z..=last.z).any(|z| registry.def(world.block(IVec3::new(x, y, z))).liquid)
-            })
-        })
+        let (x, z) = (
+            self.position.x.floor() as i32,
+            self.position.z.floor() as i32,
+        );
+        let (bottom, top) = (self.position.y, self.position.y + self.height);
+        let mut under = 0.0;
+        let mut fluid = (5.0, 1000.0);
+        for y in bottom.floor() as i32..=top.floor() as i32 {
+            let pos = IVec3::new(x, y, z);
+            let def = registry.def(world.block(pos));
+            if !def.liquid {
+                continue;
+            }
+            // La hauteur de la surface dans cette cellule.
+            let covered = registry.def(world.block(pos + IVec3::Y)).liquid;
+            let level = if covered {
+                1.0
+            } else {
+                world
+                    .fluid_amount(pos)
+                    .map_or(1.0, |a| (a as f32 / crate::fluid_sim::FULL as f32).min(1.0))
+                    * 0.875
+            };
+            let (low, high) = (y as f32, y as f32 + level);
+            under += (high.min(top) - low.max(bottom)).max(0.0);
+            if let Some(def) = def
+                .fluid
+                .as_deref()
+                .and_then(|key| world.fluids()?.get(key))
+            {
+                fluid = (def.viscosity as f32, def.density as f32);
+            }
+        }
+        ((under / self.height).clamp(0.0, 1.0), fluid)
     }
 
     fn move_axis(&mut self, world: &World, axis: usize, amount: f32) {
@@ -351,5 +401,62 @@ mod tests {
             !body.overlaps_block(IVec3::new(0, 3, 0)),
             "au-dessus de la tête"
         );
+    }
+
+    /// Un bassin de `depth` blocs d'un fluide, sur le sol de `floor()`.
+    fn pool(key: &str, depth: i32) -> World {
+        let block = crate::registry::BlockRegistry::builtin().id(key).unwrap();
+        let mut world = floor();
+        world.set_fluids(std::sync::Arc::new(crate::fluids::FluidRegistry::builtin()));
+        for x in -8..8 {
+            for z in -8..8 {
+                for y in 1..1 + depth {
+                    world.set_block(IVec3::new(x, y, z), block);
+                }
+            }
+        }
+        world
+    }
+
+    #[test]
+    fn a_body_floats_with_its_head_out_of_deep_water() {
+        let world = pool("core:water", 8);
+        let mut body = PlayerBody::new(Vec3::new(0.5, 2.0, 0.5));
+        run(&mut body, &world, Vec3::ZERO, false, 600);
+        // La surface est à y = 8 + 0,875 ; les yeux (à 1,62 des pieds) dépassent presque.
+        let eyes = body.position.y + PLAYER_EYE_HEIGHT;
+        assert!((7.5..10.0).contains(&eyes), "yeux à {eyes}");
+        assert!(body.in_liquid);
+    }
+
+    #[test]
+    fn a_thin_puddle_is_walked_through_and_lava_is_slow() {
+        // De l'eau jusqu'aux chevilles : on marche, on ne nage pas.
+        let mut world = floor();
+        let water = crate::registry::BlockRegistry::builtin()
+            .id("core:water")
+            .unwrap();
+        for x in -8..8 {
+            for z in -8..8 {
+                let pos = IVec3::new(x, 1, z);
+                world.set_block(pos, water);
+                let (chunk, [lx, ly, lz]) = World::split(pos);
+                world
+                    .chunk_mut(chunk)
+                    .set_fluid_amount(lx, ly, lz, Some(512));
+            }
+        }
+        let mut body = PlayerBody::new(Vec3::new(0.5, 1.0, 0.5));
+        run(&mut body, &world, Vec3::ZERO, false, 10);
+        assert!(!body.in_liquid, "immersion {}", body.submersion);
+        assert!(body.submersion > 0.0);
+        // Dans la lave, on avance bien moins vite que dans l'eau.
+        let speed = |key: &str| {
+            let world = pool(key, 4);
+            let mut body = PlayerBody::new(Vec3::new(0.5, 1.0, 0.5));
+            run(&mut body, &world, Vec3::X * 4.0, false, 60);
+            body.position.x - 0.5
+        };
+        assert!(speed("core:lava") < speed("core:water") * 0.6);
     }
 }

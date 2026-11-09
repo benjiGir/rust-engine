@@ -78,7 +78,28 @@ conduits en **réseaux** :
    sur les cœurs (rayon), chacun ne touchant que ses propres données ; les écritures dans les
    machines sont appliquées ensuite, sur le thread principal.
 
-### Fluides dans le monde (phase 9c)
+### Fluides dans le monde (fait : `fluid_sim.rs`)
+
+Le modèle retenu conserve le **volume** : chaque cellule a une quantité (4096 = un bloc),
+qui tombe, s'étale vers l'équilibre et remonte sous pression (vases communicants). L'eau
+générée (océans, lacs, rivières, nappes) est un **réservoir** stable : elle ne se vide pas
+et ne coûte rien tant qu'on n'y touche pas. Seules les cellules actives sont calculées, dix
+fois par seconde, dans un budget de 4 ms par étape (le reste attend l'étape suivante).
+
+Mesures (`cargo bench -p engine_voxel --bench fluids`, Mac, release) :
+
+| Scénario | Modèle à volume | Modèle à niveaux (genre) |
+|---|---|---|
+| Lac de 24 × 24 × 3 qui se vide par un trou de 2 × 2 | vidé à 95 % en 318 s de jeu, ~2,6 ms par étape (900 ns par cellule), endormi à 339 s | impossible : une source ne se vide pas |
+| Grotte de 30 × 6 × 30 inondée par la mer | remplie à 95 % en 336 s de jeu, ~2,7 ms par étape | arrêtée au bout de 5 s : l'eau courante s'arrête à 7 blocs de la source, la grotte n'est jamais remplie |
+
+Pourquoi garder le modèle à volume : il fait ce que le modèle à niveaux ne sait pas faire
+(vider un lac, remplir une grotte, faire monter l'eau dans un tube en U), pour environ
+2,5 % d'un cœur pendant un écoulement important, et rien au repos. Le budget par étape
+borne le pire cas : une très grande inondation coule plus lentement, sans faire saccader le
+jeu. Le modèle à niveaux reste dans le benchmark comme point de comparaison.
+
+### Fluides : la suite (phase 9c)
 
 L'eau qui coule : un **automate cellulaire** sur des **ticks programmés**. Un bloc de fluide
 garde son niveau (dans les données du bloc) ; à son tick, il descend s'il le peut, sinon il

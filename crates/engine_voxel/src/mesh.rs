@@ -36,6 +36,8 @@ const SIZE: i32 = CHUNK_SIZE as i32;
 /// La lumière moyenne d'un coin est gardée en entier, de 0 à 60 (4 × 15) :
 /// assez fin pour être lisse, et comparable exactement pour le greedy.
 const LIGHT_SCALE: f32 = 60.0;
+/// La surface d'un fluide plein est un peu sous le haut du bloc (14/16).
+const FLUID_SURFACE: f32 = 0.875;
 
 /// Un sommet du maillage.
 ///
@@ -121,10 +123,13 @@ impl ChunkMesh {
             ([p0, p0 + dv, p0 + du + dv, p0 + du], [0, 3, 2, 1])
         };
         let corners = order.map(|c| look.corners[c]);
+        let drops = order.map(|c| look.drops[c]);
 
         let base = self.vertices.len() as u32;
         let normal = face.normal().as_vec3().to_array();
-        for (position, corner) in positions.into_iter().zip(corners) {
+        for ((position, corner), drop) in positions.into_iter().zip(corners).zip(drops) {
+            // La surface d'un fluide : le coin descend selon la quantité.
+            let position = position - Vec3::Y * (drop as f32 / 255.0);
             self.vertices.push(MeshVertex {
                 position: position.to_array(),
                 normal,
@@ -219,6 +224,9 @@ struct FaceLook {
     flags: u32,
     translucent: bool,
     corners: [CornerLight; 4],
+    /// Pour un fluide : de combien chaque coin du haut descend sous le haut du bloc, en
+    /// 255e de bloc (0 : rien). La surface suit la quantité de fluide.
+    drops: [u8; 4],
 }
 
 /// Un chunk et ses 26 voisins : tout ce qu'il faut pour le mailler.
@@ -265,6 +273,55 @@ impl Neighbourhood {
             foliage_tint,
             water_tint,
         })
+    }
+
+    /// La hauteur de la surface d'un fluide dans la cellule `p` (de 0 à 1), `None` si ce
+    /// n'est pas ce fluide. Une cellule recouverte du même fluide est pleine jusqu'en haut.
+    fn fluid_height(&self, fluid: BlockId, p: IVec3) -> Option<f32> {
+        if self.get(p) != fluid {
+            return None;
+        }
+        if self.get(p + IVec3::Y) == fluid {
+            return Some(1.0);
+        }
+        let offset = p.div_euclid(IVec3::splat(SIZE));
+        let amount = self.chunks[index_of(offset)].as_ref().and_then(|c| {
+            let q = p.rem_euclid(IVec3::splat(SIZE));
+            c.fluid_amount(q.x as usize, q.y as usize, q.z as usize)
+        });
+        // Un réservoir (pas de quantité) est plein ; la surface est un peu sous le haut
+        // du bloc, comme une eau calme.
+        let level = amount.map_or(1.0, |a| (a as f32 / crate::fluid_sim::FULL as f32).min(1.0));
+        Some(level * FLUID_SURFACE)
+    }
+
+    /// La hauteur d'un coin de surface : le coin (cx, cz) est partagé par quatre cellules
+    /// à l'altitude `y` ; on fait la moyenne de celles qui contiennent ce fluide ou de
+    /// l'air (l'air tire le bord vers le bas, comme une cascade qui déborde). Si une des
+    /// quatre est recouverte de fluide, le coin est tout en haut.
+    fn corner_height(&self, fluid: BlockId, y: i32, cx: i32, cz: i32) -> f32 {
+        let (mut sum, mut count) = (0.0, 0.0);
+        for (dx, dz) in [(-1, -1), (0, -1), (-1, 0), (0, 0)] {
+            let cell = IVec3::new(cx + dx, y, cz + dz);
+            match self.fluid_height(fluid, cell) {
+                Some(h) if h >= 1.0 => return 1.0,
+                Some(h) => {
+                    sum += h;
+                    count += 1.0;
+                }
+                None => {
+                    let block = self.get(cell);
+                    if block.is_air() || !self.registry.is_solid(block) {
+                        count += 1.0;
+                    }
+                }
+            }
+        }
+        if count == 0.0 {
+            FLUID_SURFACE
+        } else {
+            sum / count
+        }
     }
 
     /// La teinte (un multiplicateur de couleur) de la colonne (x, z) du chunk central.
@@ -415,9 +472,35 @@ impl Neighbourhood {
         } else {
             [1.0; 3]
         };
+        // Un fluide : la hauteur de chaque coin du haut, moyenne des cellules qui le
+        // partagent (pas de marche ni de trou entre deux cellules voisines).
+        let drops = if def.liquid {
+            [(-1, -1), (1, -1), (1, 1), (-1, 1)].map(|(su, sv)| {
+                let mut vertex = if face.positive {
+                    face.normal()
+                } else {
+                    IVec3::ZERO
+                };
+                if su > 0 {
+                    vertex += u;
+                }
+                if sv > 0 {
+                    vertex += v;
+                }
+                if vertex.y == 1 {
+                    let height = self.corner_height(block, p.y, p.x + vertex.x, p.z + vertex.z);
+                    ((1.0 - height) * 255.0).round() as u8
+                } else {
+                    0
+                }
+            })
+        } else {
+            [0; 4]
+        };
         FaceLook {
             block,
             texture,
+            drops,
             flags: block_flags(def),
             color: [
                 rgb[0] * tint[0],
@@ -940,9 +1023,10 @@ mod tests {
         for chunk in [IVec3::ZERO, IVec3::new(1, 1, 1)] {
             let culled = mesh_culled(&world, chunk);
             let greedy = mesh_greedy(&world, chunk);
-            // Chaque face 1×1 a une aire de 1 : l'aire vaut le nombre de faces.
-            assert_eq!(surface(&culled), culled.quad_count() as f32);
-            assert_eq!(surface(&greedy), surface(&culled));
+            // Chaque face 1×1 a une aire de 1, sauf les faces des fluides dont la surface
+            // est plus basse que le haut du bloc : l'aire vaut au plus le nombre de faces.
+            assert!(surface(&culled) <= culled.quad_count() as f32 + 0.01);
+            assert!((surface(&greedy) - surface(&culled)).abs() < 0.5);
             assert!(greedy.quad_count() < culled.quad_count());
         }
     }

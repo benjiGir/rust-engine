@@ -59,6 +59,28 @@ enum Scene {
     ArmBlock,
     /// Les menus, par-dessus le monde.
     Menu(MenuShot),
+    /// Les fluides : une cascade, un tube en U, l'eau contre la lave, un lac qui se vide.
+    Fluid(FluidShot),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FluidShot {
+    Waterfall,
+    UTube,
+    WaterLava,
+    Lake,
+}
+
+impl FluidShot {
+    /// Où construire la scène (en coordonnées de scène).
+    fn spot(self) -> (i32, i32) {
+        match self {
+            Self::Waterfall => (-40, 0),
+            Self::UTube => (-40, 30),
+            Self::WaterLava => (-40, 60),
+            Self::Lake => (-40, 90),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,7 +121,15 @@ const fn menu(name: &'static str, which: MenuShot) -> Shot {
     }
 }
 
-const SHOTS: [Shot; 37] = [
+const fn fluid(name: &'static str, which: FluidShot) -> Shot {
+    Shot {
+        name,
+        time: 0.45,
+        scene: Scene::Fluid(which),
+    }
+}
+
+const SHOTS: [Shot; 41] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -190,6 +220,10 @@ const SHOTS: [Shot; 37] = [
     menu("17-menu-nouveau-monde", MenuShot::NewWorld),
     menu("18-menu-options", MenuShot::Options),
     menu("19-menu-pause", MenuShot::Pause),
+    fluid("20-fluide-cascade", FluidShot::Waterfall),
+    fluid("21-fluide-tube-en-u", FluidShot::UTube),
+    fluid("22-fluide-eau-lave", FluidShot::WaterLava),
+    fluid("23-fluide-lac-qui-se-vide", FluidShot::Lake),
     biome("biome-plaine", "core:plains"),
     biome("biome-foret", "core:forest"),
     biome("biome-foret-bouleaux", "core:birch_forest"),
@@ -467,6 +501,16 @@ impl VoxelGame {
                 (Vec3::new(0.5, spawn + 20.0, 0.5), 45.0, -20.0)
             }
             // À hauteur d'homme, face au paysage.
+            Scene::Fluid(which) => {
+                let (x, z) = which.spot();
+                let base = self.fluid_base(x, z) as f32;
+                // De côté, un peu au-dessus, pour voir dans les bassins.
+                (
+                    Vec3::new(x as f32 + 5.0, base + 9.0, z as f32 - 14.0),
+                    90.0,
+                    -25.0,
+                )
+            }
             Scene::Menu(_) => {
                 let g = self.ground(0, 0) as f32;
                 (Vec3::new(0.5, g + 30.0, 0.5), 200.0, -15.0)
@@ -585,6 +629,7 @@ impl VoxelGame {
                 self.build_screen(scene);
             }
             Scene::Underground => self.dig_pit(),
+            Scene::Fluid(which) => self.build_fluid(which),
             Scene::ArmWalk | Scene::ArmMine | Scene::ArmBlock => self.pose_arm(scene),
             Scene::Spawn
             | Scene::Sunset
@@ -675,6 +720,163 @@ impl VoxelGame {
             }
             _ => {}
         }
+    }
+
+    /// L'altitude des constructions de fluides : au-dessus du plus haut sol de la zone.
+    fn fluid_base(&self, x: i32, z: i32) -> i32 {
+        (-2..14)
+            .flat_map(|dx| (-2..6).map(move |dz| (dx, dz)))
+            .map(|(dx, dz)| self.ground(x + dx, z + dz))
+            .max()
+            .unwrap_or(SEA_LEVEL)
+            + 14
+    }
+
+    /// Construit une scène de fluides et fait couler quelques secondes.
+    fn build_fluid(&mut self, which: FluidShot) {
+        let (x, z) = which.spot();
+        let o = self.origin() + IVec3::new(x, self.fluid_base(x, z), z);
+        let id = |key: &str| self.registry.id(key).unwrap_or(BlockId::AIR);
+        let (stone, glass, water, lava) = (
+            id("core:stone"),
+            id("core:glass"),
+            id("core:water"),
+            id("core:lava"),
+        );
+        let full = engine_voxel::FLUID_FULL as u16;
+        let put = |game: &mut Self, p: IVec3, b: BlockId| {
+            game.streamer_mut().set_block(o + p, b);
+        };
+        let steps = match which {
+            FluidShot::Waterfall => {
+                // Un bassin perché à 8 blocs de haut, plein d'eau (finie), dont un côté
+                // s'ouvre : l'eau tombe en cascade sur une dalle de pierre et s'y étale.
+                for dx in 0..14 {
+                    for dz in -3..6 {
+                        put(self, IVec3::new(dx, -1, dz), stone);
+                    }
+                }
+                for dx in -1..=4 {
+                    for dz in -1..=3 {
+                        put(self, IVec3::new(dx, 7, dz), stone);
+                        if dx == -1 || dz == -1 || dz == 3 {
+                            put(self, IVec3::new(dx, 8, dz), stone);
+                            put(self, IVec3::new(dx, 9, dz), stone);
+                        }
+                    }
+                }
+                for dx in 0..=4 {
+                    for dz in 0..3 {
+                        for dy in 8..10 {
+                            self.streamer_mut().set_fluid(
+                                o + IVec3::new(dx, dy, dz),
+                                water,
+                                Some(full),
+                            );
+                            self.fluids.wake(o + IVec3::new(dx, dy, dz));
+                        }
+                    }
+                }
+                25
+            }
+            FluidShot::UTube => {
+                // Un tube en U en verre : deux puits de 8 blocs reliés par le fond.
+                for dx in -1..=7 {
+                    for dz in -1..=1 {
+                        for dy in -1..=9 {
+                            put(self, IVec3::new(dx, dy, dz), glass);
+                        }
+                    }
+                }
+                for dy in 0..9 {
+                    put(self, IVec3::new(0, dy, 0), BlockId::AIR);
+                    put(self, IVec3::new(6, dy, 0), BlockId::AIR);
+                }
+                for dx in 0..=6 {
+                    put(self, IVec3::new(dx, 0, 0), BlockId::AIR);
+                }
+                for dy in 0..9 {
+                    self.streamer_mut()
+                        .set_fluid(o + IVec3::new(0, dy, 0), water, Some(full));
+                    self.fluids.wake(o + IVec3::new(0, dy, 0));
+                }
+                for dx in 1..4 {
+                    self.streamer_mut()
+                        .set_fluid(o + IVec3::new(dx, 0, 0), water, Some(full));
+                }
+                2500
+            }
+            FluidShot::WaterLava => {
+                // Un bassin de 10 × 3 : de l'eau à gauche, de la lave à droite.
+                for dx in -1..=10 {
+                    for dz in -1..=3 {
+                        put(self, IVec3::new(dx, -1, dz), stone);
+                        if dx == -1 || dx == 10 || dz == -1 || dz == 3 {
+                            put(self, IVec3::new(dx, 0, dz), stone);
+                            put(self, IVec3::new(dx, 1, dz), stone);
+                        }
+                    }
+                }
+                for dz in 0..3 {
+                    for dx in 0..3 {
+                        self.streamer_mut()
+                            .set_fluid(o + IVec3::new(dx, 0, dz), water, Some(full));
+                        self.fluids.wake(o + IVec3::new(dx, 0, dz));
+                        self.streamer_mut().set_fluid(
+                            o + IVec3::new(9 - dx, 0, dz),
+                            lava,
+                            Some(full),
+                        );
+                        self.fluids.wake(o + IVec3::new(9 - dx, 0, dz));
+                    }
+                }
+                150
+            }
+            FluidShot::Lake => {
+                // Un lac fini de 10 × 6 sur 2 de profondeur, et un trou dans le fond qui
+                // le vide vers un bassin plus bas.
+                for dx in -1..=10 {
+                    for dz in -1..=6 {
+                        put(self, IVec3::new(dx, 2, dz), stone);
+                        if dx == -1 || dx == 10 || dz == -1 || dz == 6 {
+                            for dy in 3..6 {
+                                put(self, IVec3::new(dx, dy, dz), stone);
+                            }
+                        }
+                        put(self, IVec3::new(dx, -3, dz), stone);
+                    }
+                }
+                for dx in 0..10 {
+                    for dz in 0..6 {
+                        for dy in 3..5 {
+                            self.streamer_mut().set_fluid(
+                                o + IVec3::new(dx, dy, dz),
+                                water,
+                                Some(full),
+                            );
+                        }
+                    }
+                }
+                put(self, IVec3::new(5, 2, 3), BlockId::AIR);
+                self.fluids.wake(o + IVec3::new(5, 2, 3));
+                self.fluids.wake(o + IVec3::new(5, 3, 3));
+                60
+            }
+        };
+        let start = Instant::now();
+        let mut processed = 0;
+        for _ in 0..steps {
+            let report = self.fluids.step(
+                &mut self.world.borrow_mut(),
+                std::time::Duration::from_millis(50),
+            );
+            processed += report.processed;
+        }
+        log::info!(
+            "fluides ({which:?}) : {steps} étapes, {processed} cellules calculées en {:.1} ms, {} encore actives",
+            start.elapsed().as_secs_f64() * 1000.0,
+            self.fluids.active()
+        );
     }
 
     /// Une pose du bras, figée pour la capture.

@@ -19,6 +19,7 @@ mod capabilities;
 mod chunk;
 mod containers;
 mod crafting;
+mod fluid_sim;
 mod fluids;
 mod generator;
 mod grid;
@@ -47,6 +48,7 @@ pub use containers::{
     container_slots, register as register_containers,
 };
 pub use crafting::{Ingredient, LootEntry, LootTables, Recipe, Recipes, Smelting, SmeltingRecipe};
+pub use fluid_sim::{FULL as FLUID_FULL, FluidKind, FluidReport, FluidSim};
 pub use fluids::{FluidDef, FluidRegistry};
 pub use generator::{
     Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL, SEA_LEVEL, TerrainGenerator, TreeSite,

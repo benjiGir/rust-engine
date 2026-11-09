@@ -58,6 +58,10 @@ pub struct Chunk {
     /// si inconnu. Il n'est pas sauvegardé : le générateur le recalcule (il ne dépend que
     /// de la graine).
     biomes: Vec<u8>,
+    /// La quantité de fluide des cellules qui ne sont pas des « réservoirs » pleins
+    /// (voir `fluid_sim.rs`), par position ([`Chunk::index`]), en 4096e de bloc.
+    /// Un bloc de fluide absent de cette table est un réservoir : plein et stable.
+    fluids: HashMap<u16, u16>,
 }
 
 impl Default for Chunk {
@@ -75,7 +79,31 @@ impl Chunk {
             light: vec![DEFAULT_LIGHT; VOLUME].into_boxed_slice(),
             block_entities: HashMap::default(),
             biomes: Vec::new(),
+            fluids: HashMap::default(),
         }
+    }
+
+    /// La quantité de fluide d'une cellule (`None` : pas de quantité enregistrée, donc un
+    /// réservoir plein si le bloc est un fluide).
+    #[inline]
+    pub fn fluid_amount(&self, x: usize, y: usize, z: usize) -> Option<u16> {
+        if self.fluids.is_empty() {
+            return None;
+        }
+        self.fluids.get(&(Self::index(x, y, z) as u16)).copied()
+    }
+
+    pub fn set_fluid_amount(&mut self, x: usize, y: usize, z: usize, amount: Option<u16>) {
+        let index = Self::index(x, y, z) as u16;
+        match amount {
+            Some(a) => self.fluids.insert(index, a),
+            None => self.fluids.remove(&index),
+        };
+    }
+
+    /// Les quantités de fluide enregistrées : (position, quantité).
+    pub fn fluid_amounts(&self) -> impl Iterator<Item = (usize, u16)> + '_ {
+        self.fluids.iter().map(|(&i, &a)| (i as usize, a))
     }
 
     /// Le biome (son numéro dans le registre des biomes) de la colonne (x, z).
@@ -121,6 +149,7 @@ impl Chunk {
             light: vec![DEFAULT_LIGHT; VOLUME].into_boxed_slice(),
             block_entities: HashMap::default(),
             biomes: Vec::new(),
+            fluids: HashMap::default(),
         })
     }
 

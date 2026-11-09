@@ -647,9 +647,21 @@ mod tests {
     #[test]
     fn a_mob_falls_and_lands_without_going_through_the_ground() {
         let mut world = sim();
-        let ground = world.streamer().borrow().generator().column(5, 5).height;
+        // Une colonne de terre ferme près de l'origine (pas un lac : le cochon y flotterait).
+        let (x, z) = world
+            .streamer()
+            .borrow()
+            .generator()
+            .find_column(5, 5, 2, 48, |c| c.height > engine_voxel::SEA_LEVEL + 1)
+            .expect("de la terre près de l'origine");
+        let ground = world.streamer().borrow().generator().column(x, z).height;
         let pig = world.resource::<Arc<MobRegistry>>().id("core:pig").unwrap();
-        let mob = spawn_mob(&mut world, pig, Vec3::new(5.5, ground as f32 + 10.0, 5.5)).unwrap();
+        let mob = spawn_mob(
+            &mut world,
+            pig,
+            Vec3::new(x as f32 + 0.5, ground as f32 + 10.0, z as f32 + 0.5),
+        )
+        .unwrap();
         for _ in 0..240 {
             physics(&mut world);
         }

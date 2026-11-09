@@ -59,6 +59,7 @@ cargo bench -p engine_voxel                              # génération d'un chu
 cargo bench -p engine_ecs                                # notre ECS contre hecs, objets sur tapis
 cargo bench -p engine_voxel --bench machines             # 10k/50k/100k machines, 50k câbles et tuyaux
 cargo bench -p engine_mods --bench wasm                  # coût des appels WebAssembly, machines scriptées
+cargo bench -p engine_voxel --bench fluids               # un lac qui se vide, une grotte inondée (deux modèles)
 VOXEL_STRESS=50000 cargo run --release -p voxel          # test de charge en jeu (machines + entités ECS)
 ```
 

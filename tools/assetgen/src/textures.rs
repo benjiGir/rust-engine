@@ -681,6 +681,15 @@ fn cobblestone() -> Image {
     image
 }
 
+/// La roche volcanique : très sombre, avec des bulles et quelques reflets rougeâtres.
+fn volcanic_rock() -> Image {
+    let base = [0.17, 0.15, 0.16];
+    Image::filled(base)
+        .noise(base, 0.15, 117)
+        .speckles([0.08, 0.07, 0.08], 0.2, 118)
+        .speckles([0.35, 0.18, 0.14], 0.05, 119)
+}
+
 fn workbench_top() -> Image {
     let wood = [0.62, 0.45, 0.27];
     let mut image = planks(wood, 112);
@@ -926,6 +935,34 @@ fn shears() -> Image {
             ('h', scale(metal, 0.7)),
             ('R', [0.7, 0.15, 0.12]),
         ],
+    )
+}
+
+/// Un seau, vide ou plein d'un fluide (la couleur du contenu).
+fn bucket(content: Option<[f32; 3]>) -> Image {
+    let metal = [0.72, 0.72, 0.76];
+    let mask = [
+        "................",
+        "................",
+        "................",
+        "...h........h...",
+        "....h......h....",
+        "...HHHHHHHHHH...",
+        "...HFFFFFFFFH...",
+        "...HFFFFFFFFH...",
+        "....HHHHHHHH....",
+        "....HHHHHHHH....",
+        "....hHHHHHHh....",
+        ".....HHHHHH.....",
+        ".....hHHHHh.....",
+        "................",
+        "................",
+        "................",
+    ];
+    let inside = content.unwrap_or([0.35, 0.35, 0.38]);
+    icon(
+        &mask,
+        &[('H', metal), ('h', scale(metal, 0.7)), ('F', inside)],
     )
 }
 
@@ -1286,6 +1323,7 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("cactus_side.png"), cactus_side()),
         (core.join("cactus_top.png"), cactus_top()),
         (core.join("cobblestone.png"), cobblestone()),
+        (core.join("volcanic_rock.png"), volcanic_rock()),
         (core.join("workbench_top.png"), workbench_top()),
         (core.join("workbench_side.png"), workbench_side()),
         (core.join("furnace_front.png"), furnace_front()),
@@ -1344,5 +1382,8 @@ fn item_icons(dir: &Path) -> Vec<(PathBuf, Image)> {
         }
     }
     add("shears", shears());
+    add("bucket", bucket(None));
+    add("water_bucket", bucket(Some([0.25, 0.45, 0.95])));
+    add("lava_bucket", bucket(Some([1.0, 0.5, 0.1])));
     out
 }

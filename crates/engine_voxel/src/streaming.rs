@@ -241,6 +241,7 @@ impl ChunkStreamer {
             world: {
                 let mut world = World::with_registry(generator.registry().clone());
                 world.set_biomes(generator.biomes().clone());
+                world.set_fluids(std::sync::Arc::new(crate::fluids::FluidRegistry::builtin()));
                 world
             },
             generator: Arc::new(generator),
@@ -454,6 +455,56 @@ impl ChunkStreamer {
         self.remesh_pending.extend(loaded);
     }
 
+    /// La quantité de fluide d'une cellule, en 4096e de bloc (`None` : rien d'enregistré,
+    /// donc un réservoir plein si c'est un bloc de fluide).
+    pub fn fluid_amount(&self, pos: IVec3) -> Option<u16> {
+        let (chunk, [x, y, z]) = World::split(pos);
+        self.world.chunk(chunk)?.fluid_amount(x, y, z)
+    }
+
+    /// Pose une cellule de fluide (ou de l'air) avec sa quantité. Le bloc ne change que
+    /// s'il le faut (la lumière et les maillages suivent) ; une quantité seule change la
+    /// hauteur de la surface : on remaille le chunk (et ses voisins si la cellule est au
+    /// bord, car les coins de surface sont partagés). `false` si le chunk n'est pas chargé.
+    pub fn set_fluid(&mut self, pos: IVec3, block: BlockId, amount: Option<u16>) -> bool {
+        let (chunk, [x, y, z]) = World::split(pos);
+        if !matches!(self.slots.get(&chunk), Some(Slot::Generated(_))) {
+            return false;
+        }
+        if self.world.block(pos) != block && !self.change_block(pos, block, false) {
+            return false;
+        }
+        if self.world.chunk(chunk).is_none() {
+            return true; // De l'air dans un chunk vide : rien à enregistrer.
+        }
+        let previous = self
+            .world
+            .chunk(chunk)
+            .and_then(|c| c.fluid_amount(x, y, z));
+        if previous == amount {
+            return true;
+        }
+        self.world
+            .chunk_mut(chunk)
+            .set_fluid_amount(x, y, z, amount);
+        self.edited.insert(chunk);
+        self.dirty.insert(chunk);
+        // Les chunks voisins seulement si la cellule touche leur bord.
+        let span = |v: usize| match v {
+            0 => -1..=0,
+            31 => 0..=1,
+            _ => 0..=0,
+        };
+        for dx in span(x) {
+            for dy in span(y) {
+                for dz in span(z) {
+                    self.remesh_pending.insert(chunk + IVec3::new(dx, dy, dz));
+                }
+            }
+        }
+        true
+    }
+
     /// L'état actif du bloc à `pos`.
     pub fn block_entity(&self, pos: IVec3) -> Option<&BlockEntity> {
         let (chunk, [x, y, z]) = World::split(pos);
@@ -498,6 +549,17 @@ impl ChunkStreamer {
         self.ensure_biomes(chunk);
         self.edited.insert(chunk);
         self.dirty.insert(chunk);
+        // Un bloc remplacé perd sa quantité de fluide (le simulateur la remet s'il le faut).
+        let local = World::split(pos).1;
+        if self
+            .world
+            .chunk(chunk)
+            .is_some_and(|c| c.fluid_amount(local[0], local[1], local[2]).is_some())
+        {
+            self.world
+                .chunk_mut(chunk)
+                .set_fluid_amount(local[0], local[1], local[2], None);
+        }
         // Un bloc remplacé perd son état actif (une machine cassée oublie sa mémoire).
         let local = World::split(pos).1;
         if self
@@ -598,6 +660,11 @@ impl ChunkStreamer {
             self.slots.insert(pos, Slot::Generated(MeshState::Missing));
             self.mesh_candidates.insert(pos);
         }
+    }
+
+    /// Remplace les fluides connus du monde (ceux des mods compris).
+    pub fn set_fluids(&mut self, fluids: std::sync::Arc<crate::fluids::FluidRegistry>) {
+        self.world.set_fluids(fluids);
     }
 
     /// Un chunk de ciel (vide à la génération) créé par une modification n'a pas encore
