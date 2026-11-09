@@ -36,7 +36,7 @@ crates/mod_sdk          # le kit pour écrire le script d'un mod en Rust (compil
 tools/xtask             # tâches du projet : cargo xtask build-mods
 docs/                   # modding.md (écrire un mod), architecture.md (réseaux, fluides, structures mobiles)
 games/voxel             # le jeu (E : inventaire et artisanat, clic droit : établi/four/coffre, F3 : inspecteur,
-                        # F : vol, T : temps, F1/F2 : rendu) ; clic gauche maintenu : miner
+                        # F : vol, T : temps, F1/F2 : rendu, F4 : bras) ; clic gauche maintenu : miner
 assets/core/            # blocks.ron (les blocs de base), biomes.ron (15 biomes), ores.ron (minerais par profondeur),
                         # fluids.ron, items.ron (objets, outils, armures), recipes.ron, smelting.ron, loot.ron,
                         # textures/ et items/ (PNG 16×16), sounds/ (WAV)
@@ -86,6 +86,7 @@ Variables du jeu :
 - `VOXEL_DEMO=1` (le joueur marche, casse et pose seul) ;
 - `VOXEL_SCREENSHOTS=dossier` (enregistre les captures PNG, dont une par biome, puis quitte, même écran éteint) ;
   `VOXEL_SHOTS=biome` ne garde que les captures dont le nom contient ce texte ;
+- `VOXEL_HIDE_ARM=1` (cache le bras à la première personne, aussi avec F4) ;
 - `VOXEL_WORLD=nom` (le monde à ouvrir dans `saves/`, « world » par défaut ; sauvegarde toutes les 30 s et à la fermeture) ;
 - `VOXEL_MUTE=1`, `VOXEL_VOLUME_EFFECTS`, `VOXEL_VOLUME_AMBIENCE` (volumes de 0 à 1) ;
 - `VOXEL_QUIT_AFTER=secondes` (quitter proprement, avec sauvegarde) ;

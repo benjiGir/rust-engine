@@ -1,0 +1,12 @@
+// Le joueur vu à la première personne : les couleurs de son bras.
+//
+// - skin : la peau de la main et de l'avant-bras ;
+// - sleeve : la manche, côté épaule ;
+// - cuff : le liseré au bout de la manche.
+(
+    arm: (
+        skin: (0.86, 0.66, 0.52),
+        sleeve: (0.22, 0.42, 0.62),
+        cuff: (0.85, 0.85, 0.82),
+    ),
+)

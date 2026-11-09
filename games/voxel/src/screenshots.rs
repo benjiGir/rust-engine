@@ -52,6 +52,11 @@ enum Scene {
     Biome(&'static str),
     /// Une fosse creusée jusqu'au socle : les couches, les minerais, les grottes.
     Underground,
+    /// Le bras à la première personne : en marchant les mains vides, en minant à la
+    /// pioche, en tenant un bloc.
+    ArmWalk,
+    ArmMine,
+    ArmBlock,
 }
 
 struct Shot {
@@ -75,7 +80,7 @@ const fn biome(name: &'static str, key: &'static str) -> Shot {
     }
 }
 
-const SHOTS: [Shot; 29] = [
+const SHOTS: [Shot; 32] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -145,6 +150,21 @@ const SHOTS: [Shot; 29] = [
         name: "11-sous-sol",
         time: 0.5,
         scene: Scene::Underground,
+    },
+    Shot {
+        name: "12-bras-marche",
+        time: 0.45,
+        scene: Scene::ArmWalk,
+    },
+    Shot {
+        name: "13-bras-minage",
+        time: 0.45,
+        scene: Scene::ArmMine,
+    },
+    Shot {
+        name: "14-bras-bloc",
+        time: 0.3,
+        scene: Scene::ArmBlock,
     },
     biome("biome-plaine", "core:plains"),
     biome("biome-foret", "core:forest"),
@@ -238,6 +258,13 @@ impl VoxelGame {
                     Scene::Inventory | Scene::Workbench | Scene::Furnace | Scene::Chest
                 );
                 self.ui.screen = crate::ui::Screen::Inventory;
+                // Le bras n'apparaît que dans ses propres captures.
+                let arm = matches!(
+                    shot.scene,
+                    Scene::ArmWalk | Scene::ArmMine | Scene::ArmBlock
+                );
+                self.hand.visible = arm;
+                self.hand.frozen = false;
                 self.ui.inspector_open = shot.scene == Scene::Inspector;
                 self.camera.yaw = yaw.to_radians();
                 self.camera.pitch = pitch.to_radians();
@@ -392,6 +419,11 @@ impl VoxelGame {
             Scene::Inventory | Scene::Workbench | Scene::Furnace | Scene::Chest => {
                 (Vec3::new(0.5, spawn + 20.0, 0.5), 45.0, -20.0)
             }
+            // À hauteur d'homme, face au paysage.
+            Scene::ArmWalk | Scene::ArmMine | Scene::ArmBlock => {
+                let g = self.ground(0, 0) as f32;
+                (Vec3::new(0.5, g + 22.0, 0.5), 30.0, -15.0)
+            }
             Scene::Machines => {
                 let (x, z) = MACHINE_SPOT;
                 let g = self.ground(x, z) as f32;
@@ -502,6 +534,7 @@ impl VoxelGame {
                 self.build_screen(scene);
             }
             Scene::Underground => self.dig_pit(),
+            Scene::ArmWalk | Scene::ArmMine | Scene::ArmBlock => self.pose_arm(scene),
             Scene::Spawn | Scene::Sunset | Scene::Lake | Scene::Inspector | Scene::Biome(_) => {}
         }
     }
@@ -586,6 +619,36 @@ impl VoxelGame {
             }
             _ => {}
         }
+    }
+
+    /// Une pose du bras, figée pour la capture.
+    fn pose_arm(&mut self, scene: Scene) {
+        let items = self.content.items.clone();
+        let wanted = match scene {
+            Scene::ArmMine => items.id("core:stone_pickaxe"),
+            Scene::ArmBlock => items.id("core:oak_log"),
+            _ => None,
+        };
+        // La case de la barre qui contient l'objet voulu (ou une case vide).
+        let slot = (0..crate::inventory::HOTBAR)
+            .find(|&i| self.inventory.slots[i].map(|s| s.item) == wanted)
+            .unwrap_or(0);
+        if wanted.is_none() {
+            self.inventory.slots[8] = None;
+        }
+        self.inventory.selected = if wanted.is_none() { 8 } else { slot };
+        self.hand.equip = 0.0;
+        self.hand.swing = None;
+        self.hand.walk_amount = 0.0;
+        match scene {
+            Scene::ArmWalk => {
+                self.hand.walk_phase = 1.1;
+                self.hand.walk_amount = 1.6;
+            }
+            Scene::ArmMine => self.hand.swing = Some(0.42),
+            _ => {}
+        }
+        self.hand.frozen = true;
     }
 
     /// Un mécanisme sur une dalle de pierre : une horloge entourée de quatre lampes, et une

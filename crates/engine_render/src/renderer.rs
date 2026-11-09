@@ -68,6 +68,37 @@ impl CubeInstance {
     }
 }
 
+/// Une boîte du bras ou de l'objet tenu, en coordonnées de vue (voir `hand.wgsl`).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct HandInstance {
+    /// La matrice de la boîte (position, rotation, taille), colonne par colonne. Elle
+    /// s'applique à un cube unité centré sur l'origine.
+    pub model: [[f32; 4]; 4],
+    pub color: [f32; 4],
+    /// 0 : couleur unie ; sinon la couche de texture (un bloc tenu en main).
+    pub texture: u32,
+}
+
+impl HandInstance {
+    pub fn new(model: glam::Mat4, color: [f32; 3], texture: u32) -> Self {
+        Self {
+            model: model.to_cols_array_2d(),
+            color: [color[0], color[1], color[2], 1.0],
+            texture,
+        }
+    }
+}
+
+/// Le tampon uniforme du bras.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct HandUniform {
+    proj: [[f32; 4]; 4],
+    light: [f32; 4],
+    sun_color: [f32; 4],
+}
+
 /// L'interface egui d'une image, prête à dessiner (voir `egui::Context::tessellate`).
 pub struct UiFrame {
     pub primitives: Vec<egui::ClippedPrimitive>,
@@ -202,6 +233,17 @@ pub struct Renderer {
     pub sun: Sun,
     /// Le temps en secondes, pour animer le vent dans les feuilles et les herbes.
     pub time: f32,
+    hand_pipeline: wgpu::RenderPipeline,
+    hand_buffer: wgpu::Buffer,
+    hand_uniform: wgpu::Buffer,
+    hand_bind_group: wgpu::BindGroup,
+    hand_capacity: usize,
+    hand_count: u32,
+    /// La lumière (ciel, blocs) à la position du joueur, pour éclairer le bras.
+    hand_light: [f32; 2],
+    /// Le champ de vision du bras, en degrés : fixe, pour que le bras garde sa forme
+    /// quel que soit le champ de vision choisi pour le monde.
+    pub hand_fov: f32,
 }
 
 impl Renderer {
@@ -366,6 +408,48 @@ impl Renderer {
         let instance_capacity = 1024;
         let instance_buffer = create_instance_buffer(&device, instance_capacity);
 
+        // Le bras : son propre uniforme (une projection à lui), les textures des blocs
+        // (pour un bloc tenu), et le même cube unité que les entités.
+        let hand_uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("hand"),
+            size: size_of::<HandUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let hand_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("hand"),
+            layout: &camera_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: hand_uniform.as_entire_binding(),
+            }],
+        });
+        let hand_layouts = [
+            Some(wgpu::VertexBufferLayout {
+                array_stride: size_of::<Vertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
+            }),
+            Some(wgpu::VertexBufferLayout {
+                array_stride: size_of::<HandInstance>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &wgpu::vertex_attr_array![
+                    2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Uint32
+                ],
+            }),
+        ];
+        let hand_pipeline = create_pipeline(
+            &device,
+            &[Some(&camera_layout), Some(&texture_layout)],
+            format,
+            &device.create_shader_module(wgpu::include_wgsl!("hand.wgsl")),
+            &hand_layouts,
+            "hand",
+            false,
+        );
+        let hand_capacity = 512;
+        let hand_buffer = create_hand_buffer(&device, hand_capacity);
+
         Ok(Self {
             surface,
             device,
@@ -398,6 +482,14 @@ impl Renderer {
             fog: None,
             sun: Sun::default(),
             time: 0.0,
+            hand_pipeline,
+            hand_buffer,
+            hand_uniform,
+            hand_bind_group,
+            hand_capacity,
+            hand_count: 0,
+            hand_light: [1.0, 0.0],
+            hand_fov: 70.0,
             clear_color: wgpu::Color {
                 r: 0.45,
                 g: 0.65,
@@ -462,6 +554,19 @@ impl Renderer {
         self.queue
             .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(instances));
         self.instance_count = instances.len() as u32;
+    }
+
+    /// Les boîtes du bras et de l'objet tenu, avec la lumière à la position du joueur.
+    /// Une liste vide : pas de bras (menu, capture sans bras).
+    pub fn set_hand(&mut self, parts: &[HandInstance], light: [f32; 2]) {
+        if parts.len() > self.hand_capacity {
+            self.hand_capacity = parts.len().next_power_of_two();
+            self.hand_buffer = create_hand_buffer(&self.device, self.hand_capacity);
+        }
+        self.queue
+            .write_buffer(&self.hand_buffer, 0, bytemuck::cast_slice(parts));
+        self.hand_count = parts.len() as u32;
+        self.hand_light = light;
     }
 
     /// Charge un maillage (un chunk) sur le GPU. Il sera dessiné à chaque image
@@ -615,6 +720,27 @@ impl Renderer {
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
+        if self.hand_count > 0 {
+            // Une projection à part : proche (0,05) pour ne jamais couper le bras.
+            let proj = glam::camera::rh::proj::directx::perspective(
+                self.hand_fov.to_radians(),
+                aspect,
+                0.05,
+                10.0,
+            );
+            let hand = HandUniform {
+                proj: proj.to_cols_array_2d(),
+                light: [
+                    self.hand_light[0],
+                    self.hand_light[1],
+                    self.sun.daylight,
+                    0.0,
+                ],
+                sun_color: self.sun.color.extend(1.0).to_array(),
+            };
+            self.queue
+                .write_buffer(&self.hand_uniform, 0, bytemuck::bytes_of(&hand));
+        }
         // Les écritures de tampons partent avant les commandes de cette image.
         self.lines
             .upload(&self.queue, self.outline.as_ref(), aspect);
@@ -708,6 +834,39 @@ impl Renderer {
             // En dernier, par-dessus le décor.
             self.lines
                 .draw(&mut pass, self.outline.is_some(), self.crosshair);
+        }
+
+        // Le bras, dans sa propre passe : la profondeur est effacée avant, il passe donc
+        // devant tout le décor et ne traverse jamais un mur trop proche.
+        if self.hand_count > 0 {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("hand"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.hand_pipeline);
+            pass.set_bind_group(0, &self.hand_bind_group, &[]);
+            pass.set_bind_group(1, &self.texture_bind_group, &[]);
+            pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            pass.set_vertex_buffer(1, self.hand_buffer.slice(..));
+            pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            pass.draw_indexed(0..self.index_count, 0, 0..self.hand_count);
         }
 
         // L'interface egui, dans sa propre passe, par-dessus tout (sans profondeur).
@@ -892,6 +1051,15 @@ fn create_depth_texture_view(device: &wgpu::Device, width: u32, height: u32) -> 
         view_formats: &[],
     });
     texture.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+fn create_hand_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("hand instances"),
+        size: (capacity * size_of::<HandInstance>()) as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
 }
 
 fn create_instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {

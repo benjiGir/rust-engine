@@ -17,8 +17,8 @@ pub use camera::Camera;
 pub use frustum::{Aabb, Frustum};
 pub use mesh::ColorVertex;
 pub use renderer::{
-    CHUNK_SHADER_PATH, CHUNK_SHADER_SOURCE, Capture, CubeInstance, Fog, MeshId, RenderStats,
-    Renderer, Sun, TEXTURE_SIZE, UiFrame,
+    CHUNK_SHADER_PATH, CHUNK_SHADER_SOURCE, Capture, CubeInstance, Fog, HandInstance, MeshId,
+    RenderStats, Renderer, Sun, TEXTURE_SIZE, UiFrame,
 };
 // Le jeu construit son interface avec la même version d'egui que le renderer.
 pub use egui;

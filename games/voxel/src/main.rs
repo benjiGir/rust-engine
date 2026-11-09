@@ -41,6 +41,7 @@ mod content;
 mod daytime;
 mod drops;
 mod events;
+mod hand;
 mod hot_reload;
 mod inventory;
 mod mobs;
@@ -123,6 +124,8 @@ struct VoxelGame {
     mining: Option<(IVec3, f32)>,
     /// L'état du hasard du jeu (butin, objets lâchés).
     random: u64,
+    /// Le bras à la première personne.
+    hand: hand::Hand,
     /// Le monde de blocs, partagé avec l'ECS (ressource `SharedStreamer`) et les mods.
     world: Rc<RefCell<ChunkStreamer>>,
     /// Les machines et les scripts des mods.
@@ -363,6 +366,7 @@ impl Game for VoxelGame {
             content,
             mining: None,
             random: 0x853C_49E6_748F_EA9B ^ seed as u64,
+            hand: hand::Hand::new(hand::ArmColors::load(&assets)),
             world,
             mods,
             mod_dirs,
@@ -511,8 +515,11 @@ impl Game for VoxelGame {
                 ) {
                     Some((mob, _)) => {
                         // Les dégâts de l'arme ou de l'outil en main, sinon un coup de poing.
-                        let damage = self.held_tool().map_or(PUNCH_DAMAGE, |t| t.damage.max(PUNCH_DAMAGE));
+                        let damage = self
+                            .held_tool()
+                            .map_or(PUNCH_DAMAGE, |t| t.damage.max(PUNCH_DAMAGE));
                         mobs::damage_mob(&mut self.ecs, mob, damage, self.camera.forward());
+                        self.hand.punch();
                         if self.held_tool().is_some() {
                             self.inventory.wear_selected(&self.content.items);
                         }
@@ -527,6 +534,7 @@ impl Game for VoxelGame {
                 self.place_at_target();
             }
         }
+        self.animate_hand(ctx, dt);
         // Un écran vient de s'ouvrir (établi, four, coffre) : on libère la souris.
         if self.ui.inventory_open && self.mouse_captured {
             self.mouse_captured = false;
@@ -581,6 +589,17 @@ impl Game for VoxelGame {
             self.renderer.time,
         ));
         self.renderer.set_instances(&mob_boxes);
+        // Le bras, éclairé par la lumière là où se tient le joueur.
+        let (sky, block) = self
+            .streamer()
+            .world()
+            .light(self.camera.position.floor().as_ivec3());
+        let held = self.inventory.selected_item();
+        let arm = self
+            .hand
+            .instances(held, &self.content.items, &self.registry);
+        self.renderer
+            .set_hand(&arm, [sky as f32 / 15.0, block as f32 / 15.0]);
         // L'heure décide du soleil et de la couleur du ciel, donc du brouillard.
         self.renderer.sun = Sun {
             direction: self.day.sun_direction(),
@@ -662,6 +681,9 @@ impl VoxelGame {
         }
         if input.key_pressed(KeyCode::F3) {
             self.ui.inspector_open = !self.ui.inspector_open;
+        }
+        if input.key_pressed(KeyCode::F4) {
+            self.hand.visible = !self.hand.visible;
         }
         if input.key_pressed(KeyCode::F1) {
             let mesher = self.streamer().config().mesher.other();
@@ -797,6 +819,29 @@ impl VoxelGame {
                 })
             })
             .collect()
+    }
+
+    /// Les animations du bras : marche, minage, changement d'objet, inertie.
+    fn animate_hand(&mut self, ctx: &Context, dt: f32) {
+        let velocity = self
+            .ecs
+            .get::<Velocity>(self.player)
+            .map_or(Vec3::ZERO, |v| v.0);
+        let on_ground = self
+            .ecs
+            .get::<Collider>(self.player)
+            .is_some_and(|c| c.on_ground)
+            || player::mode(&self.ecs, self.player) == MoveMode::Fly;
+        self.hand.update(hand::HandInput {
+            dt,
+            speed: Vec2::new(velocity.x, velocity.z).length(),
+            sprinting: ctx.input.key_held(KeyCode::ControlLeft),
+            on_ground,
+            mining: self.mining.is_some(),
+            selected: (self.inventory.selected, self.inventory.selected_item()),
+            yaw: self.camera.yaw,
+            pitch: self.camera.pitch,
+        });
     }
 
     /// Le minage, à chaque image où le bouton gauche est tenu : l'avancement grandit selon
@@ -942,6 +987,7 @@ impl VoxelGame {
         let placed = self.edit(pos, block);
         if placed {
             self.inventory.consume_selected();
+            self.hand.punch();
             // Des feuilles posées par le joueur ne se décomposent pas : une entité de bloc
             // les marque comme « posées ».
             if self.registry.def(block).behavior.as_deref() == Some("core:leaves") {
