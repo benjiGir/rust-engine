@@ -158,6 +158,8 @@ pub struct Fog {
 /// qui rendent leur mémoire au GPU. C'est le RAII, comme `using` en C# mais automatique.
 struct GpuMesh {
     vertex_buffer: wgpu::Buffer,
+    /// L'origine du chunk (16 octets), lue comme une instance par le shader.
+    origin_buffer: wgpu::Buffer,
     /// Les indices opaques, puis les translucides, dans un seul tampon.
     index_buffer: wgpu::Buffer,
     opaque_count: u32,
@@ -602,13 +604,16 @@ impl Renderer {
     /// Charge un maillage (un chunk) sur le GPU. Il sera dessiné à chaque image
     /// jusqu'à [`Renderer::remove_mesh`] ou [`Renderer::clear_meshes`].
     ///
-    /// `bounds` sert au frustum culling : la boîte doit contenir tous les sommets.
+    /// `origin` : la position dans le monde de l'origine du chunk, à laquelle les
+    /// sommets sont relatifs. `bounds` sert au frustum culling : la boîte (dans le
+    /// monde) doit contenir tous les sommets.
     /// Renvoie `None` pour un maillage vide (wgpu refuse les tampons vides).
     pub fn add_mesh(
         &mut self,
         vertices: &[ColorVertex],
         indices: &[u32],
         translucent_indices: &[u32],
+        origin: Vec3,
         bounds: Aabb,
     ) -> Option<MeshId> {
         if indices.is_empty() && translucent_indices.is_empty() {
@@ -630,12 +635,20 @@ impl Renderer {
                 contents: bytemuck::cast_slice(&all_indices),
                 usage: wgpu::BufferUsages::INDEX,
             });
+        let origin_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("chunk origin"),
+                contents: bytemuck::bytes_of(&origin.extend(0.0).to_array()),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
         let id = MeshId(self.next_mesh_id);
         self.next_mesh_id += 1;
         self.meshes.insert(
             id,
             GpuMesh {
                 vertex_buffer,
+                origin_buffer,
                 index_buffer,
                 opaque_count: indices.len() as u32,
                 translucent_count: translucent_indices.len() as u32,
@@ -875,6 +888,7 @@ impl Renderer {
                     continue;
                 }
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_vertex_buffer(1, mesh.origin_buffer.slice(..));
                 // Indices en `u32` : un chunk peut dépasser les 65 536 sommets d'un `u16`.
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.opaque_count, 0, 0..1);
@@ -897,6 +911,7 @@ impl Renderer {
             pass.set_pipeline(&self.translucent_pipeline);
             for (_, mesh) in translucent {
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_vertex_buffer(1, mesh.origin_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 let start = mesh.opaque_count;
                 pass.draw_indexed(start..start + mesh.translucent_count, 0, 0..1);
@@ -1159,15 +1174,24 @@ fn create_chunk_pipelines(
     format: wgpu::TextureFormat,
     source: &str,
 ) -> (wgpu::RenderPipeline, wgpu::RenderPipeline) {
-    // Un sommet = position, normale, couleur (avec alpha), lumière (ciel, blocs,
-    // occlusion ambiante), couche de texture.
-    let layouts = [Some(wgpu::VertexBufferLayout {
-        array_stride: size_of::<ColorVertex>() as u64,
-        step_mode: wgpu::VertexStepMode::Vertex,
-        attributes: &wgpu::vertex_attr_array![
-            0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32x3, 4 => Uint32
-        ],
-    })];
+    // Un sommet compact (voir `ColorVertex`) : position (u16), normale (i8 → -1..1),
+    // couleur et lumière (u8 → 0..1), couche de texture. Le GPU convertit lui-même les
+    // formats `Snorm` et `Unorm`.
+    let layouts = [
+        Some(wgpu::VertexBufferLayout {
+            array_stride: size_of::<ColorVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![
+                0 => Uint16x4, 1 => Snorm8x4, 2 => Unorm8x4, 3 => Unorm8x4, 4 => Uint32
+            ],
+        }),
+        // L'origine du chunk : une seule valeur pour tout le maillage (une « instance »).
+        Some(wgpu::VertexBufferLayout {
+            array_stride: 16,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &wgpu::vertex_attr_array![5 => Float32x4],
+        }),
+    ];
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("chunk shader"),
         source: wgpu::ShaderSource::Wgsl(source.into()),

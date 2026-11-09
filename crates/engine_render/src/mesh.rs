@@ -14,18 +14,18 @@ pub struct Vertex {
     pub normal: [f32; 3],
 }
 
-/// Un sommet de maillage coloré et éclairé, pour les chunks : la couleur est par
-/// sommet au lieu d'être par instance.
+/// Un sommet de maillage coloré et éclairé, pour les chunks, en 24 octets. Le même
+/// format que `engine_voxel::MeshVertex` (le shader `chunk_shader.wgsl` le décode) :
+/// - position relative à l'origine du chunk, `(p + 8) × 1024` en `u16` (le 4e ne sert pas) ;
+/// - normale de -127 à 127 ; couleur et lumière (ciel, blocs, AO) de 0 à 255 ;
+/// - couche de texture et drapeaux.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct ColorVertex {
-    pub position: [f32; 3],
-    pub normal: [f32; 3],
-    /// Couleur et opacité.
-    pub color: [f32; 4],
-    /// Lumière du ciel, lumière des blocs et occlusion ambiante, de 0 à 1.
-    pub light: [f32; 3],
-    /// Couche de texture (0 : pas de texture, blanc).
+    pub position: [u16; 4],
+    pub normal: [i8; 4],
+    pub color: [u8; 4],
+    pub light: [u8; 4],
     pub texture: u32,
 }
 

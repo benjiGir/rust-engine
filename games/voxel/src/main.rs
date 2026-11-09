@@ -2073,13 +2073,14 @@ fn upload(renderer: &mut Renderer, mesh: &ChunkMesh) -> Option<MeshId> {
         gpu_vertices(&mesh.vertices),
         &mesh.indices,
         &mesh.translucent_indices,
+        mesh.origin.as_vec3(),
         Aabb::new(min, max),
     )
 }
 
 /// Réinterprète les sommets d'`engine_voxel` comme ceux d'`engine_render`, sans copie.
 ///
-/// Les deux structs sont `#[repr(C)]` + `Pod` avec les mêmes champs (3 × `[f32; 3]`) :
+/// Les deux structs sont `#[repr(C)]` + `Pod` avec les mêmes champs (24 octets) :
 /// `bytemuck::cast_slice` vérifie que tailles et alignements sont compatibles
 /// (sinon il panique) et renvoie la même mémoire vue avec un autre type. Le test
 /// `vertex_layouts_match` ci-dessous vérifie que les champs correspondent bien.
@@ -2141,13 +2142,13 @@ mod tests {
 
     #[test]
     fn vertex_layouts_match() {
-        let vertex = MeshVertex {
-            position: [1.0, 2.0, 3.0],
-            normal: [0.0, 1.0, 0.0],
-            color: [0.5, 0.25, 0.125, 0.6],
-            light: [1.0, 0.5, 0.25],
-            texture: 7,
-        };
+        let vertex = MeshVertex::new(
+            Vec3::new(1.0, 2.0, 3.0),
+            [0.0, 1.0, 0.0],
+            [0.5, 0.25, 0.125, 0.6],
+            [1.0, 0.5, 0.25],
+            7,
+        );
         let gpu = gpu_vertices(std::slice::from_ref(&vertex))[0];
         assert_eq!(gpu.position, vertex.position);
         assert_eq!(gpu.normal, vertex.normal);

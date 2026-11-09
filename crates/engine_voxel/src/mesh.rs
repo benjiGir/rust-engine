@@ -39,25 +39,87 @@ const LIGHT_SCALE: f32 = 60.0;
 /// La surface d'un fluide plein est un peu sous le haut du bloc (14/16).
 const FLUID_SURFACE: f32 = 0.875;
 
-/// Un sommet du maillage.
+/// Un sommet du maillage, compact : 24 octets au lieu de 56 en `f32`. À chaque image,
+/// le GPU relit les sommets de tous les chunks dessinés (plusieurs millions) : moins
+/// d'octets, c'est moins de mémoire lue, et c'est là que passe l'essentiel de son temps.
 ///
 /// `#[repr(C)]` fixe l'ordre des champs en mémoire, le même que dans le shader.
 /// `Pod` (« plain old data ») dit que ce n'est qu'une suite d'octets : le jeu peut
 /// ainsi passer ces sommets au renderer sans les recopier (`bytemuck::cast_slice`).
+/// Le shader décode chaque champ (le GPU convertit lui-même les `u8` en 0..1).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct MeshVertex {
-    pub position: [f32; 3],
-    pub normal: [f32; 3],
-    /// Couleur du bloc et opacité (alpha).
-    pub color: [f32; 4],
-    /// Lumière du ciel, lumière des blocs et occlusion ambiante, chacune de 0 à 1.
-    pub light: [f32; 3],
+    /// Position dans le chunk, en 1/1024 de bloc à partir de -8 (voir
+    /// [`MeshVertex::local_position`]) : les coins entiers restent exacts, donc pas de
+    /// fente entre deux faces voisines. Le 4e nombre ne sert pas (alignement).
+    pub position: [u16; 4],
+    /// Normale, de -127 à 127 par axe ; le 4e ne sert pas.
+    pub normal: [i8; 4],
+    /// Couleur du bloc et opacité (alpha), de 0 à 255.
+    pub color: [u8; 4],
+    /// Lumière du ciel, lumière des blocs et occlusion ambiante, de 0 à 255 ; le 4e ne
+    /// sert pas.
+    pub light: [u8; 4],
     /// Couche de la texture (0 = pas de texture) dans les 16 bits du bas, et des
     /// drapeaux au-dessus ([`FLAG_CUTOUT`], [`FLAG_SWAY`]). Les coordonnées de texture,
     /// elles, sont calculées dans le shader à partir de la position : la texture se
     /// répète toute seule sur un quad fusionné par le greedy.
     pub texture: u32,
+}
+
+/// Les positions des sommets : `(locale + POSITION_BIAS) × POSITION_SCALE`. De -8 à
+/// 56 blocs autour de l'origine du chunk (32 blocs), au 1/1024.
+pub const POSITION_SCALE: f32 = 1024.0;
+pub const POSITION_BIAS: f32 = 8.0;
+
+impl MeshVertex {
+    /// Un sommet à la position `local` (relative à l'origine du chunk).
+    pub fn new(
+        local: Vec3,
+        normal: [f32; 3],
+        color: [f32; 4],
+        light: [f32; 3],
+        texture: u32,
+    ) -> Self {
+        let position = local.to_array().map(|c| {
+            ((c + POSITION_BIAS) * POSITION_SCALE)
+                .round()
+                .clamp(0.0, f32::from(u16::MAX)) as u16
+        });
+        let unorm = |x: f32| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
+        let snorm = |x: f32| (x.clamp(-1.0, 1.0) * 127.0).round() as i8;
+        Self {
+            position: [position[0], position[1], position[2], 0],
+            normal: [snorm(normal[0]), snorm(normal[1]), snorm(normal[2]), 0],
+            color: color.map(unorm),
+            light: [unorm(light[0]), unorm(light[1]), unorm(light[2]), 0],
+            texture,
+        }
+    }
+
+    /// La position relative à l'origine du chunk, comme le shader la décode.
+    pub fn local_position(&self) -> Vec3 {
+        Vec3::new(
+            f32::from(self.position[0]),
+            f32::from(self.position[1]),
+            f32::from(self.position[2]),
+        ) / POSITION_SCALE
+            - Vec3::splat(POSITION_BIAS)
+    }
+
+    pub fn normal(&self) -> Vec3 {
+        Vec3::new(
+            f32::from(self.normal[0]),
+            f32::from(self.normal[1]),
+            f32::from(self.normal[2]),
+        ) / 127.0
+    }
+
+    /// Lumière du ciel, des blocs, et occlusion ambiante, de 0 à 1.
+    pub fn light(&self) -> [f32; 3] {
+        [0, 1, 2].map(|i| f32::from(self.light[i]) / 255.0)
+    }
 }
 
 /// Les pixels transparents de la texture sont jetés (`discard`) : feuilles, plantes.
@@ -77,6 +139,8 @@ pub struct ChunkMesh {
     pub translucent_indices: Vec<u32>,
     /// Les faces du chunk reliées par l'air, pour le culling des grottes.
     pub visibility: crate::FaceConnections,
+    /// L'origine du chunk dans le monde (en blocs) : les sommets lui sont relatifs.
+    pub origin: IVec3,
 }
 
 impl ChunkMesh {
@@ -92,11 +156,30 @@ impl ChunkMesh {
         (self.indices.len() + self.translucent_indices.len()) / 3
     }
 
+    /// La position d'un sommet dans le monde.
+    pub fn world_position(&self, vertex: &MeshVertex) -> Vec3 {
+        self.origin.as_vec3() + vertex.local_position()
+    }
+
+    /// Ajoute un sommet donné en position monde.
+    fn push_vertex(
+        &mut self,
+        world: Vec3,
+        normal: [f32; 3],
+        color: [f32; 4],
+        light: [f32; 3],
+        texture: u32,
+    ) {
+        let local = world - self.origin.as_vec3();
+        self.vertices
+            .push(MeshVertex::new(local, normal, color, light, texture));
+    }
+
     /// La boîte englobante des sommets (min, max), ou `None` si le maillage est vide.
     /// Plus serrée que le chunk entier : idéal pour le frustum culling.
     pub fn bounds(&self) -> Option<(Vec3, Vec3)> {
         // `fold` réduit l'itérateur à une seule valeur, ici la paire (min, max).
-        self.vertices.iter().map(|v| Vec3::from(v.position)).fold(
+        self.vertices.iter().map(|v| self.world_position(v)).fold(
             None,
             |acc: Option<(Vec3, Vec3)>, p| match acc {
                 None => Some((p, p)),
@@ -132,17 +215,17 @@ impl ChunkMesh {
         for ((position, corner), drop) in positions.into_iter().zip(corners).zip(drops) {
             // La surface d'un fluide : le coin descend selon la quantité.
             let position = position - Vec3::Y * (drop as f32 / 255.0);
-            self.vertices.push(MeshVertex {
-                position: position.to_array(),
+            self.push_vertex(
+                position,
                 normal,
-                color: look.color,
-                light: [
+                look.color,
+                [
                     corner.sky as f32 / LIGHT_SCALE,
                     corner.block as f32 / LIGHT_SCALE,
                     corner.ao as f32 / 3.0,
                 ],
-                texture: look.texture | look.flags,
-            });
+                look.texture | look.flags,
+            );
         }
         // Un quad se coupe en deux triangles par une diagonale. Si l'éclairage varie
         // d'un coin à l'autre, le choix de la diagonale se voit : on coupe selon la
@@ -666,13 +749,13 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                     let start = mesh.vertices.len() as u32;
                     for corner in corners {
                         let top = corner.y > 0.5;
-                        mesh.vertices.push(MeshVertex {
-                            position: (base + corner).to_array(),
+                        mesh.push_vertex(
+                            base + corner,
                             normal,
                             color,
-                            light: vertex_light,
-                            texture: texture | if top { sway_top } else { 0 },
-                        });
+                            vertex_light,
+                            texture | if top { sway_top } else { 0 },
+                        );
                     }
                     // Les deux faces : sens direct et sens inverse.
                     mesh.indices
@@ -757,6 +840,7 @@ fn is_leaf(def: &crate::BlockDef) -> bool {
 /// chunk est en mémoire et on est sur un thread de fond, c'est le bon moment.
 fn new_mesh(hood: &Neighbourhood) -> ChunkMesh {
     ChunkMesh {
+        origin: World::chunk_origin(hood.position),
         visibility: hood.chunks[13]
             .as_ref()
             .map_or_default(|chunk| crate::FaceConnections::of_chunk(chunk, &hood.registry)),
@@ -887,7 +971,7 @@ mod tests {
             .chunks(3)
             .map(|t| {
                 let [a, b, c] =
-                    [t[0], t[1], t[2]].map(|k| Vec3::from(mesh.vertices[k as usize].position));
+                    [t[0], t[1], t[2]].map(|k| mesh.world_position(&mesh.vertices[k as usize]));
                 (b - a).cross(c - a).length() / 2.0
             })
             .sum()
@@ -897,7 +981,7 @@ mod tests {
     fn quads_facing(mesh: &ChunkMesh, normal: Vec3) -> Vec<&[MeshVertex]> {
         mesh.vertices
             .chunks(4)
-            .filter(|q| Vec3::from(q[0].normal) == normal)
+            .filter(|q| q[0].normal() == normal)
             .collect()
     }
 
@@ -963,6 +1047,39 @@ mod tests {
         assert_eq!(mesh.quad_count(), 6 + 4 + 5);
         // Le verre est translucide : ses 9 faces vont dans la seconde liste.
         assert_eq!(mesh.translucent_indices.len(), 9 * 6);
+    }
+
+    #[test]
+    fn compact_vertices_keep_positions_exact() {
+        assert_eq!(std::mem::size_of::<MeshVertex>(), 24);
+        // Les coins entiers, de part et d'autre du chunk : exacts (pas de fente).
+        for c in [-8.0, -1.0, 0.0, 17.0, 32.0, 33.0, 55.0] {
+            let v = MeshVertex::new(Vec3::splat(c), [0.0, 1.0, 0.0], [1.0; 4], [1.0; 3], 0);
+            assert_eq!(v.local_position(), Vec3::splat(c));
+        }
+        // La surface d'un fluide (un 255e de bloc) : à moins d'un millième près.
+        let surface = 7.0 + 200.0 / 255.0;
+        let v = MeshVertex::new(
+            Vec3::new(0.0, surface, 0.0),
+            [0.0; 3],
+            [0.0; 4],
+            [0.0; 3],
+            0,
+        );
+        assert!((v.local_position().y - surface).abs() < 0.001);
+        // Normale diagonale d'une plante, lumière et couleur sur 8 bits.
+        let n = std::f32::consts::FRAC_1_SQRT_2;
+        let v = MeshVertex::new(
+            Vec3::ZERO,
+            [n, 0.0, -n],
+            [0.5, 0.0, 1.0, 1.0],
+            [1.0, 0.0, 2.0 / 3.0],
+            7,
+        );
+        assert!((v.normal() - Vec3::new(n, 0.0, -n)).length() < 0.01);
+        assert_eq!(v.color, [128, 0, 255, 255]);
+        assert!((v.light()[2] - 2.0 / 3.0).abs() < 0.01);
+        assert_eq!(v.texture, 7);
     }
 
     #[test]
@@ -1037,9 +1154,9 @@ mod tests {
                 .into_iter()
                 .find(|q| {
                     q.iter().all(|v| {
-                        v.position[1] == 1.0
-                            && (x..=x + 1.0).contains(&v.position[0])
-                            && (z..=z + 1.0).contains(&v.position[2])
+                        v.local_position()[1] == 1.0
+                            && (x..=x + 1.0).contains(&v.local_position()[0])
+                            && (z..=z + 1.0).contains(&v.local_position()[2])
                     })
                 })
                 .unwrap()
@@ -1047,19 +1164,22 @@ mod tests {
         // Le dessus du bloc central du sol (1, 0, 1) : son coin (2, 1, 2) touche le bloc
         // posé en diagonale (AO 2 sur 3), les trois autres sont dégagés.
         for v in top_of(1.0, 1.0) {
-            let ao = v.light[2];
-            if v.position[0] == 2.0 && v.position[2] == 2.0 {
+            let ao = v.light()[2];
+            if v.local_position()[0] == 2.0 && v.local_position()[2] == 2.0 {
                 assert!(
-                    (ao - 2.0 / 3.0).abs() < 1e-6,
+                    (ao - 2.0 / 3.0).abs() < 0.01,
                     "coin occulté par la diagonale : {ao}"
                 );
             } else {
-                assert_eq!(ao, 1.0, "coin dégagé en {:?}", v.position);
+                assert_eq!(ao, 1.0, "coin dégagé en {:?}", v.local_position());
             }
         }
         // Le dessus du sol en (2, 0, 1), collé au bloc posé : ses deux coins côté z = 2
         // touchent un côté plein.
-        let occluded = top_of(2.0, 1.0).iter().filter(|v| v.light[2] < 1.0).count();
+        let occluded = top_of(2.0, 1.0)
+            .iter()
+            .filter(|v| v.light()[2] < 1.0)
+            .count();
         assert_eq!(occluded, 2);
     }
 
@@ -1105,9 +1225,9 @@ mod tests {
         ] {
             for tri in mesh.indices.chunks(3) {
                 let [a, b, c] = [tri[0], tri[1], tri[2]]
-                    .map(|k| Vec3::from(mesh.vertices[k as usize].position));
+                    .map(|k| mesh.world_position(&mesh.vertices[k as usize]));
                 let geometric = (b - a).cross(c - a).normalize();
-                let declared = Vec3::from(mesh.vertices[tri[0] as usize].normal);
+                let declared = mesh.vertices[tri[0] as usize].normal();
                 // Les plantes sont dessinées des deux côtés (un triangle par sens) : on
                 // ne vérifie que les faces de cubes (normale sur un axe, sommets entiers).
                 let plant = declared.abs().max_element() < 0.99 || a.y.fract().abs() > 0.001;

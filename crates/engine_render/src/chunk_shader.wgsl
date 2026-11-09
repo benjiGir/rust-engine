@@ -1,5 +1,6 @@
-// Shader des chunks : chaque sommet porte déjà sa position monde, sa normale,
-// sa couleur et sa lumière. Pas d'instance : un chunk = un tampon de sommets.
+// Shader des chunks : chaque sommet porte sa position dans le chunk, sa normale, sa
+// couleur et sa lumière, en format compact (24 octets, voir `ColorVertex`). L'origine
+// du chunk arrive à part, une fois pour tout le maillage (une « instance »).
 
 struct Camera {
     view_proj: mat4x4<f32>,
@@ -23,14 +24,22 @@ var block_textures: texture_2d_array<f32>;
 var block_sampler: sampler;
 
 struct VertexIn {
-    @location(0) position: vec3<f32>,
-    @location(1) normal: vec3<f32>,
+    // Position dans le chunk : (p + 8) × 1024, en entiers (le 4e ne sert pas).
+    @location(0) position: vec4<u32>,
+    // Déjà ramenée de -127..127 à -1..1 par le GPU (`Snorm8x4`).
+    @location(1) normal: vec4<f32>,
     @location(2) color: vec4<f32>,
     // x : lumière du ciel, y : lumière des blocs, z : occlusion ambiante (1 = dégagé).
-    @location(3) light: vec3<f32>,
+    @location(3) light: vec4<f32>,
     // Les 16 bits du bas : la couche de texture ; au-dessus, des drapeaux.
     @location(4) texture: u32,
+    // L'origine du chunk dans le monde (xyz).
+    @location(5) origin: vec4<f32>,
 };
+
+// Le codage des positions (voir `engine_voxel::POSITION_SCALE` et `POSITION_BIAS`).
+const POSITION_SCALE: f32 = 1024.0;
+const POSITION_BIAS: f32 = 8.0;
 
 // Les drapeaux de `texture` (voir `engine_voxel::mesh`).
 const FLAG_CUTOUT: u32 = 65536u;   // 1 << 16 : pixels transparents découpés
@@ -51,23 +60,24 @@ struct VertexOut {
 @vertex
 fn vs_main(vertex: VertexIn) -> VertexOut {
     var out: VertexOut;
-    var position = vertex.position;
+    let world = vertex.origin.xyz + vec3<f32>(vertex.position.xyz) / POSITION_SCALE - vec3<f32>(POSITION_BIAS);
+    var position = world;
     // Le vent : un petit déplacement horizontal qui ne dépend que de la position dans le
     // monde et du temps. Deux sommets au même endroit bougent pareil : les feuilles
     // voisines restent jointes. Un sommet trop éclairé par le ciel (dehors) bouge plus.
     if (vertex.texture & FLAG_SWAY) != 0u {
         let t = camera.sun_color.w;
-        let p = vertex.position;
+        let p = world;
         let amount = 0.05 * (0.4 + 0.6 * vertex.light.x);
         position.x += sin(t * 1.7 + p.x * 0.6 + p.z * 0.35) * amount;
         position.z += cos(t * 1.3 + p.z * 0.55 + p.x * 0.25) * amount;
     }
     out.clip_position = camera.view_proj * vec4<f32>(position, 1.0);
     out.color = vertex.color;
-    out.normal = vertex.normal;
-    out.world_position = vertex.position;
+    out.normal = vertex.normal.xyz;
+    out.world_position = world;
     // Interpolée entre les sommets : c'est ce qui rend la lumière « douce ».
-    out.light = vertex.light;
+    out.light = vertex.light.xyz;
     out.texture = vertex.texture & TEXTURE_MASK;
     out.flags = vertex.texture & ~TEXTURE_MASK;
     return out;

@@ -256,11 +256,20 @@ impl VoxelGame {
         Ok(false)
     }
 
-    /// Mêmes conditions à chaque lancement : vol, midi figé, sans VSync, 1280 × 720.
+    /// Mêmes conditions à chaque lancement : vol, midi figé, sans VSync, 1280 × 720
+    /// (`VOXEL_BENCH_SIZE=640x360` pour une autre taille : si le GPU va bien plus vite en
+    /// plus petit, ce sont les pixels qui coûtent, pas les sommets).
     fn setup_bench(&mut self, ctx: &mut Context) {
+        let (width, height) = std::env::var("VOXEL_BENCH_SIZE")
+            .ok()
+            .and_then(|s| {
+                let (w, h) = s.split_once('x')?;
+                Some((w.parse::<f64>().ok()?, h.parse::<f64>().ok()?))
+            })
+            .unwrap_or((1280.0, 720.0));
         let _ = ctx
             .window
-            .request_inner_size(LogicalSize::new(1280.0, 720.0));
+            .request_inner_size(LogicalSize::new(width, height));
         self.renderer.set_vsync(false);
         self.day.time = 0.5;
         self.day.speed = TimeSpeed::Frozen;
