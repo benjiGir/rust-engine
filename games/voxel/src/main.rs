@@ -317,6 +317,8 @@ impl VoxelGame {
             .unwrap_or(DEFAULT_SEED);
         let config = StreamingConfig {
             view_radius: env_parse("VOXEL_RADIUS").unwrap_or(settings.render_distance.clamp(4, 32)),
+            // `VOXEL_LEAF_CULLING=0` : garder toutes les faces de feuilles, pour comparer.
+            leaf_culling: std::env::var("VOXEL_LEAF_CULLING").map_or(true, |v| v != "0"),
             ..StreamingConfig::default()
         };
         // Le brouillard termine juste avant le bord du rayon de vue.

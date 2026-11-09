@@ -81,6 +81,8 @@ pub struct StreamingConfig {
     /// les chunks devenus lointains seraient quand même calculés avant les proches.
     pub max_jobs_in_flight: usize,
     pub mesher: Mesher,
+    /// Retirer les faces de feuilles au cœur des arbres (moins de triangles, même image).
+    pub leaf_culling: bool,
 }
 
 impl Default for StreamingConfig {
@@ -94,6 +96,7 @@ impl Default for StreamingConfig {
             // Deux tâches par thread : aucun cœur n'attend pendant qu'on en relance.
             max_jobs_in_flight: worker_threads * 2,
             mesher: Mesher::Greedy,
+            leaf_culling: true,
         }
     }
 }
@@ -610,7 +613,9 @@ impl ChunkStreamer {
         // ou leur AO changent. On les remaille ici même, le chunk modifié en premier
         // (`push_front` : on les ajoute donc dans l'ordre inverse).
         let mut geometry: Vec<IVec3> = Vec::new();
-        for offset in NEIGHBOURS_27 {
+        // À 2 blocs sur un axe : le culling des feuilles d'un bloc regarde 2 blocs devant.
+        let two_away = crate::FACE_DIRECTIONS.map(|d| d * 2);
+        for offset in NEIGHBOURS_27.into_iter().chain(two_away) {
             let c = World::split(pos + offset).0;
             if !geometry.contains(&c) {
                 geometry.push(c);
@@ -648,7 +653,9 @@ impl ChunkStreamer {
             self.mesh_candidates.insert(pos);
             return;
         }
+        let leaf_culling = self.config.leaf_culling;
         let mesh = Neighbourhood::from_world(&self.world, pos)
+            .map(|hood| hood.with_leaf_culling(leaf_culling))
             .map_or_else(ChunkMesh::default, |hood| self.config.mesher.mesh(&hood));
         // `Done` : si une tâche de fond maillait l'ancienne version, son résultat
         // (qui attend `Meshing(son ticket)`) sera jeté à l'arrivée.
@@ -1115,7 +1122,9 @@ impl ChunkStreamer {
 
     fn spawn_mesh(&mut self, pos: IVec3) {
         // Un chunk vide n'a rien à dessiner : pas besoin de tâche.
-        let Some(hood) = Neighbourhood::from_world(&self.world, pos) else {
+        let Some(hood) = Neighbourhood::from_world(&self.world, pos)
+            .map(|hood| hood.with_leaf_culling(self.config.leaf_culling))
+        else {
             self.slots.insert(pos, Slot::Generated(MeshState::Done));
             return;
         };
@@ -1317,6 +1326,26 @@ pub(crate) mod tests {
             })
             .collect();
         assert_eq!(positions, [IVec3::new(0, 1, 0), IVec3::new(1, 1, 0)]);
+    }
+
+    #[test]
+    fn breaking_a_leaf_two_blocks_from_the_border_remeshes_the_neighbour() {
+        let mut s = streamer();
+        pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        let leaves = BlockRegistry::builtin().id("core:oak_leaves").unwrap();
+        // Une rangée de feuilles à cheval sur les chunks x = 0 et x = 1, dans le ciel.
+        for x in 29..36 {
+            assert!(s.set_block(IVec3::new(x, 150, 5), leaves));
+        }
+        pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        // x = 33 : deuxième bloc du chunk x = 1. La face +X de la feuille en x = 31 (chunk 0)
+        // était cachée (une feuille, puis une autre derrière) : elle redevient visible.
+        assert!(s.set_block(IVec3::new(33, 150, 5), BlockId::AIR));
+        let events: Vec<StreamEvent> = std::iter::from_fn(|| s.next_event()).collect();
+        let remeshed = meshed(&events);
+        let chunk = IVec3::new(0, 4, 0);
+        let mesh = remeshed.get(&chunk).expect("le chunk voisin est remaillé");
+        assert_eq!(*mesh, &mesh_greedy(s.world(), chunk));
     }
 
     #[test]

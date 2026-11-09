@@ -253,6 +253,8 @@ pub struct Neighbourhood {
     grass_tint: Vec<[f32; 3]>,
     foliage_tint: Vec<[f32; 3]>,
     water_tint: Vec<[f32; 3]>,
+    /// Retirer les faces de feuilles enfouies (voir [`Neighbourhood::visible_face`]).
+    leaf_culling: bool,
 }
 
 impl Neighbourhood {
@@ -274,7 +276,14 @@ impl Neighbourhood {
             grass_tint,
             foliage_tint,
             water_tint,
+            leaf_culling: true,
         })
+    }
+
+    /// Garder (`false`) ou retirer (`true`, par défaut) les faces de feuilles enfouies.
+    pub fn with_leaf_culling(mut self, leaf_culling: bool) -> Self {
+        self.leaf_culling = leaf_culling;
+        self
     }
 
     /// La hauteur de la surface d'un fluide dans la cellule `p` (de 0 à 1), `None` si ce
@@ -386,8 +395,9 @@ impl Neighbourhood {
     /// d'un autre type : entre deux blocs d'eau ou de verre identiques, pas de face).
     ///
     /// Exceptions : les plantes (formes autres que le cube) n'ont pas de faces de cube ;
-    /// deux feuilles côte à côte gardent leurs faces (on voit à travers leurs trous) ;
-    /// deux liquides côte à côte (l'eau et des algues) n'en ont pas entre eux.
+    /// deux feuilles côte à côte gardent leurs faces (on voit à travers leurs trous),
+    /// sauf au cœur du feuillage (culling des feuilles) ; deux liquides côte à côte (l'eau
+    /// et des algues) n'en ont pas entre eux.
     #[inline]
     fn visible_face(&self, p: IVec3, face: Face) -> Option<BlockId> {
         let block = self.get(p);
@@ -405,6 +415,17 @@ impl Neighbourhood {
         let other = self.registry.def(neighbour);
         if def.liquid && other.liquid {
             return None;
+        }
+        // Culling des feuilles : cette face, tournée vers une autre feuille, ne se voit
+        // qu'à travers les trous de celle-ci. Si derrière elle il y a encore une feuille
+        // ou un bloc plein, il faudrait voir à travers deux couches : on ne la dessine pas.
+        // Le cœur d'un arbre perd ainsi la plupart de ses faces, l'extérieur ne change pas.
+        if self.leaf_culling && def.cutout && is_leaf(other) {
+            let beyond = self.get(p + face.normal() * 2);
+            let behind = self.registry.def(beyond);
+            if !beyond.is_air() && (!behind.transparent || is_leaf(behind)) {
+                return None;
+            }
         }
         let visible = other.transparent && (neighbour != block || def.cutout);
         visible.then_some(block)
@@ -727,6 +748,11 @@ pub fn mesh_greedy(world: &World, chunk_pos: IVec3) -> ChunkMesh {
     Neighbourhood::from_world(world, chunk_pos).map_or_else(ChunkMesh::default, |h| greedy(&h))
 }
 
+/// Une feuille : un cube aux pixels découpés.
+fn is_leaf(def: &crate::BlockDef) -> bool {
+    def.cutout && def.shape == Shape::Cube
+}
+
 /// Un maillage vide, avec déjà les connexions du chunk pour le culling des grottes : le
 /// chunk est en mémoire et on est sur un thread de fond, c'est le bon moment.
 fn new_mesh(hood: &Neighbourhood) -> ChunkMesh {
@@ -937,6 +963,29 @@ mod tests {
         assert_eq!(mesh.quad_count(), 6 + 4 + 5);
         // Le verre est translucide : ses 9 faces vont dans la seconde liste.
         assert_eq!(mesh.translucent_indices.len(), 9 * 6);
+    }
+
+    #[test]
+    fn buried_leaf_faces_are_culled() {
+        let leaves = id("core:oak_leaves");
+        let mut world = World::new();
+        for x in 1..4 {
+            for y in 1..4 {
+                for z in 1..4 {
+                    world.set_block(IVec3::new(x, y, z), leaves);
+                }
+            }
+        }
+        let hood = || Neighbourhood::from_world(&world, IVec3::ZERO).unwrap();
+        let all = Mesher::Culling.mesh(&hood().with_leaf_culling(false));
+        let culled = Mesher::Culling.mesh(&hood());
+        // Sans culling : 6 faces par feuille.
+        assert_eq!(all.quad_count(), 27 * 6);
+        // Sur chaque rangée de 3 feuilles, les 2 faces tournées vers le cœur (une feuille,
+        // puis encore une derrière) disparaissent : 27 rangées. Les 54 faces de
+        // l'extérieur restent toutes.
+        assert_eq!(culled.quad_count(), 27 * 6 - 27 * 2);
+        assert!(Mesher::Greedy.mesh(&hood()).quad_count() < all.quad_count());
     }
 
     #[test]
