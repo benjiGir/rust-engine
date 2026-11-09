@@ -67,8 +67,12 @@ Mesures de référence (Apple Silicon, `--release`) :
 | tick de machines, toutes actives (budget 10 ms) | 1,0 ms | 7,0 ms | 16,6 ms |
 | pas de simulation de l'ECS, objets sur tapis | 44 µs | 232 µs | |
 
-Génération du terrain : 0,54 ms pour un chunk souterrain (grottes, minerais), 0,47 ms en
-surface, 0,23 ms en moyenne sur une grande zone (les chunks de ciel sont presque gratuits).
+Végétation : génération d'un chunk de forêt dense 0,39 ms, maillage 0,92 ms ; rendu hors
+écran 2560 × 1440 : 9,5 ms par image. Ticks aléatoires (herbe, pousses, feuilles) à moins de
+4 chunks du joueur, 24 blocs tirés par chunk et par tick.
+
+Génération du terrain : 0,66 ms pour un chunk souterrain (grottes, minerais), 0,52 ms en
+surface, 0,29 ms en moyenne sur une grande zone (les chunks de ciel sont presque gratuits).
 
 50 000 câbles et tuyaux (blocs avec capacités) : ~200 octets chacun en mémoire (~10 Mio),
 234 Kio sur disque, sauvegardés en 40 ms.

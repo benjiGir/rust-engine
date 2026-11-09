@@ -151,6 +151,8 @@ struct VoxelGame {
     store: Option<Arc<engine_voxel::SaveStore>>,
     last_autosave: Instant,
     save_started: Instant,
+    /// Le lancement du jeu (pour animer le vent).
+    started: Instant,
     /// `VOXEL_QUIT_AFTER=secondes` : quitter proprement (avec sauvegarde) après ce délai.
     quit_at: Option<Instant>,
     /// La surveillance des fichiers (shaders, textures, sons, blocs).
@@ -363,6 +365,7 @@ impl Game for VoxelGame {
             store,
             last_autosave: Instant::now(),
             save_started: Instant::now(),
+            started: Instant::now(),
             hot_reload: start_hot_reload(),
             audio,
             step_distance: 0.0,
@@ -394,7 +397,8 @@ impl Game for VoxelGame {
         player::set_intent(&self.ecs, self.player, walk, jump);
         self.schedule.run(Stage::FixedUpdate, &mut self.ecs);
         // Les machines : un tick tous les 3 pas (20 par seconde).
-        let (actions, machine_tick) = self.mods.fixed_step();
+        let eye = player::eye(&self.ecs, self.player, 1.0);
+        let (actions, machine_tick) = self.mods.fixed_step(eye);
         self.apply_machine_actions(actions);
         if let Some(stress) = &mut self.stress {
             let eye = player::eye(&self.ecs, self.player, 1.0);
@@ -529,6 +533,8 @@ impl Game for VoxelGame {
     fn render(&mut self, ctx: &mut Context, alpha: f32) {
         // Entre deux pas de physique : la caméra est interpolée (voir `player.rs`).
         self.camera.position = player::eye(&self.ecs, self.player, alpha);
+        // Le vent dans les feuilles suit le temps réel depuis le lancement.
+        self.renderer.time = self.started.elapsed().as_secs_f32();
         let mob_boxes = mobs::instances(&self.ecs, alpha);
         self.renderer.set_instances(&mob_boxes);
         // L'heure décide du soleil et de la couleur du ciel, donc du brouillard.
@@ -739,6 +745,16 @@ impl VoxelGame {
                 // Le bloc cassé va dans l'inventaire (s'il se pose : pas l'eau).
                 if self.registry.def(old).placeable {
                     self.inventory.add(old, 1);
+                }
+                // Des feuilles cassées donnent parfois une pousse de leur essence
+                // (`core:oak_leaves` → `core:oak_sapling`). En attendant le butin des
+                // blocs (phase O3), une règle simple ici.
+                let key = &self.registry.def(old).key;
+                if let Some(essence) = key.strip_suffix("_leaves")
+                    && let Some(sapling) = self.registry.id(&format!("{essence}_sapling"))
+                    && self.started.elapsed().as_nanos().is_multiple_of(8)
+                {
+                    self.inventory.add(sapling, 1);
                 }
             } else {
                 events::send(&self.ecs, BlockPlaced { pos, block });
@@ -1185,6 +1201,8 @@ fn starter_inventory(registry: &BlockRegistry) -> Inventory {
         ("core:glowstone", 8),
         ("core:stone", 32),
         ("example:ruby", 4),
+        ("core:oak_sapling", 4),
+        ("core:birch_sapling", 2),
         // De quoi construire un mécanisme : horloge → lampe, horloge → casseur.
         ("core:clock", 8),
         ("core:lamp", 8),

@@ -9,7 +9,7 @@ struct Camera {
     fog_color_end: vec4<f32>,
     // xyz : direction vers le soleil, w : intensité du jour (0 la nuit, 1 à midi).
     sun: vec4<f32>,
-    // rgb : teinte de la lumière du ciel.
+    // rgb : teinte de la lumière du ciel, w : le temps en secondes (pour le vent).
     sun_color: vec4<f32>,
 };
 
@@ -28,8 +28,14 @@ struct VertexIn {
     @location(2) color: vec4<f32>,
     // x : lumière du ciel, y : lumière des blocs, z : occlusion ambiante (1 = dégagé).
     @location(3) light: vec3<f32>,
+    // Les 16 bits du bas : la couche de texture ; au-dessus, des drapeaux.
     @location(4) texture: u32,
 };
+
+// Les drapeaux de `texture` (voir `engine_voxel::mesh`).
+const FLAG_CUTOUT: u32 = 65536u;   // 1 << 16 : pixels transparents découpés
+const FLAG_SWAY: u32 = 131072u;    // 1 << 17 : se balance au vent
+const TEXTURE_MASK: u32 = 65535u;
 
 struct VertexOut {
     @builtin(position) clip_position: vec4<f32>,
@@ -39,18 +45,31 @@ struct VertexOut {
     @location(3) light: vec3<f32>,
     // `flat` : un entier ne s'interpole pas, on garde la valeur du premier sommet.
     @location(4) @interpolate(flat) texture: u32,
+    @location(5) @interpolate(flat) flags: u32,
 };
 
 @vertex
 fn vs_main(vertex: VertexIn) -> VertexOut {
     var out: VertexOut;
-    out.clip_position = camera.view_proj * vec4<f32>(vertex.position, 1.0);
+    var position = vertex.position;
+    // Le vent : un petit déplacement horizontal qui ne dépend que de la position dans le
+    // monde et du temps. Deux sommets au même endroit bougent pareil : les feuilles
+    // voisines restent jointes. Un sommet trop éclairé par le ciel (dehors) bouge plus.
+    if (vertex.texture & FLAG_SWAY) != 0u {
+        let t = camera.sun_color.w;
+        let p = vertex.position;
+        let amount = 0.05 * (0.4 + 0.6 * vertex.light.x);
+        position.x += sin(t * 1.7 + p.x * 0.6 + p.z * 0.35) * amount;
+        position.z += cos(t * 1.3 + p.z * 0.55 + p.x * 0.25) * amount;
+    }
+    out.clip_position = camera.view_proj * vec4<f32>(position, 1.0);
     out.color = vertex.color;
     out.normal = vertex.normal;
     out.world_position = vertex.position;
     // Interpolée entre les sommets : c'est ce qui rend la lumière « douce ».
     out.light = vertex.light;
-    out.texture = vertex.texture;
+    out.texture = vertex.texture & TEXTURE_MASK;
+    out.flags = vertex.texture & ~TEXTURE_MASK;
     return out;
 }
 
@@ -77,7 +96,15 @@ fn face_uv(position: vec3<f32>, normal: vec3<f32>) -> vec2<f32> {
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let texel = textureSample(block_textures, block_sampler, face_uv(in.world_position, in.normal), in.texture);
-    let albedo = in.color * texel;
+    // Feuilles et plantes : les pixels transparents de la texture sont jetés. Le reste
+    // est opaque, dessiné dans la passe opaque (pas de tri, pas de mélange).
+    if (in.flags & FLAG_CUTOUT) != 0u && texel.a < 0.5 {
+        discard;
+    }
+    var albedo = in.color * texel;
+    if (in.flags & FLAG_CUTOUT) != 0u {
+        albedo.a = in.color.a;
+    }
     let daylight = camera.sun.w;
     let sun_direction = normalize(camera.sun.xyz);
 

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use glam::IVec3;
 
+use crate::biome::BiomeRegistry;
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
 use crate::registry::BlockRegistry;
@@ -32,6 +33,8 @@ const SIZE: i32 = CHUNK_SIZE as i32;
 pub struct World {
     chunks: HashMap<IVec3, Arc<Chunk>>,
     registry: Arc<BlockRegistry>,
+    /// Les biomes (pour les teintes du maillage), s'ils sont connus.
+    biomes: Option<Arc<BiomeRegistry>>,
 }
 
 impl Default for World {
@@ -50,11 +53,20 @@ impl World {
         Self {
             chunks: HashMap::default(),
             registry,
+            biomes: None,
         }
     }
 
     pub fn registry(&self) -> &Arc<BlockRegistry> {
         &self.registry
+    }
+
+    pub fn biomes(&self) -> Option<&Arc<BiomeRegistry>> {
+        self.biomes.as_ref()
+    }
+
+    pub fn set_biomes(&mut self, biomes: Arc<BiomeRegistry>) {
+        self.biomes = Some(biomes);
     }
 
     /// Remplace le registre (rechargement à chaud). Les numéros de blocs doivent

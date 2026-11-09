@@ -23,10 +23,12 @@ mod light;
 mod machines;
 mod mesh;
 mod physics;
+mod plants;
 mod raycast;
 mod registry;
 mod save;
 mod streaming;
+mod trees;
 mod world;
 
 pub use biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry, OreDef, Relief};
@@ -37,7 +39,8 @@ pub use capabilities::{
 pub use chunk::{BlockEntity, CHUNK_SIZE, Chunk, DEFAULT_LIGHT};
 pub use fluids::{FluidDef, FluidRegistry};
 pub use generator::{
-    Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL, SEA_LEVEL, TerrainGenerator, WORLD_HEIGHT_CHUNKS,
+    Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL, SEA_LEVEL, TerrainGenerator, TreeSite,
+    WORLD_HEIGHT_CHUNKS,
 };
 pub use grid::{BlockAccess, GridId, GridPos, Grids};
 pub use light::{ColumnLight, LightRegion, MAX_LIGHT, apply_column_light, update_light};
@@ -45,13 +48,17 @@ pub use machines::{
     BlockBehavior, Clock, Lamp, MACHINE_TICKS_PER_SECOND, MAX_POWER, MachineAction, MachineContext,
     Machines, Scheduler, TickReport, received_power,
 };
-pub use mesh::{ChunkMesh, MeshVertex, Mesher, Neighbourhood, mesh_culled, mesh_greedy};
+pub use mesh::{
+    ChunkMesh, FLAG_CUTOUT, FLAG_SWAY, MeshVertex, Mesher, Neighbourhood, TEXTURE_MASK,
+    mesh_culled, mesh_greedy,
+};
 pub use physics::{PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
 pub use raycast::{RayHit, ray_aabb, raycast};
-pub use registry::{BlockDef, BlockRegistry, BlockSounds, CORE_NAMESPACE};
+pub use registry::{BlockDef, BlockRegistry, BlockSounds, CORE_NAMESPACE, Shape, Tint};
 pub use save::{
     ChunkToSave, FORMAT_VERSION, LoadedChunk, PlayerSave, REGION_SIZE, SaveReport, SaveStore,
     UNKNOWN_BLOCK, UnknownBlocks, WorldMeta, write_atomic,
 };
 pub use streaming::{ChunkStreamer, StreamEvent, StreamStats, StreamingConfig};
+pub use trees::{Part, Rng64, TreeBlocks, TreeKind, Wood, grow as grow_tree};
 pub use world::World;

@@ -17,7 +17,12 @@
 // - texture : une texture pour toutes les faces (`textures/<nom>.png` du même dossier),
 //   ou textures : (top, side, bottom) pour le dessus, les côtés et le dessous ;
 // - sounds : (step, break, place), des sons de `sounds/<nom>.wav` ;
-// - unbreakable (false) : on ne peut pas le casser (le socle du monde).
+// - unbreakable (false) : on ne peut pas le casser (le socle du monde) ;
+// - shape (Cube) : Cube, Cross (deux panneaux en X : plantes) ou Flat (un panneau au sol) ;
+// - cutout (false) : les pixels transparents de la texture sont découpés (feuilles, plantes) ;
+// - tint (None) : Grass, Foliage ou Water, la couleur de l'herbe, du feuillage ou de l'eau du biome
+//   (pour un cube, Grass ne teinte que le dessus) ;
+// - sway (false) : se balance au vent.
 // Un nom sans espace de noms désigne un fichier de ce dossier ; `autre:nom` celui d'un autre.
 //
 // L'ordre compte : il fixe les identifiants numériques (1, 2, 3...) de cette partie.
@@ -25,6 +30,8 @@
     (
         id: "core:grass", name: "Herbe", color: (0.36, 0.62, 0.25),
         textures: (top: "grass_top", side: "grass_side", bottom: "dirt"),
+        // Le dessus prend la couleur de l'herbe du biome ; elle gagne la terre voisine.
+        tint: Grass, behavior: "core:grass",
         sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
     ),
     (
@@ -46,7 +53,7 @@
     (
         id: "core:water", name: "Eau", color: (0.15, 0.35, 0.75),
         solid: false, transparent: true, selectable: false, placeable: false, alpha: 0.6,
-        liquid: true, light_opacity: 2, texture: "water", fluid: "water",
+        liquid: true, light_opacity: 2, texture: "water", fluid: "water", tint: Water,
     ),
     (
         id: "core:glass", name: "Verre", color: (0.75, 0.88, 0.95),
@@ -158,5 +165,188 @@
     (
         id: "core:jade_ore", name: "Minerai de jade", color: (0.35, 0.75, 0.55), texture: "jade_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    // ----- La végétation (phase O2) -----
+    (
+        id: "core:oak_log", name: "Bûche de chêne", color: (0.55, 0.42, 0.25),
+        textures: (top: "oak_log_top", side: "oak_log", bottom: "oak_log_top"),
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    // Les feuilles laissent passer un peu de lumière et disparaissent loin d'un tronc.
+    (
+        id: "core:oak_leaves", name: "Feuilles de chêne", color: (0.3, 0.55, 0.2),
+        texture: "oak_leaves", transparent: true, light_opacity: 1, cutout: true, tint: Foliage,
+        sway: true, placeable: false, behavior: "core:leaves",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:oak_planks", name: "Planches de chêne", color: (0.55, 0.42, 0.25), texture: "oak_planks",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    (
+        id: "core:oak_sapling", name: "Pousse de chêne", color: (0.3, 0.55, 0.2),
+        texture: "oak_sapling", shape: Cross, cutout: true, solid: false, transparent: true,
+        light_opacity: 0, behavior: "core:sapling",
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:birch_log", name: "Bûche de bouleau", color: (0.85, 0.83, 0.75),
+        textures: (top: "birch_log_top", side: "birch_log", bottom: "birch_log_top"),
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    // Les feuilles laissent passer un peu de lumière et disparaissent loin d'un tronc.
+    (
+        id: "core:birch_leaves", name: "Feuilles de bouleau", color: (0.5, 0.65, 0.3),
+        texture: "birch_leaves", transparent: true, light_opacity: 1, cutout: true, tint: None,
+        sway: true, placeable: false, behavior: "core:leaves",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:birch_planks", name: "Planches de bouleau", color: (0.85, 0.83, 0.75), texture: "birch_planks",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    (
+        id: "core:birch_sapling", name: "Pousse de bouleau", color: (0.5, 0.65, 0.3),
+        texture: "birch_sapling", shape: Cross, cutout: true, solid: false, transparent: true,
+        light_opacity: 0, behavior: "core:sapling",
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:spruce_log", name: "Bûche de sapin", color: (0.35, 0.25, 0.15),
+        textures: (top: "spruce_log_top", side: "spruce_log", bottom: "spruce_log_top"),
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    // Les feuilles laissent passer un peu de lumière et disparaissent loin d'un tronc.
+    (
+        id: "core:spruce_leaves", name: "Feuilles de sapin", color: (0.2, 0.38, 0.25),
+        texture: "spruce_leaves", transparent: true, light_opacity: 1, cutout: true, tint: None,
+        sway: true, placeable: false, behavior: "core:leaves",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:spruce_planks", name: "Planches de sapin", color: (0.35, 0.25, 0.15), texture: "spruce_planks",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    (
+        id: "core:spruce_sapling", name: "Pousse de sapin", color: (0.2, 0.38, 0.25),
+        texture: "spruce_sapling", shape: Cross, cutout: true, solid: false, transparent: true,
+        light_opacity: 0, behavior: "core:sapling",
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:acacia_log", name: "Bûche de acacia", color: (0.6, 0.35, 0.2),
+        textures: (top: "acacia_log_top", side: "acacia_log", bottom: "acacia_log_top"),
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    // Les feuilles laissent passer un peu de lumière et disparaissent loin d'un tronc.
+    (
+        id: "core:acacia_leaves", name: "Feuilles de acacia", color: (0.4, 0.55, 0.2),
+        texture: "acacia_leaves", transparent: true, light_opacity: 1, cutout: true, tint: Foliage,
+        sway: true, placeable: false, behavior: "core:leaves",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:acacia_planks", name: "Planches de acacia", color: (0.6, 0.35, 0.2), texture: "acacia_planks",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    (
+        id: "core:acacia_sapling", name: "Pousse de acacia", color: (0.4, 0.55, 0.2),
+        texture: "acacia_sapling", shape: Cross, cutout: true, solid: false, transparent: true,
+        light_opacity: 0, behavior: "core:sapling",
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:jungle_log", name: "Bûche de bois tropical", color: (0.5, 0.38, 0.22),
+        textures: (top: "jungle_log_top", side: "jungle_log", bottom: "jungle_log_top"),
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    // Les feuilles laissent passer un peu de lumière et disparaissent loin d'un tronc.
+    (
+        id: "core:jungle_leaves", name: "Feuilles de bois tropical", color: (0.2, 0.6, 0.15),
+        texture: "jungle_leaves", transparent: true, light_opacity: 1, cutout: true, tint: Foliage,
+        sway: true, placeable: false, behavior: "core:leaves",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:jungle_planks", name: "Planches de bois tropical", color: (0.5, 0.38, 0.22), texture: "jungle_planks",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    (
+        id: "core:jungle_sapling", name: "Pousse de bois tropical", color: (0.2, 0.6, 0.15),
+        texture: "jungle_sapling", shape: Cross, cutout: true, solid: false, transparent: true,
+        light_opacity: 0, behavior: "core:sapling",
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:tall_grass", name: "Herbes hautes", color: (0.4, 0.65, 0.25), texture: "tall_grass", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, tint: Grass, sway: true, placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:fern", name: "Fougère", color: (0.35, 0.6, 0.25), texture: "fern", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, tint: Grass, sway: true,
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:dead_bush", name: "Buisson mort", color: (0.55, 0.4, 0.2), texture: "dead_bush", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:poppy", name: "Coquelicot", color: (0.85, 0.15, 0.1), texture: "poppy", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:dandelion", name: "Pissenlit", color: (0.95, 0.85, 0.2), texture: "dandelion", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:cornflower", name: "Bleuet", color: (0.3, 0.45, 0.9), texture: "cornflower", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:daisy", name: "Marguerite", color: (0.95, 0.95, 0.9), texture: "daisy", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:lavender", name: "Lavande", color: (0.65, 0.45, 0.85), texture: "lavender", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:red_mushroom", name: "Amanite", color: (0.8, 0.15, 0.1), texture: "red_mushroom", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0,
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:brown_mushroom", name: "Bolet", color: (0.55, 0.4, 0.28), texture: "brown_mushroom", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0,
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    // Les lianes pendent sous les feuilles de la jungle et des marais.
+    (
+        id: "core:vine", name: "Liane", color: (0.25, 0.5, 0.15), texture: "vine", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, tint: Foliage, sway: true,
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    // Les algues poussent sous l'eau : on peut y nager.
+    (
+        id: "core:seaweed", name: "Algues", color: (0.2, 0.5, 0.25), texture: "seaweed", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 2, liquid: true, sway: true,
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:lily_pad", name: "Nénuphar", color: (0.2, 0.55, 0.2), texture: "lily_pad", shape: Flat,
+        cutout: true, transparent: true, light_opacity: 0,
+        sounds: (break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:cactus", name: "Cactus", color: (0.3, 0.55, 0.25),
+        textures: (top: "cactus_top", side: "cactus_side", bottom: "cactus_top"),
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
     ),
 ]

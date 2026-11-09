@@ -42,6 +42,7 @@ use crate::biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry};
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
 use crate::registry::BlockRegistry;
+use crate::trees::TreeBlocks;
 use crate::world::World;
 
 /// Hauteur utile du monde, en chunks : les blocs vont de y = 0 à y = 32 × 6 - 1.
@@ -171,6 +172,9 @@ pub struct TerrainGenerator {
     /// Les biomes des terres, choisis par le climat.
     land: Vec<BiomeId>,
     blocks: TerrainBlocks,
+    plant_blocks: PlantBlocks,
+    /// `None` si un bloc d'arbre manque (un registre de test réduit) : pas d'arbres.
+    tree_blocks: Option<TreeBlocks>,
 }
 
 impl TerrainGenerator {
@@ -220,10 +224,12 @@ impl TerrainGenerator {
             cave_b: Perlin::new(seed.wrapping_add(8)),
             cheese: fbm(9, 2, 1.0),
             aquifer: Perlin::new(seed.wrapping_add(10)),
-            registry,
             biomes,
             land,
             blocks,
+            plant_blocks: PlantBlocks::resolve(&registry)?,
+            tree_blocks: TreeBlocks::resolve(&registry).ok(),
+            registry,
         })
     }
 
@@ -477,6 +483,33 @@ impl TerrainGenerator {
         }
     }
 
+    /// Les 32 × 32 colonnes d'un chunk, `[x][z]` : les cartes de bruit sur la grille de
+    /// 9 × 9 points du chunk, puis interpolées pour chaque colonne.
+    pub fn columns(&self, chunk_pos: IVec3) -> Box<[[Column; CHUNK_SIZE]; CHUNK_SIZE]> {
+        let origin = World::chunk_origin(chunk_pos);
+        let (g0x, g0z) = (origin.x / STEP, origin.z / STEP);
+        let mut grid = [[Fields::default(); GRID]; GRID];
+        for (i, row) in grid.iter_mut().enumerate() {
+            for (j, f) in row.iter_mut().enumerate() {
+                *f = self.fields(g0x + i as i32, g0z + j as i32);
+            }
+        }
+        let lookup = |gx: i32, gz: i32| grid[(gx - g0x) as usize][(gz - g0z) as usize];
+        let mut columns = Box::new([[Column::default(); CHUNK_SIZE]; CHUNK_SIZE]);
+        for (lx, row) in columns.iter_mut().enumerate() {
+            for (lz, column) in row.iter_mut().enumerate() {
+                let fields = self.fields_at(origin.x + lx as i32, origin.z + lz as i32, lookup);
+                *column = self.interpret(fields);
+            }
+        }
+        columns
+    }
+
+    /// Les biomes des colonnes d'un chunk (x + 32 z), comme [`Chunk::set_biomes`] les attend.
+    pub fn biome_columns(&self, chunk_pos: IVec3) -> Vec<u8> {
+        biome_ids(&self.columns(chunk_pos))
+    }
+
     /// Génère un chunk. Renvoie `None` s'il ne contient que de l'air
     /// (le ciel, ou hors de la hauteur du monde) : inutile de le stocker.
     pub fn generate(&self, chunk_pos: IVec3) -> Option<Chunk> {
@@ -486,22 +519,7 @@ impl TerrainGenerator {
         let origin = World::chunk_origin(chunk_pos);
         let size = CHUNK_SIZE as i32;
 
-        // Les cartes de bruit sur la grille de 9 × 9 points du chunk, puis les colonnes.
-        let (g0x, g0z) = (origin.x / STEP, origin.z / STEP);
-        let mut grid = [[Fields::default(); GRID]; GRID];
-        for (i, row) in grid.iter_mut().enumerate() {
-            for (j, f) in row.iter_mut().enumerate() {
-                *f = self.fields(g0x + i as i32, g0z + j as i32);
-            }
-        }
-        let lookup = |gx: i32, gz: i32| grid[(gx - g0x) as usize][(gz - g0z) as usize];
-        let mut columns = [[Column::default(); CHUNK_SIZE]; CHUNK_SIZE];
-        for (lx, row) in columns.iter_mut().enumerate() {
-            for (lz, column) in row.iter_mut().enumerate() {
-                let fields = self.fields_at(origin.x + lx as i32, origin.z + lz as i32, lookup);
-                *column = self.interpret(fields);
-            }
-        }
+        let columns = self.columns(chunk_pos);
         let highest = columns
             .iter()
             .flatten()
@@ -515,6 +533,7 @@ impl TerrainGenerator {
 
         let caves = CaveGrid::new(self, origin);
         let mut chunk = Chunk::new();
+        chunk.set_biomes(biome_ids(&columns));
         for (lx, row) in columns.iter().enumerate() {
             for (lz, &column) in row.iter().enumerate() {
                 let (x, z) = (origin.x + lx as i32, origin.z + lz as i32);
@@ -555,6 +574,8 @@ impl TerrainGenerator {
             }
         }
         self.place_ores(&mut chunk, chunk_pos, &columns);
+        self.place_plants(&mut chunk, chunk_pos, &columns);
+        self.place_trees(&mut chunk, chunk_pos);
         // Les grottes ont pu tout vider.
         (!chunk.is_empty()).then_some(chunk)
     }
@@ -620,6 +641,7 @@ impl TerrainGenerator {
     /// Comme [`TerrainGenerator::generate_region`], à partir de la colonne de chunks `from`.
     pub fn generate_area(&self, from: IVec3, chunks_x: i32, chunks_z: i32) -> World {
         let mut world = World::with_registry(self.registry.clone());
+        world.set_biomes(self.biomes.clone());
         for x in 0..chunks_x {
             for z in 0..chunks_z {
                 for y in 0..WORLD_HEIGHT_CHUNKS {
@@ -632,6 +654,16 @@ impl TerrainGenerator {
         }
         world
     }
+}
+
+fn biome_ids(columns: &[[Column; CHUNK_SIZE]; CHUNK_SIZE]) -> Vec<u8> {
+    let mut ids = vec![0; CHUNK_SIZE * CHUNK_SIZE];
+    for (x, row) in columns.iter().enumerate() {
+        for (z, column) in row.iter().enumerate() {
+            ids[x + z * CHUNK_SIZE] = column.biome.0;
+        }
+    }
+    ids
 }
 
 /// Ce qui remplit une grotte.
@@ -792,5 +824,9 @@ fn spline(x: f64, points: &[(f64, f64)]) -> f64 {
     points[points.len() - 1].1
 }
 
+mod features;
 #[cfg(test)]
 mod tests;
+
+use features::PlantBlocks;
+pub use features::TreeSite;

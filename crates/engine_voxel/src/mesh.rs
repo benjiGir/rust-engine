@@ -26,9 +26,10 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, Vec3};
 
+use crate::biome::{BiomeId, BiomeRegistry};
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
-use crate::registry::BlockRegistry;
+use crate::registry::{BlockDef, BlockRegistry, Shape, Tint};
 use crate::world::World;
 
 const SIZE: i32 = CHUNK_SIZE as i32;
@@ -50,11 +51,19 @@ pub struct MeshVertex {
     pub color: [f32; 4],
     /// Lumière du ciel, lumière des blocs et occlusion ambiante, chacune de 0 à 1.
     pub light: [f32; 3],
-    /// Couche de la texture (0 = pas de texture). Les coordonnées de texture, elles,
-    /// sont calculées dans le shader à partir de la position : la texture se répète
-    /// toute seule sur un quad fusionné par le greedy.
+    /// Couche de la texture (0 = pas de texture) dans les 16 bits du bas, et des
+    /// drapeaux au-dessus ([`FLAG_CUTOUT`], [`FLAG_SWAY`]). Les coordonnées de texture,
+    /// elles, sont calculées dans le shader à partir de la position : la texture se
+    /// répète toute seule sur un quad fusionné par le greedy.
     pub texture: u32,
 }
+
+/// Les pixels transparents de la texture sont jetés (`discard`) : feuilles, plantes.
+pub const FLAG_CUTOUT: u32 = 1 << 16;
+/// Le sommet se balance au vent.
+pub const FLAG_SWAY: u32 = 1 << 17;
+/// Les bits de la couche de texture dans [`MeshVertex::texture`].
+pub const TEXTURE_MASK: u32 = 0xFFFF;
 
 /// Le maillage d'un chunk : 4 sommets et 6 indices (2 triangles) par quad.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -125,7 +134,7 @@ impl ChunkMesh {
                     corner.block as f32 / LIGHT_SCALE,
                     corner.ao as f32 / 3.0,
                 ],
-                texture: look.texture,
+                texture: look.texture | look.flags,
             });
         }
         // Un quad se coupe en deux triangles par une diagonale. Si l'éclairage varie
@@ -207,6 +216,7 @@ struct FaceLook {
     block: BlockId,
     color: [f32; 4],
     texture: u32,
+    flags: u32,
     translucent: bool,
     corners: [CornerLight; 4],
 }
@@ -228,6 +238,11 @@ pub struct Neighbourhood {
     chunks: [Option<Arc<Chunk>>; 27],
     /// Pour savoir quels blocs sont transparents, et leur couleur.
     registry: Arc<BlockRegistry>,
+    /// Les teintes de l'herbe et du feuillage de chaque colonne du chunk central
+    /// (x + 32 z), déjà lissées. Vides si les biomes sont inconnus (teinte neutre).
+    grass_tint: Vec<[f32; 3]>,
+    foliage_tint: Vec<[f32; 3]>,
+    water_tint: Vec<[f32; 3]>,
 }
 
 impl Neighbourhood {
@@ -236,12 +251,32 @@ impl Neighbourhood {
     pub fn from_world(world: &World, chunk_pos: IVec3) -> Option<Self> {
         world.chunk(chunk_pos)?;
         // `from_fn` construit le tableau en appelant la closure pour chaque indice.
-        let chunks = std::array::from_fn(|i| world.chunk_arc(chunk_pos + offset_of(i)));
+        let chunks: [Option<Arc<Chunk>>; 27] =
+            std::array::from_fn(|i| world.chunk_arc(chunk_pos + offset_of(i)));
+        let [grass_tint, foliage_tint, water_tint] = match (world.biomes(), &chunks[13]) {
+            (Some(biomes), Some(center)) if center.biome(0, 0).is_some() => tints(biomes, center),
+            _ => [Vec::new(), Vec::new(), Vec::new()],
+        };
         Some(Self {
             position: chunk_pos,
             chunks,
             registry: world.registry().clone(),
+            grass_tint,
+            foliage_tint,
+            water_tint,
         })
+    }
+
+    /// La teinte (un multiplicateur de couleur) de la colonne (x, z) du chunk central.
+    fn tint(&self, tint: Tint, x: i32, z: i32) -> [f32; 3] {
+        let table = match tint {
+            Tint::None => return [1.0; 3],
+            Tint::Grass => &self.grass_tint,
+            Tint::Foliage => &self.foliage_tint,
+            Tint::Water => &self.water_tint,
+        };
+        let i = (x.clamp(0, SIZE - 1) + z.clamp(0, SIZE - 1) * SIZE) as usize;
+        table.get(i).copied().unwrap_or([1.0; 3])
     }
 
     pub fn position(&self) -> IVec3 {
@@ -290,15 +325,29 @@ impl Neighbourhood {
     /// Le bloc à `p`, si sa face `face` doit être dessinée : le bloc n'est pas de l'air
     /// et son voisin de ce côté est transparent (de l'air, ou un bloc transparent
     /// d'un autre type : entre deux blocs d'eau ou de verre identiques, pas de face).
+    ///
+    /// Exceptions : les plantes (formes autres que le cube) n'ont pas de faces de cube ;
+    /// deux feuilles côte à côte gardent leurs faces (on voit à travers leurs trous) ;
+    /// deux liquides côte à côte (l'eau et des algues) n'en ont pas entre eux.
     #[inline]
     fn visible_face(&self, p: IVec3, face: Face) -> Option<BlockId> {
         let block = self.get(p);
         if block.is_air() {
             return None;
         }
+        let def = self.registry.def(block);
+        if def.shape != Shape::Cube {
+            return None;
+        }
         let neighbour = self.get(p + face.normal());
-        let visible =
-            neighbour.is_air() || (neighbour != block && self.registry.is_transparent(neighbour));
+        if neighbour.is_air() {
+            return Some(block);
+        }
+        let other = self.registry.def(neighbour);
+        if def.liquid && other.liquid {
+            return None;
+        }
+        let visible = other.transparent && (neighbour != block || def.cutout);
         visible.then_some(block)
     }
 
@@ -355,12 +404,175 @@ impl Neighbourhood {
         // Une face texturée prend les couleurs de sa texture : la couleur du registre ne
         // sert plus que de repli pour les blocs sans texture.
         let rgb = if texture == 0 { def.color } else { [1.0; 3] };
+        // La teinte du biome : pour l'herbe, seulement le dessus (les côtés montrent la terre).
+        let tinted = match def.tint {
+            Tint::Grass => face.axis == 1 && face.positive,
+            Tint::Foliage | Tint::Water => true,
+            Tint::None => false,
+        };
+        let tint = if tinted {
+            self.tint(def.tint, p.x, p.z)
+        } else {
+            [1.0; 3]
+        };
         FaceLook {
             block,
             texture,
-            color: [rgb[0], rgb[1], rgb[2], def.alpha],
+            flags: block_flags(def),
+            color: [
+                rgb[0] * tint[0],
+                rgb[1] * tint[1],
+                rgb[2] * tint[2],
+                def.alpha,
+            ],
             translucent: self.registry.is_translucent(block),
             corners,
+        }
+    }
+}
+
+/// Les drapeaux de sommet d'un bloc.
+fn block_flags(def: &BlockDef) -> u32 {
+    let mut flags = 0;
+    if def.cutout {
+        flags |= FLAG_CUTOUT;
+    }
+    if def.sway {
+        flags |= FLAG_SWAY;
+    }
+    flags
+}
+
+/// Les teintes lissées de l'herbe et du feuillage, colonne par colonne : la moyenne des
+/// 3 × 3 colonnes autour, divisée par la couleur de référence (celle des textures).
+/// Lisser évite une couleur qui change d'un coup à la frontière de deux biomes.
+fn tints(biomes: &BiomeRegistry, chunk: &Chunk) -> [Vec<[f32; 3]>; 3] {
+    let (grass_ref, foliage_ref, water_ref) = biomes.tint_reference();
+    let n = CHUNK_SIZE;
+    let mut grass = vec![[1.0; 3]; n * n];
+    let mut foliage = vec![[1.0; 3]; n * n];
+    let mut water = vec![[1.0; 3]; n * n];
+    let count = biomes.len() as u8;
+    for z in 0..n {
+        for x in 0..n {
+            let (mut g, mut f, mut w, mut k) = ([0.0f32; 3], [0.0f32; 3], [0.0f32; 3], 0.0);
+            for dz in -1..=1i32 {
+                for dx in -1..=1i32 {
+                    let (sx, sz) = (x as i32 + dx, z as i32 + dz);
+                    if !(0..n as i32).contains(&sx) || !(0..n as i32).contains(&sz) {
+                        continue;
+                    }
+                    let Some(id) = chunk
+                        .biome(sx as usize, sz as usize)
+                        .filter(|&id| id < count)
+                    else {
+                        continue;
+                    };
+                    let b = biomes.get(BiomeId(id));
+                    for c in 0..3 {
+                        g[c] += b.grass_color[c];
+                        f[c] += b.foliage_color[c];
+                        w[c] += b.water_color[c];
+                    }
+                    k += 1.0;
+                }
+            }
+            if k > 0.0 {
+                grass[x + z * n] = std::array::from_fn(|c| g[c] / k / grass_ref[c].max(0.01));
+                foliage[x + z * n] = std::array::from_fn(|c| f[c] / k / foliage_ref[c].max(0.01));
+                water[x + z * n] = std::array::from_fn(|c| w[c] / k / water_ref[c].max(0.01));
+            }
+        }
+    }
+    [grass, foliage, water]
+}
+
+/// Les plantes du chunk : deux panneaux en X (`Cross`) ou un panneau au sol (`Flat`).
+/// Chaque panneau est émis deux fois, une par face : on le voit des deux côtés.
+fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
+    let origin = World::chunk_origin(hood.position);
+    let center = match &hood.chunks[13] {
+        Some(chunk) => chunk.clone(),
+        None => return,
+    };
+    for y in 0..SIZE {
+        for z in 0..SIZE {
+            for x in 0..SIZE {
+                let block = center.get(x as usize, y as usize, z as usize);
+                if block.is_air() {
+                    continue;
+                }
+                let def = hood.registry.def(block);
+                if def.shape == Shape::Cube {
+                    continue;
+                }
+                let p = IVec3::new(x, y, z);
+                let (_, sky, light) = hood.cell(p);
+                let tint = hood.tint(def.tint, x, z);
+                let rgb = if def.face_textures[1] == 0 {
+                    def.color
+                } else {
+                    [1.0; 3]
+                };
+                let color = [rgb[0] * tint[0], rgb[1] * tint[1], rgb[2] * tint[2], 1.0];
+                let vertex_light = [sky as f32 / 15.0, light as f32 / 15.0, 1.0];
+                let base = (origin + p).as_vec3();
+                let flags = block_flags(def) | FLAG_CUTOUT;
+                let texture = def.face_textures[1] | (flags & !FLAG_SWAY);
+                // Les sommets du haut se balancent, ceux du bas restent plantés.
+                let sway_top = flags & FLAG_SWAY;
+                let quads: Vec<([Vec3; 4], [f32; 3])> = match def.shape {
+                    Shape::Cross => {
+                        let n = std::f32::consts::FRAC_1_SQRT_2;
+                        vec![
+                            (
+                                [
+                                    Vec3::new(0.0, 0.0, 0.0),
+                                    Vec3::new(1.0, 0.0, 1.0),
+                                    Vec3::new(1.0, 1.0, 1.0),
+                                    Vec3::new(0.0, 1.0, 0.0),
+                                ],
+                                [n, 0.0, -n],
+                            ),
+                            (
+                                [
+                                    Vec3::new(1.0, 0.0, 0.0),
+                                    Vec3::new(0.0, 0.0, 1.0),
+                                    Vec3::new(0.0, 1.0, 1.0),
+                                    Vec3::new(1.0, 1.0, 0.0),
+                                ],
+                                [n, 0.0, n],
+                            ),
+                        ]
+                    }
+                    Shape::Flat => vec![(
+                        [
+                            Vec3::new(0.0, 0.02, 0.0),
+                            Vec3::new(1.0, 0.02, 0.0),
+                            Vec3::new(1.0, 0.02, 1.0),
+                            Vec3::new(0.0, 0.02, 1.0),
+                        ],
+                        [0.0, 1.0, 0.0],
+                    )],
+                    Shape::Cube => Vec::new(),
+                };
+                for (corners, normal) in quads {
+                    let start = mesh.vertices.len() as u32;
+                    for corner in corners {
+                        let top = corner.y > 0.5;
+                        mesh.vertices.push(MeshVertex {
+                            position: (base + corner).to_array(),
+                            normal,
+                            color,
+                            light: vertex_light,
+                            texture: texture | if top { sway_top } else { 0 },
+                        });
+                    }
+                    // Les deux faces : sens direct et sens inverse.
+                    mesh.indices
+                        .extend([0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2].map(|i| start + i));
+                }
+            }
         }
     }
 }
@@ -447,6 +659,7 @@ fn culled(hood: &Neighbourhood) -> ChunkMesh {
             }
         }
     }
+    plants(hood, &mut mesh);
     mesh
 }
 
@@ -514,6 +727,7 @@ fn greedy(hood: &Neighbourhood) -> ChunkMesh {
             }
         }
     }
+    plants(hood, &mut mesh);
     mesh
 }
 
@@ -748,6 +962,12 @@ mod tests {
                     .map(|k| Vec3::from(mesh.vertices[k as usize].position));
                 let geometric = (b - a).cross(c - a).normalize();
                 let declared = Vec3::from(mesh.vertices[tri[0] as usize].normal);
+                // Les plantes sont dessinées des deux côtés (un triangle par sens) : on
+                // ne vérifie que les faces de cubes (normale sur un axe, sommets entiers).
+                let plant = declared.abs().max_element() < 0.99 || a.y.fract().abs() > 0.001;
+                if plant {
+                    continue;
+                }
                 assert!(
                     geometric.dot(declared) > 0.99,
                     "triangle {tri:?} mal orienté"

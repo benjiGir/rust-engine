@@ -200,6 +200,8 @@ pub struct Renderer {
     /// `None` : pas de brouillard.
     pub fog: Option<Fog>,
     pub sun: Sun,
+    /// Le temps en secondes, pour animer le vent dans les feuilles et les herbes.
+    pub time: f32,
 }
 
 impl Renderer {
@@ -395,6 +397,7 @@ impl Renderer {
             frustum_culling: true,
             fog: None,
             sun: Sun::default(),
+            time: 0.0,
             clear_color: wgpu::Color {
                 r: 0.45,
                 g: 0.65,
@@ -603,7 +606,7 @@ impl Renderer {
             camera_fog_start: camera.position.extend(fog.start).to_array(),
             fog_color_end: [sky.r as f32, sky.g as f32, sky.b as f32, fog.end],
             sun: self.sun.direction.extend(self.sun.daylight).to_array(),
-            sun_color: self.sun.color.extend(1.0).to_array(),
+            sun_color: self.sun.color.extend(self.time).to_array(),
         };
         let frustum = Frustum::from_view_proj(view_proj);
         let mut stats = RenderStats {

@@ -44,9 +44,14 @@ fn surface_matches_column_height() {
             let height = generator.column(x, z).height;
             let above = world.block(IVec3::new(x, height + 1, z));
             let liquid = above == water || above == ice;
+            // Au-dessus du sol : de l'air, de l'eau, ou de la végétation (plante, arbre).
+            let def = generator.registry().def(above);
+            let vegetation =
+                !def.solid || def.cutout || def.key.ends_with("_log") || def.key == "core:cactus";
             assert!(
-                above.is_air() || (liquid && height < SEA_LEVEL),
-                "({x}, {z}) au-dessus de {height}"
+                above.is_air() || vegetation || (liquid && height < SEA_LEVEL),
+                "({x}, {z}) au-dessus de {height} : {}",
+                def.key
             );
             // La surface peut être percée par une grotte : on compte les autres.
             if !world.block(IVec3::new(x, height, z)).is_air() {
@@ -324,4 +329,112 @@ fn spawn_is_on_dry_land() {
         );
         assert_eq!(generator.biome(column.biome).kind, BiomeKind::Land);
     }
+}
+
+/// Un arbre planté près du bord d'un chunk est complet : son tronc est bien là, même la
+/// partie qui tombe dans le chunk voisin (généré séparément, sans se parler).
+#[test]
+fn trees_are_complete_across_chunk_borders() {
+    let generator = TerrainGenerator::new(42);
+    let forest = generator.biomes().id("core:forest").unwrap();
+    let (x, z) = generator
+        .find_column(0, 0, 32, 20_000, |c| {
+            c.biome == forest && c.height > SEA_LEVEL
+        })
+        .expect("pas de forêt");
+    let home = World::split(IVec3::new(x, 0, z)).0;
+    let world = generator.generate_area(IVec3::new(home.x - 1, 0, home.z - 1), 3, 3);
+    let blocks = crate::trees::TreeBlocks::resolve(generator.registry()).unwrap();
+    let mut border_trees = 0;
+    for site in generator.tree_sites(home.x, home.z) {
+        let local = site.base - World::chunk_origin(World::split(site.base).0);
+        let near_border = [local.x, local.z].iter().any(|&v| !(4..28).contains(&v));
+        let mut rng = crate::trees::Rng64::new(site.seed);
+        let mut logs = Vec::new();
+        crate::trees::grow(
+            site.kind,
+            site.base,
+            &mut rng,
+            &blocks,
+            &mut |p, b, part| {
+                if part == crate::trees::Part::Log {
+                    logs.push((p, b));
+                }
+            },
+        );
+        for (p, _) in &logs {
+            let def = generator.registry().def(world.block(*p));
+            assert!(
+                def.key.ends_with("_log") || def.key == "core:cactus",
+                "tronc incomplet en {p} : {}",
+                def.key
+            );
+        }
+        border_trees += near_border as usize;
+    }
+    assert!(
+        border_trees > 0,
+        "aucun arbre près du bord dans cette forêt"
+    );
+}
+
+/// Un chunk généré seul est identique au même chunk généré au milieu de ses voisins :
+/// l'ordre de génération (et donc les threads) ne change rien.
+#[test]
+fn generation_order_does_not_matter() {
+    let generator = TerrainGenerator::new(42);
+    let jungle = generator.biomes().id("core:jungle").unwrap();
+    let (x, z) = generator
+        .find_column(0, 0, 32, 20_000, |c| {
+            c.biome == jungle && c.height > SEA_LEVEL
+        })
+        .expect("pas de jungle");
+    let home = World::split(IVec3::new(x, 0, z)).0;
+    let area = generator.generate_area(IVec3::new(home.x - 1, 0, home.z - 1), 3, 3);
+    for y in 0..WORLD_HEIGHT_CHUNKS {
+        let pos = IVec3::new(home.x, y, home.z);
+        let alone = generator.generate(pos);
+        assert_eq!(
+            alone.as_ref().map(|c| c.blocks()),
+            area.chunk(pos).map(|c| c.blocks()),
+            "chunk {pos}"
+        );
+    }
+}
+
+/// Les forêts ont des arbres, les plaines des fleurs et des herbes, l'océan des algues.
+#[test]
+fn biomes_have_their_vegetation() {
+    let generator = TerrainGenerator::new(42);
+    let count = |biome: &str, keys: &[&str]| -> usize {
+        let id = generator.biomes().id(biome).unwrap();
+        let (x, z) = generator
+            .find_column(0, 0, 32, 20_000, |c| c.biome == id)
+            .unwrap_or_else(|| panic!("pas de {biome}"));
+        let home = World::split(IVec3::new(x, 0, z)).0;
+        let world = generator.generate_area(IVec3::new(home.x, 0, home.z), 1, 1);
+        let wanted: Vec<BlockId> = keys
+            .iter()
+            .map(|k| super::tests::id(&generator, k))
+            .collect();
+        world
+            .chunk_positions()
+            .collect::<Vec<_>>()
+            .iter()
+            .map(|&p| {
+                world
+                    .chunk(p)
+                    .unwrap()
+                    .blocks()
+                    .iter()
+                    .filter(|b| wanted.contains(b))
+                    .count()
+            })
+            .sum()
+    };
+    assert!(count("core:forest", &["core:oak_log", "core:birch_log"]) > 20);
+    assert!(count("core:taiga", &["core:spruce_log"]) > 20);
+    assert!(count("core:plains", &["core:tall_grass"]) > 50);
+    assert!(count("core:desert", &["core:cactus"]) > 0);
+    assert!(count("core:ocean", &["core:seaweed"]) > 10);
 }

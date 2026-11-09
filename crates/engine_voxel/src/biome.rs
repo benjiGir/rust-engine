@@ -11,6 +11,7 @@ use serde::Deserialize;
 
 use crate::block::BlockId;
 use crate::registry::BlockRegistry;
+use crate::trees::TreeKind;
 
 const BUILTIN_BIOMES: &str = include_str!("../../../assets/core/biomes.ron");
 const BUILTIN_ORES: &str = include_str!("../../../assets/core/ores.ron");
@@ -69,6 +70,16 @@ struct BiomeEntry {
     grass_color: (f32, f32, f32),
     foliage_color: (f32, f32, f32),
     water_color: (f32, f32, f32),
+    #[serde(default)]
+    trees: Vec<(TreeKind, f32)>,
+    #[serde(default)]
+    tree_density: f32,
+    #[serde(default)]
+    plants: Vec<(String, f32)>,
+    #[serde(default)]
+    seaweed: f32,
+    #[serde(default)]
+    lily_pads: f32,
 }
 
 fn three() -> i32 {
@@ -94,6 +105,15 @@ pub struct BiomeDef {
     pub grass_color: [f32; 3],
     pub foliage_color: [f32; 3],
     pub water_color: [f32; 3],
+    /// Les formes d'arbres du biome et leur poids (leur part relative).
+    pub trees: Vec<(TreeKind, f32)>,
+    /// Le nombre moyen d'arbres par colonne de chunk (32 × 32 blocs).
+    pub tree_density: f32,
+    /// Les plantes posées sur le sol : (bloc, probabilité par colonne).
+    pub plants: Vec<(BlockId, f32)>,
+    /// La probabilité d'algues par colonne sous l'eau, et de nénuphars en surface.
+    pub seaweed: f32,
+    pub lily_pads: f32,
 }
 
 /// Un type de filon.
@@ -193,6 +213,15 @@ impl BiomeRegistry {
                 grass_color: color(e.grass_color),
                 foliage_color: color(e.foliage_color),
                 water_color: color(e.water_color),
+                plants: e
+                    .plants
+                    .iter()
+                    .map(|(name, p)| Ok((block(name, &e.id)?, *p)))
+                    .collect::<Result<Vec<_>>>()?,
+                trees: e.trees,
+                tree_density: e.tree_density,
+                seaweed: e.seaweed,
+                lily_pads: e.lily_pads,
             };
             self.by_key.insert(e.id, id);
             self.biomes.push(def);
@@ -286,6 +315,18 @@ impl BiomeRegistry {
 
     pub fn is_empty(&self) -> bool {
         self.biomes.is_empty()
+    }
+
+    /// Les couleurs de référence de l'herbe et du feuillage (celles des plaines) : les
+    /// textures sont peintes dans ces couleurs, la teinte d'un biome est son écart à elles.
+    pub fn tint_reference(&self) -> ([f32; 3], [f32; 3], [f32; 3]) {
+        let plains = self
+            .id("core:plains")
+            .map(|id| self.get(id))
+            .or_else(|| self.biomes.iter().find(|b| b.kind == BiomeKind::Land));
+        plains.map_or(([1.0; 3], [1.0; 3], [1.0; 3]), |b| {
+            (b.grass_color, b.foliage_color, b.water_color)
+        })
     }
 
     pub fn ores(&self) -> &[OreDef] {

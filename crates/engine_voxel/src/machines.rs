@@ -33,9 +33,12 @@ use std::sync::Arc;
 
 use crate::block::BlockId;
 use crate::chunk::BlockEntity;
+use crate::chunk::CHUNK_SIZE;
 use crate::grid::{BlockAccess, GridId, GridPos, Grids};
+use crate::plants;
 use crate::registry::BlockRegistry;
 use crate::streaming::ChunkStreamer;
+use crate::world::World;
 
 pub const MACHINE_TICKS_PER_SECOND: u32 = 20;
 /// La puissance maximale d'un signal, comme la redstone.
@@ -90,6 +93,9 @@ pub trait BlockBehavior {
     fn neighbor_changed(&self, _ctx: &mut MachineContext, _positions: &[GridPos]) {}
     /// Son tick programmé est arrivé.
     fn scheduled_tick(&self, _ctx: &mut MachineContext, _positions: &[GridPos]) {}
+    /// Un « tick aléatoire » : le bloc a été tiré au sort (voir [`Machines::run_random_ticks`]).
+    /// Pour ce qui évolue lentement et sans prévenir : l'herbe, les pousses, les feuilles.
+    fn random_tick(&self, _ctx: &mut MachineContext, _positions: &[GridPos]) {}
 }
 
 /// Les ticks programmés et les voisins à prévenir.
@@ -104,6 +110,8 @@ pub struct Scheduler {
     scheduled: HashSet<GridPos>,
     /// Les blocs dont un voisin a changé, à prévenir au prochain tick.
     neighbors: Vec<GridPos>,
+    /// L'état du générateur pseudo-aléatoire des ticks aléatoires et des comportements.
+    random_state: u64,
 }
 
 impl Scheduler {
@@ -121,6 +129,15 @@ impl Scheduler {
 
     pub fn pending(&self) -> usize {
         self.queue.len()
+    }
+
+    /// Un nombre pseudo-aléatoire (splitmix64).
+    pub fn random(&mut self) -> u64 {
+        self.random_state = self.random_state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.random_state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
     }
 }
 
@@ -220,6 +237,16 @@ impl MachineContext<'_> {
     pub fn act(&mut self, action: MachineAction) {
         self.actions.push(action);
     }
+
+    /// Un nombre pseudo-aléatoire.
+    pub fn random(&mut self) -> u64 {
+        self.scheduler.random()
+    }
+
+    /// Vrai une fois sur `n`, au hasard.
+    pub fn chance(&mut self, n: u64) -> bool {
+        self.random().is_multiple_of(n.max(1))
+    }
 }
 
 /// Le bilan d'un tick, pour les mesures.
@@ -237,6 +264,9 @@ pub struct Machines {
     /// plusieurs blocs, comme la lampe éteinte et allumée).
     behaviors: HashMap<BlockId, Rc<dyn BlockBehavior>>,
     active_blocks: HashSet<BlockId>,
+    /// Les blocs qui reçoivent des ticks aléatoires, par numéro (un tableau : on le
+    /// consulte pour chaque bloc tiré au sort, il faut que ce soit instantané).
+    random_blocks: Vec<bool>,
     scheduler: Scheduler,
 }
 
@@ -250,10 +280,26 @@ impl Machines {
         let mut machines = Self::new();
         let clock: Rc<dyn BlockBehavior> = Rc::new(Clock);
         let lamp: Rc<dyn BlockBehavior> = Rc::new(Lamp::new(registry));
+        let grass: Option<Rc<dyn BlockBehavior>> =
+            plants::Grass::new(registry).map(|g| Rc::new(g) as _);
+        let leaves: Rc<dyn BlockBehavior> = Rc::new(plants::Leaves::new(registry));
+        let sapling: Option<Rc<dyn BlockBehavior>> =
+            plants::Sapling::new(registry).map(|s| Rc::new(s) as _);
         for (id, def) in registry.iter() {
             match def.behavior.as_deref() {
                 Some("core:clock") => machines.register(id, clock.clone()),
                 Some("core:lamp") => machines.register(id, lamp.clone()),
+                Some("core:grass") => {
+                    if let Some(grass) = &grass {
+                        machines.register_random(id, grass.clone());
+                    }
+                }
+                Some("core:leaves") => machines.register_random(id, leaves.clone()),
+                Some("core:sapling") => {
+                    if let Some(sapling) = &sapling {
+                        machines.register_random(id, sapling.clone());
+                    }
+                }
                 _ => {}
             }
         }
@@ -263,6 +309,88 @@ impl Machines {
     pub fn register(&mut self, block: BlockId, behavior: Rc<dyn BlockBehavior>) {
         self.behaviors.insert(block, behavior);
         self.active_blocks.insert(block);
+    }
+
+    /// Un comportement qui ne réagit qu'aux ticks aléatoires : le bloc n'est pas
+    /// « actif » (ses voisins ne le préviennent pas), il est seulement tiré au sort.
+    pub fn register_random(&mut self, block: BlockId, behavior: Rc<dyn BlockBehavior>) {
+        self.behaviors.insert(block, behavior);
+        let i = block.0 as usize;
+        if self.random_blocks.len() <= i {
+            self.random_blocks.resize(i + 1, false);
+        }
+        self.random_blocks[i] = true;
+    }
+
+    fn is_random(&self, block: BlockId) -> bool {
+        self.random_blocks
+            .get(block.0 as usize)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// Les ticks aléatoires, comme dans le genre : à chaque tick, dans chaque chunk à
+    /// moins de `radius` chunks (horizontalement) de `center`, on tire `per_chunk` blocs
+    /// au hasard ; ceux qui ont un comportement aléatoire sont réveillés. Un bloc donné
+    /// est donc réveillé en moyenne toutes les 32 768 / `per_chunk` ticks (environ 70 s
+    /// pour 24) : l'herbe s'étend, les pousses grandissent, lentement et sans liste à tenir.
+    /// Renvoie le nombre de blocs réveillés.
+    pub fn run_random_ticks(
+        &mut self,
+        world: &RefCell<ChunkStreamer>,
+        center: IVec3,
+        radius: i32,
+        per_chunk: u32,
+        actions: &mut Vec<MachineAction>,
+    ) -> usize {
+        if !self.random_blocks.contains(&true) {
+            return 0;
+        }
+        let mut picked: Vec<(BlockId, GridPos)> = Vec::new();
+        {
+            let streamer = world.borrow();
+            let size = CHUNK_SIZE as u64;
+            for cx in center.x - radius..=center.x + radius {
+                for cz in center.z - radius..=center.z + radius {
+                    for cy in 0..crate::generator::WORLD_HEIGHT_CHUNKS {
+                        let pos = IVec3::new(cx, cy, cz);
+                        let Some(chunk) = streamer.world().chunk(pos) else {
+                            continue;
+                        };
+                        let origin = World::chunk_origin(pos);
+                        for _ in 0..per_chunk {
+                            let r = self.scheduler.random();
+                            let (x, y, z) = (r % size, (r >> 8) % size, (r >> 16) % size);
+                            let block = chunk.get(x as usize, y as usize, z as usize);
+                            if self.is_random(block) {
+                                let p = origin + IVec3::new(x as i32, y as i32, z as i32);
+                                picked.push((block, GridPos::world(p)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let count = picked.len();
+        // Par comportement, en un lot (comme les autres réveils).
+        picked.sort_by_key(|(b, p)| (b.0, p.key()));
+        let grids = Grids::new(world);
+        let mut start = 0;
+        while start < count {
+            let block = picked[start].0;
+            let end = start
+                + picked[start..]
+                    .iter()
+                    .take_while(|(b, _)| *b == block)
+                    .count();
+            let list: Vec<GridPos> = picked[start..end].iter().map(|(_, p)| *p).collect();
+            if let Some(behavior) = self.behaviors.get(&block).cloned() {
+                let mut ctx = self.context(grids, actions);
+                behavior.random_tick(&mut ctx, &list);
+            }
+            start = end;
+        }
+        count
     }
 
     pub fn has_behavior(&self, block: BlockId) -> bool {

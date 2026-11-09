@@ -539,7 +539,7 @@ impl VoxelGame {
         // Une seconde et quart de machines (25 ticks) : l'horloge s'allume (tick 20),
         // ses lampes aussi.
         for _ in 0..75 {
-            let (actions, _) = self.mods.fixed_step();
+            let (actions, _) = self.mods.fixed_step(self.camera.position);
             self.apply_machine_actions(actions);
         }
     }

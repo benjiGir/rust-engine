@@ -238,7 +238,11 @@ impl ChunkStreamer {
             config,
             pool,
             // Le monde partage le registre du générateur (avant que `generator` soit déplacé).
-            world: World::with_registry(generator.registry().clone()),
+            world: {
+                let mut world = World::with_registry(generator.registry().clone());
+                world.set_biomes(generator.biomes().clone());
+                world
+            },
             generator: Arc::new(generator),
             slots: HashMap::default(),
             columns: HashMap::default(),
@@ -379,6 +383,12 @@ impl ChunkStreamer {
         &self.world
     }
 
+    /// Le monde, modifiable directement (pour préparer un test).
+    #[cfg(test)]
+    pub(crate) fn world_mut_for_tests(&mut self) -> &mut World {
+        &mut self.world
+    }
+
     pub fn generator(&self) -> &TerrainGenerator {
         &self.generator
     }
@@ -427,6 +437,7 @@ impl ChunkStreamer {
             return false;
         }
         self.world.set_block(pos, block);
+        self.ensure_biomes(chunk);
         self.edited.insert(chunk);
         self.dirty.insert(chunk);
         true
@@ -484,6 +495,7 @@ impl ChunkStreamer {
         // Copy-on-write : si une tâche lit encore ce chunk, elle garde l'ancienne
         // version et nous modifions une copie (voir `World::chunk_mut`).
         self.world.set_block(pos, block);
+        self.ensure_biomes(chunk);
         self.edited.insert(chunk);
         self.dirty.insert(chunk);
         // Un bloc remplacé perd son état actif (une machine cassée oublie sa mémoire).
@@ -585,6 +597,19 @@ impl ChunkStreamer {
         } else {
             self.slots.insert(pos, Slot::Generated(MeshState::Missing));
             self.mesh_candidates.insert(pos);
+        }
+    }
+
+    /// Un chunk de ciel (vide à la génération) créé par une modification n'a pas encore
+    /// ses biomes : on les calcule, pour la teinte de l'herbe et le climat des plantes.
+    fn ensure_biomes(&mut self, chunk: IVec3) {
+        if self
+            .world
+            .chunk(chunk)
+            .is_some_and(|c| c.biome(0, 0).is_none())
+        {
+            let biomes = self.generator.biome_columns(chunk);
+            self.world.chunk_mut(chunk).set_biomes(biomes);
         }
     }
 
@@ -968,7 +993,12 @@ impl ChunkStreamer {
                 }
             });
             let (chunk, saved) = match loaded {
-                Some(loaded) => (Some(loaded.chunk), Some(loaded.unknown)),
+                Some(loaded) => {
+                    // Les biomes ne sont pas sauvegardés : on les recalcule.
+                    let mut chunk = loaded.chunk;
+                    chunk.set_biomes(generator.biome_columns(pos));
+                    (Some(chunk), Some(loaded.unknown))
+                }
                 None => (generator.generate(pos), None),
             };
             // Si le jeu s'est fermé entre-temps, le `Receiver` n'existe plus : on ignore.

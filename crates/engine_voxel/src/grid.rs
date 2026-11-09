@@ -135,6 +135,12 @@ impl<'a> Grids<'a> {
         Self { world }
     }
 
+    /// Le monde lui-même, pour les comportements natifs qui ont besoin de plus que des
+    /// blocs (la lumière, le biome) : les plantes.
+    pub fn world(&self) -> &'a RefCell<ChunkStreamer> {
+        self.world
+    }
+
     /// La grille demandée, `None` si elle n'existe pas (ou plus : une structure démontée).
     /// `RefCell<dyn BlockAccess>` : le monde et une sous-grille s'utilisent pareil.
     pub fn get(&self, grid: GridId) -> Option<&'a RefCell<dyn BlockAccess>> {

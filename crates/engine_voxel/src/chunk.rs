@@ -54,6 +54,10 @@ pub struct Chunk {
     light: Box<[u8]>,
     /// Les blocs actifs du chunk, par position ([`Chunk::index`]). Presque toujours vide.
     block_entities: HashMap<u16, BlockEntity>,
+    /// Le biome de chaque colonne (x + 32 z), pour teinter l'herbe et les feuilles. Vide
+    /// si inconnu. Il n'est pas sauvegardé : le générateur le recalcule (il ne dépend que
+    /// de la graine).
+    biomes: Vec<u8>,
 }
 
 impl Default for Chunk {
@@ -70,7 +74,20 @@ impl Chunk {
             blocks: vec![BlockId::AIR; VOLUME].into_boxed_slice(),
             light: vec![DEFAULT_LIGHT; VOLUME].into_boxed_slice(),
             block_entities: HashMap::default(),
+            biomes: Vec::new(),
         }
+    }
+
+    /// Le biome (son numéro dans le registre des biomes) de la colonne (x, z).
+    #[inline]
+    pub fn biome(&self, x: usize, z: usize) -> Option<u8> {
+        self.biomes.get(x + z * CHUNK_SIZE).copied()
+    }
+
+    /// Les biomes des 32 × 32 colonnes (x + 32 z).
+    pub fn set_biomes(&mut self, biomes: Vec<u8>) {
+        debug_assert!(biomes.is_empty() || biomes.len() == CHUNK_SIZE * CHUNK_SIZE);
+        self.biomes = biomes;
     }
 
     /// Position dans le tableau. On parcourt x, puis z, puis y :
@@ -103,6 +120,7 @@ impl Chunk {
             blocks: blocks.into_boxed_slice(),
             light: vec![DEFAULT_LIGHT; VOLUME].into_boxed_slice(),
             block_entities: HashMap::default(),
+            biomes: Vec::new(),
         })
     }
 

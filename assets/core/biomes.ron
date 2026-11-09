@@ -17,17 +17,24 @@
 // - rock_above : au-dessus de cette altitude, la roche affleure (montagnes) ;
 // - relief : (offset: décalage, scale: amplitude) : décalage de hauteur et amplitude des collines. Entre deux
 //   biomes, le relief est mélangé selon la distance climatique : pas de falaise à la frontière ;
-// - grass_color, foliage_color, water_color : teintes (utilisées par le rendu de la végétation).
+// - grass_color, foliage_color, water_color : teintes (utilisées par le rendu de la végétation) ;
+// - trees : les formes d'arbres et leur poids, tree_density : arbres par colonne de chunk
+//   (32 × 32 blocs) ; formes : Oak, BigOak, Birch, Spruce, Acacia, Jungle, JungleBush,
+//   Swamp, Cactus ;
+// - plants : (bloc, probabilité) posés sur le sol, par colonne ;
+// - seaweed : algues au fond de l'eau, lily_pads : nénuphars en surface (probabilités).
 [
     (
         id: "core:ocean", name: "Océan", kind: Ocean, temperature: 0.5,
         surface: "sand", subsurface: "sand", underwater: "sand",
         grass_color: (0.45, 0.7, 0.3), foliage_color: (0.35, 0.6, 0.25), water_color: (0.2, 0.4, 0.8),
+        seaweed: 0.08,
     ),
     (
         id: "core:deep_ocean", name: "Océan profond", kind: DeepOcean, temperature: 0.5,
         surface: "gravel", subsurface: "gravel", underwater: "gravel",
         grass_color: (0.45, 0.7, 0.3), foliage_color: (0.35, 0.6, 0.25), water_color: (0.15, 0.3, 0.7),
+        seaweed: 0.05,
     ),
     (
         id: "core:beach", name: "Plage", kind: Beach, temperature: 0.8,
@@ -38,56 +45,76 @@
         id: "core:river", name: "Rivière", kind: River, temperature: 0.5,
         surface: "sand", subsurface: "dirt", underwater: "clay",
         grass_color: (0.45, 0.7, 0.3), foliage_color: (0.35, 0.6, 0.25), water_color: (0.25, 0.45, 0.85),
+        seaweed: 0.05,
     ),
     (
         id: "core:plains", name: "Plaine", kind: Land, climate: (0.0, -0.3), temperature: 0.8,
         surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 2.0, scale: 0.5),
         grass_color: (0.5, 0.75, 0.3), foliage_color: (0.4, 0.65, 0.25), water_color: (0.25, 0.45, 0.85),
+        trees: [(Oak, 1.0)], tree_density: 0.5,
+        plants: [("tall_grass", 0.25), ("poppy", 0.008), ("dandelion", 0.012), ("daisy", 0.008), ("cornflower", 0.005)],
     ),
     (
         id: "core:forest", name: "Forêt", kind: Land, climate: (0.1, 0.25), temperature: 0.7,
         surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 4.0, scale: 0.9),
         grass_color: (0.4, 0.68, 0.25), foliage_color: (0.3, 0.58, 0.2), water_color: (0.25, 0.45, 0.85),
+        trees: [(Oak, 0.75), (BigOak, 0.07), (Birch, 0.18)], tree_density: 10.0,
+        plants: [("tall_grass", 0.08), ("fern", 0.02), ("brown_mushroom", 0.006), ("red_mushroom", 0.003), ("poppy", 0.004)],
     ),
     (
         id: "core:birch_forest", name: "Forêt de bouleaux", kind: Land, climate: (-0.2, 0.05), temperature: 0.6,
         surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 4.0, scale: 0.8),
         grass_color: (0.5, 0.72, 0.35), foliage_color: (0.5, 0.68, 0.3), water_color: (0.25, 0.45, 0.85),
+        trees: [(Birch, 1.0)], tree_density: 10.0,
+        plants: [("tall_grass", 0.1), ("lavender", 0.01), ("daisy", 0.01)],
     ),
     (
         id: "core:taiga", name: "Taïga", kind: Land, climate: (-0.45, 0.3), temperature: 0.25,
         surface: "grass", subsurface: "dirt", underwater: "gravel", relief: (offset: 6.0, scale: 1.0),
         grass_color: (0.4, 0.58, 0.38), foliage_color: (0.3, 0.48, 0.32), water_color: (0.2, 0.35, 0.65),
+        trees: [(Spruce, 1.0)], tree_density: 9.0,
+        plants: [("fern", 0.08), ("tall_grass", 0.04), ("brown_mushroom", 0.005)],
     ),
     (
         id: "core:snowy_tundra", name: "Toundra enneigée", kind: Land, climate: (-0.75, -0.2), temperature: 0.0,
         surface: "grass", subsurface: "dirt", underwater: "gravel", relief: (offset: 2.0, scale: 0.4),
         grass_color: (0.5, 0.65, 0.5), foliage_color: (0.45, 0.6, 0.45), water_color: (0.2, 0.3, 0.6),
+        trees: [(Spruce, 1.0)], tree_density: 0.3,
     ),
     (
         id: "core:jungle", name: "Jungle", kind: Land, climate: (0.6, 0.6), temperature: 0.95,
         surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 6.0, scale: 1.2),
         grass_color: (0.3, 0.75, 0.15), foliage_color: (0.2, 0.7, 0.1), water_color: (0.2, 0.5, 0.7),
+        trees: [(Jungle, 0.22), (JungleBush, 0.45), (Oak, 0.33)], tree_density: 14.0,
+        plants: [("tall_grass", 0.2), ("fern", 0.1)],
     ),
     (
         id: "core:savanna", name: "Savane", kind: Land, climate: (0.55, -0.35), temperature: 1.2,
         surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 3.0, scale: 0.6),
         grass_color: (0.7, 0.7, 0.35), foliage_color: (0.6, 0.62, 0.3), water_color: (0.25, 0.5, 0.75),
+        trees: [(Acacia, 1.0)], tree_density: 0.9,
+        plants: [("tall_grass", 0.35)],
     ),
     (
         id: "core:desert", name: "Désert", kind: Land, climate: (0.7, -0.6), temperature: 2.0,
         surface: "sand", subsurface: "sandstone", subsurface_depth: 5, underwater: "sand", relief: (offset: 3.0, scale: 0.7),
         grass_color: (0.75, 0.72, 0.4), foliage_color: (0.68, 0.65, 0.35), water_color: (0.3, 0.55, 0.75),
+        trees: [(Cactus, 1.0)], tree_density: 2.0,
+        plants: [("dead_bush", 0.004)],
     ),
     (
         id: "core:swamp", name: "Marais", kind: Land, climate: (0.25, 0.75), temperature: 0.8,
         surface: "grass", subsurface: "dirt", underwater: "clay", relief: (offset: -1.0, scale: 0.12),
         grass_color: (0.38, 0.48, 0.25), foliage_color: (0.35, 0.45, 0.22), water_color: (0.3, 0.38, 0.3),
+        trees: [(Swamp, 1.0)], tree_density: 3.0, lily_pads: 0.08, seaweed: 0.02,
+        plants: [("tall_grass", 0.1), ("brown_mushroom", 0.005), ("red_mushroom", 0.002)],
     ),
     (
         id: "core:mountains", name: "Montagnes", kind: Mountains, temperature: 0.3,
         surface: "grass", subsurface: "dirt", underwater: "gravel", rock_above: 120,
         grass_color: (0.45, 0.62, 0.4), foliage_color: (0.35, 0.55, 0.32), water_color: (0.2, 0.4, 0.75),
+        trees: [(Spruce, 0.6), (Oak, 0.4)], tree_density: 1.2,
+        plants: [("tall_grass", 0.05)],
     ),
     (
         id: "core:snowy_peaks", name: "Pics enneigés", kind: Peaks, temperature: -0.5,

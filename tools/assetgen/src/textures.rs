@@ -26,6 +26,25 @@ impl Image {
         self.pixels[x + y * SIZE] = rgba(color);
     }
 
+    /// Une image entièrement transparente : pour les plantes, dessinées pixel par pixel.
+    fn transparent() -> Self {
+        Self {
+            pixels: [[0; 4]; SIZE * SIZE],
+        }
+    }
+
+    /// Rend un pixel transparent (un trou dans les feuilles).
+    fn clear(&mut self, x: usize, y: usize) {
+        self.pixels[x + y * SIZE] = [0; 4];
+    }
+
+    /// Pose un pixel s'il est dans l'image (les dessins peuvent déborder).
+    fn plot(&mut self, x: i32, y: i32, color: [f32; 3]) {
+        if (0..SIZE as i32).contains(&x) && (0..SIZE as i32).contains(&y) {
+            self.set(x as usize, y as usize, color);
+        }
+    }
+
     /// Chaque pixel varie un peu en luminosité : l'aspect « naturel ».
     fn noise(mut self, base: [f32; 3], amount: f32, seed: u64) -> Self {
         let mut rng = Rng::new(seed);
@@ -366,6 +385,283 @@ fn ore(color: [f32; 3], seed: u64) -> Image {
     image
 }
 
+// ----- La végétation (phase O2) -----
+
+/// L'écorce : des stries verticales irrégulières.
+fn log_side(base: [f32; 3], seed: u64) -> Image {
+    let mut image = Image::filled(base).noise(base, 0.08, seed);
+    let mut rng = Rng::new(seed + 1);
+    for x in 0..SIZE {
+        if rng.next_f32() < 0.45 {
+            let start = (rng.next_u64() % 16) as usize;
+            let length = 3 + (rng.next_u64() % 8) as usize;
+            for y in start..(start + length).min(SIZE) {
+                image.set(x, y, scale(base, 0.72));
+            }
+        }
+    }
+    image
+}
+
+/// Le bouleau : une écorce blanche avec des taches noires horizontales.
+fn birch_side() -> Image {
+    let base = [0.86, 0.85, 0.8];
+    let mut image = Image::filled(base).noise(base, 0.04, 60);
+    let mut rng = Rng::new(61);
+    for _ in 0..7 {
+        let (x, y) = (
+            (rng.next_u64() % 14) as usize,
+            (rng.next_u64() % 16) as usize,
+        );
+        for dx in 0..2 + (rng.next_u64() % 3) as usize {
+            image.set((x + dx).min(15), y, [0.15, 0.15, 0.14]);
+        }
+    }
+    image
+}
+
+/// Le dessus d'une bûche : des cernes autour du cœur.
+fn log_top(bark: [f32; 3], wood: [f32; 3]) -> Image {
+    let mut image = Image::filled(bark);
+    for y in 1..SIZE - 1 {
+        for x in 1..SIZE - 1 {
+            let d = ((x as f32 - 7.5).powi(2) + (y as f32 - 7.5).powi(2)).sqrt();
+            let ring = if (d as i32) % 3 == 0 { 0.82 } else { 1.0 };
+            image.set(x, y, scale(wood, ring));
+        }
+    }
+    image
+}
+
+/// Des planches : quatre lattes horizontales.
+fn planks(wood: [f32; 3], seed: u64) -> Image {
+    let mut image = Image::filled(wood).noise(wood, 0.06, seed);
+    for x in 0..SIZE {
+        for y in [3, 7, 11, 15] {
+            image.set(x, y, scale(wood, 0.7));
+        }
+    }
+    for (y0, x) in [(0, 5), (4, 12), (8, 3), (12, 9)] {
+        for y in y0..y0 + 3 {
+            image.set(x, y, scale(wood, 0.75));
+        }
+    }
+    image
+}
+
+/// Des feuilles : la couleur avec du bruit, et des trous transparents.
+fn leaves(base: [f32; 3], seed: u64) -> Image {
+    let mut image = Image::filled(base).noise(base, 0.18, seed);
+    let mut rng = Rng::new(seed + 1);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            if rng.next_f32() < 0.22 {
+                image.clear(x, y);
+            } else if rng.next_f32() < 0.15 {
+                image.set(x, y, scale(base, 0.7));
+            }
+        }
+    }
+    image
+}
+
+/// Une petite pousse : une tige et quelques feuilles.
+fn sapling(stem: [f32; 3], leaf: [f32; 3]) -> Image {
+    let mut image = Image::transparent();
+    for y in 8..16 {
+        image.set(7, y, stem);
+    }
+    for (x, y) in [
+        (5, 7),
+        (6, 6),
+        (7, 5),
+        (8, 6),
+        (9, 7),
+        (6, 8),
+        (8, 8),
+        (7, 4),
+        (4, 9),
+        (10, 9),
+        (7, 7),
+    ] {
+        image.plot(x, y, leaf);
+    }
+    for (x, y) in [(6, 3), (8, 3), (5, 5), (9, 5), (3, 8), (11, 8)] {
+        image.plot(x, y, scale(leaf, 0.8));
+    }
+    image
+}
+
+/// Des herbes : des brins de hauteurs variées.
+fn tall_grass(color: [f32; 3], seed: u64) -> Image {
+    let mut image = Image::transparent();
+    let mut rng = Rng::new(seed);
+    for x in (1..15).step_by(2) {
+        let height = 6 + (rng.next_u64() % 9) as i32;
+        let lean = rng.signed();
+        for k in 0..height {
+            let px = x + (lean * k as f32 / 4.0) as i32;
+            image.plot(px, 15 - k, scale(color, 0.85 + 0.25 * rng.next_f32()));
+        }
+    }
+    image
+}
+
+fn fern() -> Image {
+    let color = [0.38, 0.62, 0.3];
+    let mut image = Image::transparent();
+    for (cx, lean) in [(4, -1), (8, 0), (12, 1)] {
+        for k in 0..12 {
+            let x = cx + lean * k / 4;
+            image.plot(x, 15 - k, color);
+            if k % 2 == 0 && k > 2 {
+                image.plot(x - 1, 15 - k, scale(color, 0.85));
+                image.plot(x + 1, 15 - k, scale(color, 0.85));
+            }
+        }
+    }
+    image
+}
+
+fn dead_bush() -> Image {
+    let color = [0.5, 0.36, 0.2];
+    let mut image = Image::transparent();
+    for (dx, dy) in [(-1, -1), (1, -1), (0, -1), (-1, -2), (1, -2)] {
+        let (mut x, mut y) = (7, 15);
+        for _ in 0..7 {
+            image.plot(x, y, color);
+            x += dx;
+            y += dy;
+        }
+    }
+    image
+}
+
+/// Une fleur : une tige verte et une corolle de la couleur donnée, cœur jaune.
+fn flower(petals: [f32; 3], heart: [f32; 3]) -> Image {
+    let stem = [0.25, 0.55, 0.2];
+    let mut image = Image::transparent();
+    for y in 7..16 {
+        image.set(7, y, stem);
+    }
+    image.set(6, 11, stem);
+    image.set(5, 10, stem);
+    image.set(8, 12, stem);
+    image.set(9, 11, stem);
+    for (x, y) in [
+        (7, 3),
+        (6, 4),
+        (8, 4),
+        (5, 5),
+        (9, 5),
+        (6, 6),
+        (8, 6),
+        (7, 7),
+        (5, 4),
+        (9, 4),
+    ] {
+        image.set(x, y, petals);
+    }
+    image.set(7, 5, heart);
+    image
+}
+
+fn mushroom(cap: [f32; 3], dots: bool) -> Image {
+    let stem = [0.88, 0.85, 0.78];
+    let mut image = Image::transparent();
+    for y in 9..16 {
+        image.set(7, y, stem);
+        image.set(8, y, stem);
+    }
+    for y in 5..9 {
+        let half = (y - 3).min(4);
+        for x in 8 - half..8 + half {
+            image.plot(x, y, cap);
+        }
+    }
+    if dots {
+        for (x, y) in [(5, 7), (8, 6), (10, 7), (7, 8)] {
+            image.set(x, y, [0.95, 0.95, 0.92]);
+        }
+    }
+    image
+}
+
+/// Des lianes : des brins qui pendent.
+fn vine() -> Image {
+    let color = [0.3, 0.55, 0.2];
+    let mut image = Image::transparent();
+    let mut rng = Rng::new(70);
+    for x in [1, 5, 9, 13] {
+        let length = 8 + (rng.next_u64() % 8) as usize;
+        for y in 0..length {
+            image.plot(x + (y as i32 / 5) % 2, y as i32, color);
+            if rng.next_f32() < 0.3 {
+                image.plot(x + 1, y as i32, scale(color, 0.8));
+            }
+        }
+    }
+    image
+}
+
+fn seaweed() -> Image {
+    let color = [0.25, 0.55, 0.3];
+    let mut image = Image::transparent();
+    for x0 in [3, 8, 12] {
+        for y in 0..16 {
+            let x = x0 + ((y as f32 * 0.6).sin() * 1.5) as i32;
+            image.plot(x, y, scale(color, 0.85 + 0.01 * y as f32));
+            image.plot(x + 1, y, color);
+        }
+    }
+    image
+}
+
+/// Un nénuphar : un disque vert avec une encoche, vu de dessus.
+fn lily_pad() -> Image {
+    let color = [0.22, 0.55, 0.22];
+    let mut image = Image::transparent();
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
+            let notch = dx > 0.0 && dy.abs() < dx * 0.35;
+            if dx * dx + dy * dy < 49.0 && !notch {
+                let vein = (dx.abs() < 0.6 || dy.abs() < 0.6) as u8 as f32;
+                image.set(x, y, scale(color, 1.0 - 0.15 * vein));
+            }
+        }
+    }
+    image
+}
+
+fn cactus_side() -> Image {
+    let base = [0.3, 0.55, 0.25];
+    let mut image = Image::filled(base).noise(base, 0.06, 80);
+    for y in 0..SIZE {
+        for x in [0, 15] {
+            image.set(x, y, scale(base, 0.75));
+        }
+        for x in [4, 11] {
+            image.set(x, y, scale(base, 0.85));
+        }
+    }
+    for (x, y) in [(2, 3), (6, 7), (9, 2), (13, 10), (2, 12), (7, 14)] {
+        image.set(x, y, [0.15, 0.15, 0.12]);
+    }
+    image
+}
+
+fn cactus_top() -> Image {
+    let base = [0.38, 0.62, 0.3];
+    let mut image = Image::filled(base).noise(base, 0.05, 81);
+    for i in 0..SIZE {
+        for (x, y) in [(i, 0), (i, 15), (0, i), (15, i)] {
+            image.set(x, y, scale(base, 0.75));
+        }
+    }
+    image
+}
+
 /// Écrit toutes les textures ; renvoie les chemins.
 pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
     let core = root.join("assets/core/textures");
@@ -399,6 +695,127 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("malachite_ore.png"), ore([0.2, 0.7, 0.45], 55)),
         (core.join("sapphire_ore.png"), ore([0.3, 0.5, 1.0], 56)),
         (core.join("jade_ore.png"), ore([0.4, 0.9, 0.6], 57)),
+        (core.join("oak_log.png"), log_side([0.42, 0.31, 0.18], 90)),
+        (
+            core.join("oak_log_top.png"),
+            log_top([0.42, 0.31, 0.18], [0.7, 0.56, 0.35]),
+        ),
+        (core.join("oak_leaves.png"), leaves([0.3, 0.55, 0.2], 91)),
+        (core.join("oak_planks.png"), planks([0.68, 0.53, 0.32], 92)),
+        (
+            core.join("oak_sapling.png"),
+            sapling([0.42, 0.31, 0.18], [0.3, 0.6, 0.2]),
+        ),
+        (core.join("birch_log.png"), birch_side()),
+        (
+            core.join("birch_log_top.png"),
+            log_top([0.86, 0.85, 0.8], [0.82, 0.72, 0.5]),
+        ),
+        (core.join("birch_leaves.png"), leaves([0.5, 0.66, 0.3], 93)),
+        (
+            core.join("birch_planks.png"),
+            planks([0.82, 0.74, 0.52], 94),
+        ),
+        (
+            core.join("birch_sapling.png"),
+            sapling([0.85, 0.85, 0.8], [0.5, 0.7, 0.3]),
+        ),
+        (core.join("spruce_log.png"), log_side([0.3, 0.21, 0.12], 95)),
+        (
+            core.join("spruce_log_top.png"),
+            log_top([0.3, 0.21, 0.12], [0.52, 0.4, 0.25]),
+        ),
+        (
+            core.join("spruce_leaves.png"),
+            leaves([0.2, 0.38, 0.25], 96),
+        ),
+        (
+            core.join("spruce_planks.png"),
+            planks([0.45, 0.33, 0.2], 97),
+        ),
+        (
+            core.join("spruce_sapling.png"),
+            sapling([0.3, 0.21, 0.12], [0.2, 0.42, 0.25]),
+        ),
+        (
+            core.join("acacia_log.png"),
+            log_side([0.45, 0.42, 0.38], 98),
+        ),
+        (
+            core.join("acacia_log_top.png"),
+            log_top([0.45, 0.42, 0.38], [0.75, 0.42, 0.22]),
+        ),
+        (
+            core.join("acacia_leaves.png"),
+            leaves([0.42, 0.58, 0.2], 99),
+        ),
+        (
+            core.join("acacia_planks.png"),
+            planks([0.75, 0.42, 0.24], 100),
+        ),
+        (
+            core.join("acacia_sapling.png"),
+            sapling([0.45, 0.42, 0.38], [0.45, 0.6, 0.2]),
+        ),
+        (
+            core.join("jungle_log.png"),
+            log_side([0.38, 0.3, 0.16], 101),
+        ),
+        (
+            core.join("jungle_log_top.png"),
+            log_top([0.38, 0.3, 0.16], [0.65, 0.48, 0.3]),
+        ),
+        (
+            core.join("jungle_leaves.png"),
+            leaves([0.2, 0.6, 0.15], 102),
+        ),
+        (
+            core.join("jungle_planks.png"),
+            planks([0.62, 0.45, 0.3], 103),
+        ),
+        (
+            core.join("jungle_sapling.png"),
+            sapling([0.38, 0.3, 0.16], [0.2, 0.62, 0.15]),
+        ),
+        (
+            core.join("tall_grass.png"),
+            tall_grass([0.4, 0.66, 0.26], 104),
+        ),
+        (core.join("fern.png"), fern()),
+        (core.join("dead_bush.png"), dead_bush()),
+        (
+            core.join("poppy.png"),
+            flower([0.85, 0.12, 0.1], [0.2, 0.1, 0.05]),
+        ),
+        (
+            core.join("dandelion.png"),
+            flower([0.98, 0.85, 0.15], [0.9, 0.6, 0.1]),
+        ),
+        (
+            core.join("cornflower.png"),
+            flower([0.3, 0.45, 0.95], [0.95, 0.9, 0.5]),
+        ),
+        (
+            core.join("daisy.png"),
+            flower([0.97, 0.97, 0.94], [0.95, 0.8, 0.2]),
+        ),
+        (
+            core.join("lavender.png"),
+            flower([0.65, 0.42, 0.88], [0.8, 0.6, 0.95]),
+        ),
+        (
+            core.join("red_mushroom.png"),
+            mushroom([0.8, 0.12, 0.1], true),
+        ),
+        (
+            core.join("brown_mushroom.png"),
+            mushroom([0.55, 0.38, 0.25], false),
+        ),
+        (core.join("vine.png"), vine()),
+        (core.join("seaweed.png"), seaweed()),
+        (core.join("lily_pad.png"), lily_pad()),
+        (core.join("cactus_side.png"), cactus_side()),
+        (core.join("cactus_top.png"), cactus_top()),
         (root.join("mods/example/textures/breaker.png"), breaker()),
         (root.join("mods/example/textures/ruby.png"), ruby()),
     ];

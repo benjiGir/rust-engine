@@ -72,6 +72,13 @@ pub struct BlockDef {
     pub fluid: Option<String>,
     /// Indestructible (le socle du monde).
     pub unbreakable: bool,
+    pub shape: Shape,
+    /// Des pixels transparents dans la texture (feuilles, plantes) : ils sont découpés
+    /// (« alpha cutout ») au lieu d'être mélangés. Dessiné dans la passe opaque.
+    pub cutout: bool,
+    pub tint: Tint,
+    /// Se balance au vent (feuilles, herbes).
+    pub sway: bool,
     /// D'où vient la définition, pour les messages d'erreur.
     pub source: String,
 }
@@ -88,6 +95,31 @@ pub struct BlockSounds {
     pub break_: Option<String>,
     #[serde(default)]
     pub place: Option<String>,
+}
+
+/// La forme d'un bloc.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+pub enum Shape {
+    /// Un cube plein (ou transparent).
+    #[default]
+    Cube,
+    /// Deux panneaux en X qui se croisent : herbes, fleurs, pousses, champignons.
+    Cross,
+    /// Un panneau horizontal posé juste au-dessus du bas du bloc : un nénuphar.
+    Flat,
+}
+
+/// La teinte qui dépend du biome (multipliée à la couleur de la texture).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+pub enum Tint {
+    #[default]
+    None,
+    /// La couleur de l'herbe du biome (le dessus de l'herbe, les herbes hautes).
+    Grass,
+    /// La couleur du feuillage du biome (les feuilles).
+    Foliage,
+    /// La couleur de l'eau du biome (l'eau verte des marais, bleu profond des océans).
+    Water,
 }
 
 /// Les textures d'un bloc dans un fichier : une par face (dessus, côtés, dessous).
@@ -140,6 +172,14 @@ struct BlockFileEntry {
     fluid: Option<String>,
     #[serde(default)]
     unbreakable: bool,
+    #[serde(default)]
+    shape: Shape,
+    #[serde(default)]
+    cutout: bool,
+    #[serde(default)]
+    tint: Tint,
+    #[serde(default)]
+    sway: bool,
 }
 
 fn one() -> f32 {
@@ -182,6 +222,10 @@ impl BlockRegistry {
             behavior: None,
             fluid: None,
             unbreakable: false,
+            shape: Shape::Cube,
+            cutout: false,
+            tint: Tint::None,
+            sway: false,
             source: "intégré".into(),
         };
         Self {
@@ -344,6 +388,10 @@ impl BlockRegistry {
                 behavior: entry.behavior.as_ref().map(|b| qualify(b, namespace)),
                 fluid: entry.fluid.as_ref().map(|f| qualify(f, namespace)),
                 unbreakable: entry.unbreakable,
+                shape: entry.shape,
+                cutout: entry.cutout,
+                tint: entry.tint,
+                sway: entry.sway,
                 source: origin.to_string(),
             });
         }
@@ -405,6 +453,12 @@ impl BlockRegistry {
     #[inline]
     pub fn is_translucent(&self, id: BlockId) -> bool {
         self.def(id).alpha < 1.0
+    }
+
+    /// Un cube (plein ou transparent), par opposition aux plantes.
+    #[inline]
+    pub fn is_cube(&self, id: BlockId) -> bool {
+        self.def(id).shape == Shape::Cube
     }
 
     #[inline]
@@ -530,8 +584,8 @@ mod tests {
         assert!(!registry.is_solid(BlockId::AIR) && registry.is_transparent(BlockId::AIR));
         assert_eq!(
             registry.placeable().count(),
-            23,
-            "sans l'air, l'eau, la lave, le socle, l'inconnu et la lampe allumée"
+            51,
+            "sans l'air, l'eau, la lave, le socle, l'inconnu, la lampe allumée, les feuilles et les herbes hautes"
         );
         let water = registry.id("core:water").unwrap();
         assert!(registry.def(water).liquid && registry.is_translucent(water));

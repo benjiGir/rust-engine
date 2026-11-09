@@ -12,7 +12,12 @@ use std::time::Duration;
 
 use engine_mods::{ModEvent, ModInfo, ModRuntime, ScriptHost};
 use engine_voxel::{BlockRegistry, ChunkStreamer, Grids, MachineAction, Machines, TickReport};
-use glam::IVec3;
+use glam::{IVec3, Vec3};
+
+/// Les ticks aléatoires touchent les chunks à moins de 4 chunks (128 blocs) du joueur...
+const RANDOM_TICK_RADIUS: i32 = 4;
+/// ... avec 24 blocs tirés par chunk et par tick (un bloc donné : toutes les 70 s en moyenne).
+const RANDOM_TICKS_PER_CHUNK: u32 = 24;
 
 /// Pas de simulation (60 Hz) par tick de machines (20 Hz).
 const STEPS_PER_MACHINE_TICK: u32 = 3;
@@ -110,7 +115,7 @@ impl ModSystem {
 
     /// Un pas de simulation (60 Hz) : relance les machines des chunks chargés, et fait
     /// un tick de machines tous les 3 pas. Renvoie ce que les machines demandent au jeu.
-    pub fn fixed_step(&mut self) -> (Vec<MachineAction>, Option<TickReport>) {
+    pub fn fixed_step(&mut self, player: Vec3) -> (Vec<MachineAction>, Option<TickReport>) {
         let mut actions = Vec::new();
         let loaded = self.world.borrow_mut().take_loaded_block_entities();
         if !loaded.is_empty() {
@@ -124,6 +129,15 @@ impl ModSystem {
         self.steps = 0;
         let report = self.machines.run_tick(&self.world, &mut actions);
         self.last_tick = report;
+        // La nature autour du joueur : l'herbe, les pousses, les feuilles.
+        let center = engine_voxel::World::chunk_containing(player);
+        self.machines.run_random_ticks(
+            &self.world,
+            center,
+            RANDOM_TICK_RADIUS,
+            RANDOM_TICKS_PER_CHUNK,
+            &mut actions,
+        );
         // L'événement « tick » pour les scripts qui s'y sont abonnés.
         let tick = self.machines.scheduler().tick();
         actions.extend(self.dispatch(&ModEvent::Tick(tick)));
