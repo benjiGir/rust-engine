@@ -821,6 +821,14 @@ impl ChunkStreamer {
             .retain(|&c, _| (c - flat).length_squared() <= unload_radius * unload_radius);
         self.light_candidates
             .retain(|&c| (c - flat).length_squared() <= unload_radius * unload_radius);
+        // Les maillages en attente des chunks déchargés ne servent plus : un seul passage
+        // sur la file (un passage par chunk coûtait 60 ms pour 7 000 chunks d'un coup, après
+        // une téléportation lointaine).
+        if !unloaded.is_empty() {
+            let gone: HashSet<IVec3> = unloaded.iter().copied().collect();
+            self.events
+                .retain(|e| !matches!(e, StreamEvent::Mesh(p, _) if gone.contains(p)));
+        }
         for pos in unloaded {
             // Le dernier `Arc` disparaît ici (ou à la fin de la tâche qui le lit encore) :
             // `Drop` libère alors la mémoire du chunk. Côté GPU, c'est pareil : le jeu
@@ -836,8 +844,6 @@ impl ChunkStreamer {
                 }
             }
             self.mesh_candidates.remove(&pos);
-            self.events
-                .retain(|e| !matches!(e, StreamEvent::Mesh(p, _) if *p == pos));
             self.events.push_back(StreamEvent::Unload(pos));
         }
 

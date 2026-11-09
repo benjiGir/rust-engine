@@ -97,6 +97,8 @@ const DEFAULT_SEED: u32 = 42;
 /// les étaler sur plusieurs images évite une saccade quand 50 chunks arrivent d'un coup.
 /// Les maillages d'un bloc modifié passent en tête de file : ils sont envoyés tout de suite.
 const UPLOAD_BUDGET: usize = 16;
+/// Maillages libérés au plus par image (environ 3 ms).
+const UNLOAD_BUDGET: usize = 256;
 /// Hauteur de vol au départ et en mode `VOXEL_AUTOFLY`, au-dessus du sol.
 const FLY_ALTITUDE: f32 = 30.0;
 /// Portée du joueur, en blocs.
@@ -1736,13 +1738,17 @@ impl VoxelGame {
     fn apply_stream_events(&mut self) -> usize {
         let _span = engine_trace::span("chunks : envoi au GPU");
         let mut uploads = 0;
-        while uploads < UPLOAD_BUDGET {
+        let mut unloads = 0;
+        while uploads < UPLOAD_BUDGET && unloads < UNLOAD_BUDGET {
             let Some(event) = self.streamer_mut().next_event() else {
                 break;
             };
             match event {
-                // Libérer est presque gratuit : ça ne compte pas dans le budget.
+                // Libérer un maillage coûte peu (environ 11 µs), mais une téléportation
+                // lointaine en libère des milliers d'un coup : on les étale sur plusieurs
+                // images. Ces chunks sont loin ou hors de vue, les garder un peu ne se voit pas.
                 StreamEvent::Unload(pos) => {
+                    unloads += 1;
                     self.culling.graph.remove(pos);
                     if let Some(id) = self.meshes.remove(&pos) {
                         self.renderer.remove_mesh(id);
