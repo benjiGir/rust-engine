@@ -34,6 +34,8 @@ pub struct GameUi {
     pub inventory_open: bool,
     pub screen: Screen,
     pub inspector_open: bool,
+    /// Un menu (principal, pause) est ouvert : egui reçoit les clics.
+    pub menu_open: bool,
     /// Une icône par objet, créée au premier affichage.
     icons: HashMap<ItemId, TextureHandle>,
 }
@@ -66,6 +68,7 @@ impl GameUi {
             inventory_open: false,
             screen: Screen::Inventory,
             inspector_open: false,
+            menu_open: false,
             icons: HashMap::new(),
         }
     }
@@ -79,7 +82,7 @@ impl GameUi {
     ) -> bool {
         let response = self.state.on_window_event(window, event);
         // La souris capturée (vue FPS) : l'interface ne reçoit rien.
-        response.consumed && (self.inventory_open || self.inspector_open)
+        response.consumed && (self.inventory_open || self.inspector_open || self.menu_open)
     }
 
     pub fn take_input(&mut self, window: &Window) -> egui::RawInput {
@@ -149,7 +152,11 @@ impl VoxelGame {
         // `Context` est un `Arc` : le cloner ne copie rien, et libère `self` pour la closure.
         let ctx = self.ui.ctx.clone();
         let output = ctx.run_ui(raw, |ui| {
-            self.draw_hud(ui.ctx());
+            // Au menu principal, ni barre d'objets ni vie : seulement le menu.
+            if !matches!(self.mode, crate::Mode::Title(_)) {
+                self.draw_hud(ui.ctx());
+            }
+            self.draw_menus(ui.ctx());
             if self.ui.inventory_open {
                 self.draw_screen(ui.ctx());
             }

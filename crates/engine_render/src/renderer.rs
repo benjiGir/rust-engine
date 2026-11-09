@@ -556,6 +556,17 @@ impl Renderer {
         self.instance_count = instances.len() as u32;
     }
 
+    /// Active ou coupe la synchronisation verticale (une image par rafraîchissement de
+    /// l'écran, sans déchirure ; coupée, le jeu dessine aussi vite qu'il peut).
+    pub fn set_vsync(&mut self, on: bool) {
+        self.config.present_mode = if on {
+            wgpu::PresentMode::AutoVsync
+        } else {
+            wgpu::PresentMode::AutoNoVsync
+        };
+        self.surface.configure(&self.device, &self.config);
+    }
+
     /// Les boîtes du bras et de l'objet tenu, avec la lumière à la position du joueur.
     /// Une liste vide : pas de bras (menu, capture sans bras).
     pub fn set_hand(&mut self, parts: &[HandInstance], light: [f32; 2]) {

@@ -133,6 +133,16 @@ impl Audio {
         Ok(audio)
     }
 
+    /// Change les volumes (depuis les options), avec un court fondu.
+    pub fn set_volumes(&mut self, effects: f32, ambience: f32) {
+        let tween = Tween {
+            duration: std::time::Duration::from_millis(100),
+            ..Tween::default()
+        };
+        self.effects.set_volume(to_decibels(effects), tween);
+        self.ambience.set_volume(to_decibels(ambience), tween);
+    }
+
     /// Relit les fichiers (rechargement à chaud) et relance l'ambiance.
     pub fn reload(&mut self, registry: &BlockRegistry) {
         self.sounds = load_sounds(registry);

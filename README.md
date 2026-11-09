@@ -87,6 +87,9 @@ Variables du jeu :
 - `VOXEL_SCREENSHOTS=dossier` (enregistre les captures PNG, dont une par biome, puis quitte, même écran éteint) ;
   `VOXEL_SHOTS=biome` ne garde que les captures dont le nom contient ce texte ;
 - `VOXEL_HIDE_ARM=1` (cache le bras à la première personne, aussi avec F4) ;
+- sans aucune de ces variables, le jeu s'ouvre sur le menu principal (Jouer, Nouveau monde,
+  Options, Quitter) ; Échap ouvre la pause. Les options sont dans `settings.ron` ;
+- `VOXEL_MENU_DEMO=1` (scénario automatique : menu, un monde, retour au menu, quitter) ;
 - `VOXEL_WORLD=nom` (le monde à ouvrir dans `saves/`, « world » par défaut ; sauvegarde toutes les 30 s et à la fermeture) ;
 - `VOXEL_MUTE=1`, `VOXEL_VOLUME_EFFECTS`, `VOXEL_VOLUME_AMBIENCE` (volumes de 0 à 1) ;
 - `VOXEL_QUIT_AFTER=secondes` (quitter proprement, avec sauvegarde) ;

@@ -36,6 +36,11 @@ impl Input {
         self.keys_released.contains(&key)
     }
 
+    /// Les touches enfoncées pendant cette frame (pour choisir une touche dans les options).
+    pub fn keys_pressed(&self) -> impl Iterator<Item = KeyCode> + '_ {
+        self.keys_pressed.iter().copied()
+    }
+
     pub fn mouse_held(&self, button: MouseButton) -> bool {
         self.buttons_held.contains(&button)
     }

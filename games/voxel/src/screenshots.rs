@@ -57,6 +57,17 @@ enum Scene {
     ArmWalk,
     ArmMine,
     ArmBlock,
+    /// Les menus, par-dessus le monde.
+    Menu(MenuShot),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuShot {
+    Main,
+    Worlds,
+    NewWorld,
+    Options,
+    Pause,
 }
 
 struct Shot {
@@ -80,7 +91,15 @@ const fn biome(name: &'static str, key: &'static str) -> Shot {
     }
 }
 
-const SHOTS: [Shot; 32] = [
+const fn menu(name: &'static str, which: MenuShot) -> Shot {
+    Shot {
+        name,
+        time: 0.3,
+        scene: Scene::Menu(which),
+    }
+}
+
+const SHOTS: [Shot; 37] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -166,6 +185,11 @@ const SHOTS: [Shot; 32] = [
         time: 0.3,
         scene: Scene::ArmBlock,
     },
+    menu("15-menu-principal", MenuShot::Main),
+    menu("16-menu-mondes", MenuShot::Worlds),
+    menu("17-menu-nouveau-monde", MenuShot::NewWorld),
+    menu("18-menu-options", MenuShot::Options),
+    menu("19-menu-pause", MenuShot::Pause),
     biome("biome-plaine", "core:plains"),
     biome("biome-foret", "core:forest"),
     biome("biome-foret-bouleaux", "core:birch_forest"),
@@ -265,6 +289,29 @@ impl VoxelGame {
                 );
                 self.hand.visible = arm;
                 self.hand.frozen = false;
+                self.mode = match shot.scene {
+                    Scene::Menu(MenuShot::Main) => {
+                        crate::Mode::Title(crate::menus::TitlePage::Main)
+                    }
+                    Scene::Menu(MenuShot::Worlds) => {
+                        self.worlds = crate::menus::saved_worlds();
+                        crate::Mode::Title(crate::menus::TitlePage::Worlds { confirm: None })
+                    }
+                    Scene::Menu(MenuShot::NewWorld) => {
+                        crate::Mode::Title(crate::menus::TitlePage::NewWorld {
+                            name: "Ma vallée".into(),
+                            seed: "montagne".into(),
+                            error: None,
+                        })
+                    }
+                    Scene::Menu(MenuShot::Options) => {
+                        crate::Mode::Title(crate::menus::TitlePage::Options)
+                    }
+                    Scene::Menu(MenuShot::Pause) => {
+                        crate::Mode::Paused(crate::menus::PausePage::Main)
+                    }
+                    _ => crate::Mode::Playing,
+                };
                 self.ui.inspector_open = shot.scene == Scene::Inspector;
                 self.camera.yaw = yaw.to_radians();
                 self.camera.pitch = pitch.to_radians();
@@ -420,6 +467,10 @@ impl VoxelGame {
                 (Vec3::new(0.5, spawn + 20.0, 0.5), 45.0, -20.0)
             }
             // À hauteur d'homme, face au paysage.
+            Scene::Menu(_) => {
+                let g = self.ground(0, 0) as f32;
+                (Vec3::new(0.5, g + 30.0, 0.5), 200.0, -15.0)
+            }
             Scene::ArmWalk | Scene::ArmMine | Scene::ArmBlock => {
                 let g = self.ground(0, 0) as f32;
                 (Vec3::new(0.5, g + 22.0, 0.5), 30.0, -15.0)
@@ -535,7 +586,12 @@ impl VoxelGame {
             }
             Scene::Underground => self.dig_pit(),
             Scene::ArmWalk | Scene::ArmMine | Scene::ArmBlock => self.pose_arm(scene),
-            Scene::Spawn | Scene::Sunset | Scene::Lake | Scene::Inspector | Scene::Biome(_) => {}
+            Scene::Spawn
+            | Scene::Sunset
+            | Scene::Lake
+            | Scene::Inspector
+            | Scene::Biome(_)
+            | Scene::Menu(_) => {}
         }
     }
 

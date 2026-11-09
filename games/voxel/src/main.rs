@@ -44,11 +44,13 @@ mod events;
 mod hand;
 mod hot_reload;
 mod inventory;
+mod menus;
 mod mobs;
 mod modding;
 mod persistence;
 mod player;
 mod screenshots;
+mod settings;
 mod shared;
 mod stats;
 mod stress;
@@ -56,7 +58,7 @@ mod ui;
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -82,6 +84,7 @@ use events::{BlockBroken, BlockPlaced, EntityDied, PlayerDamaged};
 use inventory::Inventory;
 use mobs::MobRegistry;
 use player::{FLY_SPEED, FLY_SPRINT_FACTOR, MoveMode, SPRINT_SPEED, WALK_SPEED};
+use settings::Action;
 use shared::StreamerExt;
 use stats::FrameStats;
 
@@ -126,6 +129,15 @@ struct VoxelGame {
     random: u64,
     /// Le bras à la première personne.
     hand: hand::Hand,
+    /// Menu principal, jeu ou pause.
+    mode: Mode,
+    settings: settings::Settings,
+    /// Ce que le jeu demande à l'application (nouveau monde, menu, quitter).
+    request: Option<Request>,
+    /// Les options attendent une touche pour cette action.
+    waiting_key: Option<settings::Action>,
+    /// Les mondes sauvegardés, listés à l'ouverture de l'écran de choix.
+    worlds: Vec<menus::SavedWorld>,
     /// Le monde de blocs, partagé avec l'ECS (ressource `SharedStreamer`) et les mods.
     world: Rc<RefCell<ChunkStreamer>>,
     /// Les machines et les scripts des mods.
@@ -177,11 +189,81 @@ struct VoxelGame {
     last_render: RenderStats,
 }
 
-impl Game for VoxelGame {
-    fn new(ctx: &mut Context) -> Result<Self> {
-        // `?` remonte l'erreur au moteur, qui l'affichera à la fermeture.
-        let mut renderer = Renderer::new(ctx.window.clone())?;
-        renderer.crosshair = true;
+/// Comment lancer un monde : depuis quel dossier, avec quelle graine.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Launch {
+    /// Le dossier de sauvegarde (`None` : un monde jetable, rien n'est écrit).
+    pub world: Option<PathBuf>,
+    /// La graine d'un nouveau monde (un monde existant garde la sienne).
+    pub seed: Option<u32>,
+    /// Le monde de fond du menu principal : survol de caméra, sans joueur.
+    pub title: bool,
+}
+
+impl Launch {
+    /// Les modes automatiques (captures, démo, vol, test de charge) et `VOXEL_WORLD`
+    /// lancent un monde directement, sans menu, comme avant.
+    fn from_env() -> Option<Self> {
+        let automatic = [
+            "VOXEL_DEMO",
+            "VOXEL_AUTOFLY",
+            "VOXEL_SCREENSHOTS",
+            "VOXEL_STRESS",
+        ]
+        .iter()
+        .any(|v| std::env::var(v).is_ok());
+        let named = std::env::var("VOXEL_WORLD").is_ok();
+        if !automatic && !named {
+            return None;
+        }
+        Some(Self {
+            // Les modes automatiques n'écrivent pas dans le monde du joueur, sauf demande explicite.
+            world: named.then(|| persistence::world_dir(&assets_dir())),
+            seed: env_parse("VOXEL_SEED"),
+            title: false,
+        })
+    }
+
+    /// Le monde de fond du menu principal.
+    pub fn title() -> Self {
+        Self {
+            world: None,
+            seed: Some(TITLE_SEED),
+            title: true,
+        }
+    }
+}
+
+/// La graine du monde de fond du menu.
+const TITLE_SEED: u32 = 2024;
+
+/// Ce que le jeu demande à l'application : changer de monde ou quitter.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Request {
+    Play(Launch),
+    /// Retour au menu principal (le monde est sauvegardé et déchargé).
+    Title,
+    Quit,
+}
+
+/// Où en est le jeu : le menu principal (un monde de fond), le jeu, ou la pause.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Mode {
+    Title(menus::TitlePage),
+    Playing,
+    Paused(menus::PausePage),
+}
+
+impl VoxelGame {
+    /// Crée un monde. Le renderer est prêté par l'application : il passe d'un monde à
+    /// l'autre (on ne recrée pas la fenêtre ni le GPU).
+    fn create(
+        ctx: &mut Context,
+        mut renderer: Renderer,
+        launch: Launch,
+        settings: settings::Settings,
+    ) -> Result<Self> {
+        renderer.crosshair = !launch.title;
 
         // L'ordre des mods (chacun après ses dépendances) fixe l'ordre des registres.
         let assets = assets_dir();
@@ -196,16 +278,15 @@ impl Game for VoxelGame {
             .context("chargement des objets")?;
         log::info!("{} types de créatures", mob_registry.len());
 
-        // Les modes automatiques n'écrivent pas dans le monde du joueur, sauf demande explicite.
-        let automatic = ["VOXEL_DEMO", "VOXEL_AUTOFLY", "VOXEL_SCREENSHOTS"]
-            .iter()
-            .any(|v| std::env::var(v).is_ok());
-        let (store, meta) = if automatic && std::env::var("VOXEL_WORLD").is_err() {
-            log::info!("mode automatique : pas de sauvegarde");
-            (None, None)
-        } else {
-            let (store, meta) = persistence::open_world(persistence::world_dir(&assets_dir()))?;
-            (Some(store), meta)
+        let (store, meta) = match &launch.world {
+            Some(dir) => {
+                let (store, meta) = persistence::open_world(dir.clone())?;
+                (Some(store), meta)
+            }
+            None => {
+                log::info!("monde sans sauvegarde");
+                (None, None)
+            }
         };
         if let Some(meta) = &meta {
             persistence::check_mods(meta, &registry);
@@ -215,10 +296,10 @@ impl Game for VoxelGame {
         let seed = meta
             .as_ref()
             .map(|m| m.seed)
-            .or_else(|| env_parse("VOXEL_SEED"))
+            .or(launch.seed)
             .unwrap_or(DEFAULT_SEED);
         let config = StreamingConfig {
-            view_radius: env_parse("VOXEL_RADIUS").unwrap_or(16),
+            view_radius: env_parse("VOXEL_RADIUS").unwrap_or(settings.render_distance.clamp(4, 32)),
             ..StreamingConfig::default()
         };
         // Le brouillard termine juste avant le bord du rayon de vue.
@@ -239,18 +320,32 @@ impl Game for VoxelGame {
         }
 
         // `std::env::var` renvoie `Err` si la variable n'existe pas : `.ok()` en fait un `Option`.
-        let autofly = std::env::var("VOXEL_AUTOFLY").ok().map(|v| {
-            let speed: f32 = v.parse().unwrap_or(0.0);
-            // `VOXEL_AUTOFLY=1` veut dire « oui », pas « 1 bloc par seconde ».
-            if speed <= 1.0 {
-                FLY_SPEED * FLY_SPRINT_FACTOR
-            } else {
-                speed
-            }
-        });
-        let demo = std::env::var("VOXEL_DEMO").ok().map(|_| Demo::new());
+        let autofly = std::env::var("VOXEL_AUTOFLY")
+            .ok()
+            .filter(|_| !launch.title)
+            .map(|v| {
+                let speed: f32 = v.parse().unwrap_or(0.0);
+                // `VOXEL_AUTOFLY=1` veut dire « oui », pas « 1 bloc par seconde ».
+                if speed <= 1.0 {
+                    FLY_SPEED * FLY_SPRINT_FACTOR
+                } else {
+                    speed
+                }
+            });
+        // Le menu principal : un lent survol du monde de fond.
+        let autofly = if launch.title {
+            Some(TITLE_FLY_SPEED)
+        } else {
+            autofly
+        };
+        let automatic = !launch.title;
+        let demo = std::env::var("VOXEL_DEMO")
+            .ok()
+            .filter(|_| automatic)
+            .map(|_| Demo::new());
         let tour = std::env::var("VOXEL_SCREENSHOTS")
             .ok()
+            .filter(|_| automatic)
             .map(|dir| screenshots::Tour::new(dir.into()));
 
         // On démarre sur la terre ferme la plus proche de l'origine (elle peut être en
@@ -326,10 +421,12 @@ impl Game for VoxelGame {
         let camera = Camera {
             position: player::eye(&ecs, player, 1.0),
             yaw,
-            pitch,
+            pitch: if launch.title { -0.25 } else { pitch },
             far: view_distance * 1.5,
+            fov_y: settings.fov.to_radians(),
             ..Camera::default()
         };
+        renderer.set_vsync(settings.vsync);
         // L'inventaire sauvegardé, ou un petit nécessaire de départ pour un nouveau monde.
         let items = &content.items;
         let inventory = match meta.as_ref() {
@@ -355,7 +452,17 @@ impl Game for VoxelGame {
             log::info!("démo : le joueur marche, saute, casse et pose des blocs tout seul");
         }
 
-        let audio = audio::Audio::new(&registry, audio::AudioSettings::from_env());
+        let (effects, music) = settings.volumes();
+        let audio = audio::Audio::new(
+            &registry,
+            audio::AudioSettings {
+                effects,
+                ambience: music,
+                ..audio::AudioSettings::from_env()
+            },
+        );
+        let mut hand = hand::Hand::new(hand::ArmColors::load(&assets));
+        hand.visible &= settings.show_arm && !launch.title;
         Ok(Self {
             renderer,
             camera,
@@ -366,7 +473,16 @@ impl Game for VoxelGame {
             content,
             mining: None,
             random: 0x853C_49E6_748F_EA9B ^ seed as u64,
-            hand: hand::Hand::new(hand::ArmColors::load(&assets)),
+            hand,
+            mode: if launch.title {
+                Mode::Title(menus::TitlePage::Main)
+            } else {
+                Mode::Playing
+            },
+            settings,
+            request: None,
+            waiting_key: None,
+            worlds: Vec::new(),
             world,
             mods,
             mod_dirs,
@@ -402,19 +518,32 @@ impl Game for VoxelGame {
 
     /// La simulation, à 60 Hz exactement : les entrées du joueur, puis les systèmes.
     fn fixed_update(&mut self, ctx: &mut Context) {
+        match self.mode {
+            // En pause, le monde s'arrête.
+            Mode::Paused(_) => return,
+            // Le monde du menu vit (créatures, machines), sans joueur aux commandes.
+            Mode::Title(_) => {
+                player::set_intent(&self.ecs, self.player, Vec3::ZERO, false);
+                self.schedule.run(Stage::FixedUpdate, &mut self.ecs);
+                return;
+            }
+            Mode::Playing => {}
+        }
         let input = &ctx.input;
+        let keys = &self.settings.keys;
         let busy = self.ui.inventory_open;
         let (walk, jump) = match &self.demo {
             Some(_) => Demo::walk(&self.ecs, self.player, &self.camera),
             None if busy => (Vec3::ZERO, false),
             None => {
-                let speed = if input.key_held(KeyCode::ControlLeft) {
+                let speed = if input.key_held(keys.key(Action::Sprint)) {
                     SPRINT_SPEED
                 } else {
                     WALK_SPEED
                 };
+                let jump = input.key_held(keys.key(Action::Jump));
                 let direction = self.wish_direction(ctx, false);
-                (direction * speed, input.key_held(KeyCode::Space))
+                (direction * speed, jump)
             }
         };
         player::set_intent(&self.ecs, self.player, walk, jump);
@@ -441,9 +570,55 @@ impl Game for VoxelGame {
     }
 
     fn update(&mut self, ctx: &mut Context, dt: f32) {
+        // Les options attendent une touche : la prochaine pressée est la nouvelle
+        // (Échap annule).
+        let mut escape = ctx.input.key_pressed(KeyCode::Escape);
+        if let Some(action) = self.waiting_key
+            && let Some(key) = ctx.input.keys_pressed().next()
+        {
+            if key != KeyCode::Escape {
+                self.settings.keys.set(action, key);
+            }
+            self.waiting_key = None;
+            escape = false;
+        }
+        let interactive = self.mode == Mode::Playing;
+        match &self.mode {
+            Mode::Playing if escape && !self.ui.inventory_open => {
+                self.mode = Mode::Paused(menus::PausePage::Main);
+                escape = false;
+            }
+            Mode::Paused(menus::PausePage::Main) if escape => {
+                self.mode = Mode::Playing;
+                escape = false;
+            }
+            Mode::Paused(_) if escape => {
+                self.mode = Mode::Paused(menus::PausePage::Main);
+                escape = false;
+            }
+            _ => {}
+        }
+        if !interactive || self.mode != Mode::Playing {
+            // Un menu est ouvert : la souris est libre.
+            if self.mouse_captured {
+                self.mouse_captured = false;
+                ctx.set_cursor_captured(false);
+            }
+            self.mining = None;
+        }
+        if let Mode::Title(_) = self.mode {
+            // Le survol du menu principal tourne lentement.
+            self.camera.yaw += dt * 0.03;
+        }
+        let interactive = self.mode == Mode::Playing;
+        self.ui.menu_open = !interactive;
         // E : l'inventaire. Ouvert, il libère la souris ; fermé, la pile tenue est rangée.
-        let close = self.ui.inventory_open && ctx.input.key_pressed(KeyCode::Escape);
-        if ctx.input.key_pressed(KeyCode::KeyE) || close {
+        let close = self.ui.inventory_open && escape;
+        let toggle = interactive
+            && ctx
+                .input
+                .key_pressed(self.settings.keys.key(Action::Inventory));
+        if toggle || close {
             self.ui.inventory_open = !self.ui.inventory_open;
             if self.ui.inventory_open {
                 self.mouse_captured = false;
@@ -453,7 +628,7 @@ impl Game for VoxelGame {
             }
             self.ui.screen = ui::Screen::Inventory;
         }
-        let click_used = if self.ui.inventory_open {
+        let click_used = if self.ui.inventory_open || !interactive {
             true
         } else {
             self.handle_mouse_capture(ctx)
@@ -461,7 +636,9 @@ impl Game for VoxelGame {
         if self.mouse_captured {
             self.look(ctx.input.mouse_delta());
         }
-        self.handle_keys(ctx);
+        if interactive {
+            self.handle_keys(ctx);
+        }
         self.day.update(dt);
         if let Some(audio) = &mut self.audio {
             audio.update_ambience(self.day.daylight());
@@ -472,10 +649,10 @@ impl Game for VoxelGame {
                 Some(speed) => self.autofly(speed, dt),
                 None => {
                     let mut speed = FLY_SPEED;
-                    if ctx.input.key_held(KeyCode::ControlLeft) {
+                    if ctx.input.key_held(self.settings.keys.key(Action::Sprint)) {
                         speed *= FLY_SPRINT_FACTOR;
                     }
-                    let direction = if self.ui.inventory_open {
+                    let direction = if self.ui.inventory_open || !interactive {
                         Vec3::ZERO
                     } else {
                         self.wish_direction(ctx, true)
@@ -534,7 +711,9 @@ impl Game for VoxelGame {
                 self.place_at_target();
             }
         }
-        self.animate_hand(ctx, dt);
+        if interactive {
+            self.animate_hand(ctx, dt);
+        }
         // Un écran vient de s'ouvrir (établi, four, coffre) : on libère la souris.
         if self.ui.inventory_open && self.mouse_captured {
             self.mouse_captured = false;
@@ -637,6 +816,126 @@ impl Game for VoxelGame {
     fn exit(&mut self, _ctx: &mut Context) {
         self.save_now();
     }
+
+    /// Sauvegarde et décharge le monde ; rend le renderer pour le monde suivant.
+    fn shutdown(mut self) -> Renderer {
+        self.save_now();
+        self.renderer.clear_meshes();
+        self.renderer.set_instances(&[]);
+        self.renderer.set_hand(&[], [1.0, 0.0]);
+        self.renderer.outline = None;
+        self.renderer
+    }
+}
+
+/// Vitesse du survol du menu principal, en blocs par seconde.
+const TITLE_FLY_SPEED: f32 = 4.0;
+
+/// L'application : un monde à la fois (celui du menu, ou celui du joueur). Elle
+/// change de monde quand le jeu le demande, sans recréer la fenêtre.
+struct App {
+    game: Option<VoxelGame>,
+    /// `VOXEL_MENU_DEMO=1` : un scénario automatique pour vérifier les changements de
+    /// monde sans cliquer (menu → monde → menu → quitter). Le temps écoulé et l'étape.
+    menu_demo: Option<(Instant, u32)>,
+}
+
+impl App {
+    fn game(&mut self) -> &mut VoxelGame {
+        self.game.as_mut().expect("un monde est toujours chargé")
+    }
+
+    fn transition(&mut self, ctx: &mut Context, request: Request) -> Result<()> {
+        let Some(game) = self.game.take() else {
+            return Ok(());
+        };
+        let settings = game.settings.clone();
+        if request == Request::Quit {
+            self.game = Some(game);
+            ctx.exit();
+            return Ok(());
+        }
+        let renderer = game.shutdown();
+        let launch = match request {
+            Request::Play(launch) => launch,
+            _ => Launch::title(),
+        };
+        log::info!("chargement : {launch:?}");
+        self.game = Some(VoxelGame::create(ctx, renderer, launch, settings)?);
+        Ok(())
+    }
+}
+
+impl Game for App {
+    fn new(ctx: &mut Context) -> Result<Self> {
+        // `?` remonte l'erreur au moteur, qui l'affichera à la fermeture.
+        let renderer = Renderer::new(ctx.window.clone())?;
+        let settings = settings::Settings::load(&project_root());
+        let launch = Launch::from_env().unwrap_or_else(Launch::title);
+        Ok(Self {
+            game: Some(VoxelGame::create(ctx, renderer, launch, settings)?),
+            menu_demo: std::env::var("VOXEL_MENU_DEMO")
+                .ok()
+                .map(|_| (Instant::now(), 0)),
+        })
+    }
+
+    fn fixed_update(&mut self, ctx: &mut Context) {
+        self.game().fixed_update(ctx);
+    }
+
+    fn update(&mut self, ctx: &mut Context, dt: f32) {
+        self.game().update(ctx, dt);
+        if let Some((start, step)) = &mut self.menu_demo {
+            // Chaque étape quand le monde courant est chargé et quelques secondes passées.
+            let ready = start.elapsed().as_secs_f32() > 4.0
+                && self.game.as_ref().is_some_and(|g| g.streamer().is_idle());
+            if ready {
+                let request = match step {
+                    0 => Request::Play(Launch {
+                        world: Some(project_root().join("saves").join("menu-demo")),
+                        seed: Some(7),
+                        title: false,
+                    }),
+                    1 => Request::Title,
+                    _ => Request::Quit,
+                };
+                log::info!("démo des menus, étape {step} : {request:?}");
+                *step += 1;
+                *start = Instant::now();
+                self.game().request = Some(request);
+            }
+        }
+        if let Some(request) = self.game().request.take()
+            && let Err(err) = self.transition(ctx, request)
+        {
+            log::error!("changement de monde impossible : {err:#}");
+            ctx.exit();
+        }
+    }
+
+    fn render(&mut self, ctx: &mut Context, alpha: f32) {
+        self.game().render(ctx, alpha);
+    }
+
+    fn resized(&mut self, ctx: &mut Context, size: PhysicalSize<u32>) {
+        self.game().resized(ctx, size);
+    }
+
+    fn window_event(&mut self, ctx: &mut Context, event: &WindowEvent) -> bool {
+        self.game().window_event(ctx, event)
+    }
+
+    fn exit(&mut self, ctx: &mut Context) {
+        self.game().exit(ctx);
+    }
+}
+
+/// La racine du projet (le dossier qui contient `assets/` et `saves/`).
+fn project_root() -> PathBuf {
+    assets_dir()
+        .parent()
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
 }
 
 impl VoxelGame {
@@ -644,15 +943,16 @@ impl VoxelGame {
     /// Espace et Maj ajoutent la verticale.
     fn wish_direction(&self, ctx: &Context, vertical: bool) -> Vec3 {
         let input = &ctx.input;
+        let keys = &self.settings.keys;
         let mut bindings = vec![
-            (KeyCode::KeyW, self.camera.forward_flat()),
-            (KeyCode::KeyS, -self.camera.forward_flat()),
-            (KeyCode::KeyD, self.camera.right()),
-            (KeyCode::KeyA, -self.camera.right()),
+            (keys.key(Action::Forward), self.camera.forward_flat()),
+            (keys.key(Action::Back), -self.camera.forward_flat()),
+            (keys.key(Action::Right), self.camera.right()),
+            (keys.key(Action::Left), -self.camera.right()),
         ];
         if vertical {
-            bindings.push((KeyCode::Space, Vec3::Y));
-            bindings.push((KeyCode::ShiftLeft, -Vec3::Y));
+            bindings.push((keys.key(Action::Jump), Vec3::Y));
+            bindings.push((keys.key(Action::Descend), -Vec3::Y));
         }
         // Chaque touche ajoute une direction ; on somme puis on normalise.
         // `normalize_or_zero` évite une division par zéro quand aucune touche n'est tenue.
@@ -666,11 +966,11 @@ impl VoxelGame {
 
     fn handle_keys(&mut self, ctx: &Context) {
         let input = &ctx.input;
-        if input.key_pressed(KeyCode::KeyT) {
+        if input.key_pressed(self.settings.keys.key(Action::Time)) {
             self.day.cycle_speed();
             log::info!("temps {} ({})", self.day.speed.name(), self.day.clock());
         }
-        if input.key_pressed(KeyCode::KeyF) {
+        if input.key_pressed(self.settings.keys.key(Action::Fly)) {
             player::toggle_mode(&mut self.ecs, self.player);
             log::info!("mode {}", player::mode(&self.ecs, self.player).name());
         }
@@ -1354,8 +1654,9 @@ impl VoxelGame {
     }
 
     fn look(&mut self, delta: Vec2) {
-        self.camera.yaw += delta.x * MOUSE_SENSITIVITY;
-        self.camera.pitch = (self.camera.pitch - delta.y * MOUSE_SENSITIVITY)
+        let sensitivity = MOUSE_SENSITIVITY * self.settings.mouse_sensitivity;
+        self.camera.yaw += delta.x * sensitivity;
+        self.camera.pitch = (self.camera.pitch - delta.y * sensitivity)
             .clamp(-Camera::MAX_PITCH, Camera::MAX_PITCH);
     }
 
@@ -1592,7 +1893,7 @@ fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn,voxel=info"))
         .init();
 
-    engine_core::run::<VoxelGame>(AppConfig {
+    engine_core::run::<App>(AppConfig {
         title: "Voxel".into(),
         ..AppConfig::default()
     })
