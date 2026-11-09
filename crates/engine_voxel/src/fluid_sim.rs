@@ -241,6 +241,7 @@ impl FluidSim {
 
     /// Une étape (à appeler 10 fois par seconde).
     pub fn step(&mut self, s: &mut ChunkStreamer, budget: Duration) -> FluidReport {
+        let _span = engine_trace::span("fluides");
         let start = Instant::now();
         self.step += 1;
         // Les transferts de l'étape : position → (fluide, variation de quantité).

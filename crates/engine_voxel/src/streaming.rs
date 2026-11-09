@@ -301,6 +301,7 @@ impl ChunkStreamer {
         std::thread::Builder::new()
             .name("sauvegarde".into())
             .spawn(move || {
+                let _span = engine_trace::span("sauvegarde");
                 let _ = sender.send(store.save_chunks(&chunks, &registry));
             })
             .expect("impossible de lancer le thread de sauvegarde");
@@ -717,6 +718,7 @@ impl ChunkStreamer {
 
     /// Une image : suivre le joueur, récupérer les résultats, lancer de nouvelles tâches.
     pub fn update(&mut self, player: Vec3) {
+        let _span = engine_trace::span("chunks : file et réception");
         let centre = World::chunk_containing(player);
         if self.centre != Some(centre) {
             self.centre = Some(centre);
@@ -1051,6 +1053,7 @@ impl ChunkStreamer {
         let sender = self.sender.clone();
         self.in_flight += 1;
         self.pool.spawn(move || {
+            let _span = engine_trace::span("génération");
             // D'abord la sauvegarde : un chunk modifié par le joueur y est peut-être.
             let loaded = store.and_then(|store| match store.load_chunk(pos, &registry) {
                 Ok(loaded) => loaded,
@@ -1082,6 +1085,7 @@ impl ChunkStreamer {
         let sender = self.sender.clone();
         self.in_flight += 1;
         self.pool.spawn(move || {
+            let _span = engine_trace::span("lumière");
             let light = region.compute();
             let _ = sender.send(JobResult::Lit {
                 column,
@@ -1104,6 +1108,7 @@ impl ChunkStreamer {
             .insert(pos, Slot::Generated(MeshState::Meshing(ticket)));
         self.in_flight += 1;
         self.pool.spawn(move || {
+            let _span = engine_trace::span("maillage");
             let mesh = mesher.mesh(&hood);
             let _ = sender.send(JobResult::Meshed { pos, ticket, mesh });
         });

@@ -5,8 +5,9 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 
-# Aucune dépendance : tout est écrit à la main, pour apprendre.
+# Aucune dépendance externe : tout est écrit à la main, pour apprendre.
 [dependencies]
+engine_trace = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

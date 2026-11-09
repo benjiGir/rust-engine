@@ -6,6 +6,7 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+engine_trace = { workspace = true }
 egui = { workspace = true }
 egui-wgpu = { workspace = true }
 wgpu = { workspace = true }

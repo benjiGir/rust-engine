@@ -1601,6 +1601,7 @@ impl VoxelGame {
 
     /// Transmet les événements du jeu aux scripts des mods.
     fn forward_events_to_mods(&mut self) {
+        let _span = engine_trace::span("mods : événements");
         let mut events = Vec::new();
         for e in self
             .mod_readers
@@ -1696,6 +1697,7 @@ impl VoxelGame {
     /// Applique les résultats du streamer côté GPU, dans la limite du budget.
     /// Renvoie le nombre de maillages envoyés.
     fn apply_stream_events(&mut self) -> usize {
+        let _span = engine_trace::span("chunks : envoi au GPU");
         let mut uploads = 0;
         while uploads < UPLOAD_BUDGET {
             let Some(event) = self.streamer_mut().next_event() else {
@@ -2053,10 +2055,40 @@ fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn,voxel=info"))
         .init();
 
-    engine_core::run::<App>(AppConfig {
+    let trace = start_tracing();
+    let result = engine_core::run::<App>(AppConfig {
         title: "Voxel".into(),
         ..AppConfig::default()
-    })
+    });
+    if let Some(path) = trace {
+        match engine_trace::write_chrome_trace(&path) {
+            Ok(s) => log::info!(
+                "trace : {} étapes sur {} threads dans {} ({} perdues) ; à ouvrir dans https://ui.perfetto.dev",
+                s.events,
+                s.threads,
+                path.display(),
+                s.dropped
+            ),
+            Err(err) => log::error!("trace : écriture de {} impossible : {err}", path.display()),
+        }
+    }
+    result
+}
+
+/// `VOXEL_TRACE=fichier.json` : chronomètre tous les threads et écrit la trace à la
+/// fermeture. `VOXEL_SPIKES=ms` : détaille dans les logs chaque image plus longue.
+fn start_tracing() -> Option<PathBuf> {
+    if let Some(ms) = env_parse::<f64>("VOXEL_SPIKES").filter(|ms| *ms > 0.0) {
+        engine_trace::set_spike_threshold(Some(std::time::Duration::from_secs_f64(ms / 1000.0)));
+        log::info!("images lentes : détail au-delà de {ms} ms");
+    }
+    let path = PathBuf::from(std::env::var_os("VOXEL_TRACE")?);
+    engine_trace::start_recording();
+    log::info!(
+        "trace allumée, écrite à la fermeture dans {}",
+        path.display()
+    );
+    Some(path)
 }
 
 #[cfg(test)]

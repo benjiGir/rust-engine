@@ -343,6 +343,7 @@ impl Machines {
         per_chunk: u32,
         actions: &mut Vec<MachineAction>,
     ) -> usize {
+        let _span = engine_trace::span("ticks aléatoires");
         if !self.random_blocks.contains(&true) {
             return 0;
         }
@@ -510,6 +511,7 @@ impl Machines {
 
     /// Un tick de machines sur toutes les grilles.
     pub fn run_grids_tick(&mut self, grids: Grids, actions: &mut Vec<MachineAction>) -> TickReport {
+        let _span = engine_trace::span("machines");
         let start = Instant::now();
         self.scheduler.tick += 1;
         let now = self.scheduler.tick;

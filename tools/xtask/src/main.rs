@@ -4,6 +4,9 @@
 //!
 //! - `build-mods` : compile le script de chaque mod (`mods/<id>/script`) en WebAssembly
 //!   et copie le `.wasm` à l'endroit indiqué par son `mod.ron`.
+//! - `check-arch` : vérifie les règles d'architecture (voir `check_arch.rs`).
+
+mod check_arch;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -16,8 +19,9 @@ fn main() -> Result<()> {
     let task = std::env::args().nth(1).unwrap_or_default();
     match task.as_str() {
         "build-mods" => build_mods(),
+        "check-arch" => check_arch::run(&root()),
         _ => {
-            eprintln!("usage : cargo xtask build-mods");
+            eprintln!("usage : cargo xtask build-mods | check-arch");
             bail!("tâche inconnue : « {task} »")
         }
     }

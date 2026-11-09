@@ -648,7 +648,13 @@ impl Renderer {
         camera: &Camera,
         mut ui: Option<UiFrame>,
     ) -> Result<Option<RenderStats>> {
-        self.prepare_ui(&mut ui);
+        {
+            let _span = engine_trace::span("interface : préparation");
+            self.prepare_ui(&mut ui);
+        }
+        // Avec la VSync, attendre l'image suivante se fait ici : ce temps-là n'est pas
+        // du travail, mais il apparaît dans la trace.
+        let acquire = engine_trace::span("attente de l'écran");
         // Un `enum` riche : chaque cas porte (ou non) une texture. `match` nous oblige
         // à traiter tous les cas, sinon le code ne compile pas.
         use wgpu::CurrentSurfaceTexture as Current;
@@ -674,6 +680,7 @@ impl Renderer {
             }
             Current::Validation => anyhow::bail!("erreur de validation de la surface"),
         };
+        drop(acquire);
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -683,7 +690,11 @@ impl Renderer {
         });
 
         let size = [self.config.width, self.config.height];
-        let stats = self.draw_scene(&view, &ui_view, None, camera, size, ui);
+        let stats = {
+            let _span = engine_trace::span("dessin");
+            self.draw_scene(&view, &ui_view, None, camera, size, ui)
+        };
+        let _span = engine_trace::span("présentation");
         self.queue.present(frame);
         if suboptimal {
             self.surface.configure(&self.device, &self.config);

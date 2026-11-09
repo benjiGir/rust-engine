@@ -1118,6 +1118,7 @@ name = "engine_core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "engine_trace",
  "glam",
  "log",
  "winit",
@@ -1128,6 +1129,7 @@ name = "engine_ecs"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "engine_trace",
  "hecs",
 ]
 
@@ -1172,12 +1174,17 @@ dependencies = [
  "bytemuck",
  "egui",
  "egui-wgpu",
+ "engine_trace",
  "glam",
  "log",
  "pollster",
  "wgpu",
  "winit",
 ]
+
+[[package]]
+name = "engine_trace"
+version = "0.1.0"
 
 [[package]]
 name = "engine_voxel"
@@ -1187,6 +1194,7 @@ dependencies = [
  "bytemuck",
  "criterion",
  "crossbeam-channel",
+ "engine_trace",
  "glam",
  "log",
  "lz4_flex",
@@ -3967,6 +3975,7 @@ dependencies = [
  "engine_inspect",
  "engine_mods",
  "engine_render",
+ "engine_trace",
  "engine_voxel",
  "env_logger",
  "glam",

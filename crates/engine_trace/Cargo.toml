@@ -1,0 +1,12 @@
+[package]
+name = "engine_trace"
+description = "Traces par thread au format « Chrome trace » (ui.perfetto.dev) et détail des images lentes."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# Aucune dépendance : toutes les crates du moteur peuvent s'en servir.
+[dependencies]
+
+[lints]
+workspace = true

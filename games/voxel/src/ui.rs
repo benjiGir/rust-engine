@@ -149,6 +149,7 @@ pub struct DebugInfo {
 impl VoxelGame {
     /// Décrit toute l'interface de cette image et la prépare pour le GPU.
     pub(crate) fn build_ui(&mut self, raw: egui::RawInput) -> (UiFrame, egui::PlatformOutput) {
+        let _span = engine_trace::span("interface");
         // `Context` est un `Arc` : le cloner ne copie rien, et libère `self` pour la closure.
         let ctx = self.ui.ctx.clone();
         let output = ctx.run_ui(raw, |ui| {

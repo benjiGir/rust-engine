@@ -94,7 +94,13 @@ Variables du jeu :
 - `VOXEL_WORLD=nom` (le monde à ouvrir dans `saves/`, « world » par défaut ; sauvegarde toutes les 30 s et à la fermeture) ;
 - `VOXEL_MUTE=1`, `VOXEL_VOLUME_EFFECTS`, `VOXEL_VOLUME_AMBIENCE` (volumes de 0 à 1) ;
 - `VOXEL_QUIT_AFTER=secondes` (quitter proprement, avec sauvegarde) ;
-- `VOXEL_STRESS=N` (N horloges au rythme maximal et N objets sur tapis ; temps dans les logs).
+- `VOXEL_STRESS=N` (N horloges au rythme maximal et N objets sur tapis ; temps dans les logs) ;
+- `VOXEL_TRACE=trace.json` (chronomètre chaque étape sur chaque thread, écrit à la fermeture ;
+  à ouvrir dans https://ui.perfetto.dev) ;
+- `VOXEL_SPIKES=ms` (détaille dans les logs chaque image plus longue que ce nombre de ms).
+
+Les règles d'architecture (le moteur ne dépend pas du jeu, la simulation pas de l'affichage,
+pas de fichier de plus de 2500 lignes) : `cargo xtask check-arch`, aussi lancé par la CI.
 
 En jeu, modifier un shader, une texture, un son, un `blocks.ron` ou le `.wasm` d'un mod le recharge aussitôt (F5 pour forcer).
 

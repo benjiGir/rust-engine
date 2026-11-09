@@ -89,6 +89,7 @@ impl Schedule {
         };
         self.timings.retain(|t| t.stage != stage);
         for system in systems {
+            let _span = engine_trace::span_dyn(system.name());
             let start = Instant::now();
             system.run(world);
             world.apply_commands();

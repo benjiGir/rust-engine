@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Les tâches du projet : `cargo xtask build-mods`."
+description = "Les tâches du projet : `cargo xtask build-mods`, `cargo xtask check-arch`."
 edition.workspace = true
 version.workspace = true
 license.workspace = true

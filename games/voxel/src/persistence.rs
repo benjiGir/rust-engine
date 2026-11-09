@@ -128,6 +128,7 @@ impl VoxelGame {
 
     /// Sauvegarde complète, en attendant la fin (à la fermeture du jeu).
     pub(crate) fn save_now(&mut self) {
+        let _span = engine_trace::span("sauvegarde complète");
         let Some(store) = self.store.clone() else {
             return;
         };

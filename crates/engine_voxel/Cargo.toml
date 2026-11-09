@@ -7,6 +7,7 @@ license.workspace = true
 
 # Aucune dépendance graphique : on peut tester et mesurer le maillage sans GPU.
 [dependencies]
+engine_trace = { workspace = true }
 glam = { workspace = true }
 bytemuck = { workspace = true }
 noise = { workspace = true }

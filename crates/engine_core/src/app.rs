@@ -245,11 +245,24 @@ impl<G: Game> Running<G> {
         let frame_time = now - self.last_frame;
         self.last_frame = now;
 
-        for _ in 0..self.timestep.advance(frame_time) {
-            self.game.fixed_update(&mut self.ctx);
+        // Les étapes de l'image, pour `engine_trace` (traces, images lentes).
+        engine_trace::begin_frame();
+        {
+            let _frame = engine_trace::span("image");
+            for _ in 0..self.timestep.advance(frame_time) {
+                let _span = engine_trace::span("pas fixe");
+                self.game.fixed_update(&mut self.ctx);
+            }
+            {
+                let _span = engine_trace::span("update");
+                self.game.update(&mut self.ctx, frame_time.as_secs_f32());
+            }
+            let _span = engine_trace::span("render");
+            self.game.render(&mut self.ctx, self.timestep.alpha());
         }
-        self.game.update(&mut self.ctx, frame_time.as_secs_f32());
-        self.game.render(&mut self.ctx, self.timestep.alpha());
+        if let Some(report) = engine_trace::end_frame() {
+            log::warn!("{report}");
+        }
         self.ctx.input.end_frame();
 
         if let Some((fps, ms)) = self.fps.tick(frame_time) {

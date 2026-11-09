@@ -116,6 +116,7 @@ impl ModSystem {
     /// Un pas de simulation (60 Hz) : relance les machines des chunks chargés, et fait
     /// un tick de machines tous les 3 pas. Renvoie ce que les machines demandent au jeu.
     pub fn fixed_step(&mut self, player: Vec3) -> (Vec<MachineAction>, Option<TickReport>) {
+        let _span = engine_trace::span("mods et machines");
         let mut actions = Vec::new();
         let loaded = self.world.borrow_mut().take_loaded_block_entities();
         if !loaded.is_empty() {
