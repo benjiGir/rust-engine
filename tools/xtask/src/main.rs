@@ -5,8 +5,10 @@
 //! - `build-mods` : compile le script de chaque mod (`mods/<id>/script`) en WebAssembly
 //!   et copie le `.wasm` à l'endroit indiqué par son `mod.ron`.
 //! - `check-arch` : vérifie les règles d'architecture (voir `check_arch.rs`).
+//! - `ctl <commande>...` : pilote le jeu lancé avec `VOXEL_CONTROL` (voir `ctl.rs`).
 
 mod check_arch;
+mod ctl;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,8 +22,9 @@ fn main() -> Result<()> {
     match task.as_str() {
         "build-mods" => build_mods(),
         "check-arch" => check_arch::run(&root()),
+        "ctl" => ctl::run(std::env::args().skip(2).collect()),
         _ => {
-            eprintln!("usage : cargo xtask build-mods | check-arch");
+            eprintln!("usage : cargo xtask build-mods | check-arch | ctl <commande>...");
             bail!("tâche inconnue : « {task} »")
         }
     }

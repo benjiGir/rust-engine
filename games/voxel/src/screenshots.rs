@@ -1030,7 +1030,7 @@ impl VoxelGame {
 }
 
 /// Écrit une image RGBA en PNG.
-fn save_png(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Result<()> {
+pub(crate) fn save_png(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }

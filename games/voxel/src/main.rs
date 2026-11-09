@@ -38,6 +38,7 @@ mod assets;
 mod audio;
 mod components;
 mod content;
+mod control;
 mod daytime;
 mod drops;
 mod events;
@@ -194,6 +195,8 @@ struct VoxelGame {
     was_in_liquid: bool,
     frame_stats: FrameStats,
     last_render: RenderStats,
+    /// `VOXEL_CONTROL` : la marche et les `wait` commandés (voir `control.rs`).
+    remote: control::Remote,
 }
 
 /// Comment lancer un monde : depuis quel dossier, avec quelle graine.
@@ -541,6 +544,7 @@ impl VoxelGame {
                 .map(|s| Instant::now() + std::time::Duration::from_secs(s)),
             frame_stats: FrameStats::new(),
             last_render: RenderStats::default(),
+            remote: control::Remote::default(),
         })
     }
 
@@ -558,10 +562,13 @@ impl VoxelGame {
             }
             Mode::Playing => {}
         }
+        // `VOXEL_CONTROL` : une marche commandée passe avant le clavier.
+        let remote = self.remote_intent(ctx.fixed_dt);
         let input = &ctx.input;
         let keys = &self.settings.keys;
         let busy = self.ui.inventory_open;
         let (walk, jump) = match &self.demo {
+            _ if remote.is_some() => remote.unwrap_or_default(),
             Some(_) => Demo::walk(&self.ecs, self.player, &self.camera),
             None if busy => (Vec3::ZERO, false),
             None => {
@@ -706,6 +713,7 @@ impl VoxelGame {
             self.handle_keys(ctx);
         }
         self.day.update(dt);
+        self.update_remote(dt);
         if let Some(audio) = &mut self.audio {
             audio.update_ambience(self.day.daylight());
         }
@@ -909,6 +917,8 @@ struct App {
     /// `VOXEL_MENU_DEMO=1` : un scénario automatique pour vérifier les changements de
     /// monde sans cliquer (menu → monde → menu → quitter). Le temps écoulé et l'étape.
     menu_demo: Option<(Instant, u32)>,
+    /// `VOXEL_CONTROL=port` : le jeu piloté par commandes texte (voir `control.rs`).
+    control: Option<control::ControlServer>,
 }
 
 impl App {
@@ -948,6 +958,7 @@ impl Game for App {
             menu_demo: std::env::var("VOXEL_MENU_DEMO")
                 .ok()
                 .map(|_| (Instant::now(), 0)),
+            control: control::ControlServer::from_env(),
         })
     }
 
@@ -957,6 +968,11 @@ impl Game for App {
 
     fn update(&mut self, ctx: &mut Context, dt: f32) {
         self.game().update(ctx, dt);
+        if let (Some(control), Some(game)) = (&self.control, self.game.as_mut()) {
+            for request in control.poll() {
+                game.run_command(ctx, request);
+            }
+        }
         if let Some((start, step)) = &mut self.menu_demo {
             // Chaque étape quand le monde courant est chargé et quelques secondes passées.
             let ready = start.elapsed().as_secs_f32() > 4.0

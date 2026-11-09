@@ -97,7 +97,11 @@ Variables du jeu :
 - `VOXEL_STRESS=N` (N horloges au rythme maximal et N objets sur tapis ; temps dans les logs) ;
 - `VOXEL_TRACE=trace.json` (chronomètre chaque étape sur chaque thread, écrit à la fermeture ;
   à ouvrir dans https://ui.perfetto.dev) ;
-- `VOXEL_SPIKES=ms` (détaille dans les logs chaque image plus longue que ce nombre de ms).
+- `VOXEL_SPIKES=ms` (détaille dans les logs chaque image plus longue que ce nombre de ms) ;
+- `VOXEL_CONTROL=1` (ou un numéro de port, 7878 par défaut) : le jeu écoute des commandes texte sur
+  `127.0.0.1` et répond en JSON. Utile pour tester sans clavier ou écrire des scénarios :
+  `cargo xtask ctl state "goto 0 80 0" "wait 2" "look 0 -60" break "screenshot shots/a.png"`.
+  `cargo xtask ctl help` liste les commandes (déplacement, regard, blocs, inventaire, heure, capture).
 
 Les règles d'architecture (le moteur ne dépend pas du jeu, la simulation pas de l'affichage,
 pas de fichier de plus de 2500 lignes) : `cargo xtask check-arch`, aussi lancé par la CI.
