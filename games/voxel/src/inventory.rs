@@ -68,20 +68,107 @@ impl Default for Inventory {
     }
 }
 
-/// Un clic sur une case avec la pile en main : prendre, poser, compléter, échanger.
-/// `accepts` : la case accepte-t-elle cet objet (une case d'armure ne prend qu'une
-/// armure de son emplacement) ?
+/// Ce que fait un clic sur une case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Click {
+    /// Clic gauche : prendre, poser, compléter ou échanger toute la pile.
+    Primary,
+    /// Clic droit : main vide, prendre la moitié de la pile (arrondie au-dessus) ;
+    /// une pile en main, en poser un seul objet.
+    Secondary,
+    /// Prendre `n` objets de la case (Maj + clic droit, puis le nombre choisi).
+    Take(u32),
+}
+
+/// Un clic sur une case avec la pile en main (`cursor`). `accepts` : la case
+/// accepte-t-elle cet objet (une case d'armure ne prend qu'une armure de son
+/// emplacement) ?
 pub fn click_slot(
     slot: &mut Option<ItemStack>,
     cursor: &mut Option<ItemStack>,
     items: &ItemRegistry,
     accepts: impl Fn(ItemId) -> bool,
+    click: Click,
 ) {
     if let Some(held) = cursor
         && !accepts(held.item)
     {
         return;
     }
+    match click {
+        Click::Primary => click_whole(slot, cursor, items),
+        Click::Secondary => match cursor {
+            None => {
+                let half = slot.map_or(0, |s| s.count.div_ceil(2));
+                take(slot, cursor, items, half);
+            }
+            Some(_) => place_one(slot, cursor, items),
+        },
+        Click::Take(n) => take(slot, cursor, items, n),
+    }
+}
+
+/// Deux piles qui peuvent n'en faire qu'une : même objet, neuves.
+fn stackable(a: &ItemStack, b: &ItemStack) -> bool {
+    a.item == b.item && a.damage == 0 && b.damage == 0
+}
+
+/// Prend jusqu'à `n` objets de la case, dans la main vide ou dans la pile tenue s'il
+/// s'agit du même objet (sans dépasser sa taille maximale).
+fn take(
+    slot: &mut Option<ItemStack>,
+    cursor: &mut Option<ItemStack>,
+    items: &ItemRegistry,
+    n: u32,
+) {
+    let Some(stack) = slot.as_mut() else { return };
+    let moved = match cursor {
+        None => n.min(stack.count),
+        Some(held) if stackable(held, stack) => {
+            let room = items.get(held.item).max_stack.saturating_sub(held.count);
+            n.min(stack.count).min(room)
+        }
+        Some(_) => 0,
+    };
+    if moved == 0 {
+        return;
+    }
+    match cursor {
+        Some(held) => held.count += moved,
+        None => {
+            *cursor = Some(ItemStack {
+                count: moved,
+                ..*stack
+            })
+        }
+    }
+    stack.count -= moved;
+    if stack.count == 0 {
+        *slot = None;
+    }
+}
+
+/// Pose un seul objet de la pile tenue : dans une case vide, ou sur une pile du même
+/// objet qui a encore de la place.
+fn place_one(slot: &mut Option<ItemStack>, cursor: &mut Option<ItemStack>, items: &ItemRegistry) {
+    let Some(held) = cursor.as_mut() else { return };
+    match slot {
+        None => {
+            *slot = Some(ItemStack { count: 1, ..*held });
+        }
+        Some(stack) if stackable(stack, held) && stack.count < items.get(stack.item).max_stack => {
+            stack.count += 1;
+        }
+        Some(_) => return,
+    }
+    held.count -= 1;
+    if held.count == 0 {
+        *cursor = None;
+    }
+}
+
+/// Le clic gauche : toute la pile.
+fn click_whole(slot: &mut Option<ItemStack>, cursor: &mut Option<ItemStack>, items: &ItemRegistry) {
     match (slot.as_mut(), cursor.as_mut()) {
         // Même objet, empilable : on complète la pile de la case.
         (Some(stack), Some(held))
@@ -185,17 +272,23 @@ impl Inventory {
     }
 
     /// Un clic sur une case de l'inventaire, de l'armure ou de la grille.
-    pub fn click(&mut self, slot: Slot, items: &ItemRegistry) {
+    pub fn click(&mut self, slot: Slot, items: &ItemRegistry, click: Click) {
         let mut cursor = self.cursor.take();
         let target = self.slot_mut(slot);
         match slot {
-            Slot::Armor(i) => click_slot(target, &mut cursor, items, |item| {
-                items
-                    .get(item)
-                    .armor
-                    .is_some_and(|a| a.slot == ArmorSlot::ALL[i])
-            }),
-            _ => click_slot(target, &mut cursor, items, |_| true),
+            Slot::Armor(i) => click_slot(
+                target,
+                &mut cursor,
+                items,
+                |item| {
+                    items
+                        .get(item)
+                        .armor
+                        .is_some_and(|a| a.slot == ArmorSlot::ALL[i])
+                },
+                click,
+            ),
+            _ => click_slot(target, &mut cursor, items, |_| true, click),
         }
         self.cursor = cursor;
     }
@@ -412,6 +505,65 @@ mod tests {
     }
 
     #[test]
+    fn right_click_takes_half_then_places_one_by_one() {
+        let items = items();
+        let torch = id(&items, "core:torch");
+        let mut slot = Some(ItemStack::new(torch, 7));
+        let mut cursor = None;
+        // Main vide : la moitié, arrondie au-dessus.
+        click_slot(&mut slot, &mut cursor, &items, |_| true, Click::Secondary);
+        assert_eq!(cursor.map(|c| c.count), Some(4));
+        assert_eq!(slot.map(|s| s.count), Some(3));
+        // Pile en main : un seul objet posé, dans une case vide puis sur la même pile.
+        let mut empty = None;
+        click_slot(&mut empty, &mut cursor, &items, |_| true, Click::Secondary);
+        assert_eq!(empty.map(|s| s.count), Some(1));
+        click_slot(&mut slot, &mut cursor, &items, |_| true, Click::Secondary);
+        assert_eq!(slot.map(|s| s.count), Some(4));
+        assert_eq!(cursor.map(|c| c.count), Some(2));
+        // Un autre objet dans la case : rien ne bouge.
+        let mut other = Some(ItemStack::new(id(&items, "core:oak_log"), 3));
+        click_slot(&mut other, &mut cursor, &items, |_| true, Click::Secondary);
+        assert_eq!(other.map(|s| s.count), Some(3));
+        assert_eq!(cursor.map(|c| c.count), Some(2));
+        // Le dernier objet posé vide la main.
+        click_slot(&mut empty, &mut cursor, &items, |_| true, Click::Secondary);
+        click_slot(&mut empty, &mut cursor, &items, |_| true, Click::Secondary);
+        assert_eq!(cursor, None);
+        assert_eq!(empty.map(|s| s.count), Some(3));
+        // Une pile d'un seul objet : la moitié arrondie, c'est l'objet entier.
+        let mut one = Some(ItemStack::new(torch, 1));
+        click_slot(&mut one, &mut cursor, &items, |_| true, Click::Secondary);
+        assert_eq!((one, cursor.map(|c| c.count)), (None, Some(1)));
+    }
+
+    #[test]
+    fn take_n_respects_the_slot_and_the_held_stack() {
+        let items = items();
+        let torch = id(&items, "core:torch");
+        let max = items.get(torch).max_stack;
+        let mut slot = Some(ItemStack::new(torch, 20));
+        let mut cursor = None;
+        click_slot(&mut slot, &mut cursor, &items, |_| true, Click::Take(5));
+        assert_eq!(
+            (slot.map(|s| s.count), cursor.map(|c| c.count)),
+            (Some(15), Some(5))
+        );
+        // Plus que la case n'en a : tout ce qu'elle a.
+        click_slot(&mut slot, &mut cursor, &items, |_| true, Click::Take(100));
+        assert_eq!((slot, cursor.map(|c| c.count)), (None, Some(20)));
+        // La pile tenue ne dépasse pas sa taille maximale.
+        let mut full = Some(ItemStack::new(torch, max));
+        click_slot(&mut full, &mut cursor, &items, |_| true, Click::Take(max));
+        assert_eq!(cursor.map(|c| c.count), Some(max));
+        assert_eq!(full.map(|s| s.count), Some(20));
+        // Un objet différent en main : on ne prend rien.
+        let mut logs = Some(ItemStack::new(id(&items, "core:oak_log"), 4));
+        click_slot(&mut logs, &mut cursor, &items, |_| true, Click::Take(2));
+        assert_eq!(logs.map(|s| s.count), Some(4));
+    }
+
+    #[test]
     fn stacks_respect_their_maximum() {
         let items = items();
         let (stone, pickaxe) = (id(&items, "core:stone"), id(&items, "core:iron_pickaxe"));
@@ -455,12 +607,12 @@ mod tests {
             cursor: Some(ItemStack::new(boots, 1)),
             ..Default::default()
         };
-        inv.click(Slot::Armor(0), &items); // la tête refuse des bottes
+        inv.click(Slot::Armor(0), &items, Click::Primary); // la tête refuse des bottes
         assert!(inv.armor[0].is_none());
-        inv.click(Slot::Armor(3), &items);
+        inv.click(Slot::Armor(3), &items, Click::Primary);
         assert_eq!(inv.armor[3].unwrap().item, boots);
         inv.cursor = Some(ItemStack::new(helmet, 1));
-        inv.click(Slot::Armor(0), &items);
+        inv.click(Slot::Armor(0), &items, Click::Primary);
         assert_eq!(inv.protection(&items), 4);
     }
 

@@ -21,7 +21,7 @@ use crate::VoxelGame;
 use crate::components::{
     Collider, Health, Hurt, Mob, MoveIntent, Player, PreviousPosition, Transform, Velocity, Wander,
 };
-use crate::inventory::{HOTBAR, ItemStack, Slot, click_slot};
+use crate::inventory::{Click, HOTBAR, ItemStack, Slot, click_slot};
 use crate::mobs::MobRegistry;
 use crate::player;
 
@@ -38,6 +38,31 @@ pub struct GameUi {
     pub menu_open: bool,
     /// Une icône par objet, créée au premier affichage.
     icons: HashMap<ItemId, TextureHandle>,
+    /// La fenêtre « Diviser la pile » (Maj + clic droit), si elle est ouverte.
+    pub split: Option<Split>,
+}
+
+/// Une pile qu'on s'apprête à diviser, et combien d'objets prendre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Split {
+    pub target: SlotRef,
+    pub amount: u32,
+}
+
+/// Une case, du joueur ou d'un conteneur (coffre, four).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlotRef {
+    Player(Slot),
+    Container(IVec3, usize),
+}
+
+/// Le bouton pressé sur une case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Press {
+    Primary,
+    Secondary,
+    /// Maj + clic droit : ouvrir « Diviser la pile ».
+    Split,
 }
 
 /// L'écran ouvert.
@@ -70,6 +95,7 @@ impl GameUi {
             inspector_open: false,
             menu_open: false,
             icons: HashMap::new(),
+            split: None,
         }
     }
 
@@ -180,7 +206,7 @@ impl VoxelGame {
         ui: &mut egui::Ui,
         stack: Option<ItemStack>,
         highlighted: bool,
-    ) -> bool {
+    ) -> Option<Press> {
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(SLOT_SIZE, SLOT_SIZE), egui::Sense::click());
         let painter = ui.painter().clone();
@@ -194,7 +220,18 @@ impl VoxelGame {
         if let Some(stack) = stack {
             self.paint_stack(&painter, rect, stack);
         }
-        let clicked = response.clicked();
+        let shift = ui.input(|i| i.modifiers.shift);
+        let press = if response.clicked() {
+            Some(Press::Primary)
+        } else if response.secondary_clicked() {
+            Some(if shift {
+                Press::Split
+            } else {
+                Press::Secondary
+            })
+        } else {
+            None
+        };
         if let Some(stack) = stack {
             let def = self.content.items.get(stack.item);
             let mut text = def.name.clone();
@@ -212,7 +249,7 @@ impl VoxelGame {
             }
             response.on_hover_text(text);
         }
-        clicked
+        press
     }
 
     /// L'icône, la quantité et la barre d'usure d'une pile.
@@ -254,8 +291,109 @@ impl VoxelGame {
     /// Une case de l'inventaire du joueur (ou de son armure, de sa grille).
     fn slot_widget(&mut self, ui: &mut egui::Ui, slot: Slot, highlighted: bool) {
         let stack = *self.inventory.slot_mut(slot);
-        if self.stack_widget(ui, stack, highlighted) {
-            self.inventory.click(slot, &self.content.items);
+        if let Some(press) = self.stack_widget(ui, stack, highlighted) {
+            self.press_slot(SlotRef::Player(slot), stack, press);
+        }
+    }
+
+    /// Un bouton pressé sur une case : un clic, ou l'ouverture de « Diviser la pile ».
+    /// Renvoie `true` si la case a pu changer.
+    fn press_slot(&mut self, target: SlotRef, stack: Option<ItemStack>, press: Press) -> bool {
+        let click = match press {
+            Press::Primary => Click::Primary,
+            Press::Secondary => Click::Secondary,
+            // Une pile en main : Maj + clic droit pose un objet, comme un clic droit.
+            Press::Split if self.inventory.cursor.is_some() => Click::Secondary,
+            Press::Split => {
+                if let Some(stack) = stack.filter(|s| s.count > 1) {
+                    self.ui.split = Some(Split {
+                        target,
+                        amount: stack.count / 2,
+                    });
+                }
+                return false;
+            }
+        };
+        self.click_target(target, click)
+    }
+
+    /// Applique un clic à une case du joueur ou d'un conteneur.
+    fn click_target(&mut self, target: SlotRef, click: Click) -> bool {
+        match target {
+            SlotRef::Player(slot) => {
+                self.inventory.click(slot, &self.content.items, click);
+                true
+            }
+            SlotRef::Container(pos, index) => self.click_container(pos, index, click),
+        }
+    }
+
+    /// La pile d'une case.
+    fn stack_at(&self, target: SlotRef) -> Option<ItemStack> {
+        match target {
+            SlotRef::Player(slot) => match slot {
+                Slot::Main(i) => self.inventory.slots[i],
+                Slot::Armor(i) => self.inventory.armor[i],
+                Slot::Craft(i) => self.inventory.craft[i],
+            },
+            SlotRef::Container(pos, index) => self.container_stack(pos, index),
+        }
+    }
+
+    /// La fenêtre « Diviser la pile » : choisir combien d'objets prendre en main.
+    fn split_window(&mut self, ctx: &egui::Context) {
+        let Some(mut split) = self.ui.split else {
+            return;
+        };
+        // La pile a disparu, ou on tient déjà quelque chose : on referme.
+        let Some(stack) = self.stack_at(split.target).filter(|s| s.count > 1) else {
+            self.ui.split = None;
+            return;
+        };
+        if self.inventory.cursor.is_some() {
+            self.ui.split = None;
+            return;
+        }
+        let name = self.content.items.get(stack.item).name.clone();
+        let mut action = None;
+        egui::Window::new("Diviser la pile")
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .order(egui::Order::Foreground)
+            .resizable(false)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.label(format!("{name} : {} au total", stack.count));
+                ui.horizontal(|ui| {
+                    ui.label("Prendre");
+                    ui.add(
+                        egui::DragValue::new(&mut split.amount)
+                            .range(1..=stack.count)
+                            .speed(0.2),
+                    );
+                    for (label, amount) in [("1", 1), ("½", stack.count / 2), ("Tout", stack.count)]
+                    {
+                        if ui.button(label).clicked() {
+                            split.amount = amount.max(1);
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if ui.button("Prendre").clicked() || enter {
+                        action = Some(true);
+                    }
+                    if ui.button("Annuler").clicked() {
+                        action = Some(false);
+                    }
+                });
+            });
+        match action {
+            Some(true) => {
+                self.ui.split = None;
+                self.click_target(split.target, Click::Take(split.amount));
+            }
+            Some(false) => self.ui.split = None,
+            None => self.ui.split = Some(split),
         }
     }
 
@@ -304,7 +442,9 @@ impl VoxelGame {
                     ui.horizontal(|ui| {
                         for i in 0..HOTBAR {
                             let selected = i == self.inventory.selected;
-                            if self.stack_widget(ui, self.inventory.slots[i], selected) {
+                            if self.stack_widget(ui, self.inventory.slots[i], selected)
+                                == Some(Press::Primary)
+                            {
                                 self.inventory.selected = i;
                             }
                         }
@@ -356,7 +496,7 @@ impl VoxelGame {
                 let (item, count) = r.result();
                 ItemStack::new(item, count)
             });
-            if self.stack_widget(ui, result, recipe.is_some())
+            if self.stack_widget(ui, result, recipe.is_some()) == Some(Press::Primary)
                 && let Some(recipe) = &recipe
             {
                 self.inventory
@@ -386,7 +526,9 @@ impl VoxelGame {
                 for recipe in craftable {
                     let (item, count) = recipe.result();
                     ui.horizontal(|ui| {
-                        if self.stack_widget(ui, Some(ItemStack::new(item, count)), false) {
+                        if self.stack_widget(ui, Some(ItemStack::new(item, count)), false)
+                            == Some(Press::Primary)
+                        {
                             self.inventory.craft_from_book(&recipe, &self.content.items);
                         }
                         let names: Vec<String> = recipe
@@ -455,8 +597,13 @@ impl VoxelGame {
                 }
                 ui.separator();
                 self.player_slots(ui);
-                ui.label("Clic : prendre, poser, empiler ou échanger une pile. Échap : fermer.");
+                ui.label(
+                    "Clic : prendre, poser ou échanger une pile. Clic droit : prendre la moitié, \
+                     ou poser un seul objet. Maj + clic droit : en prendre un nombre choisi. \
+                     Échap : fermer.",
+                );
             });
+        self.split_window(ctx);
         // La pile tenue suit la souris.
         if let (Some(held), Some(pointer)) = (self.inventory.cursor, ctx.pointer_hover_pos()) {
             let rect = egui::Rect::from_center_size(pointer, egui::vec2(SLOT_SIZE, SLOT_SIZE));
@@ -470,6 +617,15 @@ impl VoxelGame {
 
     /// Une case d'un conteneur (coffre, four) : ses objets sont dans l'entité du bloc.
     fn container_slot(&mut self, ui: &mut egui::Ui, pos: IVec3, index: usize) -> bool {
+        let stack = self.container_stack(pos, index);
+        match self.stack_widget(ui, stack, false) {
+            Some(press) => self.press_slot(SlotRef::Container(pos, index), stack, press),
+            None => false,
+        }
+    }
+
+    /// La pile rangée dans une case d'un conteneur.
+    fn container_stack(&self, pos: IVec3, index: usize) -> Option<ItemStack> {
         let stored = self.streamer().block_entity(pos).and_then(|e| {
             e.caps
                 .as_ref()?
@@ -480,19 +636,21 @@ impl VoxelGame {
                 .cloned()
                 .flatten()
         });
-        let stack = stored.as_ref().and_then(|s| {
+        stored.as_ref().and_then(|s| {
             Some(ItemStack {
                 item: self.content.items.id(&s.item)?,
                 count: s.count,
                 damage: s.damage,
             })
-        });
-        if !self.stack_widget(ui, stack, false) {
-            return false;
-        }
-        let mut slot = stack;
+        })
+    }
+
+    /// Un clic sur une case d'un conteneur : la pile est relue puis réécrite dans
+    /// l'entité du bloc.
+    fn click_container(&mut self, pos: IVec3, index: usize, click: Click) -> bool {
+        let mut slot = self.container_stack(pos, index);
         let mut cursor = self.inventory.cursor.take();
-        click_slot(&mut slot, &mut cursor, &self.content.items, |_| true);
+        click_slot(&mut slot, &mut cursor, &self.content.items, |_| true, click);
         self.inventory.cursor = cursor;
         let items = self.content.items.clone();
         let mut streamer = self.streamer_mut();

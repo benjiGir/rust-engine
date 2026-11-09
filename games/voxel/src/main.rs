@@ -1192,6 +1192,7 @@ impl VoxelGame {
     /// Ferme l'écran ouvert : la grille d'artisanat et la main retournent dans
     /// l'inventaire (ce qui n'y tient pas tombe par terre).
     fn close_screen(&mut self) {
+        self.ui.split = None;
         let loose = self.inventory.put_away(&self.content.items);
         let at = player::body(&self.ecs, self.player)
             .position
