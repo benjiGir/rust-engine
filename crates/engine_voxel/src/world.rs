@@ -1,6 +1,10 @@
 //! Le monde : une table de chunks indexée par leur position.
 
-use std::collections::HashMap;
+// `FxHashMap` : une `HashMap` avec une fonction de hachage beaucoup plus rapide que celle
+// par défaut (SipHash). SipHash résiste aux attaques par collisions (utile pour un serveur
+// web qui hache des clés envoyées par des inconnus) ; nos clés sont des coordonnées, et
+// on les hache des millions de fois par seconde. Le compilateur Rust lui-même utilise Fx.
+use rustc_hash::FxHashMap as HashMap;
 use std::sync::Arc;
 
 use glam::IVec3;
@@ -44,7 +48,7 @@ impl World {
 
     pub fn with_registry(registry: Arc<BlockRegistry>) -> Self {
         Self {
-            chunks: HashMap::new(),
+            chunks: HashMap::default(),
             registry,
         }
     }

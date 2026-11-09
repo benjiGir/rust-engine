@@ -1,5 +1,5 @@
 //! Les événements du jeu. Envoyés par les systèmes, lus par qui veut : le son, les
-//! statistiques, et plus tard les mods (phase 9b). Chaque type est rangé comme
+//! statistiques, et les mods (voir `modding.rs`). Chaque type est rangé comme
 //! ressource du monde ECS dans un `Events<T>` (double tampon, voir `engine_ecs`).
 
 use engine_ecs::{Entity, Events, World};
@@ -29,6 +29,8 @@ pub struct EntitySpawned {
 pub struct EntityDied {
     pub entity: Entity,
     pub kind: String,
+    /// Où elle est morte (pour les mods : un butin, une explosion...).
+    pub position: glam::Vec3,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

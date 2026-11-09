@@ -37,8 +37,11 @@ pub trait QueryParam {
     fn access(out: &mut Vec<(TypeId, &'static str, bool)>);
     /// `None` si un des stockages n'existe pas (aucune entité n'a ce composant).
     fn borrow(world: &World) -> Option<Self::Guard<'_>>;
-    /// Les entités à parcourir : celles du plus petit stockage de la requête.
-    fn driver(guard: &Self::Guard<'_>) -> (usize, Vec<Entity>);
+    /// Le stockage à parcourir (le plus petit de la requête) : son numéro dans le tuple
+    /// et son nombre d'éléments.
+    fn pick_driver(guard: &Self::Guard<'_>) -> (usize, usize);
+    /// La `i`-ème entité de ce stockage.
+    fn driver_entity(guard: &Self::Guard<'_>, which: usize, i: usize) -> Entity;
     fn fetch<'g>(guard: &'g mut Self::Guard<'_>, entity: Entity) -> Option<Self::Item<'g>>;
 }
 
@@ -54,8 +57,12 @@ impl<T: 'static> QueryParam for &T {
         world.borrow_storage::<T>()
     }
 
-    fn driver(guard: &Self::Guard<'_>) -> (usize, Vec<Entity>) {
-        (guard.entities().len(), guard.entities().to_vec())
+    fn pick_driver(guard: &Self::Guard<'_>) -> (usize, usize) {
+        (0, guard.entities().len())
+    }
+
+    fn driver_entity(guard: &Self::Guard<'_>, _: usize, i: usize) -> Entity {
+        guard.entities()[i]
     }
 
     fn fetch<'g>(guard: &'g mut Self::Guard<'_>, entity: Entity) -> Option<Self::Item<'g>> {
@@ -75,8 +82,12 @@ impl<T: 'static> QueryParam for &mut T {
         world.borrow_storage_mut::<T>()
     }
 
-    fn driver(guard: &Self::Guard<'_>) -> (usize, Vec<Entity>) {
-        (guard.entities().len(), guard.entities().to_vec())
+    fn pick_driver(guard: &Self::Guard<'_>) -> (usize, usize) {
+        (0, guard.entities().len())
+    }
+
+    fn driver_entity(guard: &Self::Guard<'_>, _: usize, i: usize) -> Entity {
+        guard.entities()[i]
     }
 
     fn fetch<'g>(guard: &'g mut Self::Guard<'_>, entity: Entity) -> Option<Self::Item<'g>> {
@@ -101,17 +112,24 @@ macro_rules! impl_query_tuple {
                 Some(($($name::borrow(world)?,)+))
             }
 
-            fn driver(guard: &Self::Guard<'_>) -> (usize, Vec<Entity>) {
+            fn pick_driver(guard: &Self::Guard<'_>) -> (usize, usize) {
                 // On parcourt le plus petit stockage : inutile de tester 10 000 entités
                 // s'il n'y en a que 3 qui ont le composant le plus rare.
-                let mut best: Option<(usize, Vec<Entity>)> = None;
+                let mut best = (0, usize::MAX);
                 $(
-                    let candidate = $name::driver(&guard.$index);
-                    if best.as_ref().is_none_or(|b| candidate.0 < b.0) {
-                        best = Some(candidate);
+                    let len = $name::pick_driver(&guard.$index).1;
+                    if len < best.1 {
+                        best = ($index, len);
                     }
                 )+
-                best.unwrap_or_default()
+                best
+            }
+
+            fn driver_entity(guard: &Self::Guard<'_>, which: usize, i: usize) -> Entity {
+                match which {
+                    $( $index => $name::driver_entity(&guard.$index, 0, i), )+
+                    _ => unreachable!("numéro de stockage hors du tuple"),
+                }
             }
 
             fn fetch<'g>(guard: &'g mut Self::Guard<'_>, entity: Entity) -> Option<Self::Item<'g>> {
@@ -145,8 +163,13 @@ impl<'w, Q: QueryParam> Query<'w, Q> {
         let Some(guard) = self.guard.as_mut() else {
             return;
         };
-        let (_, entities) = Q::driver(guard);
-        for entity in entities {
+        // On lit l'entité `i` (emprunt partagé, rendu aussitôt), puis on emprunte les
+        // stockages en écriture pour elle : deux emprunts successifs, jamais simultanés.
+        // Pas besoin de copier la liste des entités, et la taille des stockages ne peut pas
+        // changer pendant la boucle (ils sont empruntés, les créations sont différées).
+        let (which, len) = Q::pick_driver(guard);
+        for i in 0..len {
+            let entity = Q::driver_entity(guard, which, i);
             if let Some(item) = Q::fetch(guard, entity) {
                 f(entity, item);
             }

@@ -27,6 +27,8 @@ pub struct Changes {
     pub textures: bool,
     pub blocks: bool,
     pub sounds: bool,
+    /// Un script de mod (`.wasm`) recompilé.
+    pub scripts: bool,
 }
 
 impl Changes {
@@ -35,10 +37,11 @@ impl Changes {
         textures: true,
         blocks: true,
         sounds: true,
+        scripts: true,
     };
 
     pub fn any(self) -> bool {
-        self.shader || self.textures || self.blocks || self.sounds
+        self.shader || self.textures || self.blocks || self.sounds || self.scripts
     }
 
     /// Le type de fichier décide de ce qu'il faut recharger.
@@ -50,6 +53,7 @@ impl Changes {
                 Some("wgsl") => changes.shader = true,
                 Some("png") => changes.textures = true,
                 Some("wav" | "ogg") => changes.sounds = true,
+                Some("wasm") => changes.scripts = true,
                 Some("ron") if name == "blocks.ron" => changes.blocks = true,
                 _ => {}
             }
@@ -122,9 +126,9 @@ pub enum RegistryReload {
 pub fn reload_registry(
     current: &BlockRegistry,
     assets: &Path,
-    mods: Option<&Path>,
+    mods: &[(String, PathBuf)],
 ) -> RegistryReload {
-    let fresh = match BlockRegistry::load(assets, mods) {
+    let fresh = match BlockRegistry::load_mods(assets, mods) {
         Ok(fresh) => fresh,
         Err(err) => return RegistryReload::Failed(err),
     };
@@ -155,7 +159,8 @@ mod tests {
                 shader: true,
                 textures: true,
                 blocks: false,
-                sounds: false
+                sounds: false,
+                scripts: false,
             }
         );
         let ron = [
@@ -181,7 +186,7 @@ mod tests {
     fn invalid_blocks_file_keeps_the_old_registry() {
         let current = BlockRegistry::builtin();
         let root = temp_assets("invalid", "[ (id: \"core:stone\", name: ");
-        match reload_registry(&current, &root.join("assets"), None) {
+        match reload_registry(&current, &root.join("assets"), &[]) {
             RegistryReload::Failed(err) => assert!(format!("{err:#}").contains("RON")),
             _ => panic!("un fichier invalide doit être refusé"),
         }
@@ -195,7 +200,7 @@ mod tests {
 
         let recoloured = source.replace("(0.5, 0.5, 0.52)", "(0.9, 0.1, 0.1)");
         let root = temp_assets("recoloured", &recoloured);
-        match reload_registry(&current, &root.join("assets"), None) {
+        match reload_registry(&current, &root.join("assets"), &[]) {
             RegistryReload::Applied(fresh) => {
                 let stone = fresh.id("core:stone").unwrap();
                 assert_eq!(fresh.def(stone).color, [0.9, 0.1, 0.1]);
@@ -210,7 +215,7 @@ mod tests {
         );
         let root = temp_assets("added", &added);
         assert!(matches!(
-            reload_registry(&current, &root.join("assets"), None),
+            reload_registry(&current, &root.join("assets"), &[]),
             RegistryReload::Incompatible(_)
         ));
     }

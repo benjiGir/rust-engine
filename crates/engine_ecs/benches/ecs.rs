@@ -100,5 +100,42 @@ fn bench(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, bench);
+/// Le scénario « usine » : des objets qui avancent sur des convoyeurs. Chaque objet a
+/// une position, une vitesse et une étiquette ; le système les fait avancer et les
+/// renvoie au début du tapis. Un pas de simulation complet.
+#[derive(Clone, Copy)]
+struct Item {
+    belt_length: f32,
+}
+
+fn conveyors(c: &mut Criterion) {
+    let mut group = c.benchmark_group("convoyeurs");
+    for n in [10_000, 50_000] {
+        let mut world = engine_ecs::World::new();
+        for i in 0..n {
+            world.spawn((
+                Position([0.0, i as f32, 0.0]),
+                Velocity([2.0 / 60.0, 0.0, 0.0]),
+                Item {
+                    belt_length: 16.0 + (i % 7) as f32,
+                },
+            ));
+        }
+        group.bench_function(BenchmarkId::new("pas de simulation", n), |b| {
+            b.iter(|| {
+                world
+                    .query::<(&mut Position, &Velocity, &Item)>()
+                    .for_each(|_, (p, v, item)| {
+                        p.0[0] += v.0[0];
+                        if p.0[0] > item.belt_length {
+                            p.0[0] -= item.belt_length;
+                        }
+                    })
+            })
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, bench, conveyors);
 criterion_main!(benches);

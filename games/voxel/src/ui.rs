@@ -7,12 +7,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::shared::StreamerExt;
 use engine_core::winit::window::Window;
 use engine_ecs::{Entity, World};
 use engine_inspect::Inspect;
 use engine_render::egui::{self, Color32, TextureHandle, TextureOptions};
 use engine_render::{TEXTURE_SIZE, UiFrame};
-use engine_voxel::{BlockId, BlockRegistry, ChunkStreamer};
+use engine_voxel::{BlockId, BlockRegistry};
 
 use crate::VoxelGame;
 use crate::components::{
@@ -285,10 +286,11 @@ impl VoxelGame {
     fn draw_inspector(&mut self, ctx: &egui::Context) {
         let eye = player::eye(&self.ecs, self.player, 1.0);
         let chunk = engine_voxel::World::chunk_containing(eye);
-        let streamer_stats = self.ecs.resource::<ChunkStreamer>().stats();
+        let streamer_stats = self.ecs.streamer().borrow().stats();
         let target_light = self.target.map(|hit| {
             self.ecs
-                .resource::<ChunkStreamer>()
+                .streamer()
+                .borrow()
                 .world()
                 .light(hit.block_pos + hit.normal)
         });

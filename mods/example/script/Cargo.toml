@@ -1,0 +1,17 @@
+[package]
+name = "example_mod"
+description = "Le script du mod d'exemple : un casseur de blocs et des rubis."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+# `cdylib` : une bibliothèque autonome, ici un module WebAssembly (`cargo xtask build-mods`).
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+mod_sdk = { path = "../../../crates/mod_sdk" }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

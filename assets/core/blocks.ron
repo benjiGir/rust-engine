@@ -45,7 +45,7 @@
     (
         id: "core:water", name: "Eau", color: (0.15, 0.35, 0.75),
         solid: false, transparent: true, selectable: false, placeable: false, alpha: 0.6,
-        liquid: true, light_opacity: 2, texture: "water",
+        liquid: true, light_opacity: 2, texture: "water", fluid: "water",
     ),
     (
         id: "core:glass", name: "Verre", color: (0.75, 0.88, 0.95),
@@ -61,6 +61,25 @@
     // Remplace, au chargement d'une sauvegarde, un bloc dont le mod n'est plus installé.
     // Son vrai identifiant est gardé à côté et réécrit à la sauvegarde suivante.
     (id: "core:unknown", name: "Bloc inconnu", color: (1.0, 0.0, 1.0), placeable: false),
+    // Les machines de base. `behavior` relie le bloc à un comportement : natif (dans le
+    // jeu) ou fourni par le script d'un mod.
+    // Une horloge : elle émet un signal qui s'allume et s'éteint toutes les 0,5 s.
+    (
+        id: "core:clock", name: "Horloge", color: (0.75, 0.2, 0.15), texture: "clock",
+        behavior: "core:clock",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    // Une lampe : elle s'allume quand un voisin émet un signal.
+    (
+        id: "core:lamp", name: "Lampe", color: (0.45, 0.35, 0.2), texture: "lamp",
+        behavior: "core:lamp",
+        sounds: (step: "step_hard", break: "break_glass", place: "place_hard"),
+    ),
+    (
+        id: "core:lamp_lit", name: "Lampe allumée", color: (1.0, 0.85, 0.5), texture: "lamp_lit",
+        behavior: "core:lamp", light_emission: 15, placeable: false,
+        sounds: (step: "step_hard", break: "break_glass", place: "place_hard"),
+    ),
     (
         id: "core:glowstone", name: "Pierre lumineuse", color: (0.98, 0.85, 0.5),
         light_emission: 15, texture: "glowstone",

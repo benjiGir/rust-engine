@@ -1,13 +1,19 @@
-// Un mod d'exemple : il ajoute un bloc de rubis.
+// Un mod d'exemple : un bloc de rubis et un casseur de blocs.
 //
 // Un mod est un dossier dans `mods/`. Son nom (ici `example`) est son espace
 // de noms : tous ses identifiants doivent commencer par `example:`.
-// Les mods sont chargés après `core`, par ordre alphabétique de dossier.
+// Les mods sont chargés après leurs dépendances (voir `mod.ron`).
 [
     // La texture vient de `mods/example/textures/ruby.png` ; les sons réutilisent ceux
     // du jeu (`core:...`). Un mod peut aussi fournir les siens dans `sounds/`.
     (
         id: "example:ruby", name: "Rubis", color: (0.7, 0.05, 0.12), texture: "ruby",
         sounds: (step: "core:step_hard", break: "core:break_glass", place: "core:place_hard"),
+    ),
+    // Une machine : son comportement est écrit dans le script du mod (`script/src/lib.rs`).
+    (
+        id: "example:breaker", name: "Casseur", color: (0.45, 0.45, 0.5), texture: "breaker",
+        behavior: "breaker",
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
 ]

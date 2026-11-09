@@ -42,15 +42,19 @@ mod events;
 mod hot_reload;
 mod inventory;
 mod mobs;
+mod modding;
 mod persistence;
 mod player;
 mod screenshots;
+mod shared;
 mod stats;
+mod stress;
 mod ui;
 
-use std::cell::{Ref, RefMut};
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -61,10 +65,11 @@ use engine_core::winit::event::WindowEvent;
 use engine_core::winit::keyboard::KeyCode;
 use engine_core::{AppConfig, Context, Game};
 use engine_ecs::{Entity, EventReader, Events, Schedule, Stage};
+use engine_mods::ModEvent;
 use engine_render::{Aabb, Camera, ColorVertex, Fog, MeshId, RenderStats, Renderer, Sun};
 use engine_voxel::{
-    BlockId, BlockRegistry, CHUNK_SIZE, ChunkMesh, ChunkStreamer, MeshVertex, RayHit, StreamEvent,
-    StreamingConfig, TerrainGenerator, raycast,
+    BlockId, BlockRegistry, CHUNK_SIZE, ChunkMesh, ChunkStreamer, GridPos, MachineAction,
+    MeshVertex, RayHit, StreamEvent, StreamingConfig, TerrainGenerator, raycast,
 };
 use glam::{IVec3, Vec2, Vec3};
 
@@ -74,6 +79,7 @@ use events::{BlockBroken, BlockPlaced, EntityDied, PlayerDamaged};
 use inventory::Inventory;
 use mobs::MobRegistry;
 use player::{FLY_SPEED, FLY_SPRINT_FACTOR, MoveMode, SPRINT_SPEED, WALK_SPEED};
+use shared::StreamerExt;
 use stats::FrameStats;
 
 const MOUSE_SENSITIVITY: f32 = 0.0025;
@@ -109,6 +115,16 @@ struct VoxelGame {
     ecs: engine_ecs::World,
     schedule: Schedule,
     registry: Arc<BlockRegistry>,
+    /// Le monde de blocs, partagé avec l'ECS (ressource `SharedStreamer`) et les mods.
+    world: Rc<RefCell<ChunkStreamer>>,
+    /// Les machines et les scripts des mods.
+    mods: modding::ModSystem,
+    /// Les dossiers des mods, dans l'ordre de chargement.
+    mod_dirs: Vec<(String, PathBuf)>,
+    /// Les lecteurs d'événements qui les transmettent aux mods.
+    mod_readers: EventReaders,
+    /// `VOXEL_STRESS=N` : le test de charge.
+    stress: Option<stress::StressTest>,
     /// Le maillage GPU de chaque chunk affiché.
     meshes: HashMap<IVec3, MeshId>,
     /// L'entité du joueur dans `ecs`.
@@ -152,16 +168,15 @@ impl Game for VoxelGame {
         let mut renderer = Renderer::new(ctx.window.clone())?;
         renderer.crosshair = true;
 
-        let registry = Arc::new(load_registry()?);
+        // L'ordre des mods (chacun après ses dépendances) fixe l'ordre des registres.
+        let assets = assets_dir();
+        let mod_order = modding::resolve_order(&assets);
+        let mod_dirs = modding::mod_dirs(&mod_order);
+        let registry = Arc::new(load_registry(&mod_dirs)?);
         let block_textures = assets::load_textures(&registry);
         renderer.set_block_textures(&block_textures);
-        let assets = assets_dir();
-        let mob_registry = MobRegistry::load(
-            &assets,
-            assets.parent().map(|root| root.join("mods")).as_deref(),
-            &registry,
-        )
-        .context("chargement des créatures")?;
+        let mob_registry =
+            MobRegistry::load(&assets, &mod_dirs, &registry).context("chargement des créatures")?;
         log::info!("{} types de créatures", mob_registry.len());
 
         // Les modes automatiques n'écrivent pas dans le monde du joueur, sauf demande explicite.
@@ -244,9 +259,11 @@ impl Game for VoxelGame {
         let (eye, yaw, pitch, mode) = persistence::saved_eye(meta.as_ref()).unwrap_or(default_view);
         // Le monde ECS : le streamer et les registres deviennent des ressources, que les
         // systèmes (physique, IA) lisent sans que le jeu ait à les leur passer.
+        let world = Rc::new(RefCell::new(streamer));
+        let mods = modding::ModSystem::new(&mod_order, world.clone(), registry.clone());
         let mut ecs = engine_ecs::World::new();
         events::register(&mut ecs);
-        ecs.insert_resource(streamer);
+        ecs.insert_resource(shared::SharedStreamer(world.clone()));
         ecs.insert_resource(Arc::new(mob_registry));
         ecs.insert_resource(mobs::FixedDt(ctx.fixed_dt));
         ecs.insert_resource(mobs::GameRng(0x2545_F491_4F6C_DD1D ^ seed as u64));
@@ -262,6 +279,7 @@ impl Game for VoxelGame {
             .add(Stage::FixedUpdate, "créatures : attaque", mobs::attack)
             .add(Stage::FixedUpdate, "créatures : mort", mobs::cleanup);
         let readers = EventReaders::new(&ecs);
+        let mod_readers = EventReaders::new(&ecs);
 
         let camera = Camera {
             position: player::eye(&ecs, player, 1.0),
@@ -304,6 +322,11 @@ impl Game for VoxelGame {
             ecs,
             schedule,
             registry,
+            world,
+            mods,
+            mod_dirs,
+            mod_readers,
+            stress: stress::StressTest::from_env(),
             meshes: HashMap::new(),
             player,
             inventory,
@@ -349,6 +372,17 @@ impl Game for VoxelGame {
         };
         player::set_intent(&self.ecs, self.player, walk, jump);
         self.schedule.run(Stage::FixedUpdate, &mut self.ecs);
+        // Les machines : un tick tous les 3 pas (20 par seconde).
+        let (actions, machine_tick) = self.mods.fixed_step();
+        self.apply_machine_actions(actions);
+        if let Some(stress) = &mut self.stress {
+            let eye = player::eye(&self.ecs, self.player, 1.0);
+            let ready = self.world.borrow().is_idle();
+            stress.build_if_ready(ready, &mut self.ecs, &mut self.mods, eye);
+            let start = Instant::now();
+            stress::conveyors(&mut self.ecs);
+            stress.record(machine_tick.map(|t| t.duration), start.elapsed());
+        }
         self.footsteps(ctx.fixed_dt);
         self.respawn_if_dead();
     }
@@ -457,6 +491,7 @@ impl Game for VoxelGame {
 
         self.schedule.run(Stage::Update, &mut self.ecs);
         self.play_event_sounds();
+        self.forward_events_to_mods();
         // Fin de l'image : les événements lus tournent leurs tampons.
         events::update(&self.ecs);
 
@@ -576,6 +611,9 @@ impl VoxelGame {
     /// Recharge ce qui a changé sur le disque. Une erreur est affichée dans les logs,
     /// et l'ancienne version reste en place : le jeu ne plante jamais pour un asset.
     fn reload(&mut self, changes: hot_reload::Changes) {
+        if changes.scripts {
+            self.mods.reload_scripts();
+        }
         if changes.shader {
             let result = std::fs::read_to_string(engine_render::CHUNK_SHADER_PATH)
                 .map_err(anyhow::Error::from)
@@ -587,9 +625,7 @@ impl VoxelGame {
         }
         let mut textures = changes.textures;
         if changes.blocks {
-            let assets = assets_dir();
-            let mods = assets.parent().map(|root| root.join("mods"));
-            match hot_reload::reload_registry(&self.registry, &assets, mods.as_deref()) {
+            match hot_reload::reload_registry(&self.registry, &assets_dir(), &self.mod_dirs) {
                 hot_reload::RegistryReload::Applied(fresh) => {
                     self.registry = Arc::new(fresh);
                     let registry = self.registry.clone();
@@ -671,6 +707,9 @@ impl VoxelGame {
         let done = self.streamer_mut().set_block(pos, block);
         if done {
             self.frame_stats.record_edit(start.elapsed());
+            // Les machines voisines (et la nouvelle, si c'en est une) se réveillent.
+            let actions = self.mods.block_changed(pos);
+            self.apply_machine_actions(actions);
             // Le bloc a changé : le rayon doit être relancé à la prochaine image.
             self.target = None;
             // On annonce le changement : le son (et plus tard les mods) s'y abonnent.
@@ -738,13 +777,98 @@ impl VoxelGame {
         log::info!("le joueur est mort : retour au point de départ");
     }
 
-    /// Le streamer des chunks, rangé comme ressource du monde ECS.
+    /// Le streamer des chunks (partagé avec l'ECS et les mods).
     fn streamer(&self) -> Ref<'_, ChunkStreamer> {
-        self.ecs.resource::<ChunkStreamer>()
+        self.world.borrow()
     }
 
     fn streamer_mut(&self) -> RefMut<'_, ChunkStreamer> {
-        self.ecs.resource_mut::<ChunkStreamer>()
+        self.world.borrow_mut()
+    }
+
+    /// Ce que les machines et les scripts demandent au jeu.
+    fn apply_machine_actions(&mut self, actions: Vec<MachineAction>) {
+        for action in actions {
+            match action {
+                MachineAction::GiveItem { block, count } => {
+                    let left = self.inventory.add(block, count);
+                    if left > 0 {
+                        log::info!("inventaire plein : {left} objet(s) perdu(s)");
+                    }
+                }
+                MachineAction::SpawnEntity { kind, position } => {
+                    let registry = self.ecs.resource::<Arc<MobRegistry>>().clone();
+                    match registry.id(&kind) {
+                        Some(id) => {
+                            mobs::spawn_mob(&mut self.ecs, id, position);
+                        }
+                        None => log::warn!("créature inconnue demandée par un mod : {kind}"),
+                    }
+                }
+                MachineAction::BlockBroken { pos, block } => {
+                    events::send(&self.ecs, BlockBroken { pos, block });
+                }
+                MachineAction::Log(message) => log::info!("{message}"),
+            }
+        }
+    }
+
+    /// Transmet les événements du jeu aux scripts des mods.
+    fn forward_events_to_mods(&mut self) {
+        let mut events = Vec::new();
+        for e in self
+            .mod_readers
+            .broken
+            .read(&self.ecs.resource::<Events<BlockBroken>>())
+        {
+            events.push(ModEvent::BlockBroken {
+                at: GridPos::world(e.pos),
+                block: e.block,
+            });
+        }
+        // La direction du regard, ramenée à l'axe horizontal le plus proche : pour
+        // orienter les machines posées (un casseur regarde dans la direction du joueur).
+        let forward = self.camera.forward_flat();
+        let facing = if forward.x.abs() > forward.z.abs() {
+            IVec3::new(forward.x.signum() as i32, 0, 0)
+        } else {
+            IVec3::new(0, 0, forward.z.signum() as i32)
+        };
+        for e in self
+            .mod_readers
+            .placed
+            .read(&self.ecs.resource::<Events<BlockPlaced>>())
+        {
+            events.push(ModEvent::BlockPlaced {
+                at: GridPos::world(e.pos),
+                block: e.block,
+                facing,
+            });
+        }
+        for e in self
+            .mod_readers
+            .died
+            .read(&self.ecs.resource::<Events<EntityDied>>())
+        {
+            events.push(ModEvent::EntityDied {
+                kind: e.kind.clone(),
+                position: e.position,
+            });
+        }
+        for e in self
+            .mod_readers
+            .damaged
+            .read(&self.ecs.resource::<Events<PlayerDamaged>>())
+        {
+            events.push(ModEvent::PlayerDamaged {
+                amount: e.amount,
+                health_left: e.health_left,
+            });
+        }
+        for event in events {
+            let actions = self.mods.dispatch(&event);
+            self.apply_machine_actions(actions);
+        }
     }
 
     /// Les bruits de pas (selon le bloc sous les pieds) et l'éclaboussure en entrant dans l'eau.
@@ -857,6 +981,21 @@ impl VoxelGame {
                 stream.in_flight,
                 render.meshes_drawn,
                 render.meshes_total,
+            );
+            let tick = self.mods.last_tick;
+            log::info!(
+                "machines : tick {} ({} programmés, {} voisins, {:.2} ms), {} en attente | scripts : {} chargé(s){}",
+                self.mods.machines.scheduler().tick(),
+                tick.scheduled,
+                tick.neighbor_updates,
+                modding::ms(tick.duration),
+                self.mods.machines.scheduler().pending(),
+                self.mods.scripts_loaded(),
+                self.mods
+                    .disabled()
+                    .iter()
+                    .map(|(id, why)| format!(", « {id} » désactivé : {why}"))
+                    .collect::<String>(),
             );
         }
     }
@@ -981,7 +1120,8 @@ impl Demo {
         let feet = player::body(ecs, player).position;
         let ahead = feet + forward * 0.8 + Vec3::Y * 0.5;
         let blocked = ecs
-            .resource::<ChunkStreamer>()
+            .streamer()
+            .borrow()
             .world()
             .is_solid(ahead.floor().as_ivec3());
         (forward * SPRINT_SPEED, blocked)
@@ -1016,6 +1156,10 @@ fn starter_inventory(registry: &BlockRegistry) -> Inventory {
         ("core:glowstone", 8),
         ("core:stone", 32),
         ("example:ruby", 4),
+        // De quoi construire un mécanisme : horloge → lampe, horloge → casseur.
+        ("core:clock", 8),
+        ("core:lamp", 8),
+        ("example:breaker", 4),
     ] {
         if let Some(id) = registry.id(key) {
             inventory.add(id, count);
@@ -1025,10 +1169,9 @@ fn starter_inventory(registry: &BlockRegistry) -> Inventory {
 }
 
 /// Lit le registre des blocs : `assets/core` puis les mods de `mods/`.
-fn load_registry() -> Result<BlockRegistry> {
+fn load_registry(mods: &[(String, PathBuf)]) -> Result<BlockRegistry> {
     let assets = assets_dir();
-    let mods = assets.parent().map(|root| root.join("mods"));
-    let registry = BlockRegistry::load(&assets, mods.as_deref())
+    let registry = BlockRegistry::load_mods(&assets, mods)
         .with_context(|| format!("chargement des blocs depuis {}", assets.display()))?;
     let keys: Vec<&str> = registry
         .iter()
@@ -1037,6 +1180,12 @@ fn load_registry() -> Result<BlockRegistry> {
         .collect();
     log::info!("{} blocs chargés : {}", keys.len(), keys.join(", "));
     Ok(registry)
+}
+
+/// Le registre complet (core et mods, dans l'ordre), pour les tests.
+#[cfg(test)]
+fn test_registry() -> BlockRegistry {
+    load_registry(&modding::mod_dirs(&modding::resolve_order(&assets_dir()))).unwrap()
 }
 
 /// Démarre la surveillance des assets, des mods et des shaders (si les dossiers existent).
@@ -1142,7 +1291,8 @@ mod tests {
 
     #[test]
     fn game_finds_core_and_mod_blocks() {
-        let registry = load_registry().unwrap();
+        let order = modding::resolve_order(&assets_dir());
+        let registry = load_registry(&modding::mod_dirs(&order)).unwrap();
         let hotbar: Vec<&str> = registry
             .placeable()
             .map(|id| registry.def(id).key.as_str())

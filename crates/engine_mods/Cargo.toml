@@ -1,0 +1,26 @@
+[package]
+name = "engine_mods"
+description = "Les mods : manifestes, ordre de chargement et scripts WebAssembly en bac à sable."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+engine_voxel = { workspace = true }
+glam = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }
+semver = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+wasmtime = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "wasm"
+harness = false
+
+[lints]
+workspace = true

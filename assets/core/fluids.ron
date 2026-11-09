@@ -1,0 +1,11 @@
+// Les fluides du jeu de base. Un mod peut ajouter les siens dans `mods/<id>/fluids.ron`.
+//
+// - `viscosity` : la lenteur d'écoulement, en ticks entre deux avancées (l'eau 5, la lave 30).
+// - `density` : en kg/m³ ; négative pour un gaz qui monte.
+// - `temperature` : en kelvins (pour fondre, cuire, refroidir).
+// - `light_emission` : de 0 à 15, comme les blocs.
+// - `color` : rouge, vert, bleu, opacité.
+[
+    (id: "core:water", name: "Eau", color: (0.2, 0.4, 0.9, 0.6), viscosity: 5, density: 1000, temperature: 300),
+    (id: "core:lava", name: "Lave", color: (0.95, 0.4, 0.05, 1.0), viscosity: 30, density: 3000, temperature: 1300, light_emission: 15),
+]

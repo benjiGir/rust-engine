@@ -1,6 +1,35 @@
 //! Un chunk : 32×32×32 blocs rangés dans un seul tableau.
 
+use rustc_hash::FxHashMap as HashMap;
+
+use serde::{Deserialize, Serialize};
+
 use crate::block::BlockId;
+use crate::capabilities::Capabilities;
+
+/// L'état attaché à un bloc « actif » (une machine, une lampe, une horloge...).
+///
+/// Comme dans Minecraft, une machine n'est pas une entité de l'ECS : c'est un bloc, plus
+/// ce petit état rangé dans son chunk. Il est donc sauvegardé, déchargé et rechargé avec
+/// le chunk, sans rien faire de spécial, et ne coûte rien tant que la machine dort.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct BlockEntity {
+    /// La puissance émise vers les voisins, de 0 à 15 (comme la redstone).
+    pub power: u8,
+    /// Des données libres, que le comportement du bloc (natif ou mod) interprète à sa façon.
+    pub data: Vec<u8>,
+    /// Énergie, fluides, objets, rotation : les conteneurs génériques que les machines
+    /// de mods différents savent s'échanger. Dans une boîte (8 octets quand il n'y en a pas) :
+    /// la plupart des blocs actifs n'en ont pas besoin.
+    pub caps: Option<Box<Capabilities>>,
+}
+
+impl BlockEntity {
+    /// Les capacités, créées vides au premier usage.
+    pub fn caps_mut(&mut self) -> &mut Capabilities {
+        self.caps.get_or_insert_with(Default::default)
+    }
+}
 
 /// Côté d'un chunk, en blocs.
 pub const CHUNK_SIZE: usize = 32;
@@ -19,10 +48,12 @@ pub const DEFAULT_LIGHT: u8 = 0xF0;
 ///
 /// À côté des blocs, la lumière : un octet par bloc (voir [`DEFAULT_LIGHT`]).
 /// Par défaut, plein ciel (15) et aucune torche (0), la lumière d'un chunk d'air.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Chunk {
     blocks: Box<[BlockId]>,
     light: Box<[u8]>,
+    /// Les blocs actifs du chunk, par position ([`Chunk::index`]). Presque toujours vide.
+    block_entities: HashMap<u16, BlockEntity>,
 }
 
 impl Default for Chunk {
@@ -38,6 +69,7 @@ impl Chunk {
             // `vec![x; n]` puis `into_boxed_slice` : on fige la taille du tableau.
             blocks: vec![BlockId::AIR; VOLUME].into_boxed_slice(),
             light: vec![DEFAULT_LIGHT; VOLUME].into_boxed_slice(),
+            block_entities: HashMap::default(),
         }
     }
 
@@ -70,7 +102,30 @@ impl Chunk {
         (blocks.len() == VOLUME).then(|| Self {
             blocks: blocks.into_boxed_slice(),
             light: vec![DEFAULT_LIGHT; VOLUME].into_boxed_slice(),
+            block_entities: HashMap::default(),
         })
+    }
+
+    /// L'état actif du bloc en (x, y, z), s'il en a un.
+    pub fn block_entity(&self, x: usize, y: usize, z: usize) -> Option<&BlockEntity> {
+        self.block_entities.get(&(Self::index(x, y, z) as u16))
+    }
+
+    pub fn block_entity_mut(&mut self, x: usize, y: usize, z: usize) -> Option<&mut BlockEntity> {
+        self.block_entities.get_mut(&(Self::index(x, y, z) as u16))
+    }
+
+    pub fn set_block_entity(&mut self, x: usize, y: usize, z: usize, entity: Option<BlockEntity>) {
+        let index = Self::index(x, y, z) as u16;
+        match entity {
+            Some(entity) => self.block_entities.insert(index, entity),
+            None => self.block_entities.remove(&index),
+        };
+    }
+
+    /// Tous les blocs actifs : (position dans le chunk, état).
+    pub fn block_entities(&self) -> impl Iterator<Item = (usize, &BlockEntity)> {
+        self.block_entities.iter().map(|(&i, e)| (i as usize, e))
     }
 
     /// Lumière du ciel, de 0 à 15. `>> 4` garde les 4 bits de poids fort.

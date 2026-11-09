@@ -1,0 +1,19 @@
+[package]
+name = "mod_sdk"
+description = "Le kit pour écrire un mod du jeu voxel en Rust, compilé en WebAssembly."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+
+# Ses propres règles, pas celles du workspace : c'est la seule crate qui a besoin de
+# `unsafe`, à la frontière avec le jeu (appeler une fonction importée de l'hôte est
+# `unsafe` en Rust, le compilateur ne pouvant pas la vérifier). Chaque bloc `unsafe`
+# doit expliquer pourquoi il est correct (`// SAFETY:`), et le reste de l'API est sûr.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "warn"

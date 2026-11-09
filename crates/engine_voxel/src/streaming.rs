@@ -46,15 +46,18 @@
 //!   `send(chunk)`, le thread de fond ne peut plus y toucher (il a été « moved »),
 //!   et le thread principal en devient l'unique propriétaire. Aucune copie, aucun verrou.
 
+use std::collections::VecDeque;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet, VecDeque};
+
+// Des tables rapides (FxHash, voir `world.rs`) pour les positions de chunks.
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use std::sync::Arc;
 
 use crossbeam_channel::{Receiver, Sender};
 use glam::{IVec2, IVec3, Vec3};
 
 use crate::block::BlockId;
-use crate::chunk::Chunk;
+use crate::chunk::{BlockEntity, Chunk};
 use crate::generator::{TerrainGenerator, WORLD_HEIGHT_CHUNKS};
 use crate::light::{ColumnLight, LightRegion, apply_column_light, update_light};
 use crate::mesh::{ChunkMesh, Mesher, Neighbourhood};
@@ -211,6 +214,11 @@ pub struct ChunkStreamer {
     dirty: HashSet<IVec3>,
     /// Blocs de mods absents, par chunk (voir `save.rs`).
     unknown: HashMap<IVec3, UnknownBlocks>,
+    /// Chunks à remailler en tâche de fond à la prochaine image (modifiés par des machines).
+    remesh_pending: HashSet<IVec3>,
+    /// Positions des blocs actifs des chunks arrivés depuis le dernier appel à
+    /// [`ChunkStreamer::take_loaded_block_entities`] : les machines doivent les relancer.
+    loaded_block_entities: Vec<IVec3>,
     /// La sauvegarde en cours en tâche de fond : les chunks qu'elle écrit et le canal
     /// par lequel elle rendra son résultat.
     saving: Option<(Vec<IVec3>, Receiver<anyhow::Result<SaveReport>>)>,
@@ -232,22 +240,24 @@ impl ChunkStreamer {
             // Le monde partage le registre du générateur (avant que `generator` soit déplacé).
             world: World::with_registry(generator.registry().clone()),
             generator: Arc::new(generator),
-            slots: HashMap::new(),
-            columns: HashMap::new(),
+            slots: HashMap::default(),
+            columns: HashMap::default(),
             load_queue: VecDeque::new(),
-            light_candidates: HashSet::new(),
-            mesh_candidates: HashSet::new(),
+            light_candidates: HashSet::default(),
+            mesh_candidates: HashSet::default(),
             centre: None,
             next_ticket: 0,
             in_flight: 0,
             sender,
             receiver,
             events: VecDeque::new(),
-            edited: HashSet::new(),
-            saved_edits: HashMap::new(),
+            edited: HashSet::default(),
+            saved_edits: HashMap::default(),
             store: None,
-            dirty: HashSet::new(),
-            unknown: HashMap::new(),
+            dirty: HashSet::default(),
+            unknown: HashMap::default(),
+            remesh_pending: HashSet::default(),
+            loaded_block_entities: Vec::new(),
             saving: None,
         }
     }
@@ -398,6 +408,72 @@ impl ChunkStreamer {
     /// image. Ceux dont seule la lumière change (une ombre qui descend loin, la lueur
     /// d'une torche) partent en priorité sur les threads de fond.
     pub fn set_block(&mut self, pos: IVec3, block: BlockId) -> bool {
+        self.change_block(pos, block, true)
+    }
+
+    /// Comme [`ChunkStreamer::set_block`], mais tout le remaillage part en tâche de fond,
+    /// groupé par chunk et une seule fois par image. Pour les machines, qui peuvent changer
+    /// des centaines de blocs par tick : remailler chaque fois sur ce thread ferait saccader.
+    pub fn set_block_quiet(&mut self, pos: IVec3, block: BlockId) -> bool {
+        self.change_block(pos, block, false)
+    }
+
+    /// Pose un bloc **sans** recalculer la lumière ni remailler : pour remplir vite une
+    /// zone (tests de charge, structures générées). Appeler [`ChunkStreamer::remesh_all`]
+    /// ensuite pour voir le résultat. `false` si le chunk n'est pas chargé.
+    pub fn set_block_raw(&mut self, pos: IVec3, block: BlockId) -> bool {
+        let chunk = World::split(pos).0;
+        if !matches!(self.slots.get(&chunk), Some(Slot::Generated(_))) {
+            return false;
+        }
+        self.world.set_block(pos, block);
+        self.edited.insert(chunk);
+        self.dirty.insert(chunk);
+        true
+    }
+
+    /// Remaille tous les chunks chargés (en tâche de fond).
+    pub fn remesh_all(&mut self) {
+        let loaded: Vec<IVec3> = self
+            .slots
+            .iter()
+            .filter(|(_, s)| matches!(s, Slot::Generated(MeshState::Done)))
+            .map(|(p, _)| *p)
+            .collect();
+        self.remesh_pending.extend(loaded);
+    }
+
+    /// L'état actif du bloc à `pos`.
+    pub fn block_entity(&self, pos: IVec3) -> Option<&BlockEntity> {
+        let (chunk, [x, y, z]) = World::split(pos);
+        self.world.chunk(chunk)?.block_entity(x, y, z)
+    }
+
+    /// L'état actif du bloc à `pos`, modifiable. Le chunk est noté « à sauvegarder ».
+    pub fn block_entity_mut(&mut self, pos: IVec3) -> Option<&mut BlockEntity> {
+        let (chunk, [x, y, z]) = World::split(pos);
+        // On vérifie d'abord sans `chunk_mut` (qui créerait le chunk s'il manquait).
+        self.world.chunk(chunk)?.block_entity(x, y, z)?;
+        self.edited.insert(chunk);
+        self.dirty.insert(chunk);
+        self.world.chunk_mut(chunk).block_entity_mut(x, y, z)
+    }
+
+    /// Ajoute (ou retire, avec `None`) l'état actif d'un bloc. `false` si le chunk n'est pas chargé.
+    pub fn set_block_entity(&mut self, pos: IVec3, entity: Option<BlockEntity>) -> bool {
+        let (chunk, [x, y, z]) = World::split(pos);
+        if !matches!(self.slots.get(&chunk), Some(Slot::Generated(_))) {
+            return false;
+        }
+        self.edited.insert(chunk);
+        self.dirty.insert(chunk);
+        self.world
+            .chunk_mut(chunk)
+            .set_block_entity(x, y, z, entity);
+        true
+    }
+
+    fn change_block(&mut self, pos: IVec3, block: BlockId, immediate: bool) -> bool {
         let chunk = World::split(pos).0;
         if !matches!(self.slots.get(&chunk), Some(Slot::Generated(_))) {
             return false;
@@ -410,6 +486,17 @@ impl ChunkStreamer {
         self.world.set_block(pos, block);
         self.edited.insert(chunk);
         self.dirty.insert(chunk);
+        // Un bloc remplacé perd son état actif (une machine cassée oublie sa mémoire).
+        let local = World::split(pos).1;
+        if self
+            .world
+            .chunk(chunk)
+            .is_some_and(|c| c.block_entity(local[0], local[1], local[2]).is_some())
+        {
+            self.world
+                .chunk_mut(chunk)
+                .set_block_entity(local[0], local[1], local[2], None);
+        }
         // Le bloc inconnu qui était là (s'il y en avait un) est remplacé : on l'oublie.
         if let Some(unknown) = self.unknown.get_mut(&chunk) {
             let local = World::split(pos).1;
@@ -443,6 +530,11 @@ impl ChunkStreamer {
             if !geometry.contains(&c) {
                 geometry.push(c);
             }
+        }
+        if !immediate {
+            self.remesh_pending.extend(geometry);
+            self.remesh_pending.extend(light_changed);
+            return true;
         }
         for &c in geometry.iter().rev() {
             self.remesh_now(c);
@@ -539,6 +631,10 @@ impl ChunkStreamer {
             self.refresh(centre);
         }
         self.receive();
+        // Les chunks modifiés en silence (machines) : un seul remaillage par chunk et par image.
+        for pos in std::mem::take(&mut self.remesh_pending) {
+            self.remesh_soon(pos);
+        }
         self.schedule(centre);
     }
 
@@ -574,6 +670,7 @@ impl ChunkStreamer {
         self.load_queue.is_empty()
             && self.in_flight == 0
             && self.light_candidates.is_empty()
+            && self.remesh_pending.is_empty()
             && self.mesh_candidates.is_empty()
             && self.events.is_empty()
     }
@@ -729,8 +826,20 @@ impl ChunkStreamer {
         }
     }
 
+    /// Les blocs actifs des chunks chargés récemment (et on oublie la liste).
+    pub fn take_loaded_block_entities(&mut self) -> Vec<IVec3> {
+        std::mem::take(&mut self.loaded_block_entities)
+    }
+
     /// Un chunk vient d'être généré (ou rendu depuis les modifications gardées).
     fn mark_generated(&mut self, pos: IVec3) {
+        if let Some(chunk) = self.world.chunk(pos) {
+            let origin = World::chunk_origin(pos);
+            for (i, _) in chunk.block_entities() {
+                let local = IVec3::new((i % 32) as i32, (i / 1024) as i32, ((i / 32) % 32) as i32);
+                self.loaded_block_entities.push(origin + local);
+            }
+        }
         self.slots.insert(pos, Slot::Generated(MeshState::Missing));
         let column = IVec2::new(pos.x, pos.z);
         let info = self.columns.entry(column).or_default();
@@ -930,7 +1039,7 @@ fn horizontal_distance_sq(a: IVec3, b: IVec3) -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
@@ -946,6 +1055,11 @@ mod tests {
             ..StreamingConfig::default()
         };
         ChunkStreamer::new(TerrainGenerator::new(7), config)
+    }
+
+    /// Charge tout autour de `player` (pour les tests d'autres modules).
+    pub(crate) fn pump_until_idle(streamer: &mut ChunkStreamer, player: Vec3) {
+        pump(streamer, player);
     }
 
     /// Fait tourner le streamer jusqu'à ce qu'il n'ait plus rien à faire,

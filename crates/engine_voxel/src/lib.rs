@@ -13,9 +13,13 @@
 //! Cette crate ne connaît pas wgpu : le jeu passe les sommets au renderer.
 
 mod block;
+mod capabilities;
 mod chunk;
+mod fluids;
 mod generator;
+mod grid;
 mod light;
+mod machines;
 mod mesh;
 mod physics;
 mod raycast;
@@ -25,9 +29,18 @@ mod streaming;
 mod world;
 
 pub use block::BlockId;
-pub use chunk::{CHUNK_SIZE, Chunk, DEFAULT_LIGHT};
+pub use capabilities::{
+    Capabilities, EnergyStorage, Face, FluidTank, Inventory, ItemStack, Kinetic, MAX_STACK, Sides,
+};
+pub use chunk::{BlockEntity, CHUNK_SIZE, Chunk, DEFAULT_LIGHT};
+pub use fluids::{FluidDef, FluidRegistry};
 pub use generator::{Biome, Column, SEA_LEVEL, TerrainGenerator, WORLD_HEIGHT_CHUNKS};
+pub use grid::{BlockAccess, GridId, GridPos, Grids};
 pub use light::{ColumnLight, LightRegion, MAX_LIGHT, apply_column_light, update_light};
+pub use machines::{
+    BlockBehavior, Clock, Lamp, MACHINE_TICKS_PER_SECOND, MAX_POWER, MachineAction, MachineContext,
+    Machines, Scheduler, TickReport, received_power,
+};
 pub use mesh::{ChunkMesh, MeshVertex, Mesher, Neighbourhood, mesh_culled, mesh_greedy};
 pub use physics::{PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
 pub use raycast::{RayHit, ray_aabb, raycast};

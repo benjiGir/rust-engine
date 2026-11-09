@@ -65,7 +65,7 @@ mod tests {
 
     #[test]
     fn all_core_and_mod_textures_load() {
-        let registry = crate::load_registry().unwrap();
+        let registry = crate::test_registry();
         let textures = load_textures(&registry);
         assert_eq!(textures.len(), registry.textures().len());
         for (key, pixels) in registry.textures().iter().zip(&textures) {

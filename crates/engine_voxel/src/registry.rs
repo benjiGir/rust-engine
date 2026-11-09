@@ -66,6 +66,10 @@ pub struct BlockDef {
     pub face_textures: [u32; 3],
     /// Sons du bloc (identifiants namespacés, par exemple `core:step_soft`).
     pub sounds: BlockSounds,
+    /// Le comportement du bloc s'il est actif (une machine) : `core:lamp`, `example:breaker`...
+    pub behavior: Option<String>,
+    /// Le fluide que ce bloc représente dans le monde (`core:water`), voir `FluidRegistry`.
+    pub fluid: Option<String>,
     /// D'où vient la définition, pour les messages d'erreur.
     pub source: String,
 }
@@ -128,6 +132,10 @@ struct BlockFileEntry {
     textures: Option<FaceTextures>,
     #[serde(default)]
     sounds: BlockSounds,
+    #[serde(default)]
+    behavior: Option<String>,
+    #[serde(default)]
+    fluid: Option<String>,
 }
 
 fn one() -> f32 {
@@ -167,6 +175,8 @@ impl BlockRegistry {
             light_opacity: 0,
             face_textures: [0; 3],
             sounds: BlockSounds::default(),
+            behavior: None,
+            fluid: None,
             source: "intégré".into(),
         };
         Self {
@@ -196,38 +206,50 @@ impl BlockRegistry {
 
     /// Charge `assets/core/blocks.ron`, puis `mods/<nom>/blocks.ron` pour chaque
     /// dossier de `mods_dir` (s'il existe), par ordre alphabétique.
+    ///
+    /// Le jeu utilise plutôt [`BlockRegistry::load_mods`] avec l'ordre de chargement
+    /// calculé depuis les dépendances des mods (`engine_mods::load_order`).
     pub fn load(assets_dir: &Path, mods_dir: Option<&Path>) -> Result<Self> {
+        let mut mods = Vec::new();
+        if let Some(mods_dir) = mods_dir.filter(|dir| dir.is_dir()) {
+            // `collect::<Result<Vec<_>, _>>()` : la première erreur interrompt tout.
+            let mut dirs = std::fs::read_dir(mods_dir)
+                .with_context(|| format!("lecture de {}", mods_dir.display()))?
+                .map(|entry| entry.map(|e| e.path()))
+                .collect::<Result<Vec<_>, _>>()?;
+            dirs.retain(|path| path.is_dir());
+            // Trier rend l'ordre (donc les numéros) identique sur toutes les machines :
+            // `read_dir` ne garantit aucun ordre.
+            dirs.sort();
+            for dir in dirs {
+                let namespace = dir
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .with_context(|| format!("nom de mod illisible : {}", dir.display()))?
+                    .to_string();
+                mods.push((namespace, dir));
+            }
+        }
+        Self::load_mods(assets_dir, &mods)
+    }
+
+    /// Charge `assets/core/blocks.ron`, puis le `blocks.ron` de chaque mod **dans l'ordre
+    /// donné** : `(espace de noms, dossier)`. L'ordre fixe les numéros des blocs.
+    pub fn load_mods(assets_dir: &Path, mods: &[(String, PathBuf)]) -> Result<Self> {
         let mut registry = Self::empty();
         registry.add_file(CORE_NAMESPACE, &assets_dir.join("core").join("blocks.ron"))?;
-
-        let Some(mods_dir) = mods_dir.filter(|dir| dir.is_dir()) else {
-            return Ok(registry);
-        };
-        // `collect::<Result<Vec<_>, _>>()` : la première erreur interrompt tout.
-        let mut mods = std::fs::read_dir(mods_dir)
-            .with_context(|| format!("lecture de {}", mods_dir.display()))?
-            .map(|entry| entry.map(|e| e.path()))
-            .collect::<Result<Vec<_>, _>>()?;
-        mods.retain(|path| path.is_dir());
-        // Trier rend l'ordre (donc les numéros) identique sur toutes les machines :
-        // `read_dir` ne garantit aucun ordre.
-        mods.sort();
-        for dir in mods {
-            let file = dir.join("blocks.ron");
-            if !file.exists() {
-                continue; // Un mod sans nouveaux blocs.
-            }
-            let namespace = dir
-                .file_name()
-                .and_then(|n| n.to_str())
-                .with_context(|| format!("nom de mod illisible : {}", dir.display()))?;
+        for (namespace, dir) in mods {
             if namespace == CORE_NAMESPACE {
                 bail!(
                     "le mod {} ne peut pas s'appeler « core », ce nom est réservé",
                     dir.display()
                 );
             }
-            registry.add_file(namespace, &file)?;
+            let file = dir.join("blocks.ron");
+            if file.exists() {
+                registry.add_file(namespace, &file)?;
+            }
+            // Sinon : un mod sans nouveaux blocs.
         }
         Ok(registry)
     }
@@ -314,6 +336,8 @@ impl BlockRegistry {
                 light_opacity,
                 face_textures,
                 sounds,
+                behavior: entry.behavior.as_ref().map(|b| qualify(b, namespace)),
+                fluid: entry.fluid.as_ref().map(|f| qualify(f, namespace)),
                 source: origin.to_string(),
             });
         }
@@ -498,7 +522,11 @@ mod tests {
         assert_eq!(registry.def(stone).name, "Pierre");
         assert!(registry.is_solid(stone) && !registry.is_transparent(stone));
         assert!(!registry.is_solid(BlockId::AIR) && registry.is_transparent(BlockId::AIR));
-        assert_eq!(registry.placeable().count(), 8, "tout sauf l'air et l'eau");
+        assert_eq!(
+            registry.placeable().count(),
+            10,
+            "sans l'air, l'eau, l'inconnu et la lampe allumée"
+        );
         let water = registry.id("core:water").unwrap();
         assert!(registry.def(water).liquid && registry.is_translucent(water));
         assert!(!registry.is_solid(water));

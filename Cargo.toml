@@ -7,6 +7,10 @@ members = [
     "crates/engine_render",
     "crates/engine_voxel",
     "crates/engine_ecs",
+    "crates/engine_mods",
+    "crates/mod_sdk",
+    "tools/xtask",
+    "mods/example/script",
     "crates/engine_inspect",
     "crates/engine_inspect_derive",
     "games/voxel",
@@ -26,6 +30,7 @@ engine_core = { path = "crates/engine_core" }
 engine_render = { path = "crates/engine_render" }
 engine_voxel = { path = "crates/engine_voxel" }
 engine_ecs = { path = "crates/engine_ecs" }
+engine_mods = { path = "crates/engine_mods" }
 engine_inspect = { path = "crates/engine_inspect" }
 engine_inspect_derive = { path = "crates/engine_inspect_derive" }
 winit = "0.30.13"
@@ -65,6 +70,11 @@ quote = "1"
 proc-macro2 = "1"
 # ECS de référence, pour comparer le nôtre.
 hecs = "0.11.2"
+# Tables de hachage rapides (FxHash) pour les positions de blocs et de chunks.
+rustc-hash = "2"
+# Mods : versions sémantiques et scripts WebAssembly (bac à sable).
+semver = { version = "1.0.28", features = ["serde"] }
+wasmtime = "50"
 # Benchmarks : `cargo bench -p engine_voxel`.
 criterion = "0.8.2"
 

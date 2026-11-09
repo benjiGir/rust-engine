@@ -41,11 +41,12 @@ use glam::{IVec2, IVec3};
 use serde::{Deserialize, Serialize};
 
 use crate::block::BlockId;
-use crate::chunk::Chunk;
+use crate::chunk::{BlockEntity, Chunk};
 use crate::registry::BlockRegistry;
 
 /// Version du format. À augmenter si la structure des fichiers change.
-pub const FORMAT_VERSION: u32 = 1;
+/// Version 2 : les chunks portent aussi leurs blocs actifs (machines).
+pub const FORMAT_VERSION: u32 = 2;
 /// Côté d'une région, en colonnes de chunks.
 pub const REGION_SIZE: i32 = 16;
 const REGION_MAGIC: &[u8; 4] = b"VXRG";
@@ -80,9 +81,20 @@ pub struct WorldMeta {
     pub inventory: Vec<Option<(String, u32)>>,
 }
 
-/// Un chunk sur disque : sa palette et ses blocs (indices dans la palette).
+/// Un chunk sur disque : sa palette, ses blocs (indices dans la palette) et ses blocs
+/// actifs (position dans le chunk, état).
 #[derive(Debug, Serialize, Deserialize)]
 struct ChunkData {
+    palette: Vec<String>,
+    blocks: Vec<u16>,
+    block_entities: Vec<(u16, BlockEntity)>,
+}
+
+/// Le format 1, sans blocs actifs. `postcard` n'écrit pas le nom des champs (c'est ce
+/// qui le rend compact) : il ne sait donc pas sauter un champ absent. On garde l'ancienne
+/// structure pour relire les anciennes sauvegardes.
+#[derive(Debug, Deserialize)]
+struct ChunkDataV1 {
     palette: Vec<String>,
     blocks: Vec<u16>,
 }
@@ -295,7 +307,16 @@ fn encode_chunk(
         };
         blocks.push(index);
     }
-    let bytes = postcard::to_allocvec(&ChunkData { palette, blocks })?;
+    let mut block_entities: Vec<(u16, BlockEntity)> = chunk
+        .block_entities()
+        .map(|(i, e)| (i as u16, e.clone()))
+        .collect();
+    block_entities.sort_by_key(|(i, _)| *i);
+    let bytes = postcard::to_allocvec(&ChunkData {
+        palette,
+        blocks,
+        block_entities,
+    })?;
     // `prepend_size` : la taille d'origine est écrite au début, pour la décompression.
     Ok(lz4_flex::compress_prepend_size(&bytes))
 }
@@ -327,7 +348,13 @@ fn decode_chunk(bytes: &[u8], registry: &BlockRegistry) -> Result<LoadedChunk> {
             }
         }
     }
-    let chunk = Chunk::from_blocks(blocks).context("chunk de taille invalide")?;
+    let mut chunk = Chunk::from_blocks(blocks).context("chunk de taille invalide")?;
+    for (index, entity) in data.block_entities {
+        let i = index as usize;
+        // L'indice redonne (x, y, z) : l'inverse de `Chunk::index`.
+        let (x, z, y) = (i % 32, (i / 32) % 32, i / (32 * 32));
+        chunk.set_block_entity(x, y, z, Some(entity));
+    }
     Ok(LoadedChunk { chunk, unknown })
 }
 
@@ -341,11 +368,31 @@ fn read_region(path: &Path) -> Result<RegionChunks> {
     if region.format_version > FORMAT_VERSION {
         bail!("{} vient d'une version plus récente du jeu", path.display());
     }
-    Ok(region
-        .chunks
-        .into_iter()
-        .map(|(pos, data)| (IVec3::from_array(pos), data))
-        .collect())
+    let mut chunks = RegionChunks::new();
+    for (pos, data) in region.chunks {
+        // Une région du format 1 : chaque chunk est converti au format actuel à la lecture.
+        let data = if region.format_version < 2 {
+            upgrade_v1(&data).with_context(|| format!("{} : chunk illisible", path.display()))?
+        } else {
+            data
+        };
+        chunks.insert(IVec3::from_array(pos), data);
+    }
+    Ok(chunks)
+}
+
+/// Convertit un chunk du format 1 (sans blocs actifs) au format 2.
+fn upgrade_v1(bytes: &[u8]) -> Result<Vec<u8>> {
+    let raw = lz4_flex::decompress_size_prepended(bytes)?;
+    let old: ChunkDataV1 = postcard::from_bytes(&raw)?;
+    let new = ChunkData {
+        palette: old.palette,
+        blocks: old.blocks,
+        block_entities: Vec::new(),
+    };
+    Ok(lz4_flex::compress_prepend_size(&postcard::to_allocvec(
+        &new,
+    )?))
 }
 
 /// Écrit une région ; renvoie sa taille en octets.
@@ -520,6 +567,81 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(back.chunk.get(3, 4, 5), ruby);
         assert!(back.unknown.is_empty());
+    }
+
+    #[test]
+    fn block_entities_are_saved_and_reloaded() {
+        let registry = BlockRegistry::builtin();
+        let store = SaveStore::open(temp_dir("block-entities")).unwrap();
+        let mut chunk = sample_chunk();
+        // Une machine avec des capacités : de l'énergie, un réservoir d'eau, un inventaire.
+        let mut machine = BlockEntity {
+            power: 7,
+            data: vec![1, 2, 3],
+            caps: None,
+        };
+        let caps = machine.caps_mut();
+        caps.energy = Some(crate::EnergyStorage::new(1000, 100));
+        caps.tanks.push(crate::FluidTank::new(4000));
+        caps.fill(None, "core:water", 1500, false);
+        caps.inventory = Some(crate::Inventory::new(9));
+        caps.inventory
+            .as_mut()
+            .unwrap()
+            .insert(None, "core:stone", 12, false);
+        chunk.set_block_entity(4, 5, 6, Some(machine.clone()));
+        let pos = IVec3::new(2, 1, 2);
+        store
+            .save_chunks(
+                &[ChunkToSave {
+                    pos,
+                    chunk: Arc::new(chunk),
+                    unknown: UnknownBlocks::new(),
+                }],
+                &registry,
+            )
+            .unwrap();
+        let loaded = SaveStore::open(store.dir())
+            .unwrap()
+            .load_chunk(pos, &registry)
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.chunk.block_entity(4, 5, 6), Some(&machine));
+        assert_eq!(loaded.chunk.block_entities().count(), 1);
+    }
+
+    #[test]
+    fn format_1_regions_are_upgraded_on_read() {
+        let registry = BlockRegistry::builtin();
+        let store = SaveStore::open(temp_dir("v1")).unwrap();
+        // Une région écrite par l'ancien format, à la main.
+        let old = ChunkDataV1Writer {
+            palette: vec!["core:air".into(), "core:stone".into()],
+            blocks: (0..32 * 32 * 32).map(|i| (i < 1024) as u16).collect(),
+        };
+        let blob = lz4_flex::compress_prepend_size(&postcard::to_allocvec(&old).unwrap());
+        let region = RegionDataWriter {
+            format_version: 1,
+            chunks: vec![([0, 0, 0], blob)],
+        };
+        let mut bytes = REGION_MAGIC.to_vec();
+        bytes.extend(postcard::to_allocvec(&region).unwrap());
+        std::fs::write(store.dir().join("regions/r.0.0.bin"), bytes).unwrap();
+        let loaded = store.load_chunk(IVec3::ZERO, &registry).unwrap().unwrap();
+        assert_eq!(loaded.chunk.get(5, 0, 5), stone());
+        assert!(loaded.chunk.get(5, 1, 5).is_air());
+    }
+
+    #[derive(Serialize)]
+    struct ChunkDataV1Writer {
+        palette: Vec<String>,
+        blocks: Vec<u16>,
+    }
+
+    #[derive(Serialize)]
+    struct RegionDataWriter {
+        format_version: u32,
+        chunks: Vec<([i32; 3], Vec<u8>)>,
     }
 
     #[test]

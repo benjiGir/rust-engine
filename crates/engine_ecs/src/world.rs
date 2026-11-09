@@ -24,10 +24,42 @@
 use std::any::{Any, TypeId};
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 
 use crate::entity::{Entities, Entity};
 use crate::query::{Query, QueryParam};
 use crate::storage::{ComponentStorage, SparseSet};
+
+/// Une fonction de hachage « qui ne fait rien » pour les `TypeId`.
+///
+/// Un `TypeId` est déjà un nombre pseudo-aléatoire calculé par le compilateur : le
+/// re-hacher avec SipHash (la fonction par défaut, lente mais résistante aux attaques)
+/// ne sert à rien. Ce hacheur garde simplement les bits qu'on lui donne. Implémenter le
+/// trait `Hasher` suffit pour que la `HashMap` standard l'utilise.
+#[derive(Default)]
+pub struct TypeIdHasher(u64);
+
+impl Hasher for TypeIdHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        // Au cas où le `TypeId` écrirait des octets : on les replie sur 64 bits.
+        for chunk in bytes.chunks(8) {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            self.0 = self.0.rotate_left(5) ^ u64::from_le_bytes(word);
+        }
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.0 = self.0.rotate_left(5) ^ value;
+    }
+}
+
+/// Une table indexée par type, avec le hacheur ci-dessus.
+type TypeMap<V> = HashMap<TypeId, V, BuildHasherDefault<TypeIdHasher>>;
 
 /// Une action à faire plus tard, quand le monde n'est plus emprunté.
 type Command = Box<dyn FnOnce(&mut World)>;
@@ -35,8 +67,8 @@ type Command = Box<dyn FnOnce(&mut World)>;
 #[derive(Default)]
 pub struct World {
     entities: Entities,
-    storages: HashMap<TypeId, RefCell<Box<dyn ComponentStorage>>>,
-    resources: HashMap<TypeId, RefCell<Box<dyn Any>>>,
+    storages: TypeMap<RefCell<Box<dyn ComponentStorage>>>,
+    resources: TypeMap<RefCell<Box<dyn Any>>>,
     commands: RefCell<Vec<Command>>,
 }
 

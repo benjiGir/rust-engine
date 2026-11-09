@@ -251,7 +251,7 @@ mod tests {
     /// Le décodage marche sans carte son : on vérifie que chaque son cité existe et se lit.
     #[test]
     fn every_referenced_sound_decodes() {
-        let registry = crate::load_registry().unwrap();
+        let registry = crate::test_registry();
         let sounds = load_sounds(&registry);
         for key in [
             AMBIENCE_DAY,

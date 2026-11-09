@@ -38,6 +38,7 @@ enum Scene {
     Mobs,
     Inventory,
     Inspector,
+    Machines,
 }
 
 struct Shot {
@@ -46,7 +47,10 @@ struct Shot {
     scene: Scene,
 }
 
-const SHOTS: [Shot; 9] = [
+/// Où construire le mécanisme de la capture.
+const MACHINE_SPOT: (i32, i32) = (-10, 14);
+
+const SHOTS: [Shot; 10] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -91,6 +95,11 @@ const SHOTS: [Shot; 9] = [
         name: "9-inspecteur",
         time: 0.45,
         scene: Scene::Inspector,
+    },
+    Shot {
+        name: "10-machines",
+        time: 0.8,
+        scene: Scene::Machines,
     },
 ];
 
@@ -261,6 +270,15 @@ impl VoxelGame {
                 )
             }
             Scene::Inventory => (Vec3::new(0.5, spawn + 20.0, 0.5), 45.0, -20.0),
+            Scene::Machines => {
+                let (x, z) = MACHINE_SPOT;
+                let g = self.ground(x, z) as f32;
+                (
+                    Vec3::new(x as f32 - 5.5, g + 5.5, z as f32 - 5.5),
+                    45.0,
+                    -30.0,
+                )
+            }
         }
     }
 
@@ -329,7 +347,69 @@ impl VoxelGame {
                     );
                 }
             }
+            Scene::Machines => self.build_machines(),
             Scene::Spawn | Scene::Sunset | Scene::Lake | Scene::Inventory | Scene::Inspector => {}
+        }
+    }
+
+    /// Un mécanisme sur une dalle de pierre : une horloge entourée de quatre lampes, et une
+    /// seconde horloge qui alimente un casseur tourné vers une colonne de pierre.
+    fn build_machines(&mut self) {
+        let id = |key: &str| self.registry.id(key);
+        let (Some(stone), Some(clock), Some(lamp)) =
+            (id("core:stone"), id("core:clock"), id("core:lamp"))
+        else {
+            return;
+        };
+        let breaker = id("example:breaker");
+        let (x, z) = MACHINE_SPOT;
+        let base = IVec3::new(x, self.ground(x, z) + 1, z);
+        let place = |game: &mut Self, pos: IVec3, block: BlockId| {
+            if game.streamer_mut().set_block(pos, block) {
+                let actions = game.mods.block_changed(pos);
+                game.apply_machine_actions(actions);
+            }
+        };
+        for dx in -2..=5 {
+            for dz in -2..=2 {
+                place(self, base + IVec3::new(dx, -1, dz), stone);
+                for dy in 0..3 {
+                    place(self, base + IVec3::new(dx, dy, dz), BlockId::AIR);
+                }
+            }
+        }
+        place(self, base, clock);
+        // Une horloge lente (une bascule toutes les 20 ticks, 1 s) : les lampes restent
+        // allumées le temps de la capture.
+        self.streamer_mut().set_block_entity(
+            base,
+            Some(engine_voxel::BlockEntity {
+                data: vec![20],
+                ..Default::default()
+            }),
+        );
+        for offset in [IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z] {
+            place(self, base + offset, lamp);
+        }
+        if let Some(breaker) = breaker {
+            let at = base + IVec3::new(3, 0, 0);
+            place(self, at, breaker);
+            let actions = self.mods.dispatch(&engine_mods::ModEvent::BlockPlaced {
+                at: engine_voxel::GridPos::world(at),
+                block: breaker,
+                facing: IVec3::X,
+            });
+            self.apply_machine_actions(actions);
+            place(self, at + IVec3::NEG_X, clock);
+            for dy in 0..3 {
+                place(self, at + IVec3::new(1, dy, 0), stone);
+            }
+        }
+        // Une seconde et quart de machines (25 ticks) : l'horloge s'allume (tick 20),
+        // ses lampes aussi.
+        for _ in 0..75 {
+            let (actions, _) = self.mods.fixed_step();
+            self.apply_machine_actions(actions);
         }
     }
 

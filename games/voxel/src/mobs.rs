@@ -2,9 +2,10 @@
 //! les systèmes ECS qui les font vivre.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::shared::StreamerExt;
 use anyhow::{Context as _, Result, bail};
 use engine_ecs::{Entity, World};
 use engine_render::CubeInstance;
@@ -77,27 +78,18 @@ pub struct MobRegistry {
 
 impl MobRegistry {
     /// `assets/core/entities.ron`, puis `mods/<nom>/entities.ron` par ordre alphabétique.
-    pub fn load(assets: &Path, mods: Option<&Path>, blocks: &BlockRegistry) -> Result<Self> {
+    /// `assets/core/entities.ron`, puis celui de chaque mod dans l'ordre de chargement.
+    pub fn load(assets: &Path, mods: &[(String, PathBuf)], blocks: &BlockRegistry) -> Result<Self> {
         let mut registry = Self::default();
         let core = assets.join("core").join("entities.ron");
         if core.exists() {
             registry.add_file("core", &core, blocks)?;
         }
-        let Some(mods) = mods.filter(|m| m.is_dir()) else {
-            return Ok(registry);
-        };
-        let mut dirs: Vec<_> = std::fs::read_dir(mods)?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.join("entities.ron").exists())
-            .collect();
-        dirs.sort();
-        for dir in dirs {
-            let namespace = dir
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or_default()
-                .to_string();
-            registry.add_file(&namespace, &dir.join("entities.ron"), blocks)?;
+        for (namespace, dir) in mods {
+            let file = dir.join("entities.ron");
+            if file.exists() {
+                registry.add_file(namespace, &file, blocks)?;
+            }
         }
         Ok(registry)
     }
@@ -218,7 +210,8 @@ pub fn surroundings_ready(streamer: &ChunkStreamer, body: &PlayerBody) -> bool {
 /// La physique de toutes les entités (joueur compris) : gravité, collisions, eau.
 pub fn physics(world: &mut World) {
     let dt = world.resource::<FixedDt>().0;
-    let streamer = world.resource::<ChunkStreamer>();
+    let shared = world.streamer();
+    let streamer = shared.borrow();
     world
         .query::<(
             &mut Transform,
@@ -281,7 +274,8 @@ pub fn spawn(world: &mut World) {
     let x = (center.x + angle.cos() * distance).floor() as i32;
     let z = (center.z + angle.sin() * distance).floor() as i32;
     let found = {
-        let streamer = world.resource::<ChunkStreamer>();
+        let shared = world.streamer();
+        let streamer = shared.borrow();
         let registry = world.resource::<Arc<MobRegistry>>();
         let height = streamer.generator().column(x, z).height;
         let ground = IVec3::new(x, height, z);
@@ -335,7 +329,8 @@ pub fn wander(world: &mut World) {
     let player = world.resource::<PlayerEntity>().0;
     let target = world.get::<Transform>(player).map(|t| t.position);
     let registry = world.resource::<Arc<MobRegistry>>().clone();
-    let streamer = world.resource::<ChunkStreamer>();
+    let shared = world.streamer();
+    let streamer = shared.borrow();
     let mut rng = world.resource_mut::<GameRng>();
     world
         .query::<(
@@ -450,7 +445,14 @@ pub fn cleanup(world: &mut World) {
                     .get(mob.kind)
                     .map(|d| d.key.clone())
                     .unwrap_or_default();
-                events::send(world, EntityDied { entity, kind });
+                events::send(
+                    world,
+                    EntityDied {
+                        entity,
+                        kind,
+                        position: transform.position,
+                    },
+                );
                 world.commands().despawn(entity);
             } else if transform.position.distance(center) > DESPAWN_DISTANCE {
                 world.commands().despawn(entity);
@@ -504,7 +506,8 @@ pub fn damage_mob(world: &mut World, entity: Entity, amount: f32, from: Vec3) {
 /// Les boîtes à dessiner pour toutes les créatures, interpolées entre deux pas.
 pub fn instances(world: &World, alpha: f32) -> Vec<CubeInstance> {
     let registry = world.resource::<Arc<MobRegistry>>().clone();
-    let streamer = world.resource::<ChunkStreamer>();
+    let shared = world.streamer();
+    let streamer = shared.borrow();
     let mut out = Vec::new();
     world
         .query::<(&Transform, &PreviousPosition, &Mob)>()
@@ -556,7 +559,7 @@ mod tests {
     use engine_voxel::{StreamingConfig, TerrainGenerator};
 
     fn blocks() -> Arc<BlockRegistry> {
-        Arc::new(crate::load_registry().unwrap())
+        Arc::new(crate::test_registry())
     }
 
     fn repo() -> std::path::PathBuf {
@@ -567,7 +570,7 @@ mod tests {
     fn core_and_mod_mobs_load() {
         let registry = MobRegistry::load(
             &repo().join("assets"),
-            Some(&repo().join("mods")),
+            &[("example".into(), repo().join("mods/example"))],
             &blocks(),
         )
         .unwrap();
@@ -622,9 +625,15 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
         let mut world = World::new();
-        let mobs =
-            MobRegistry::load(&repo().join("assets"), Some(&repo().join("mods")), &blocks).unwrap();
-        world.insert_resource(streamer);
+        let mobs = MobRegistry::load(
+            &repo().join("assets"),
+            &[("example".into(), repo().join("mods/example"))],
+            &blocks,
+        )
+        .unwrap();
+        world.insert_resource(crate::shared::SharedStreamer(std::rc::Rc::new(
+            std::cell::RefCell::new(streamer),
+        )));
         world.insert_resource(Arc::new(mobs));
         world.insert_resource(FixedDt(1.0 / 60.0));
         world.insert_resource(GameRng(7));
@@ -638,11 +647,7 @@ mod tests {
     #[test]
     fn a_mob_falls_and_lands_without_going_through_the_ground() {
         let mut world = sim();
-        let ground = world
-            .resource::<ChunkStreamer>()
-            .generator()
-            .column(5, 5)
-            .height;
+        let ground = world.streamer().borrow().generator().column(5, 5).height;
         let pig = world.resource::<Arc<MobRegistry>>().id("core:pig").unwrap();
         let mob = spawn_mob(&mut world, pig, Vec3::new(5.5, ground as f32 + 10.0, 5.5)).unwrap();
         for _ in 0..240 {
@@ -659,7 +664,8 @@ mod tests {
         );
         assert!(
             world
-                .resource::<ChunkStreamer>()
+                .streamer()
+                .borrow()
                 .world()
                 .is_solid((position - Vec3::Y * 0.5).floor().as_ivec3())
         );
@@ -705,7 +711,8 @@ mod tests {
             deaths,
             [EntityDied {
                 entity: mob,
-                kind: "core:pig".into()
+                kind: "core:pig".into(),
+                position: deaths[0].position,
             }]
         );
     }

@@ -186,6 +186,60 @@ fn glowstone() -> Image {
         .speckles([0.75, 0.55, 0.25], 0.1, 18)
 }
 
+/// L'horloge : un cadran rouge avec deux aiguilles.
+fn clock() -> Image {
+    let mut image = Image::filled([0.45, 0.12, 0.1]).noise([0.45, 0.12, 0.1], 0.08, 19);
+    for y in 2..14 {
+        for x in 2..14 {
+            let d = ((x as f32 - 7.5).powi(2) + (y as f32 - 7.5).powi(2)).sqrt();
+            if d < 5.8 {
+                image.set(x, y, [0.92, 0.9, 0.82]);
+            }
+        }
+    }
+    for i in 0..4 {
+        image.set(7, 7 - i, [0.1, 0.1, 0.1]);
+        image.set(7 + i, 7, [0.1, 0.1, 0.1]);
+    }
+    image
+}
+
+/// La lampe : un verre ambré dans un cadre ; allumée, le verre est lumineux.
+fn lamp(lit: bool) -> Image {
+    let frame = [0.3, 0.22, 0.14];
+    let glass = if lit {
+        [1.0, 0.85, 0.45]
+    } else {
+        [0.42, 0.34, 0.22]
+    };
+    let mut image = Image::filled(frame).noise(frame, 0.1, 20);
+    let mut rng = Rng::new(21);
+    for y in 2..14 {
+        for x in 2..14 {
+            let shade = 1.0 + rng.signed() * if lit { 0.08 } else { 0.12 };
+            image.set(x, y, scale(glass, shade));
+        }
+    }
+    image
+}
+
+/// Le casseur du mod d'exemple : un bloc de métal avec une « mâchoire ».
+fn breaker() -> Image {
+    let base = [0.42, 0.45, 0.5];
+    let mut image = Image::filled(base).noise(base, 0.08, 22);
+    for x in 3..13 {
+        for y in [4, 11] {
+            image.set(x, y, [0.18, 0.18, 0.2]);
+        }
+    }
+    for y in 5..11 {
+        for x in (4..13).step_by(2) {
+            image.set(x, y, [0.75, 0.75, 0.78]);
+        }
+    }
+    image
+}
+
 /// Le rubis du mod d'exemple : des facettes en losange.
 fn ruby() -> Image {
     let base = [0.7, 0.06, 0.14];
@@ -217,6 +271,10 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("glass.png"), glass()),
         (core.join("torch.png"), torch()),
         (core.join("glowstone.png"), glowstone()),
+        (core.join("clock.png"), clock()),
+        (core.join("lamp.png"), lamp(false)),
+        (core.join("lamp_lit.png"), lamp(true)),
+        (root.join("mods/example/textures/breaker.png"), breaker()),
         (root.join("mods/example/textures/ruby.png"), ruby()),
     ];
     for (path, image) in &textures {
