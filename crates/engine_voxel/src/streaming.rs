@@ -1297,11 +1297,13 @@ pub(crate) mod tests {
         let player = Vec3::new(5.0, 40.0, 5.0);
         let mut first = saving_streamer(&dir);
         pump(&mut first, player);
+        // Du verre : il ne peut pas déjà se trouver là (le terrain n'en génère pas).
+        let glass = BlockRegistry::builtin().id("core:glass").unwrap();
         let edits = [
-            (IVec3::new(3, 20, 3), BlockId::AIR),
+            (IVec3::new(3, 20, 3), glass),
             (IVec3::new(8, 120, 8), snow()), // dans un chunk de ciel, vide à la génération
-            (IVec3::new(31, 40, 5), stone()), // en bordure de chunk
-            (IVec3::new(-20, 39, -7), stone()),
+            (IVec3::new(31, 40, 5), glass),  // en bordure de chunk
+            (IVec3::new(-20, 39, -7), glass),
         ];
         for (pos, block) in edits {
             assert!(first.set_block(pos, block));

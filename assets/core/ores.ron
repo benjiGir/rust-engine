@@ -1,0 +1,20 @@
+// Les minerais et les poches souterraines, placés par le générateur après le terrain.
+//
+// - block : le bloc posé ; il ne remplace que la roche (`replace`, par défaut pierre et
+//   pierre profonde) ;
+// - height : (min, max), l'altitude où l'on en trouve ;
+// - size : le nombre de blocs d'un filon (une marche aléatoire de cette longueur) ;
+// - per_chunk : combien de filons par chunk (32 × 32 × 32), en moyenne ;
+// - biomes : facultatif, seulement dans ces biomes.
+[
+    (block: "dirt", height: (20, 140), size: 30, per_chunk: 4.0),
+    (block: "gravel", height: (5, 140), size: 30, per_chunk: 4.0),
+    (block: "coal_ore", height: (40, 180), size: 17, per_chunk: 40.0),
+    (block: "iron_ore", height: (5, 90), size: 9, per_chunk: 26.0),
+    (block: "copper_ore", height: (30, 100), size: 10, per_chunk: 16.0),
+    (block: "gold_ore", height: (2, 36), size: 8, per_chunk: 4.0),
+    (block: "cinnabar_ore", height: (2, 20), size: 7, per_chunk: 4.0),
+    (block: "malachite_ore", height: (5, 40), size: 6, per_chunk: 1.5),
+    (block: "sapphire_ore", height: (2, 16), size: 5, per_chunk: 3.0),
+    (block: "jade_ore", height: (60, 180), size: 2, per_chunk: 3.0, biomes: ["mountains", "snowy_peaks"]),
+]

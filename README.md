@@ -36,7 +36,8 @@ crates/mod_sdk          # le kit pour écrire le script d'un mod en Rust (compil
 tools/xtask             # tâches du projet : cargo xtask build-mods
 docs/                   # modding.md (écrire un mod), architecture.md (réseaux, fluides, structures mobiles)
 games/voxel             # le mini-Minecraft v1 (E : inventaire, F3 : inspecteur, F : vol, T : temps, F1/F2 : rendu)
-assets/core/            # blocks.ron (les blocs de base), textures/ (PNG 16×16), sounds/ (WAV)
+assets/core/            # blocks.ron (les blocs de base), biomes.ron (15 biomes), ores.ron (minerais par profondeur),
+                        # fluids.ron, textures/ (PNG 16×16), sounds/ (WAV)
 tools/assetgen          # génère les textures et les sons : cargo run -p assetgen
 saves/                  # les mondes sauvegardés (ignoré par git)
 assets/core/entities.ron # les créatures (taille, vie, vitesse, boîtes qui les dessinent)
@@ -66,6 +67,9 @@ Mesures de référence (Apple Silicon, `--release`) :
 | tick de machines, toutes actives (budget 10 ms) | 1,0 ms | 7,0 ms | 16,6 ms |
 | pas de simulation de l'ECS, objets sur tapis | 44 µs | 232 µs | |
 
+Génération du terrain : 0,54 ms pour un chunk souterrain (grottes, minerais), 0,47 ms en
+surface, 0,23 ms en moyenne sur une grande zone (les chunks de ciel sont presque gratuits).
+
 50 000 câbles et tuyaux (blocs avec capacités) : ~200 octets chacun en mémoire (~10 Mio),
 234 Kio sur disque, sauvegardés en 40 ms.
 
@@ -74,7 +78,8 @@ Variables du jeu :
 - `VOXEL_TIME` (heure de départ : 0 minuit, 0.5 midi, 0.75 coucher), `VOXEL_DAY_LENGTH` (secondes, 600) ;
 - `VOXEL_AUTOFLY` (`1` = vitesse du sprint, ou une vitesse en blocs par seconde) ;
 - `VOXEL_DEMO=1` (le joueur marche, casse et pose seul) ;
-- `VOXEL_SCREENSHOTS=dossier` (enregistre 6 captures PNG puis quitte, même écran éteint) ;
+- `VOXEL_SCREENSHOTS=dossier` (enregistre les captures PNG, dont une par biome, puis quitte, même écran éteint) ;
+  `VOXEL_SHOTS=biome` ne garde que les captures dont le nom contient ce texte ;
 - `VOXEL_WORLD=nom` (le monde à ouvrir dans `saves/`, « world » par défaut ; sauvegarde toutes les 30 s et à la fermeture) ;
 - `VOXEL_MUTE=1`, `VOXEL_VOLUME_EFFECTS`, `VOXEL_VOLUME_AMBIENCE` (volumes de 0 à 1) ;
 - `VOXEL_QUIT_AFTER=secondes` (quitter proprement, avec sauvegarde) ;

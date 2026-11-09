@@ -70,6 +70,8 @@ pub struct BlockDef {
     pub behavior: Option<String>,
     /// Le fluide que ce bloc représente dans le monde (`core:water`), voir `FluidRegistry`.
     pub fluid: Option<String>,
+    /// Indestructible (le socle du monde).
+    pub unbreakable: bool,
     /// D'où vient la définition, pour les messages d'erreur.
     pub source: String,
 }
@@ -136,6 +138,8 @@ struct BlockFileEntry {
     behavior: Option<String>,
     #[serde(default)]
     fluid: Option<String>,
+    #[serde(default)]
+    unbreakable: bool,
 }
 
 fn one() -> f32 {
@@ -177,6 +181,7 @@ impl BlockRegistry {
             sounds: BlockSounds::default(),
             behavior: None,
             fluid: None,
+            unbreakable: false,
             source: "intégré".into(),
         };
         Self {
@@ -338,6 +343,7 @@ impl BlockRegistry {
                 sounds,
                 behavior: entry.behavior.as_ref().map(|b| qualify(b, namespace)),
                 fluid: entry.fluid.as_ref().map(|f| qualify(f, namespace)),
+                unbreakable: entry.unbreakable,
                 source: origin.to_string(),
             });
         }
@@ -524,8 +530,8 @@ mod tests {
         assert!(!registry.is_solid(BlockId::AIR) && registry.is_transparent(BlockId::AIR));
         assert_eq!(
             registry.placeable().count(),
-            10,
-            "sans l'air, l'eau, l'inconnu et la lampe allumée"
+            23,
+            "sans l'air, l'eau, la lave, le socle, l'inconnu et la lampe allumée"
         );
         let water = registry.id("core:water").unwrap();
         assert!(registry.def(water).liquid && registry.is_translucent(water));

@@ -12,6 +12,7 @@
 //!
 //! Cette crate ne connaît pas wgpu : le jeu passe les sommets au renderer.
 
+mod biome;
 mod block;
 mod capabilities;
 mod chunk;
@@ -28,13 +29,16 @@ mod save;
 mod streaming;
 mod world;
 
+pub use biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry, OreDef, Relief};
 pub use block::BlockId;
 pub use capabilities::{
     Capabilities, EnergyStorage, Face, FluidTank, Inventory, ItemStack, Kinetic, MAX_STACK, Sides,
 };
 pub use chunk::{BlockEntity, CHUNK_SIZE, Chunk, DEFAULT_LIGHT};
 pub use fluids::{FluidDef, FluidRegistry};
-pub use generator::{Biome, Column, SEA_LEVEL, TerrainGenerator, WORLD_HEIGHT_CHUNKS};
+pub use generator::{
+    Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL, SEA_LEVEL, TerrainGenerator, WORLD_HEIGHT_CHUNKS,
+};
 pub use grid::{BlockAccess, GridId, GridPos, Grids};
 pub use light::{ColumnLight, LightRegion, MAX_LIGHT, apply_column_light, update_light};
 pub use machines::{

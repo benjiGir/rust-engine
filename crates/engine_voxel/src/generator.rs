@@ -1,4 +1,6 @@
-//! Génération procédurale du terrain avec du bruit de Perlin.
+//! Génération procédurale du terrain : relief, biomes, sous-sol, grottes et minerais.
+//!
+//! # Le bruit
 //!
 //! Le bruit de Perlin donne, pour chaque point, une valeur entre -1 et 1 qui varie
 //! doucement : deux points proches ont des valeurs proches. En superposant plusieurs
@@ -8,6 +10,27 @@
 //! Tout part d'une graine (`seed`) : la même graine donne toujours le même monde,
 //! sur toutes les machines. On peut donc générer n'importe quel chunk, n'importe
 //! quand, dans n'importe quel ordre et sur n'importe quel thread.
+//!
+//! # Le climat et le relief
+//!
+//! Pour chaque colonne, on lit plusieurs cartes de bruit très étalées :
+//! - la **continentalité** : de l'océan profond (très négatif) à l'intérieur des terres ;
+//! - l'**érosion** : faible érosion = montagnes ;
+//! - la **température** et l'**humidité** : le climat, qui choisit le biome des terres ;
+//! - une carte des **rivières** : elles coulent là où cette carte passe par zéro.
+//!
+//! La hauteur vient de la continentalité (une courbe : océan → côte → plateau), plus
+//! des collines dont l'amplitude dépend du biome, plus des crêtes de montagne là où
+//! l'érosion est faible. Le relief des biomes est **mélangé** selon la distance
+//! climatique : à la frontière entre une plaine et une forêt, le relief passe de l'un
+//! à l'autre en douceur, sans falaise.
+//!
+//! # Interpolation
+//!
+//! Évaluer une dizaine de bruits à plusieurs octaves pour chacun des 1 024 blocs d'un
+//! chunk serait coûteux. On ne les évalue que tous les 4 blocs (une grille de 9 × 9 par
+//! chunk) et on **interpole** entre ces points : le résultat est presque identique (ces
+//! cartes varient lentement) et 12 fois moins cher. Même chose en 3D pour les grottes.
 
 use std::sync::Arc;
 
@@ -15,45 +38,89 @@ use anyhow::{Context as _, Result};
 use glam::IVec3;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
+use crate::biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry};
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
 use crate::registry::BlockRegistry;
 use crate::world::World;
 
-/// Hauteur utile du monde, en chunks : les blocs vont de y = 0 à y = 32 × 5 - 1.
-pub const WORLD_HEIGHT_CHUNKS: i32 = 5;
+/// Hauteur utile du monde, en chunks : les blocs vont de y = 0 à y = 32 × 6 - 1.
+pub const WORLD_HEIGHT_CHUNKS: i32 = 6;
 const MAX_HEIGHT: i32 = WORLD_HEIGHT_CHUNKS * CHUNK_SIZE as i32 - 2;
-/// Au-dessus de cette altitude, le sommet des colonnes est enneigé.
-const SNOW_LINE: i32 = 100;
 /// Niveau de la mer : les creux du terrain sous cette altitude se remplissent d'eau.
-/// À 38, environ 16 % des colonnes sont sous l'eau (mesuré sur 6 000 × 6 000 blocs).
-pub const SEA_LEVEL: i32 = 38;
+pub const SEA_LEVEL: i32 = 62;
+/// Sous cette altitude (environ), la pierre devient de la pierre profonde.
+pub const DEEPSTONE_LEVEL: i32 = 16;
+/// Les grottes sous cette altitude sont remplies de lave.
+pub const LAVA_LEVEL: i32 = 10;
+/// En dessous de cette température, il neige et l'eau gèle.
+pub const FREEZING: f32 = 0.15;
 
-/// Le type de paysage d'une colonne.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Biome {
-    Plains,
-    Desert,
-    Mountains,
-}
+/// Pas de la grille d'interpolation, en blocs.
+const STEP: i32 = 4;
+/// Points de la grille par côté de chunk (32 / 4 + 1, les deux bords compris).
+const GRID: usize = CHUNK_SIZE / STEP as usize + 1;
 
 /// Ce que le générateur sait d'une colonne (x, z) : sa hauteur et son biome.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Column {
     /// y du bloc le plus haut de la colonne.
     pub height: i32,
-    pub biome: Biome,
+    pub biome: BiomeId,
+    /// Température ressentie à la surface (celle du biome, moins le froid de l'altitude).
+    pub temperature: f32,
+    /// La valeur brute de température du climat (de -1 à 1) : gèle aussi les océans froids.
+    pub climate_temperature: f32,
 }
 
-/// Les blocs dont le générateur a besoin, retrouvés par leur nom au démarrage.
+/// Les cartes de bruit en un point, avant interprétation.
+#[derive(Debug, Clone, Copy, Default)]
+struct Fields {
+    continentalness: f64,
+    erosion: f64,
+    temperature: f64,
+    humidity: f64,
+    river: f64,
+    hills: f64,
+    ridge: f64,
+}
+
+impl Fields {
+    /// Interpolation bilinéaire entre quatre coins (`fx`, `fz` entre 0 et 1).
+    fn bilerp(a: Fields, b: Fields, c: Fields, d: Fields, fx: f64, fz: f64) -> Fields {
+        let mix = |a: f64, b: f64, c: f64, d: f64| {
+            let top = a + (b - a) * fx;
+            let bottom = c + (d - c) * fx;
+            top + (bottom - top) * fz
+        };
+        Fields {
+            continentalness: mix(
+                a.continentalness,
+                b.continentalness,
+                c.continentalness,
+                d.continentalness,
+            ),
+            erosion: mix(a.erosion, b.erosion, c.erosion, d.erosion),
+            temperature: mix(a.temperature, b.temperature, c.temperature, d.temperature),
+            humidity: mix(a.humidity, b.humidity, c.humidity, d.humidity),
+            river: mix(a.river, b.river, c.river, d.river),
+            hills: mix(a.hills, b.hills, c.hills, d.hills),
+            ridge: mix(a.ridge, b.ridge, c.ridge, d.ridge),
+        }
+    }
+}
+
+/// Les blocs fixes du générateur, retrouvés par leur nom au démarrage.
 #[derive(Debug, Clone, Copy)]
 struct TerrainBlocks {
-    grass: BlockId,
-    dirt: BlockId,
     stone: BlockId,
-    sand: BlockId,
+    deepstone: BlockId,
+    bedrock: BlockId,
     snow: BlockId,
     water: BlockId,
+    ice: BlockId,
+    lava: BlockId,
+    sand: BlockId,
 }
 
 impl TerrainBlocks {
@@ -65,47 +132,66 @@ impl TerrainBlocks {
                 .with_context(|| format!("le générateur a besoin du bloc « {key} »"))
         };
         Ok(Self {
-            grass: id("core:grass")?,
-            dirt: id("core:dirt")?,
             stone: id("core:stone")?,
-            sand: id("core:sand")?,
+            deepstone: id("core:deepstone")?,
+            bedrock: id("core:bedrock")?,
             snow: id("core:snow")?,
             water: id("core:water")?,
+            ice: id("core:ice")?,
+            lava: id("core:lava")?,
+            sand: id("core:sand")?,
         })
     }
 }
 
-/// Le générateur de terrain. Il ne contient que des tables de bruit en lecture seule :
-/// il est donc `Send + Sync` et peut être partagé entre threads avec un `Arc`
-/// (voir `streaming.rs`), sans verrou.
+/// Le générateur de terrain. Il ne contient que des tables de bruit et des données en
+/// lecture seule : il est donc `Send + Sync` et peut être partagé entre threads avec un
+/// `Arc` (voir `streaming.rs`), sans verrou.
 #[derive(Debug, Clone)]
 pub struct TerrainGenerator {
     seed: u32,
-    /// Relief de base : plaines et collines.
+    continentalness: Fbm<Perlin>,
+    erosion: Fbm<Perlin>,
+    temperature: Fbm<Perlin>,
+    humidity: Fbm<Perlin>,
+    river: Fbm<Perlin>,
+    /// Les collines, dont l'amplitude dépend du biome.
     hills: Fbm<Perlin>,
-    /// Où sont les montagnes (valeur haute = montagne).
-    mountain_mask: Fbm<Perlin>,
     /// Les crêtes des montagnes.
     ridges: Fbm<Perlin>,
-    /// Chaud = désert, sinon plaine.
-    temperature: Fbm<Perlin>,
-    /// Deux champs 3D : une grotte passe là où les deux sont proches de zéro.
+    /// Deux champs 3D : un tunnel passe là où les deux sont proches de zéro.
     cave_a: Perlin,
     cave_b: Perlin,
+    /// Les grandes cavernes (« fromage ») : là où ce champ est haut.
+    cheese: Fbm<Perlin>,
+    /// Les nappes d'eau souterraines.
+    aquifer: Perlin,
     registry: Arc<BlockRegistry>,
+    biomes: Arc<BiomeRegistry>,
+    /// Les biomes des terres, choisis par le climat.
+    land: Vec<BiomeId>,
     blocks: TerrainBlocks,
 }
 
 impl TerrainGenerator {
-    /// Un générateur avec les blocs de base intégrés.
+    /// Un générateur avec les blocs et les biomes de base intégrés.
     pub fn new(seed: u32) -> Self {
         Self::with_registry(seed, BlockRegistry::builtin())
             .expect("les blocs de base intégrés sont complets")
     }
 
-    /// Un générateur qui utilise ce registre (core + mods). Échoue s'il manque
-    /// un des blocs de base dont le terrain a besoin.
+    /// Un générateur qui utilise ce registre de blocs (core + mods) et les biomes de base.
     pub fn with_registry(seed: u32, registry: Arc<BlockRegistry>) -> Result<Self> {
+        let biomes = Arc::new(BiomeRegistry::builtin(&registry)?);
+        Self::with_biomes(seed, registry, biomes)
+    }
+
+    /// Un générateur avec ses propres biomes. Échoue s'il manque un des blocs de base.
+    pub fn with_biomes(
+        seed: u32,
+        registry: Arc<BlockRegistry>,
+        biomes: Arc<BiomeRegistry>,
+    ) -> Result<Self> {
         let blocks = TerrainBlocks::resolve(&registry)?;
         // Chaque bruit reçoit une graine différente, dérivée de la graine du monde,
         // pour qu'ils ne se ressemblent pas. `wrapping_add` : pas de panique si ça déborde.
@@ -116,15 +202,27 @@ impl TerrainGenerator {
                 .set_lacunarity(2.0)
                 .set_persistence(0.5)
         };
+        let land = biomes
+            .iter()
+            .filter(|(_, b)| b.kind == BiomeKind::Land)
+            .map(|(id, _)| id)
+            .collect();
         Ok(Self {
             seed,
-            hills: fbm(0, 5, 1.0 / 300.0),
-            mountain_mask: fbm(1, 3, 1.0 / 700.0),
-            ridges: fbm(2, 4, 1.0 / 180.0),
-            temperature: fbm(3, 2, 1.0 / 900.0),
-            cave_a: Perlin::new(seed.wrapping_add(4)),
-            cave_b: Perlin::new(seed.wrapping_add(5)),
+            continentalness: fbm(0, 4, 1.0 / 1600.0),
+            erosion: fbm(1, 3, 1.0 / 900.0),
+            temperature: fbm(2, 2, 1.0 / 1100.0),
+            humidity: fbm(3, 2, 1.0 / 900.0),
+            river: fbm(4, 3, 1.0 / 700.0),
+            hills: fbm(5, 4, 1.0 / 220.0),
+            ridges: fbm(6, 4, 1.0 / 180.0),
+            cave_a: Perlin::new(seed.wrapping_add(7)),
+            cave_b: Perlin::new(seed.wrapping_add(8)),
+            cheese: fbm(9, 2, 1.0),
+            aquifer: Perlin::new(seed.wrapping_add(10)),
             registry,
+            biomes,
+            land,
             blocks,
         })
     }
@@ -133,62 +231,249 @@ impl TerrainGenerator {
         &self.registry
     }
 
+    pub fn biomes(&self) -> &Arc<BiomeRegistry> {
+        &self.biomes
+    }
+
+    pub fn biome(&self, id: BiomeId) -> &BiomeDef {
+        self.biomes.get(id)
+    }
+
     pub fn seed(&self) -> u32 {
         self.seed
     }
 
+    /// Les cartes de bruit au point de grille (gx, gz), soit au bloc (4 gx, 4 gz).
+    fn fields(&self, gx: i32, gz: i32) -> Fields {
+        let p = [(gx * STEP) as f64, (gz * STEP) as f64];
+        // Les cartes du climat sont un peu amplifiées : un fBm reste souvent près de 0,
+        // on veut des climats extrêmes (déserts, toundras) assez fréquents.
+        Fields {
+            // Décalé vers le haut : environ un tiers du monde sous la mer.
+            continentalness: self.continentalness.get(p) * 1.4 + 0.08,
+            erosion: self.erosion.get(p) * 1.4,
+            temperature: (self.temperature.get(p) * 1.8).clamp(-1.0, 1.0),
+            humidity: (self.humidity.get(p) * 1.8).clamp(-1.0, 1.0),
+            river: self.river.get(p),
+            hills: self.hills.get(p),
+            ridge: 1.0 - self.ridges.get(p).abs(),
+        }
+    }
+
+    /// Les cartes interpolées au bloc (x, z), depuis les 4 points de grille autour.
+    fn fields_at(&self, x: i32, z: i32, grid: impl Fn(i32, i32) -> Fields) -> Fields {
+        let (gx, gz) = (x.div_euclid(STEP), z.div_euclid(STEP));
+        let fx = x.rem_euclid(STEP) as f64 / STEP as f64;
+        let fz = z.rem_euclid(STEP) as f64 / STEP as f64;
+        Fields::bilerp(
+            grid(gx, gz),
+            grid(gx + 1, gz),
+            grid(gx, gz + 1),
+            grid(gx + 1, gz + 1),
+            fx,
+            fz,
+        )
+    }
+
     /// Hauteur et biome d'une colonne.
     pub fn column(&self, x: i32, z: i32) -> Column {
-        let p = [x as f64, z as f64];
+        let fields = self.fields_at(x, z, |gx, gz| self.fields(gx, gz));
+        self.interpret(fields)
+    }
 
-        // 1. Collines : entre environ 26 et 54 blocs.
-        let mut height = 40.0 + 14.0 * self.hills.get(p);
+    /// Les cartes deviennent une hauteur et un biome.
+    fn interpret(&self, f: Fields) -> Column {
+        let sea = SEA_LEVEL as f64;
+        let c = f.continentalness;
 
-        // 2. Montagnes : une crête (1 - |bruit|, pointue au milieu) n'apparaît que là
-        //    où le masque est haut. `smoothstep` fait une transition douce de 0 à 1.
-        let mask = smoothstep(0.1, 0.45, self.mountain_mask.get(p));
-        let ridge = 1.0 - self.ridges.get(p).abs();
-        height += mask * 90.0 * ridge * ridge;
+        // 1. La forme des continents : une courbe par morceaux (océan profond, côte, plateau).
+        let base = spline(
+            c,
+            &[
+                (-1.0, -38.0),
+                (-0.5, -30.0),
+                (-0.3, -15.0),
+                (-0.15, -5.0),
+                (-0.06, -1.0),
+                (0.02, 2.0),
+                (0.3, 9.0),
+                (0.7, 20.0),
+                (1.2, 30.0),
+            ],
+        );
+
+        // 2. Le relief des terres, mélangé entre les biomes selon le climat. Le poids d'un
+        //    biome décroît avec sa distance climatique (une gaussienne) : les poids
+        //    varient continûment, donc la hauteur aussi.
+        let (mut offset, mut scale, mut total) = (0.0, 0.0, 0.0);
+        for &id in &self.land {
+            let b = self.biomes.get(id);
+            let d2 = (f.temperature - b.climate.0).powi(2) + (f.humidity - b.climate.1).powi(2);
+            let w = (-d2 / 0.06).exp() + 1e-9;
+            offset += w * b.relief.offset;
+            scale += w * b.relief.scale;
+            total += w;
+        }
+        let (offset, scale) = (offset / total, scale / total);
+        // Sur les côtes et en mer, le relief du biome s'efface.
+        let inland = smoothstep(-0.12, 0.05, c);
+        let mut height = sea
+            + base
+            + inland * (offset + scale * 12.0 * f.hills)
+            + (1.0 - inland) * 3.0 * f.hills;
+
+        // 3. Les montagnes : là où l'érosion est faible, dans les terres. Une crête
+        //    (1 - |bruit|, pointue au milieu) au carré donne des sommets aigus.
+        let mountain = smoothstep(-0.05, -0.55, f.erosion) * smoothstep(0.0, 0.3, c);
+        height += mountain * (12.0 + 90.0 * f.ridge * f.ridge);
+
+        // 4. Les rivières : là où leur carte passe par zéro, on creuse jusque sous la mer.
+        //    Pas en mer, et de moins en moins en altitude (pas de canyon en montagne).
+        let channel = smoothstep(0.05, 0.012, f.river.abs())
+            * smoothstep(-0.12, -0.02, c)
+            * smoothstep(sea + 45.0, sea + 18.0, height);
+        height += (sea - 4.0 - height) * channel;
 
         let height = (height.round() as i32).clamp(1, MAX_HEIGHT);
-        let biome = if mask > 0.5 {
-            Biome::Mountains
-        } else if self.temperature.get(p) > 0.15 {
-            Biome::Desert
+
+        // 5. Le biome : d'abord la famille (par le relief), puis le climat pour les terres.
+        let kind = if height < SEA_LEVEL {
+            if channel > 0.35 && c > -0.12 {
+                BiomeKind::River
+            } else if c < -0.42 {
+                BiomeKind::DeepOcean
+            } else {
+                BiomeKind::Ocean
+            }
+        } else if mountain > 0.45 && height > SEA_LEVEL + 20 {
+            if height > SEA_LEVEL + 85 {
+                BiomeKind::Peaks
+            } else {
+                BiomeKind::Mountains
+            }
+        } else if c < 0.03 && height <= SEA_LEVEL + 2 && channel < 0.35 {
+            BiomeKind::Beach
         } else {
-            Biome::Plains
+            BiomeKind::Land
         };
-        Column { height, biome }
-    }
-
-    /// Vrai s'il y a une grotte en (x, y, z).
-    ///
-    /// Grottes « spaghetti » : chaque bruit 3D vaut zéro sur une surface tordue ;
-    /// là où deux de ces surfaces se croisent, on obtient un tunnel.
-    fn is_cave(&self, x: i32, y: i32, z: i32) -> bool {
-        if y < 2 {
-            return false; // Un fond solide sous le monde.
+        let biome = match kind {
+            BiomeKind::Land => self.nearest_land(f.temperature, f.humidity),
+            other => self.biomes.first_of(other),
+        };
+        // Il fait plus froid en altitude : la neige descend des sommets.
+        let altitude = (height - (SEA_LEVEL + 40)).max(0) as f32;
+        let temperature = self.biomes.get(biome).temperature - altitude * 0.012;
+        Column {
+            height,
+            biome,
+            temperature,
+            climate_temperature: f.temperature as f32,
         }
-        // On étire le bruit horizontalement : tunnels plutôt horizontaux.
-        let p = [x as f64 / 48.0, y as f64 / 28.0, z as f64 / 48.0];
-        let a = self.cave_a.get(p);
-        let b = self.cave_b.get(p);
-        a * a + b * b < 0.006
     }
 
-    /// Le bloc d'une colonne à l'altitude `y` (sans les grottes).
-    fn layer(&self, column: Column, y: i32) -> BlockId {
+    /// La colonne la plus proche de `(x, z)` (en spirale, tous les `step` blocs, jusqu'à
+    /// `radius`) qui vérifie `wanted`.
+    pub fn find_column(
+        &self,
+        x: i32,
+        z: i32,
+        step: i32,
+        radius: i32,
+        wanted: impl Fn(Column) -> bool,
+    ) -> Option<(i32, i32)> {
+        if wanted(self.column(x, z)) {
+            return Some((x, z));
+        }
+        (1..=radius / step).find_map(|ring| {
+            let r = ring * step;
+            (-r..=r).step_by(step as usize).find_map(|d| {
+                [
+                    (x + d, z - r),
+                    (x + d, z + r),
+                    (x - r, z + d),
+                    (x + r, z + d),
+                ]
+                .into_iter()
+                .find(|&(cx, cz)| wanted(self.column(cx, cz)))
+            })
+        })
+    }
+
+    /// Un point d'apparition : la terre ferme la plus proche de l'origine (pas l'océan,
+    /// ni une montagne), avec un peu de marge autour.
+    pub fn find_spawn(&self) -> (i32, i32) {
+        let ok = |c: Column| {
+            self.biome(c.biome).kind == BiomeKind::Land
+                && c.height > SEA_LEVEL + 1
+                && c.height < SEA_LEVEL + 30
+        };
+        self.find_column(0, 0, 16, 20_000, ok)
+            .and_then(|(x, z)| {
+                // Pas au bord de l'eau : on veut aussi de la terre à 8 blocs autour.
+                let around = [(8, 0), (-8, 0), (0, 8), (0, -8)];
+                if around
+                    .iter()
+                    .all(|(dx, dz)| ok(self.column(x + dx, z + dz)))
+                {
+                    Some((x, z))
+                } else {
+                    self.find_column(x + 24, z + 24, 8, 2000, ok)
+                }
+            })
+            .unwrap_or((0, 0))
+    }
+
+    /// Le biome des terres dont le climat est le plus proche.
+    fn nearest_land(&self, temperature: f64, humidity: f64) -> BiomeId {
+        let distance = |id: &BiomeId| {
+            let b = self.biomes.get(*id);
+            (temperature - b.climate.0).powi(2) + (humidity - b.climate.1).powi(2)
+        };
+        self.land
+            .iter()
+            .copied()
+            .min_by(|a, b| distance(a).total_cmp(&distance(b)))
+            .unwrap_or_default()
+    }
+
+    /// Le bloc d'une colonne à l'altitude `y`, sans les grottes ni les minerais.
+    fn layer(&self, x: i32, y: i32, z: i32, column: Column) -> BlockId {
         let b = self.blocks;
+        // Le socle : la couche 0 partout, puis de moins en moins jusqu'à y = 3.
+        if y == 0 || (y <= 3 && hash3(self.seed, x, y, z, 1).is_multiple_of(y as u64 + 1)) {
+            return b.bedrock;
+        }
+        let biome = self.biomes.get(column.biome);
         let depth = column.height - y;
-        match column.biome {
-            _ if column.height >= SNOW_LINE && depth == 0 => b.snow,
-            Biome::Desert if depth < 4 => b.sand,
-            // Plages et fonds de lacs : du sable au bord et sous l'eau.
-            _ if column.height <= SEA_LEVEL + 1 && depth < 3 => b.sand,
-            Biome::Mountains if column.height > 75 => b.stone,
-            Biome::Plains | Biome::Mountains if depth == 0 => b.grass,
-            Biome::Plains | Biome::Mountains if depth < 4 => b.dirt,
-            _ => b.stone,
+        let underwater = column.height < SEA_LEVEL;
+        let rocky = biome.rock_above.is_some_and(|h| column.height > h);
+        let cold = column.temperature < FREEZING;
+        if depth == 0 {
+            return if underwater {
+                biome.underwater
+            } else if cold && !rocky && biome.surface != b.sand {
+                b.snow
+            } else if rocky {
+                if cold { b.snow } else { b.stone }
+            } else {
+                biome.surface
+            };
+        }
+        if depth < biome.subsurface_depth {
+            return if underwater {
+                biome.underwater
+            } else if rocky {
+                b.stone
+            } else {
+                biome.subsurface
+            };
+        }
+        // La roche : de la pierre profonde en bas, avec une frontière irrégulière.
+        let jitter = (hash3(self.seed, x, y, z, 2) % 8) as i32;
+        if y < DEEPSTONE_LEVEL - 4 + jitter {
+            b.deepstone
+        } else {
+            b.stone
         }
     }
 
@@ -201,14 +486,20 @@ impl TerrainGenerator {
         let origin = World::chunk_origin(chunk_pos);
         let size = CHUNK_SIZE as i32;
 
-        // Les colonnes d'abord : elles disent si le chunk touche le sol.
-        let mut columns = [[Column {
-            height: 0,
-            biome: Biome::Plains,
-        }; CHUNK_SIZE]; CHUNK_SIZE];
+        // Les cartes de bruit sur la grille de 9 × 9 points du chunk, puis les colonnes.
+        let (g0x, g0z) = (origin.x / STEP, origin.z / STEP);
+        let mut grid = [[Fields::default(); GRID]; GRID];
+        for (i, row) in grid.iter_mut().enumerate() {
+            for (j, f) in row.iter_mut().enumerate() {
+                *f = self.fields(g0x + i as i32, g0z + j as i32);
+            }
+        }
+        let lookup = |gx: i32, gz: i32| grid[(gx - g0x) as usize][(gz - g0z) as usize];
+        let mut columns = [[Column::default(); CHUNK_SIZE]; CHUNK_SIZE];
         for (lx, row) in columns.iter_mut().enumerate() {
             for (lz, column) in row.iter_mut().enumerate() {
-                *column = self.column(origin.x + lx as i32, origin.z + lz as i32);
+                let fields = self.fields_at(origin.x + lx as i32, origin.z + lz as i32, lookup);
+                *column = self.interpret(fields);
             }
         }
         let highest = columns
@@ -222,42 +513,117 @@ impl TerrainGenerator {
             return None; // Tout le chunk est au-dessus du sol et de la mer.
         }
 
+        let caves = CaveGrid::new(self, origin);
         let mut chunk = Chunk::new();
         for (lx, row) in columns.iter().enumerate() {
             for (lz, &column) in row.iter().enumerate() {
                 let (x, z) = (origin.x + lx as i32, origin.z + lz as i32);
-                // Pas de grotte juste sous un lac : elle viderait l'eau (qui ne coule pas encore).
+                // Pas de grotte juste sous l'eau : elle viderait la mer (qui ne coule pas
+                // encore) ; ni juste sous la surface, pour ne pas trouer le sol partout.
                 let cave_ceiling = if column.height < SEA_LEVEL + 2 {
-                    column.height - 6
+                    column.height - 9
                 } else {
-                    column.height
+                    column.height - 4
                 };
+                let frozen = column.temperature < FREEZING || column.climate_temperature < -0.55;
                 for ly in 0..size {
                     let y = origin.y + ly;
-                    if y > column.height {
+                    let block = if y > column.height {
                         // Au-dessus du sol : de l'eau jusqu'au niveau de la mer, puis de l'air.
                         if y > SEA_LEVEL {
                             break;
                         }
-                        chunk.set(lx, ly as usize, lz, self.blocks.water);
-                    } else if y > cave_ceiling || !self.is_cave(x, y, z) {
-                        chunk.set(lx, ly as usize, lz, self.layer(column, y));
-                    }
+                        if y == SEA_LEVEL && frozen {
+                            self.blocks.ice
+                        } else {
+                            self.blocks.water
+                        }
+                    } else if y > 0
+                        && y <= cave_ceiling
+                        && let Some(fill) = caves.carve(self, lx, ly as usize, lz, y, column)
+                    {
+                        match fill {
+                            CaveFill::Air => continue,
+                            CaveFill::Water => self.blocks.water,
+                            CaveFill::Lava => self.blocks.lava,
+                        }
+                    } else {
+                        self.layer(x, y, z, column)
+                    };
+                    chunk.set(lx, ly as usize, lz, block);
                 }
             }
         }
+        self.place_ores(&mut chunk, chunk_pos, &columns);
         // Les grottes ont pu tout vider.
         (!chunk.is_empty()).then_some(chunk)
+    }
+
+    /// Les filons de minerai : des marches aléatoires dans la roche du chunk.
+    ///
+    /// Le hasard vient d'un générateur pseudo-aléatoire initialisé avec (graine du monde,
+    /// position du chunk, numéro du minerai) : le même chunk reçoit toujours les mêmes filons.
+    fn place_ores(
+        &self,
+        chunk: &mut Chunk,
+        chunk_pos: IVec3,
+        columns: &[[Column; CHUNK_SIZE]; CHUNK_SIZE],
+    ) {
+        let origin = World::chunk_origin(chunk_pos);
+        let size = CHUNK_SIZE as i32;
+        for (index, ore) in self.biomes.ores().iter().enumerate() {
+            // La part de l'intervalle d'altitude du minerai qui tombe dans ce chunk.
+            let low = ore.height.0.max(origin.y);
+            let high = ore.height.1.min(origin.y + size - 1);
+            if low > high {
+                continue;
+            }
+            let mut rng = ChunkRng::new(self.seed, chunk_pos, index as u64 + 100);
+            let expected = ore.per_chunk * (high - low + 1) as f32 / size as f32;
+            let veins = expected.floor() as u32 + u32::from(rng.next_f32() < expected.fract());
+            for _ in 0..veins {
+                let mut p = IVec3::new(
+                    rng.below(size as u32) as i32,
+                    low - origin.y + rng.below((high - low + 1) as u32) as i32,
+                    rng.below(size as u32) as i32,
+                );
+                if let Some(biomes) = &ore.biomes {
+                    let biome = columns[p.x as usize][p.z as usize].biome;
+                    if !biomes.contains(&biome) {
+                        continue;
+                    }
+                }
+                for _ in 0..ore.size {
+                    let inside = p.cmpge(IVec3::ZERO).all() && p.cmplt(IVec3::splat(size)).all();
+                    // Le filon ne sort pas de ses altitudes, même en serpentant.
+                    if inside && (ore.height.0..=ore.height.1).contains(&(origin.y + p.y)) {
+                        let (x, y, z) = (p.x as usize, p.y as usize, p.z as usize);
+                        if ore.replace.contains(&chunk.get(x, y, z)) {
+                            chunk.set(x, y, z, ore.block);
+                        }
+                    }
+                    // Un pas dans une des 6 directions.
+                    let axis = rng.below(6);
+                    let sign = if axis.is_multiple_of(2) { 1 } else { -1 };
+                    p[(axis / 2) as usize] += sign;
+                }
+            }
+        }
     }
 
     /// Génère d'un coup une région de `chunks_x × chunks_z` colonnes de chunks
     /// (sur toute la hauteur du monde). Pratique pour les tests et les benchmarks.
     pub fn generate_region(&self, chunks_x: i32, chunks_z: i32) -> World {
+        self.generate_area(IVec3::ZERO, chunks_x, chunks_z)
+    }
+
+    /// Comme [`TerrainGenerator::generate_region`], à partir de la colonne de chunks `from`.
+    pub fn generate_area(&self, from: IVec3, chunks_x: i32, chunks_z: i32) -> World {
         let mut world = World::with_registry(self.registry.clone());
         for x in 0..chunks_x {
             for z in 0..chunks_z {
                 for y in 0..WORLD_HEIGHT_CHUNKS {
-                    let pos = IVec3::new(x, y, z);
+                    let pos = IVec3::new(from.x + x, y, from.z + z);
                     if let Some(chunk) = self.generate(pos) {
                         world.insert(pos, chunk.into());
                     }
@@ -268,121 +634,163 @@ impl TerrainGenerator {
     }
 }
 
-/// 0 avant `edge0`, 1 après `edge1`, une courbe en S entre les deux.
+/// Ce qui remplit une grotte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CaveFill {
+    Air,
+    /// Une nappe souterraine.
+    Water,
+    /// Le fond du monde.
+    Lava,
+}
+
+/// Les bruits 3D des grottes, évalués tous les 4 blocs puis interpolés.
+struct CaveGrid {
+    tunnel_a: Vec<f32>,
+    tunnel_b: Vec<f32>,
+    cheese: Vec<f32>,
+    aquifer: Vec<f32>,
+}
+
+impl CaveGrid {
+    fn new(generator: &TerrainGenerator, origin: IVec3) -> Self {
+        let n = GRID * GRID * GRID;
+        let mut grid = Self {
+            tunnel_a: Vec::with_capacity(n),
+            tunnel_b: Vec::with_capacity(n),
+            cheese: Vec::with_capacity(n),
+            aquifer: Vec::with_capacity(n),
+        };
+        for i in 0..GRID {
+            for j in 0..GRID {
+                for k in 0..GRID {
+                    let p = origin + IVec3::new(i as i32, j as i32, k as i32) * STEP;
+                    let (x, y, z) = (p.x as f64, p.y as f64, p.z as f64);
+                    // On étire les tunnels horizontalement : des galeries plutôt horizontales.
+                    let tunnel = [x / 48.0, y / 28.0, z / 48.0];
+                    grid.tunnel_a.push(generator.cave_a.get(tunnel) as f32);
+                    grid.tunnel_b.push(generator.cave_b.get(tunnel) as f32);
+                    grid.cheese
+                        .push(generator.cheese.get([x / 90.0, y / 45.0, z / 90.0]) as f32);
+                    grid.aquifer
+                        .push(generator.aquifer.get([x / 96.0, y / 40.0, z / 96.0]) as f32);
+                }
+            }
+        }
+        grid
+    }
+
+    /// Interpolation trilinéaire d'un des bruits au bloc local (lx, ly, lz).
+    fn sample(values: &[f32], lx: usize, ly: usize, lz: usize) -> f32 {
+        let s = STEP as usize;
+        let (i, j, k) = (lx / s, ly / s, lz / s);
+        let (fx, fy, fz) = (
+            (lx % s) as f32 / s as f32,
+            (ly % s) as f32 / s as f32,
+            (lz % s) as f32 / s as f32,
+        );
+        let at = |di: usize, dj: usize, dk: usize| {
+            values[((i + di) * GRID + (j + dj)) * GRID + (k + dk)]
+        };
+        let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+        let x00 = lerp(at(0, 0, 0), at(1, 0, 0), fx);
+        let x10 = lerp(at(0, 1, 0), at(1, 1, 0), fx);
+        let x01 = lerp(at(0, 0, 1), at(1, 0, 1), fx);
+        let x11 = lerp(at(0, 1, 1), at(1, 1, 1), fx);
+        lerp(lerp(x00, x10, fy), lerp(x01, x11, fy), fz)
+    }
+
+    /// `Some` si le bloc est dans une grotte, avec ce qui la remplit.
+    fn carve(
+        &self,
+        _: &TerrainGenerator,
+        lx: usize,
+        ly: usize,
+        lz: usize,
+        y: i32,
+        column: Column,
+    ) -> Option<CaveFill> {
+        // Tunnels « spaghetti » : chaque bruit vaut zéro sur une surface tordue ;
+        // là où deux de ces surfaces se croisent, on obtient un tunnel.
+        let a = Self::sample(&self.tunnel_a, lx, ly, lz);
+        let b = Self::sample(&self.tunnel_b, lx, ly, lz);
+        let tunnel = a * a + b * b < 0.006;
+        // Cavernes « fromage » : de grands vides là où le bruit est haut. Plus rares
+        // près de la surface, pour que le sol ne s'effondre pas.
+        let near_surface = (y - (column.height - 24)).max(0) as f32;
+        let cheese = !tunnel && Self::sample(&self.cheese, lx, ly, lz) > 0.42 + near_surface * 0.02;
+        if !tunnel && !cheese {
+            return None;
+        }
+        Some(if y <= LAVA_LEVEL {
+            CaveFill::Lava
+        } else if y < SEA_LEVEL - 12 && Self::sample(&self.aquifer, lx, ly, lz) > 0.35 {
+            CaveFill::Water
+        } else {
+            CaveFill::Air
+        })
+    }
+}
+
+/// Un générateur pseudo-aléatoire (splitmix64) pour un chunk : rapide, et le même
+/// résultat pour les mêmes (graine, chunk, sel).
+struct ChunkRng(u64);
+
+impl ChunkRng {
+    fn new(seed: u32, chunk: IVec3, salt: u64) -> Self {
+        Self(hash3(seed, chunk.x, chunk.y, chunk.z, salt))
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    fn next_f32(&mut self) -> f32 {
+        (self.next_u64() >> 40) as f32 / (1u64 << 24) as f32
+    }
+
+    /// Un entier dans `0..n`.
+    fn below(&mut self, n: u32) -> u32 {
+        (((self.next_u64() >> 32) * n as u64) >> 32) as u32
+    }
+}
+
+/// Un nombre pseudo-aléatoire pour une position : le même à chaque fois.
+pub(crate) fn hash3(seed: u32, x: i32, y: i32, z: i32, salt: u64) -> u64 {
+    let mut h = (seed as u64) ^ salt.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    for v in [x, y, z] {
+        h ^= v as u32 as u64;
+        h = h.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+        h ^= h >> 33;
+    }
+    h
+}
+
+/// 0 avant `edge0`, 1 après `edge1`, une courbe en S entre les deux. Marche aussi
+/// avec `edge0 > edge1` (la courbe est alors descendante).
 fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
     let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn same_seed_gives_the_same_world() {
-        let a = TerrainGenerator::new(42);
-        let b = TerrainGenerator::new(42);
-        for pos in [IVec3::new(0, 0, 0), IVec3::new(-7, 1, 13)] {
-            assert_eq!(a.generate(pos), b.generate(pos));
+/// Une courbe linéaire par morceaux passant par `points` (x croissants).
+fn spline(x: f64, points: &[(f64, f64)]) -> f64 {
+    let first = points[0];
+    if x <= first.0 {
+        return first.1;
+    }
+    for pair in points.windows(2) {
+        let ((x0, y0), (x1, y1)) = (pair[0], pair[1]);
+        if x <= x1 {
+            return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
         }
     }
-
-    #[test]
-    fn different_seeds_give_different_worlds() {
-        let a = TerrainGenerator::new(1);
-        let b = TerrainGenerator::new(2);
-        let heights = |g: &TerrainGenerator| {
-            (0..64)
-                .map(|x| g.column(x * 7, 0).height)
-                .collect::<Vec<_>>()
-        };
-        assert_ne!(heights(&a), heights(&b));
-    }
-
-    #[test]
-    fn surface_matches_column_height() {
-        let generator = TerrainGenerator::new(42);
-        let world = generator.generate_region(1, 1);
-        let water = generator.blocks.water;
-        let mut checked = 0;
-        for x in 0..32 {
-            for z in 0..32 {
-                let height = generator.column(x, z).height;
-                // Au-dessus du sol : de l'air, ou de l'eau sous le niveau de la mer.
-                let above = world.block(IVec3::new(x, height + 1, z));
-                assert!(above.is_air() || (above == water && height < SEA_LEVEL));
-                // La surface peut être percée par une grotte : on compte les autres.
-                if !world.block(IVec3::new(x, height, z)).is_air() {
-                    checked += 1;
-                }
-            }
-        }
-        assert!(checked > 900, "presque toutes les colonnes ont un sol");
-    }
-
-    #[test]
-    fn sky_and_out_of_range_chunks_are_empty() {
-        let generator = TerrainGenerator::new(42);
-        assert!(generator.generate(IVec3::new(0, -1, 0)).is_none());
-        assert!(
-            generator
-                .generate(IVec3::new(0, WORLD_HEIGHT_CHUNKS, 0))
-                .is_none()
-        );
-        assert!(generator.generate(IVec3::new(0, 0, 0)).is_some());
-    }
-
-    /// Sur un grand territoire, on doit croiser les trois biomes, de la neige et des grottes.
-    #[test]
-    fn large_area_has_every_feature() {
-        let generator = TerrainGenerator::new(42);
-        let mut biomes = Vec::new();
-        let mut snow = false;
-        for x in (-4000..4000).step_by(40) {
-            for z in (-4000..4000).step_by(40) {
-                let column = generator.column(x, z);
-                if !biomes.contains(&column.biome) {
-                    biomes.push(column.biome);
-                }
-                snow |= column.height >= SNOW_LINE;
-            }
-        }
-        assert_eq!(biomes.len(), 3, "biomes trouvés : {biomes:?}");
-        assert!(snow, "aucun sommet enneigé");
-
-        let caves = (0..40)
-            .flat_map(|x| (0..40).map(move |z| (x, z)))
-            .filter(|&(x, z)| (2..20).any(|y| generator.is_cave(x * 3, y, z * 3)))
-            .count();
-        assert!(caves > 0, "aucune grotte");
-    }
-
-    #[test]
-    fn low_ground_is_under_water() {
-        let generator = TerrainGenerator::new(42);
-        // On cherche une colonne sous le niveau de la mer.
-        let (x, z, column) = (-2000..2000)
-            .step_by(16)
-            .flat_map(|x| (-2000..2000).step_by(16).map(move |z| (x, z)))
-            .map(|(x, z)| (x, z, generator.column(x, z)))
-            .find(|(_, _, c)| c.height < SEA_LEVEL - 2)
-            .expect("aucun lac sur 4 000 × 4 000 blocs");
-        let column_pos = World::split(IVec3::new(x, 0, z)).0;
-        let mut world = World::new();
-        for cy in 0..WORLD_HEIGHT_CHUNKS {
-            let pos = IVec3::new(column_pos.x, cy, column_pos.z);
-            if let Some(chunk) = generator.generate(pos) {
-                world.insert(pos, chunk.into());
-            }
-        }
-        assert_eq!(
-            world.block(IVec3::new(x, SEA_LEVEL, z)),
-            generator.blocks.water
-        );
-        assert!(world.block(IVec3::new(x, SEA_LEVEL + 1, z)).is_air());
-        assert_eq!(
-            world.block(IVec3::new(x, column.height, z)),
-            generator.blocks.sand
-        );
-    }
+    points[points.len() - 1].1
 }
+
+#[cfg(test)]
+mod tests;

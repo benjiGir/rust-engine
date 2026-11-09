@@ -1,0 +1,97 @@
+// Les biomes du monde, lus par le générateur de terrain.
+//
+// Le générateur calcule pour chaque colonne quatre « cartes » de bruit :
+// - la continentalité (océan profond → côte → intérieur des terres) ;
+// - l'érosion (faible érosion = montagnes) ;
+// - la température et l'humidité (le climat).
+// Les deux premières décident du relief et des grandes familles (`kind`) : océans,
+// plages, rivières, terres, montagnes, pics. Pour les terres, le biome choisi est celui
+// dont le point `climate` (température, humidité, entre -1 et 1) est le plus proche.
+//
+// Champs :
+// - kind : Ocean, DeepOcean, Beach, River, Land, Mountains, Peaks ;
+// - climate : (température, humidité) du biome (pour `Land`) ;
+// - temperature : température « réelle » ; en dessous de 0,15 il neige et l'eau gèle
+//   (elle baisse aussi avec l'altitude) ;
+// - surface, subsurface (sur `subsurface_depth` blocs), underwater : les blocs du sol ;
+// - rock_above : au-dessus de cette altitude, la roche affleure (montagnes) ;
+// - relief : (offset: décalage, scale: amplitude) : décalage de hauteur et amplitude des collines. Entre deux
+//   biomes, le relief est mélangé selon la distance climatique : pas de falaise à la frontière ;
+// - grass_color, foliage_color, water_color : teintes (utilisées par le rendu de la végétation).
+[
+    (
+        id: "core:ocean", name: "Océan", kind: Ocean, temperature: 0.5,
+        surface: "sand", subsurface: "sand", underwater: "sand",
+        grass_color: (0.45, 0.7, 0.3), foliage_color: (0.35, 0.6, 0.25), water_color: (0.2, 0.4, 0.8),
+    ),
+    (
+        id: "core:deep_ocean", name: "Océan profond", kind: DeepOcean, temperature: 0.5,
+        surface: "gravel", subsurface: "gravel", underwater: "gravel",
+        grass_color: (0.45, 0.7, 0.3), foliage_color: (0.35, 0.6, 0.25), water_color: (0.15, 0.3, 0.7),
+    ),
+    (
+        id: "core:beach", name: "Plage", kind: Beach, temperature: 0.8,
+        surface: "sand", subsurface: "sand", subsurface_depth: 4, underwater: "sand",
+        grass_color: (0.55, 0.75, 0.3), foliage_color: (0.45, 0.65, 0.25), water_color: (0.25, 0.5, 0.85),
+    ),
+    (
+        id: "core:river", name: "Rivière", kind: River, temperature: 0.5,
+        surface: "sand", subsurface: "dirt", underwater: "clay",
+        grass_color: (0.45, 0.7, 0.3), foliage_color: (0.35, 0.6, 0.25), water_color: (0.25, 0.45, 0.85),
+    ),
+    (
+        id: "core:plains", name: "Plaine", kind: Land, climate: (0.0, -0.3), temperature: 0.8,
+        surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 2.0, scale: 0.5),
+        grass_color: (0.5, 0.75, 0.3), foliage_color: (0.4, 0.65, 0.25), water_color: (0.25, 0.45, 0.85),
+    ),
+    (
+        id: "core:forest", name: "Forêt", kind: Land, climate: (0.1, 0.25), temperature: 0.7,
+        surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 4.0, scale: 0.9),
+        grass_color: (0.4, 0.68, 0.25), foliage_color: (0.3, 0.58, 0.2), water_color: (0.25, 0.45, 0.85),
+    ),
+    (
+        id: "core:birch_forest", name: "Forêt de bouleaux", kind: Land, climate: (-0.2, 0.05), temperature: 0.6,
+        surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 4.0, scale: 0.8),
+        grass_color: (0.5, 0.72, 0.35), foliage_color: (0.5, 0.68, 0.3), water_color: (0.25, 0.45, 0.85),
+    ),
+    (
+        id: "core:taiga", name: "Taïga", kind: Land, climate: (-0.45, 0.3), temperature: 0.25,
+        surface: "grass", subsurface: "dirt", underwater: "gravel", relief: (offset: 6.0, scale: 1.0),
+        grass_color: (0.4, 0.58, 0.38), foliage_color: (0.3, 0.48, 0.32), water_color: (0.2, 0.35, 0.65),
+    ),
+    (
+        id: "core:snowy_tundra", name: "Toundra enneigée", kind: Land, climate: (-0.75, -0.2), temperature: 0.0,
+        surface: "grass", subsurface: "dirt", underwater: "gravel", relief: (offset: 2.0, scale: 0.4),
+        grass_color: (0.5, 0.65, 0.5), foliage_color: (0.45, 0.6, 0.45), water_color: (0.2, 0.3, 0.6),
+    ),
+    (
+        id: "core:jungle", name: "Jungle", kind: Land, climate: (0.6, 0.6), temperature: 0.95,
+        surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 6.0, scale: 1.2),
+        grass_color: (0.3, 0.75, 0.15), foliage_color: (0.2, 0.7, 0.1), water_color: (0.2, 0.5, 0.7),
+    ),
+    (
+        id: "core:savanna", name: "Savane", kind: Land, climate: (0.55, -0.35), temperature: 1.2,
+        surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 3.0, scale: 0.6),
+        grass_color: (0.7, 0.7, 0.35), foliage_color: (0.6, 0.62, 0.3), water_color: (0.25, 0.5, 0.75),
+    ),
+    (
+        id: "core:desert", name: "Désert", kind: Land, climate: (0.7, -0.6), temperature: 2.0,
+        surface: "sand", subsurface: "sandstone", subsurface_depth: 5, underwater: "sand", relief: (offset: 3.0, scale: 0.7),
+        grass_color: (0.75, 0.72, 0.4), foliage_color: (0.68, 0.65, 0.35), water_color: (0.3, 0.55, 0.75),
+    ),
+    (
+        id: "core:swamp", name: "Marais", kind: Land, climate: (0.25, 0.75), temperature: 0.8,
+        surface: "grass", subsurface: "dirt", underwater: "clay", relief: (offset: -1.0, scale: 0.12),
+        grass_color: (0.38, 0.48, 0.25), foliage_color: (0.35, 0.45, 0.22), water_color: (0.3, 0.38, 0.3),
+    ),
+    (
+        id: "core:mountains", name: "Montagnes", kind: Mountains, temperature: 0.3,
+        surface: "grass", subsurface: "dirt", underwater: "gravel", rock_above: 120,
+        grass_color: (0.45, 0.62, 0.4), foliage_color: (0.35, 0.55, 0.32), water_color: (0.2, 0.4, 0.75),
+    ),
+    (
+        id: "core:snowy_peaks", name: "Pics enneigés", kind: Peaks, temperature: -0.5,
+        surface: "snow", subsurface: "stone", underwater: "gravel",
+        grass_color: (0.5, 0.65, 0.5), foliage_color: (0.45, 0.6, 0.45), water_color: (0.2, 0.3, 0.6),
+    ),
+]

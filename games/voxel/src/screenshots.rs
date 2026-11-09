@@ -1,10 +1,15 @@
 //! Le mode `VOXEL_SCREENSHOTS=dossier` : une visite guidée qui enregistre des images.
 //!
 //! La caméra se place tour à tour à midi, au coucher du soleil, la nuit, près de
-//! torches, au-dessus d'un lac et dans une grotte éclairée par une torche. Pour chaque
-//! vue, on attend que le monde soit chargé et maillé, puis on dessine l'image hors
-//! écran (`Renderer::capture`) et on l'écrit en PNG. Ça marche même écran éteint, et
-//! ça permet de vérifier le rendu sans être devant la machine.
+//! torches, au-dessus d'un lac, dans une grotte éclairée par une torche, puis au-dessus
+//! de chaque biome et d'une coupe du sous-sol. Pour chaque vue, on attend que le monde
+//! soit chargé et maillé, puis on dessine l'image hors écran (`Renderer::capture`) et on
+//! l'écrit en PNG. Ça marche même écran éteint, et ça permet de vérifier le rendu sans
+//! être devant la machine.
+//!
+//! Les positions des scènes sont relatives au point d'apparition (le centre du monde
+//! peut être en pleine mer). `VOXEL_SHOTS=biome` ne garde que les captures dont le nom
+//! contient « biome ».
 
 use std::fs::File;
 use std::io::BufWriter;
@@ -39,6 +44,10 @@ enum Scene {
     Inventory,
     Inspector,
     Machines,
+    /// Au-dessus d'un biome (son identifiant).
+    Biome(&'static str),
+    /// Une fosse creusée jusqu'au socle : les couches, les minerais, les grottes.
+    Underground,
 }
 
 struct Shot {
@@ -47,10 +56,22 @@ struct Shot {
     scene: Scene,
 }
 
+/// Taille de la fosse de la coupe du sous-sol (x, z).
+const PIT: (i32, i32) = (24, 16);
+
 /// Où construire le mécanisme de la capture.
 const MACHINE_SPOT: (i32, i32) = (-10, 14);
 
-const SHOTS: [Shot; 10] = [
+/// Une capture par biome.
+const fn biome(name: &'static str, key: &'static str) -> Shot {
+    Shot {
+        name,
+        time: 0.42,
+        scene: Scene::Biome(key),
+    }
+}
+
+const SHOTS: [Shot; 26] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -101,6 +122,26 @@ const SHOTS: [Shot; 10] = [
         time: 0.8,
         scene: Scene::Machines,
     },
+    Shot {
+        name: "11-sous-sol",
+        time: 0.5,
+        scene: Scene::Underground,
+    },
+    biome("biome-plaine", "core:plains"),
+    biome("biome-foret", "core:forest"),
+    biome("biome-foret-bouleaux", "core:birch_forest"),
+    biome("biome-taiga", "core:taiga"),
+    biome("biome-toundra", "core:snowy_tundra"),
+    biome("biome-jungle", "core:jungle"),
+    biome("biome-savane", "core:savanna"),
+    biome("biome-desert", "core:desert"),
+    biome("biome-marais", "core:swamp"),
+    biome("biome-montagnes", "core:mountains"),
+    biome("biome-pics", "core:snowy_peaks"),
+    biome("biome-plage", "core:beach"),
+    biome("biome-riviere", "core:river"),
+    biome("biome-ocean", "core:ocean"),
+    biome("biome-ocean-profond", "core:deep_ocean"),
 ];
 
 /// Où en est la visite.
@@ -109,6 +150,9 @@ pub struct Tour {
     index: usize,
     stage: Stage,
     started: Instant,
+    /// `VOXEL_SHOTS` : ne garder que les captures dont le nom contient ce texte.
+    filter: Option<String>,
+    taken: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +172,8 @@ impl Tour {
             index: 0,
             stage: Stage::Move,
             started: Instant::now(),
+            filter: std::env::var("VOXEL_SHOTS").ok(),
+            taken: 0,
         }
     }
 }
@@ -138,10 +184,19 @@ impl VoxelGame {
         let Some(tour) = self.tour.as_mut() else {
             return Ok(());
         };
+        // Les captures écartées par `VOXEL_SHOTS` sont sautées.
+        while let Some(shot) = SHOTS.get(tour.index)
+            && tour
+                .filter
+                .as_deref()
+                .is_some_and(|f| !shot.name.contains(f))
+        {
+            tour.index += 1;
+        }
         let Some(shot) = SHOTS.get(tour.index) else {
             log::info!(
                 "{} captures enregistrées dans {} en {:.0?}",
-                SHOTS.len(),
+                tour.taken,
                 tour.dir.display(),
                 tour.started.elapsed()
             );
@@ -158,7 +213,7 @@ impl VoxelGame {
                     player::toggle_mode(&mut self.ecs, self.player);
                 }
                 let (eye, yaw, pitch) = self.viewpoint(shot.scene);
-                player::set_eye(&self.ecs, self.player, eye);
+                player::set_eye(&self.ecs, self.player, eye + self.origin().as_vec3());
                 self.ui.inventory_open = shot.scene == Scene::Inventory;
                 self.ui.inspector_open = shot.scene == Scene::Inspector;
                 self.camera.yaw = yaw.to_radians();
@@ -199,6 +254,7 @@ impl VoxelGame {
                     }
                     if let Some(tour) = self.tour.as_mut() {
                         tour.index += 1;
+                        tour.taken += 1;
                     }
                     self.set_stage(Stage::Move);
                 }
@@ -232,8 +288,49 @@ impl VoxelGame {
         }
     }
 
+    /// Les scènes sont décrites autour de (0, 0) : on les place au point d'apparition.
+    fn origin(&self) -> IVec3 {
+        IVec3::new(self.spawn.x, 0, self.spawn.z)
+    }
+
+    /// La hauteur du sol, en coordonnées de scène.
     fn ground(&self, x: i32, z: i32) -> i32 {
-        self.streamer().generator().column(x, z).height
+        let o = self.origin();
+        self.streamer().generator().column(o.x + x, o.z + z).height
+    }
+
+    /// Pose un bloc, en coordonnées de scène.
+    fn put(&mut self, pos: IVec3, block: BlockId) -> bool {
+        let pos = pos + self.origin();
+        self.streamer_mut().set_block(pos, block)
+    }
+
+    /// Le centre d'une zone du biome `key` (en coordonnées de scène) : une colonne dont
+    /// les voisines à 24 blocs sont du même biome, pour bien le voir.
+    fn find_biome(&self, key: &str) -> Option<(i32, i32)> {
+        let o = self.origin();
+        let streamer = self.streamer();
+        let generator = streamer.generator();
+        let id = generator.biomes().id(key)?;
+        let inside = |x: i32, z: i32| generator.column(x, z).biome == id;
+        let found = generator.find_column(o.x, o.z, 32, 40_000, |c| c.biome == id)?;
+        // On cherche autour de la première trouvée un point bien à l'intérieur.
+        let interior = |x: i32, z: i32| {
+            [(0, 0), (24, 0), (-24, 0), (0, 24), (0, -24)]
+                .iter()
+                .all(|(dx, dz)| inside(x + dx, z + dz))
+        };
+        let center = (0..=400)
+            .step_by(8)
+            .flat_map(|r| {
+                (-r..=r)
+                    .step_by(8)
+                    .flat_map(move |d| [(d, -r), (d, r), (-r, d), (r, d)])
+            })
+            .map(|(dx, dz)| (found.0 + dx, found.1 + dz))
+            .find(|&(x, z)| interior(x, z))
+            .unwrap_or(found);
+        Some((center.0 - o.x, center.1 - o.z))
     }
 
     /// Position des yeux, cap et inclinaison (en degrés) pour chaque scène.
@@ -279,6 +376,34 @@ impl VoxelGame {
                     -30.0,
                 )
             }
+            Scene::Biome(key) => {
+                let (x, z) = self.find_biome(key).unwrap_or_else(|| {
+                    log::warn!("biome {key} introuvable");
+                    (0, 0)
+                });
+                // Au-dessus de l'eau ou du sol, assez haut pour voir le paysage.
+                let g = self.ground(x, z).max(SEA_LEVEL) as f32;
+                (
+                    Vec3::new(x as f32 - 26.0, g + 24.0, z as f32 - 26.0),
+                    45.0,
+                    -24.0,
+                )
+            }
+            Scene::Underground => {
+                // Au-dessus du bord sud de la fosse, regardant vers le nord (-z) et vers le bas :
+                // la paroi d'en face, du sol jusqu'au socle.
+                let (x, z) = self.pit_spot();
+                let g = self.ground(x, z) as f32;
+                (
+                    Vec3::new(
+                        x as f32 + PIT.0 as f32 / 2.0,
+                        g + 20.0,
+                        (z + PIT.1 - 2) as f32,
+                    ),
+                    -90.0,
+                    -70.0,
+                )
+            }
         }
     }
 
@@ -294,7 +419,7 @@ impl VoxelGame {
                     let pos = IVec3::new(x, self.ground(x, z) + 1, z);
                     let block = if (dx, dz) == (0, 0) { glow } else { torch };
                     if let Some(block) = block {
-                        self.streamer_mut().set_block(pos, block);
+                        self.put(pos, block);
                     }
                 }
             }
@@ -309,14 +434,13 @@ impl VoxelGame {
                             let wall = x.abs() == 4 || z.abs() == 4 || y == -1 || y == 3;
                             let block = if wall { stone } else { Some(BlockId::AIR) };
                             if let Some(block) = block {
-                                self.streamer_mut().set_block(pos, block);
+                                self.put(pos, block);
                             }
                         }
                     }
                 }
                 if let Some(torch) = torch {
-                    self.streamer_mut()
-                        .set_block(floor + IVec3::new(1, 0, 1), torch);
+                    self.put(floor + IVec3::new(1, 0, 1), torch);
                 }
             }
             Scene::Mobs => {
@@ -340,15 +464,22 @@ impl VoxelGame {
                     };
                     let (px, pz) = (x + dx, z + dz);
                     let y = self.ground(px, pz) as f32 + 1.0;
+                    let o = self.origin().as_vec3();
                     crate::mobs::spawn_mob(
                         &mut self.ecs,
                         kind,
-                        Vec3::new(px as f32 + 0.5, y, pz as f32 + 0.5),
+                        o + Vec3::new(px as f32 + 0.5, y, pz as f32 + 0.5),
                     );
                 }
             }
             Scene::Machines => self.build_machines(),
-            Scene::Spawn | Scene::Sunset | Scene::Lake | Scene::Inventory | Scene::Inspector => {}
+            Scene::Underground => self.dig_pit(),
+            Scene::Spawn
+            | Scene::Sunset
+            | Scene::Lake
+            | Scene::Inventory
+            | Scene::Inspector
+            | Scene::Biome(_) => {}
         }
     }
 
@@ -363,7 +494,7 @@ impl VoxelGame {
         };
         let breaker = id("example:breaker");
         let (x, z) = MACHINE_SPOT;
-        let base = IVec3::new(x, self.ground(x, z) + 1, z);
+        let base = IVec3::new(x, self.ground(x, z) + 1, z) + self.origin();
         let place = |game: &mut Self, pos: IVec3, block: BlockId| {
             if game.streamer_mut().set_block(pos, block) {
                 let actions = game.mods.block_changed(pos);
@@ -413,9 +544,49 @@ impl VoxelGame {
         }
     }
 
+    /// Un coin de terre ferme près du départ, loin de l'eau, pour la fosse.
+    fn pit_spot(&self) -> (i32, i32) {
+        let dry = |x: i32, z: i32| {
+            (-4..PIT.0 + 8)
+                .step_by(4)
+                .flat_map(|dx| (-4..PIT.1 + 8).step_by(4).map(move |dz| (dx, dz)))
+                .all(|(dx, dz)| self.ground(x + dx, z + dz) > SEA_LEVEL + 2)
+        };
+        (0..20)
+            .flat_map(|r| (-r..=r).flat_map(move |d| [(d, -r), (d, r), (-r, d), (r, d)]))
+            .map(|(i, j)| (40 + i * 16, -30 + j * 16))
+            .find(|&(x, z)| dry(x, z))
+            .unwrap_or((40, -30))
+    }
+
+    /// Une fosse creusée jusqu'au socle : ses parois montrent les
+    /// couches (terre, pierre, pierre profonde), les filons et les grottes coupées.
+    fn dig_pit(&mut self) {
+        let (x0, z0) = self.pit_spot();
+        let o = self.origin();
+        let top = (0..PIT.0)
+            .flat_map(|dx| (0..PIT.1).map(move |dz| (dx, dz)))
+            .map(|(dx, dz)| self.ground(x0 + dx, z0 + dz))
+            .max()
+            .unwrap_or(SEA_LEVEL);
+        let mut streamer = self.streamer_mut();
+        let mut dug = 0;
+        for dx in 0..PIT.0 {
+            for dz in 0..PIT.1 {
+                for y in (1..=top).rev() {
+                    // `set_block_quiet` : le maillage est refait une fois, à la fin.
+                    dug += streamer
+                        .set_block_quiet(IVec3::new(o.x + x0 + dx, y, o.z + z0 + dz), BlockId::AIR)
+                        as usize;
+                }
+            }
+        }
+        log::info!("fosse : {dug} blocs creusés depuis y = {top}");
+    }
+
     /// Le sol de la salle souterraine : 20 blocs sous la surface du point (0, 0).
     fn cave_floor(&self) -> IVec3 {
-        IVec3::new(0, (self.ground(0, 0) - 20).max(4), 0)
+        IVec3::new(0, (self.ground(0, 0) - 20).max(SEA_LEVEL - 30), 0)
     }
 
     /// Un point d'eau profond près du départ, en tournant en spirale.

@@ -16,7 +16,8 @@
 // - light_opacity (15 si opaque, 0 si transparent) : lumière absorbée, de 0 à 15 ;
 // - texture : une texture pour toutes les faces (`textures/<nom>.png` du même dossier),
 //   ou textures : (top, side, bottom) pour le dessus, les côtés et le dessous ;
-// - sounds : (step, break, place), des sons de `sounds/<nom>.wav`.
+// - sounds : (step, break, place), des sons de `sounds/<nom>.wav` ;
+// - unbreakable (false) : on ne peut pas le casser (le socle du monde).
 // Un nom sans espace de noms désigne un fichier de ce dossier ; `autre:nom` celui d'un autre.
 //
 // L'ordre compte : il fixe les identifiants numériques (1, 2, 3...) de cette partie.
@@ -84,5 +85,78 @@
         id: "core:glowstone", name: "Pierre lumineuse", color: (0.98, 0.85, 0.5),
         light_emission: 15, texture: "glowstone",
         sounds: (step: "step_hard", break: "break_glass", place: "place_hard"),
+    ),
+    // ----- Le terrain (phase O1) -----
+    (
+        id: "core:deepstone", name: "Pierre profonde", color: (0.3, 0.3, 0.34), texture: "deepstone",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    // Le socle : la dernière couche, indestructible.
+    (
+        id: "core:bedrock", name: "Socle", color: (0.2, 0.2, 0.2), texture: "bedrock",
+        unbreakable: true, placeable: false,
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    (
+        id: "core:gravel", name: "Gravier", color: (0.5, 0.48, 0.47), texture: "gravel",
+        sounds: (step: "step_sand", break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:clay", name: "Argile", color: (0.62, 0.65, 0.7), texture: "clay",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+    ),
+    (
+        id: "core:sandstone", name: "Grès", color: (0.85, 0.77, 0.55),
+        textures: (top: "sandstone_top", side: "sandstone", bottom: "sandstone_top"),
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    (
+        id: "core:ice", name: "Glace", color: (0.6, 0.75, 0.98),
+        transparent: true, alpha: 0.75, light_opacity: 2, texture: "ice",
+        sounds: (step: "step_hard", break: "break_glass", place: "place_hard"),
+    ),
+    // La lave des profondeurs : elle éclaire les grottes. Elle ne coule pas encore.
+    (
+        id: "core:lava", name: "Lave", color: (0.95, 0.4, 0.05),
+        solid: false, selectable: false, placeable: false, liquid: true,
+        light_emission: 15, texture: "lava", fluid: "lava",
+    ),
+    // Les minerais : où et combien, voir `ores.ron`.
+    (
+        id: "core:coal_ore", name: "Minerai de charbon", color: (0.3, 0.3, 0.3), texture: "coal_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    (
+        id: "core:iron_ore", name: "Minerai de fer", color: (0.65, 0.55, 0.48), texture: "iron_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    (
+        id: "core:copper_ore", name: "Minerai de cuivre", color: (0.7, 0.45, 0.3), texture: "copper_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    (
+        id: "core:gold_ore", name: "Minerai d'or", color: (0.85, 0.75, 0.3), texture: "gold_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    // Un minerai rouge (cinabre) : il donnera la poudre des circuits.
+    (
+        id: "core:cinnabar_ore", name: "Minerai de cinabre", color: (0.7, 0.2, 0.2), texture: "cinnabar_ore",
+        light_emission: 3,
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    // Un minerai vert, pour les enchantements à venir.
+    (
+        id: "core:malachite_ore", name: "Minerai de malachite", color: (0.3, 0.6, 0.45), texture: "malachite_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    // La gemme bleue, rare et profonde.
+    (
+        id: "core:sapphire_ore", name: "Minerai de saphir", color: (0.3, 0.45, 0.85), texture: "sapphire_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+    ),
+    // Un minerai rare des montagnes.
+    (
+        id: "core:jade_ore", name: "Minerai de jade", color: (0.35, 0.75, 0.55), texture: "jade_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
     ),
 ]

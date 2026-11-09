@@ -125,6 +125,8 @@ struct VoxelGame {
     mod_readers: EventReaders,
     /// `VOXEL_STRESS=N` : le test de charge.
     stress: Option<stress::StressTest>,
+    /// Le point d'apparition (et de réapparition) : la surface d'une colonne de terre ferme.
+    spawn: IVec3,
     /// Le maillage GPU de chaque chunk affiché.
     meshes: HashMap<IVec3, MeshId>,
     /// L'entité du joueur dans `ecs`.
@@ -236,9 +238,23 @@ impl Game for VoxelGame {
             .ok()
             .map(|dir| screenshots::Tour::new(dir.into()));
 
-        // On démarre au-dessus du sol, quelle que soit la graine. En marche, le joueur
-        // tombe jusqu'au sol dès que le terrain est chargé.
-        let ground = streamer.generator().column(0, 0).height as f32;
+        // On démarre sur la terre ferme la plus proche de l'origine (elle peut être en
+        // pleine mer), au-dessus du sol. En marche, le joueur tombe jusqu'au sol dès que
+        // le terrain est chargé.
+        let (spawn_x, spawn_z) = streamer.generator().find_spawn();
+        let spawn = IVec3::new(
+            spawn_x,
+            streamer.generator().column(spawn_x, spawn_z).height,
+            spawn_z,
+        );
+        log::info!("point d'apparition : ({spawn_x}, {spawn_z}), biome {}", {
+            let generator = streamer.generator();
+            generator
+                .biome(generator.column(spawn_x, spawn_z).biome)
+                .name
+                .clone()
+        });
+        let ground = spawn.y as f32;
         let mode = if autofly.is_some() {
             MoveMode::Fly
         } else {
@@ -250,7 +266,11 @@ impl Game for VoxelGame {
             FLY_ALTITUDE
         };
         let default_view = (
-            Vec3::new(0.5, ground + altitude, 0.5),
+            Vec3::new(
+                spawn.x as f32 + 0.5,
+                ground + altitude,
+                spawn.z as f32 + 0.5,
+            ),
             45f32.to_radians(),
             if demo.is_some() { -35f32 } else { -20f32 }.to_radians(),
             mode,
@@ -327,6 +347,7 @@ impl Game for VoxelGame {
             mod_dirs,
             mod_readers,
             stress: stress::StressTest::from_env(),
+            spawn,
             meshes: HashMap::new(),
             player,
             inventory,
@@ -769,8 +790,16 @@ impl VoxelGame {
         if health.current > 0.0 {
             return;
         }
-        let ground = self.streamer().generator().column(0, 0).height as f32;
-        player::set_eye(&self.ecs, self.player, Vec3::new(0.5, ground + 3.0, 0.5));
+        let spawn = self.spawn;
+        player::set_eye(
+            &self.ecs,
+            self.player,
+            Vec3::new(
+                spawn.x as f32 + 0.5,
+                spawn.y as f32 + 3.0,
+                spawn.z as f32 + 0.5,
+            ),
+        );
         if let Some(mut health) = self.ecs.get_mut::<Health>(self.player) {
             health.current = health.max;
         }
