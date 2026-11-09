@@ -107,7 +107,7 @@ Variables du jeu :
   1280 × 720) ; `VOXEL_BENCH_ONLY=foret,ocean` pour quelques trajets. Plus simple :
   `cargo xtask bench` (3 passages, médianes, résultat dans `target/bench/<commit>.csv`), puis après un
   changement `cargo xtask bench --compare target/bench/<ancien>.csv` : seuls les écarts plus grands que
-  le bruit de mesure sont signalés. Sous macOS les FPS plafonnent au rythme de l'écran : comparer CPU et GPU.
+  le bruit de mesure sont signalés. Laisser la fenêtre au premier plan : cachée, macOS la ralentit.
 
 Les règles d'architecture (le moteur ne dépend pas du jeu, la simulation pas de l'affichage,
 pas de fichier de plus de 2500 lignes) : `cargo xtask check-arch`, aussi lancé par la CI.

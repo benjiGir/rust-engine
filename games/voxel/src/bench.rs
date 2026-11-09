@@ -14,10 +14,10 @@
 //! - **GPU** : le temps médian de la passe du décor, mesuré par le GPU (`gpu_timer.rs`) ;
 //! - **chunks et triangles dessinés** : exactement les mêmes d'un lancement à l'autre.
 //!
-//! Sous macOS, une fenêtre est cadencée par le compositeur même sans VSync : les FPS
-//! plafonnent au rythme de l'écran (120 Hz). On compare donc d'abord CPU et GPU. Le
-//! système fait aussi varier les temps d'un lancement à l'autre (±20 %) : `cargo xtask
-//! bench` lance plusieurs passages et ne signale que les écarts plus grands que ce bruit.
+//! Fenêtre au premier plan, les mesures sont stables (±5 %). Cachée ou derrière une autre
+//! fenêtre, macOS la ralentit : les FPS plafonnent au rythme de l'écran et les temps varient
+//! de ±20 %. `cargo xtask bench` lance plusieurs passages et ne signale que les écarts plus
+//! grands que le bruit mesuré.
 //!
 //! Idée reprise d'Horizon (`docs/benchmarks.md` : graine fixe, quatre trajets).
 

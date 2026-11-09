@@ -131,8 +131,16 @@ fn commit(root: &Path) -> String {
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
     };
     let sha = git(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "inconnu".into());
-    let dirty =
-        git(&["status", "--porcelain", "--untracked-files=no"]).is_some_and(|s| !s.is_empty());
+    // Les réglages de l'éditeur (`.idea`) ne changent pas le code mesuré.
+    let dirty = git(&[
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+        "--",
+        ".",
+        ":!.idea",
+    ])
+    .is_some_and(|s| !s.is_empty());
     if dirty { format!("{sha}-modifie") } else { sha }
 }
 
