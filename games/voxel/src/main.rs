@@ -37,7 +37,9 @@
 mod assets;
 mod audio;
 mod components;
+mod content;
 mod daytime;
+mod drops;
 mod events;
 mod hot_reload;
 mod inventory;
@@ -115,6 +117,12 @@ struct VoxelGame {
     ecs: engine_ecs::World,
     schedule: Schedule,
     registry: Arc<BlockRegistry>,
+    /// Les objets, recettes, fonte et butin.
+    content: content::Content,
+    /// Le bloc en cours de minage (bouton gauche maintenu) et l'avancement, de 0 à 1.
+    mining: Option<(IVec3, f32)>,
+    /// L'état du hasard du jeu (butin, objets lâchés).
+    random: u64,
     /// Le monde de blocs, partagé avec l'ECS (ressource `SharedStreamer`) et les mods.
     world: Rc<RefCell<ChunkStreamer>>,
     /// Les machines et les scripts des mods.
@@ -181,6 +189,8 @@ impl Game for VoxelGame {
         renderer.set_block_textures(&block_textures);
         let mob_registry =
             MobRegistry::load(&assets, &mod_dirs, &registry).context("chargement des créatures")?;
+        let content = content::Content::load(&registry, &assets, &mod_dirs)
+            .context("chargement des objets")?;
         log::info!("{} types de créatures", mob_registry.len());
 
         // Les modes automatiques n'écrivent pas dans le monde du joueur, sauf demande explicite.
@@ -282,7 +292,14 @@ impl Game for VoxelGame {
         // Le monde ECS : le streamer et les registres deviennent des ressources, que les
         // systèmes (physique, IA) lisent sans que le jeu ait à les leur passer.
         let world = Rc::new(RefCell::new(streamer));
-        let mods = modding::ModSystem::new(&mod_order, world.clone(), registry.clone());
+        let mut mods = modding::ModSystem::new(&mod_order, world.clone(), registry.clone());
+        // Le coffre et le four : des machines natives qui ont besoin des objets et de la fonte.
+        engine_voxel::register_containers(
+            &mut mods.machines,
+            &registry,
+            content.items.clone(),
+            content.smelting.clone(),
+        );
         let mut ecs = engine_ecs::World::new();
         events::register(&mut ecs);
         ecs.insert_resource(shared::SharedStreamer(world.clone()));
@@ -311,19 +328,18 @@ impl Game for VoxelGame {
             ..Camera::default()
         };
         // L'inventaire sauvegardé, ou un petit nécessaire de départ pour un nouveau monde.
-        let mut inventory = match meta.as_ref().filter(|m| !m.inventory.is_empty()) {
-            Some(meta) => Inventory::from_save(&meta.inventory, &registry),
-            None => starter_inventory(&registry),
+        let items = &content.items;
+        let inventory = match meta.as_ref() {
+            Some(meta) => match &meta.items {
+                Some(saved) => Inventory::from_save(saved, items),
+                // Un monde d'avant les objets : son inventaire de blocs.
+                None if !meta.inventory.is_empty() => {
+                    Inventory::from_old_save(&meta.inventory, items)
+                }
+                None => starter_inventory(items),
+            },
+            None => starter_inventory(items),
         };
-        if let Some(key) = meta
-            .as_ref()
-            .and_then(|m| m.player.as_ref()?.selected_block.as_deref())
-            && let Some(id) = registry.id(key)
-            && let Some(slot) =
-                (0..inventory::HOTBAR).find(|&i| inventory.slots[i].is_some_and(|s| s.item == id))
-        {
-            inventory.selected = slot;
-        }
         let time = meta
             .as_ref()
             .map(|m| m.time_of_day)
@@ -344,6 +360,9 @@ impl Game for VoxelGame {
             ecs,
             schedule,
             registry,
+            content,
+            mining: None,
+            random: 0x853C_49E6_748F_EA9B ^ seed as u64,
             world,
             mods,
             mod_dirs,
@@ -398,6 +417,7 @@ impl Game for VoxelGame {
         self.schedule.run(Stage::FixedUpdate, &mut self.ecs);
         // Les machines : un tick tous les 3 pas (20 par seconde).
         let eye = player::eye(&self.ecs, self.player, 1.0);
+        self.pick_up_drops(ctx.fixed_dt);
         let (actions, machine_tick) = self.mods.fixed_step(eye);
         self.apply_machine_actions(actions);
         if let Some(stress) = &mut self.stress {
@@ -424,9 +444,10 @@ impl Game for VoxelGame {
             if self.ui.inventory_open {
                 self.mouse_captured = false;
                 ctx.set_cursor_captured(false);
-            } else if let Some(held) = self.inventory.cursor.take() {
-                self.inventory.add(held.item, held.count);
+            } else {
+                self.close_screen();
             }
+            self.ui.screen = ui::Screen::Inventory;
         }
         let click_used = if self.ui.inventory_open {
             true
@@ -470,7 +491,15 @@ impl Game for VoxelGame {
             REACH,
         );
         self.target = target;
+        // Le minage : le bouton gauche maintenu sur le même bloc.
+        let mining = self.mouse_captured && !click_used && ctx.input.mouse_held(MouseButton::Left);
+        if !mining {
+            self.mining = None;
+        }
         if self.mouse_captured && !click_used {
+            if mining && !ctx.input.mouse_pressed(MouseButton::Left) {
+                self.mine(dt);
+            }
             if ctx.input.mouse_pressed(MouseButton::Left) {
                 // Une créature devant le bloc visé ? On la frappe plutôt que de casser.
                 let block_distance = self.target.map_or(REACH, |hit| hit.distance);
@@ -481,19 +510,27 @@ impl Game for VoxelGame {
                     block_distance,
                 ) {
                     Some((mob, _)) => {
-                        mobs::damage_mob(&mut self.ecs, mob, PUNCH_DAMAGE, self.camera.forward());
+                        // Les dégâts de l'arme ou de l'outil en main, sinon un coup de poing.
+                        let damage = self.held_tool().map_or(PUNCH_DAMAGE, |t| t.damage.max(PUNCH_DAMAGE));
+                        mobs::damage_mob(&mut self.ecs, mob, damage, self.camera.forward());
+                        if self.held_tool().is_some() {
+                            self.inventory.wear_selected(&self.content.items);
+                        }
                         if let Some(audio) = &mut self.audio {
                             audio.play("core:break_soft");
                         }
                     }
-                    None => {
-                        self.break_target();
-                    }
+                    None => self.mine(dt),
                 }
             }
-            if ctx.input.mouse_pressed(MouseButton::Right) {
+            if ctx.input.mouse_pressed(MouseButton::Right) && !self.open_container() {
                 self.place_at_target();
             }
+        }
+        // Un écran vient de s'ouvrir (établi, four, coffre) : on libère la souris.
+        if self.ui.inventory_open && self.mouse_captured {
+            self.mouse_captured = false;
+            ctx.set_cursor_captured(false);
         }
         if self.demo.is_some() {
             self.run_demo(dt);
@@ -535,7 +572,14 @@ impl Game for VoxelGame {
         self.camera.position = player::eye(&self.ecs, self.player, alpha);
         // Le vent dans les feuilles suit le temps réel depuis le lancement.
         self.renderer.time = self.started.elapsed().as_secs_f32();
-        let mob_boxes = mobs::instances(&self.ecs, alpha);
+        let mut mob_boxes = mobs::instances(&self.ecs, alpha);
+        // Les objets au sol : de petits cubes qui tournent.
+        mob_boxes.extend(drops::instances(
+            &self.ecs,
+            &self.content.items,
+            alpha,
+            self.renderer.time,
+        ));
         self.renderer.set_instances(&mob_boxes);
         // L'heure décide du soleil et de la couleur du ciel, donc du brouillard.
         self.renderer.sun = Sun {
@@ -682,17 +726,202 @@ impl VoxelGame {
     /// Casse le bloc visé. Renvoie sa position si c'est fait.
     fn break_target(&mut self) -> Option<IVec3> {
         let hit = self.target?;
-        self.edit(hit.block_pos, BlockId::AIR)
-            .then_some(hit.block_pos)
+        self.break_block(hit.block_pos).then_some(hit.block_pos)
+    }
+
+    /// Un clic droit sur un établi, un four ou un coffre ouvre son écran. `true` si c'est fait.
+    fn open_container(&mut self) -> bool {
+        let Some(hit) = self.target else { return false };
+        let block = self.streamer().world().block(hit.block_pos);
+        let screen = match self.registry.def(block).behavior.as_deref() {
+            Some("core:chest") => ui::Screen::Chest(hit.block_pos),
+            Some("core:furnace") => ui::Screen::Furnace(hit.block_pos),
+            _ if self.registry.def(block).key == "core:workbench" => ui::Screen::Workbench,
+            _ => return false,
+        };
+        // Un conteneur ancien (ou posé par un mod) n'a peut-être pas encore son inventaire.
+        if let Some(slots) = engine_voxel::container_slots(&self.registry, block) {
+            let mut streamer = self.streamer_mut();
+            if streamer
+                .block_entity(hit.block_pos)
+                .and_then(|e| e.caps.as_ref()?.inventory.as_ref())
+                .is_none()
+            {
+                let mut entity = streamer
+                    .block_entity(hit.block_pos)
+                    .cloned()
+                    .unwrap_or_default();
+                entity.caps_mut().inventory = Some(engine_voxel::Inventory::new(slots));
+                streamer.set_block_entity(hit.block_pos, Some(entity));
+            }
+        }
+        self.ui.screen = screen;
+        self.ui.inventory_open = true;
+        true
+    }
+
+    /// Ferme l'écran ouvert : la grille d'artisanat et la main retournent dans
+    /// l'inventaire (ce qui n'y tient pas tombe par terre).
+    fn close_screen(&mut self) {
+        let loose = self.inventory.put_away(&self.content.items);
+        let at = player::body(&self.ecs, self.player)
+            .position
+            .floor()
+            .as_ivec3()
+            + IVec3::Y;
+        for stack in loose {
+            self.drop_stack(at, stack);
+        }
+        self.ui.inventory_open = false;
+        self.ui.screen = ui::Screen::Inventory;
+    }
+
+    /// Les objets d'un coffre ou d'un four (vide pour un autre bloc).
+    fn container_contents(&self, pos: IVec3) -> Vec<inventory::ItemStack> {
+        let streamer = self.streamer();
+        let Some(inventory) = streamer
+            .block_entity(pos)
+            .and_then(|e| e.caps.as_ref()?.inventory.clone())
+        else {
+            return Vec::new();
+        };
+        inventory
+            .slots
+            .into_iter()
+            .flatten()
+            .filter_map(|s| {
+                Some(inventory::ItemStack {
+                    item: self.content.items.id(&s.item)?,
+                    count: s.count,
+                    damage: s.damage,
+                })
+            })
+            .collect()
+    }
+
+    /// Le minage, à chaque image où le bouton gauche est tenu : l'avancement grandit selon
+    /// la dureté du bloc et l'outil en main ; à 1, le bloc casse.
+    fn mine(&mut self, dt: f32) {
+        let Some(hit) = self.target else {
+            self.mining = None;
+            return;
+        };
+        let pos = hit.block_pos;
+        let block = self.streamer().world().block(pos);
+        let tool = self.held_tool();
+        let Some(time) = engine_voxel::break_time(self.registry.def(block), tool.as_ref()) else {
+            self.mining = None;
+            return; // Incassable.
+        };
+        let progress = match self.mining {
+            Some((p, progress)) if p == pos => progress,
+            _ => 0.0,
+        };
+        let progress = if time <= 0.0 {
+            1.0
+        } else {
+            progress + dt / time
+        };
+        if progress >= 1.0 {
+            self.mining = None;
+            self.break_block(pos);
+        } else {
+            self.mining = Some((pos, progress));
+        }
+    }
+
+    /// L'outil tenu en main.
+    fn held_tool(&self) -> Option<engine_voxel::ToolDef> {
+        self.inventory
+            .selected_item()
+            .and_then(|i| self.content.items.get(i).tool)
+    }
+
+    /// Casse le bloc en `pos` : il lâche son butin (selon l'outil), l'outil s'use, et les
+    /// blocs qui en dépendaient (une fleur dessus, du sable) suivent.
+    fn break_block(&mut self, pos: IVec3) -> bool {
+        let block = self.streamer().world().block(pos);
+        let def = self.registry.def(block).clone();
+        if def.hardness < 0.0 {
+            return false;
+        }
+        let tool = self.held_tool();
+        // Un coffre ou un four cassé lâche aussi ce qu'il contient.
+        let contents = self.container_contents(pos);
+        if !self.edit(pos, BlockId::AIR) {
+            return false;
+        }
+        let harvest = engine_voxel::can_harvest(&def, tool.as_ref());
+        self.drop_loot(pos, block, tool.map(|t| t.kind), harvest);
+        for stack in contents {
+            self.drop_stack(pos, stack);
+        }
+        if tool.is_some() && def.hardness > 0.0 && self.inventory.wear_selected(&self.content.items)
+        {
+            log::info!("l'outil s'est cassé");
+            if let Some(audio) = &mut self.audio {
+                audio.play("core:break_glass");
+            }
+        }
+        true
+    }
+
+    /// Ce que lâche un bloc, par terre à sa place.
+    fn drop_loot(
+        &mut self,
+        pos: IVec3,
+        block: BlockId,
+        tool: Option<engine_voxel::ToolKind>,
+        harvest: bool,
+    ) {
+        let seed = self.next_random();
+        let mut rng = engine_voxel::Rng64::new(seed);
+        let loot = self
+            .content
+            .loot
+            .roll(block, tool, harvest, &self.content.items, &mut rng);
+        for (item, count) in loot {
+            self.drop_stack(pos, inventory::ItemStack::new(item, count));
+        }
+    }
+
+    fn drop_stack(&mut self, pos: IVec3, stack: inventory::ItemStack) {
+        let seed = self.next_random();
+        drops::spawn(&mut self.ecs, stack, pos.as_vec3() + Vec3::splat(0.5), seed);
+    }
+
+    /// Un nombre pseudo-aléatoire pour le jeu (butin, rebonds).
+    fn next_random(&mut self) -> u64 {
+        self.random = self
+            .random
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        self.random ^ (self.random >> 29)
+    }
+
+    /// Ramasse les objets au sol tout proches.
+    fn pick_up_drops(&mut self, dt: f32) {
+        let feet = player::body(&self.ecs, self.player).position;
+        for (entity, stack) in drops::update(&mut self.ecs, feet, dt) {
+            let left = self.inventory.add_stack(stack, &self.content.items);
+            if left < stack.count {
+                if let Some(audio) = &mut self.audio {
+                    audio.play("core:place_soft");
+                }
+                if left == 0 {
+                    self.ecs.despawn(entity);
+                } else if let Some(mut drop) = self.ecs.get_mut::<drops::DroppedItem>(entity) {
+                    drop.stack.count = left;
+                }
+            }
+        }
     }
 
     /// Pose le bloc de la case choisie contre la face visée. Renvoie sa position si c'est fait.
     fn place_at_target(&mut self) -> Option<IVec3> {
         let hit = self.target?;
-        let block = self.inventory.selected_item()?;
-        if !self.registry.def(block).placeable {
-            return None;
-        }
+        let item = self.inventory.selected_item()?;
+        let block = self.content.items.get(item).block?;
         let pos = hit.block_pos + hit.normal;
         // Normale nulle : le rayon part de l'intérieur d'un bloc, pas de face où poser.
         // On peut poser dans l'air ou à la place d'un liquide (l'eau).
@@ -705,9 +934,20 @@ impl VoxelGame {
             log::debug!("impossible de poser un bloc dans une entité");
             return None;
         }
+        // Une plante ou une torche a besoin d'un support.
+        let support = self.registry.def(block).support;
+        if !engine_voxel::is_supported(&self.streamer(), &self.registry, pos, support) {
+            return None;
+        }
         let placed = self.edit(pos, block);
         if placed {
             self.inventory.consume_selected();
+            // Des feuilles posées par le joueur ne se décomposent pas : une entité de bloc
+            // les marque comme « posées ».
+            if self.registry.def(block).behavior.as_deref() == Some("core:leaves") {
+                self.streamer_mut()
+                    .set_block_entity(pos, Some(engine_voxel::BlockEntity::default()));
+            }
         }
         placed.then_some(pos)
     }
@@ -742,22 +982,22 @@ impl VoxelGame {
             // On annonce le changement : le son (et plus tard les mods) s'y abonnent.
             if block.is_air() {
                 events::send(&self.ecs, BlockBroken { pos, block: old });
-                // Le bloc cassé va dans l'inventaire (s'il se pose : pas l'eau).
-                if self.registry.def(old).placeable {
-                    self.inventory.add(old, 1);
-                }
-                // Des feuilles cassées donnent parfois une pousse de leur essence
-                // (`core:oak_leaves` → `core:oak_sapling`). En attendant le butin des
-                // blocs (phase O3), une règle simple ici.
-                let key = &self.registry.def(old).key;
-                if let Some(essence) = key.strip_suffix("_leaves")
-                    && let Some(sapling) = self.registry.id(&format!("{essence}_sapling"))
-                    && self.started.elapsed().as_nanos().is_multiple_of(8)
-                {
-                    self.inventory.add(sapling, 1);
-                }
             } else {
                 events::send(&self.ecs, BlockPlaced { pos, block });
+            }
+            // Le support et la gravité : une fleur sans sol tombe, le sable s'écroule.
+            let settled = engine_voxel::settle(&mut self.streamer_mut(), pos);
+            for (p, broken) in settled.broken {
+                let harvest = self.registry.def(broken).tier == 0;
+                self.drop_loot(p, broken, None, harvest);
+                let actions = self.mods.block_changed(p);
+                self.apply_machine_actions(actions);
+            }
+            for (from, to, _) in settled.fallen {
+                for p in [from, to] {
+                    let actions = self.mods.block_changed(p);
+                    self.apply_machine_actions(actions);
+                }
             }
         }
         done
@@ -836,7 +1076,10 @@ impl VoxelGame {
         for action in actions {
             match action {
                 MachineAction::GiveItem { block, count } => {
-                    let left = self.inventory.add(block, count);
+                    let Some(item) = self.content.items.of_block(block) else {
+                        continue;
+                    };
+                    let left = self.inventory.add(item, count, &self.content.items);
                     if left > 0 {
                         log::info!("inventaire plein : {left} objet(s) perdu(s)");
                     }
@@ -1124,7 +1367,7 @@ impl VoxelGame {
         let block = self
             .inventory
             .selected_item()
-            .map_or("?", |b| self.registry.def(b).key.as_str());
+            .map_or("?", |i| self.content.items.get(i).key.as_str());
         match result {
             Some(pos) => log::info!(
                 "démo : {action} {} en {:.2} ms ({}) | pieds {:.1?} au sol : {} | {} maillages en attente",
@@ -1193,23 +1436,31 @@ impl EventReaders {
 }
 
 /// Un petit nécessaire pour un nouveau monde : de quoi s'éclairer et construire.
-fn starter_inventory(registry: &BlockRegistry) -> Inventory {
+fn starter_inventory(items: &engine_voxel::ItemRegistry) -> Inventory {
     let mut inventory = Inventory::default();
     for (key, count) in [
+        ("core:stone_pickaxe", 1),
+        ("core:stone_axe", 1),
+        ("core:stone_shovel", 1),
         ("core:torch", 32),
+        ("core:oak_log", 16),
+        ("core:workbench", 1),
+        ("core:furnace", 1),
+        ("core:chest", 1),
+        ("core:coal", 8),
+        ("core:raw_iron", 6),
+        ("core:shears", 1),
+        ("core:oak_sapling", 4),
         ("core:glass", 16),
         ("core:glowstone", 8),
-        ("core:stone", 32),
-        ("example:ruby", 4),
-        ("core:oak_sapling", 4),
-        ("core:birch_sapling", 2),
         // De quoi construire un mécanisme : horloge → lampe, horloge → casseur.
-        ("core:clock", 8),
-        ("core:lamp", 8),
-        ("example:breaker", 4),
+        ("core:clock", 4),
+        ("core:lamp", 4),
+        ("example:breaker", 2),
+        ("example:ruby", 4),
     ] {
-        if let Some(id) = registry.id(key) {
-            inventory.add(id, count);
+        if let Some(id) = items.id(key) {
+            inventory.add(id, count, items);
         }
     }
     inventory

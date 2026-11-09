@@ -35,9 +35,11 @@ crates/engine_mods      # mods : manifestes mod.ron, ordre de chargement, script
 crates/mod_sdk          # le kit pour écrire le script d'un mod en Rust (compilé en wasm32)
 tools/xtask             # tâches du projet : cargo xtask build-mods
 docs/                   # modding.md (écrire un mod), architecture.md (réseaux, fluides, structures mobiles)
-games/voxel             # le mini-Minecraft v1 (E : inventaire, F3 : inspecteur, F : vol, T : temps, F1/F2 : rendu)
+games/voxel             # le jeu (E : inventaire et artisanat, clic droit : établi/four/coffre, F3 : inspecteur,
+                        # F : vol, T : temps, F1/F2 : rendu) ; clic gauche maintenu : miner
 assets/core/            # blocks.ron (les blocs de base), biomes.ron (15 biomes), ores.ron (minerais par profondeur),
-                        # fluids.ron, textures/ (PNG 16×16), sounds/ (WAV)
+                        # fluids.ron, items.ron (objets, outils, armures), recipes.ron, smelting.ron, loot.ron,
+                        # textures/ et items/ (PNG 16×16), sounds/ (WAV)
 tools/assetgen          # génère les textures et les sons : cargo run -p assetgen
 saves/                  # les mondes sauvegardés (ignoré par git)
 assets/core/entities.ron # les créatures (taille, vie, vitesse, boîtes qui les dessinent)

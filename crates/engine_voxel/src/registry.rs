@@ -27,6 +27,7 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use crate::block::BlockId;
+use crate::items::ToolKind;
 
 /// L'espace de noms du jeu lui-même. Aucun mod ne peut l'utiliser.
 pub const CORE_NAMESPACE: &str = "core";
@@ -79,6 +80,15 @@ pub struct BlockDef {
     pub tint: Tint,
     /// Se balance au vent (feuilles, herbes).
     pub sway: bool,
+    /// Secondes de minage à la main (avant les bonus d'outil). Négatif : incassable.
+    pub hardness: f32,
+    /// L'outil adapté, qui va plus vite.
+    pub tool: Option<ToolKind>,
+    /// Le niveau d'outil minimal pour que le bloc lâche son butin (0 : à la main).
+    pub tier: u8,
+    pub support: Support,
+    /// Tombe s'il n'a rien dessous.
+    pub gravity: bool,
     /// D'où vient la définition, pour les messages d'erreur.
     pub source: String,
 }
@@ -119,6 +129,20 @@ pub enum Tint {
     /// La couleur du feuillage du biome (les feuilles).
     Foliage,
     /// La couleur de l'eau du biome (l'eau verte des marais, bleu profond des océans).
+    Water,
+}
+
+/// Ce dont un bloc a besoin pour tenir en place.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+pub enum Support {
+    /// Rien : il tient tout seul.
+    #[default]
+    None,
+    /// Un bloc plein dessous (les plantes, les pousses).
+    Floor,
+    /// Un bloc plein sur une des six faces (la torche).
+    Any,
+    /// De l'eau dessous (le nénuphar).
     Water,
 }
 
@@ -180,6 +204,16 @@ struct BlockFileEntry {
     tint: Tint,
     #[serde(default)]
     sway: bool,
+    #[serde(default = "one")]
+    hardness: f32,
+    #[serde(default)]
+    tool: Option<ToolKind>,
+    #[serde(default)]
+    tier: u8,
+    #[serde(default)]
+    support: Support,
+    #[serde(default)]
+    gravity: bool,
 }
 
 fn one() -> f32 {
@@ -226,6 +260,11 @@ impl BlockRegistry {
             cutout: false,
             tint: Tint::None,
             sway: false,
+            hardness: 0.0,
+            tool: None,
+            tier: 0,
+            support: Support::None,
+            gravity: false,
             source: "intégré".into(),
         };
         Self {
@@ -392,6 +431,16 @@ impl BlockRegistry {
                 cutout: entry.cutout,
                 tint: entry.tint,
                 sway: entry.sway,
+                // Le socle incassable : une dureté négative.
+                hardness: if entry.unbreakable {
+                    -1.0
+                } else {
+                    entry.hardness
+                },
+                tool: entry.tool,
+                tier: entry.tier,
+                support: entry.support,
+                gravity: entry.gravity,
                 source: origin.to_string(),
             });
         }
@@ -584,8 +633,8 @@ mod tests {
         assert!(!registry.is_solid(BlockId::AIR) && registry.is_transparent(BlockId::AIR));
         assert_eq!(
             registry.placeable().count(),
-            51,
-            "sans l'air, l'eau, la lave, le socle, l'inconnu, la lampe allumée, les feuilles et les herbes hautes"
+            61,
+            "sans l'air, l'eau, la lave, le socle, l'inconnu et la lampe allumée"
         );
         let water = registry.id("core:water").unwrap();
         assert!(registry.def(water).liquid && registry.is_translucent(water));

@@ -1,0 +1,23 @@
+// La fonte, dans le four.
+//
+// - recipes : input (un objet ou un `#groupe`) → output, en `time` secondes ;
+// - fuels : combien de secondes brûle un combustible (un objet ou un `#groupe`).
+(
+    recipes: [
+        (input: "raw_iron", output: "iron_ingot", time: 10.0),
+        (input: "raw_copper", output: "copper_ingot", time: 10.0),
+        (input: "raw_gold", output: "gold_ingot", time: 10.0),
+        (input: "sand", output: "glass", time: 10.0),
+        (input: "cobblestone", output: "stone", time: 10.0),
+        (input: "#logs", output: "charcoal", time: 10.0),
+        (input: "cactus", output: "malachite", time: 10.0),
+    ],
+    fuels: [
+        ("#coals", 80.0),
+        ("#logs", 15.0),
+        ("#planks", 15.0),
+        ("stick", 5.0),
+        ("workbench", 15.0),
+        ("chest", 15.0),
+    ],
+)

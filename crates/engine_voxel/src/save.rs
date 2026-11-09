@@ -46,7 +46,8 @@ use crate::registry::BlockRegistry;
 
 /// Version du format. À augmenter si la structure des fichiers change.
 /// Version 2 : les chunks portent aussi leurs blocs actifs (machines).
-pub const FORMAT_VERSION: u32 = 2;
+/// Version 3 : les objets des inventaires de blocs (coffres, fours) ont une usure.
+pub const FORMAT_VERSION: u32 = 3;
 /// Côté d'une région, en colonnes de chunks.
 pub const REGION_SIZE: i32 = 16;
 const REGION_MAGIC: &[u8; 4] = b"VXRG";
@@ -79,6 +80,32 @@ pub struct WorldMeta {
     /// sauvegardé avant l'arrivée de l'inventaire se charge quand même, avec un inventaire vide.
     #[serde(default)]
     pub inventory: Vec<Option<(String, u32)>>,
+    /// L'inventaire d'objets (phase O3), qui remplace `inventory` : `None` dans un monde
+    /// plus ancien (on relit alors `inventory`).
+    #[serde(default)]
+    pub items: Option<SavedInventory>,
+}
+
+/// Un inventaire sauvegardé : une **palette** d'identifiants texte, et des cases qui
+/// renvoient à cette palette par numéro. Lisible, compact, et indépendant des numéros
+/// d'objets du moment (qui changent avec les mods).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedInventory {
+    pub palette: Vec<String>,
+    pub slots: Vec<Option<SavedStack>>,
+    #[serde(default)]
+    pub armor: Vec<Option<SavedStack>>,
+    #[serde(default)]
+    pub selected: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedStack {
+    /// Le numéro dans la palette.
+    pub item: u32,
+    pub count: u32,
+    #[serde(default)]
+    pub damage: u32,
 }
 
 /// Un chunk sur disque : sa palette, ses blocs (indices dans la palette) et ses blocs
@@ -371,17 +398,113 @@ fn read_region(path: &Path) -> Result<RegionChunks> {
     let mut chunks = RegionChunks::new();
     for (pos, data) in region.chunks {
         // Une région du format 1 : chaque chunk est converti au format actuel à la lecture.
-        let data = if region.format_version < 2 {
-            upgrade_v1(&data).with_context(|| format!("{} : chunk illisible", path.display()))?
-        } else {
-            data
-        };
+        let data = match region.format_version {
+            0 | 1 => upgrade_v1(&data),
+            2 => v2::upgrade(&data),
+            _ => Ok(data),
+        }
+        .with_context(|| format!("{} : chunk illisible", path.display()))?;
         chunks.insert(IVec3::from_array(pos), data);
     }
     Ok(chunks)
 }
 
-/// Convertit un chunk du format 1 (sans blocs actifs) au format 2.
+/// Le format 2 : les mêmes structures, sans l'usure des objets. `postcard` ne sait pas
+/// sauter un champ manquant : on garde une copie des anciennes structures pour relire.
+mod v2 {
+    use anyhow::Result;
+    use serde::Deserialize;
+
+    use crate::capabilities::{
+        Capabilities, EnergyStorage, FluidTank, Inventory, ItemStack, Kinetic, Sides,
+    };
+    use crate::chunk::BlockEntity;
+
+    #[derive(Deserialize)]
+    struct Stack {
+        item: String,
+        count: u32,
+    }
+
+    #[derive(Deserialize)]
+    struct Inv {
+        slots: Vec<Option<Stack>>,
+        sides: Sides,
+    }
+
+    #[derive(Deserialize)]
+    struct Caps {
+        energy: Option<EnergyStorage>,
+        tanks: Vec<FluidTank>,
+        inventory: Option<Inv>,
+        kinetic: Option<Kinetic>,
+    }
+
+    #[derive(Deserialize)]
+    struct Entity {
+        power: u8,
+        data: Vec<u8>,
+        caps: Option<Box<Caps>>,
+    }
+
+    #[derive(Deserialize)]
+    struct ChunkData {
+        palette: Vec<String>,
+        blocks: Vec<u16>,
+        block_entities: Vec<(u16, Entity)>,
+    }
+
+    /// Relit un chunk du format 2 et le réécrit au format actuel.
+    pub fn upgrade(bytes: &[u8]) -> Result<Vec<u8>> {
+        let raw = lz4_flex::decompress_size_prepended(bytes)?;
+        let old: ChunkData = postcard::from_bytes(&raw)?;
+        let block_entities = old
+            .block_entities
+            .into_iter()
+            .map(|(i, e)| {
+                let caps = e.caps.map(|c| {
+                    Box::new(Capabilities {
+                        energy: c.energy,
+                        tanks: c.tanks,
+                        inventory: c.inventory.map(|inv| Inventory {
+                            slots: inv
+                                .slots
+                                .into_iter()
+                                .map(|s| {
+                                    s.map(|s| ItemStack {
+                                        item: s.item,
+                                        count: s.count,
+                                        damage: 0,
+                                    })
+                                })
+                                .collect(),
+                            sides: inv.sides,
+                        }),
+                        kinetic: c.kinetic,
+                    })
+                });
+                (
+                    i,
+                    BlockEntity {
+                        power: e.power,
+                        data: e.data,
+                        caps,
+                    },
+                )
+            })
+            .collect();
+        let new = super::ChunkData {
+            palette: old.palette,
+            blocks: old.blocks,
+            block_entities,
+        };
+        Ok(lz4_flex::compress_prepend_size(&postcard::to_allocvec(
+            &new,
+        )?))
+    }
+}
+
+/// Convertit un chunk du format 1 (sans blocs actifs) au format actuel.
 fn upgrade_v1(bytes: &[u8]) -> Result<Vec<u8>> {
     let raw = lz4_flex::decompress_size_prepended(bytes)?;
     let old: ChunkDataV1 = postcard::from_bytes(&raw)?;
@@ -638,6 +761,75 @@ pub(crate) mod tests {
         blocks: Vec<u16>,
     }
 
+    /// Un état actif du format 2 : (puissance, données, capacités).
+    type EntityV2 = (u8, Vec<u8>, Option<Box<CapsV2>>);
+    /// Un inventaire du format 2 : des cases (objet, quantité), sans usure.
+    type InventoryV2 = (Vec<Option<(String, u32)>>, crate::capabilities::Sides);
+
+    /// Un chunk du format 2, avec un coffre (inventaire sans usure).
+    #[derive(Serialize)]
+    struct ChunkDataV2Writer {
+        palette: Vec<String>,
+        blocks: Vec<u16>,
+        block_entities: Vec<(u16, EntityV2)>,
+    }
+
+    #[derive(Serialize)]
+    struct CapsV2 {
+        energy: Option<crate::capabilities::EnergyStorage>,
+        tanks: Vec<crate::capabilities::FluidTank>,
+        inventory: Option<InventoryV2>,
+        kinetic: Option<crate::capabilities::Kinetic>,
+    }
+
+    #[test]
+    fn format_2_inventories_are_upgraded_on_read() {
+        let registry = BlockRegistry::builtin();
+        let store = SaveStore::open(temp_dir("v2")).unwrap();
+        let caps = CapsV2 {
+            energy: None,
+            tanks: Vec::new(),
+            inventory: Some((
+                vec![Some(("core:stone".into(), 12)), None],
+                crate::capabilities::Sides::ALL,
+            )),
+            kinetic: None,
+        };
+        let old = ChunkDataV2Writer {
+            palette: vec!["core:air".into(), "core:stone".into()],
+            blocks: (0..32 * 32 * 32).map(|i| (i < 1024) as u16).collect(),
+            block_entities: vec![(
+                Chunk::index(1, 2, 3) as u16,
+                (0, vec![9], Some(Box::new(caps))),
+            )],
+        };
+        let blob = lz4_flex::compress_prepend_size(&postcard::to_allocvec(&old).unwrap());
+        let region = RegionDataWriter {
+            format_version: 2,
+            chunks: vec![([0, 0, 0], blob)],
+        };
+        let mut bytes = REGION_MAGIC.to_vec();
+        bytes.extend(postcard::to_allocvec(&region).unwrap());
+        std::fs::write(store.dir().join("regions/r.0.0.bin"), bytes).unwrap();
+        let loaded = store.load_chunk(IVec3::ZERO, &registry).unwrap().unwrap();
+        let entity = loaded.chunk.block_entity(1, 2, 3).unwrap();
+        assert_eq!(entity.data, vec![9]);
+        let slot = entity
+            .caps
+            .as_ref()
+            .unwrap()
+            .inventory
+            .as_ref()
+            .unwrap()
+            .slots[0]
+            .clone()
+            .unwrap();
+        assert_eq!(
+            (slot.item.as_str(), slot.count, slot.damage),
+            ("core:stone", 12, 0)
+        );
+    }
+
     #[derive(Serialize)]
     struct RegionDataWriter {
         format_version: u32,
@@ -673,6 +865,19 @@ pub(crate) mod tests {
             }),
             mods: vec!["core".into(), "example".into()],
             inventory: vec![Some(("core:stone".into(), 12)), None],
+            items: Some(SavedInventory {
+                palette: vec!["core:iron_pickaxe".into()],
+                slots: vec![
+                    Some(SavedStack {
+                        item: 0,
+                        count: 1,
+                        damage: 30,
+                    }),
+                    None,
+                ],
+                armor: vec![None; 4],
+                selected: 0,
+            }),
         };
         store.save_meta(&meta).unwrap();
         assert_eq!(store.load_meta().unwrap(), Some(meta));

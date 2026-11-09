@@ -179,6 +179,8 @@ impl FluidTank {
 pub struct ItemStack {
     pub item: String,
     pub count: u32,
+    /// L'usure d'un outil ou d'une armure (0 : neuf). Toujours 0 pour ce qui s'empile.
+    pub damage: u32,
 }
 
 pub const MAX_STACK: u32 = 64;
@@ -231,6 +233,7 @@ impl Inventory {
             *slot = Some(ItemStack {
                 item: item.to_string(),
                 count: n,
+                damage: 0,
             });
             left -= n;
         }
@@ -273,6 +276,7 @@ impl Inventory {
         (taken > 0).then_some(ItemStack {
             item: wanted,
             count: taken,
+            damage: 0,
         })
     }
 }

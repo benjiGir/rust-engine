@@ -20,7 +20,7 @@ fn missing_texture() -> Vec<u8> {
 }
 
 /// Lit un PNG et le ramène à 16 × 16 pixels RGBA.
-fn load_png(path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+pub(crate) fn load_png(path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
     let image = image::open(path)?.to_rgba8();
     let image = if image.dimensions() == (TEXTURE_SIZE, TEXTURE_SIZE) {
         image

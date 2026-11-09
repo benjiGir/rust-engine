@@ -42,6 +42,10 @@ enum Scene {
     Cave,
     Mobs,
     Inventory,
+    /// Les écrans d'artisanat : l'établi, le four (en marche), un coffre rempli.
+    Workbench,
+    Furnace,
+    Chest,
     Inspector,
     Machines,
     /// Au-dessus d'un biome (son identifiant).
@@ -71,7 +75,7 @@ const fn biome(name: &'static str, key: &'static str) -> Shot {
     }
 }
 
-const SHOTS: [Shot; 26] = [
+const SHOTS: [Shot; 29] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -111,6 +115,21 @@ const SHOTS: [Shot; 26] = [
         name: "8-inventaire",
         time: 0.45,
         scene: Scene::Inventory,
+    },
+    Shot {
+        name: "8b-etabli",
+        time: 0.45,
+        scene: Scene::Workbench,
+    },
+    Shot {
+        name: "8c-four",
+        time: 0.45,
+        scene: Scene::Furnace,
+    },
+    Shot {
+        name: "8d-coffre",
+        time: 0.45,
+        scene: Scene::Chest,
     },
     Shot {
         name: "9-inspecteur",
@@ -214,7 +233,11 @@ impl VoxelGame {
                 }
                 let (eye, yaw, pitch) = self.viewpoint(shot.scene);
                 player::set_eye(&self.ecs, self.player, eye + self.origin().as_vec3());
-                self.ui.inventory_open = shot.scene == Scene::Inventory;
+                self.ui.inventory_open = matches!(
+                    shot.scene,
+                    Scene::Inventory | Scene::Workbench | Scene::Furnace | Scene::Chest
+                );
+                self.ui.screen = crate::ui::Screen::Inventory;
                 self.ui.inspector_open = shot.scene == Scene::Inspector;
                 self.camera.yaw = yaw.to_radians();
                 self.camera.pitch = pitch.to_radians();
@@ -366,7 +389,9 @@ impl VoxelGame {
                     -22.0,
                 )
             }
-            Scene::Inventory => (Vec3::new(0.5, spawn + 20.0, 0.5), 45.0, -20.0),
+            Scene::Inventory | Scene::Workbench | Scene::Furnace | Scene::Chest => {
+                (Vec3::new(0.5, spawn + 20.0, 0.5), 45.0, -20.0)
+            }
             Scene::Machines => {
                 let (x, z) = MACHINE_SPOT;
                 let g = self.ground(x, z) as f32;
@@ -473,13 +498,93 @@ impl VoxelGame {
                 }
             }
             Scene::Machines => self.build_machines(),
+            Scene::Inventory | Scene::Workbench | Scene::Furnace | Scene::Chest => {
+                self.build_screen(scene);
+            }
             Scene::Underground => self.dig_pit(),
-            Scene::Spawn
-            | Scene::Sunset
-            | Scene::Lake
-            | Scene::Inventory
-            | Scene::Inspector
-            | Scene::Biome(_) => {}
+            Scene::Spawn | Scene::Sunset | Scene::Lake | Scene::Inspector | Scene::Biome(_) => {}
+        }
+    }
+
+    /// Remplit l'écran de la capture : une grille d'artisanat, un four en marche, un coffre.
+    fn build_screen(&mut self, scene: Scene) {
+        use crate::inventory::ItemStack;
+        let items = self.content.items.clone();
+        let stack = |key: &str, count: u32| items.id(key).map(|i| ItemStack::new(i, count));
+        self.inventory.craft = [None; 9];
+        match scene {
+            Scene::Inventory => {
+                self.inventory.craft[0] = stack("core:oak_log", 3);
+                self.inventory.armor[0] = stack("core:iron_helmet", 1);
+                self.inventory.armor[1] = stack("core:copper_chestplate", 1);
+                self.ui.screen = crate::ui::Screen::Inventory;
+            }
+            Scene::Workbench => {
+                // Une pioche en bois : trois planches en haut, deux bâtons au milieu.
+                for i in [0, 1, 2] {
+                    self.inventory.craft[i] = stack("core:oak_planks", 2);
+                }
+                for i in [4, 7] {
+                    self.inventory.craft[i] = stack("core:stick", 2);
+                }
+                self.inventory
+                    .add(items.id("core:oak_planks").unwrap(), 12, &items);
+                self.ui.screen = crate::ui::Screen::Workbench;
+            }
+            Scene::Furnace | Scene::Chest => {
+                let (x, z) = (3, 3);
+                let pos = IVec3::new(x, self.ground(x, z) + 1, z) + self.origin();
+                let key = if scene == Scene::Furnace {
+                    "core:furnace"
+                } else {
+                    "core:chest"
+                };
+                let Some(block) = self.registry.id(key) else {
+                    return;
+                };
+                self.streamer_mut().set_block(pos, block);
+                let actions = self.mods.block_changed(pos);
+                self.apply_machine_actions(actions);
+                let fill: Vec<(usize, &str, u32)> = if scene == Scene::Furnace {
+                    vec![(0, "core:raw_iron", 6), (1, "core:coal", 3)]
+                } else {
+                    vec![
+                        (0, "core:oak_log", 32),
+                        (1, "core:cobblestone", 64),
+                        (2, "core:iron_ingot", 9),
+                        (4, "core:sapphire", 3),
+                        (9, "core:iron_pickaxe", 1),
+                        (10, "core:golden_sword", 1),
+                        (13, "core:torch", 16),
+                        (20, "core:coal", 21),
+                    ]
+                };
+                if let Some(entity) = self.streamer_mut().block_entity_mut(pos)
+                    && let Some(inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut())
+                {
+                    for (slot, item, count) in fill {
+                        inventory.slots[slot] = Some(engine_voxel::ItemStack {
+                            item: item.into(),
+                            count,
+                            damage: 0,
+                        });
+                    }
+                }
+                if scene == Scene::Furnace {
+                    // Quelques secondes de cuisson : un lingot sorti, le suivant en cours.
+                    self.mods
+                        .machines
+                        .schedule(engine_voxel::GridPos::world(pos), 1);
+                    for _ in 0..3 * 300 {
+                        let (actions, _) = self.mods.fixed_step(self.camera.position);
+                        self.apply_machine_actions(actions);
+                    }
+                    self.ui.screen = crate::ui::Screen::Furnace(pos);
+                } else {
+                    self.ui.screen = crate::ui::Screen::Chest(pos);
+                }
+            }
+            _ => {}
         }
     }
 

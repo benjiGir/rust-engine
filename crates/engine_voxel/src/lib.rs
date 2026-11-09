@@ -14,11 +14,15 @@
 
 mod biome;
 mod block;
+mod block_rules;
 mod capabilities;
 mod chunk;
+mod containers;
+mod crafting;
 mod fluids;
 mod generator;
 mod grid;
+mod items;
 mod light;
 mod machines;
 mod mesh;
@@ -33,16 +37,26 @@ mod world;
 
 pub use biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry, OreDef, Relief};
 pub use block::BlockId;
+pub use block_rules::{Settled, is_supported, settle};
 pub use capabilities::{
     Capabilities, EnergyStorage, Face, FluidTank, Inventory, ItemStack, Kinetic, MAX_STACK, Sides,
 };
 pub use chunk::{BlockEntity, CHUNK_SIZE, Chunk, DEFAULT_LIGHT};
+pub use containers::{
+    CHEST_SLOTS, Chest, FURNACE_FUEL, FURNACE_INPUT, FURNACE_OUTPUT, Furnace, FurnaceState,
+    container_slots, register as register_containers,
+};
+pub use crafting::{Ingredient, LootEntry, LootTables, Recipe, Recipes, Smelting, SmeltingRecipe};
 pub use fluids::{FluidDef, FluidRegistry};
 pub use generator::{
     Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL, SEA_LEVEL, TerrainGenerator, TreeSite,
     WORLD_HEIGHT_CHUNKS,
 };
 pub use grid::{BlockAccess, GridId, GridPos, Grids};
+pub use items::{
+    ArmorDef, ArmorSlot, Category, Icon, ItemDef, ItemId, ItemRegistry, ToolDef, ToolKind,
+    break_time, can_harvest,
+};
 pub use light::{ColumnLight, LightRegion, MAX_LIGHT, apply_column_light, update_light};
 pub use machines::{
     BlockBehavior, Clock, Lamp, MACHINE_TICKS_PER_SECOND, MAX_POWER, MachineAction, MachineContext,
@@ -54,10 +68,10 @@ pub use mesh::{
 };
 pub use physics::{PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
 pub use raycast::{RayHit, ray_aabb, raycast};
-pub use registry::{BlockDef, BlockRegistry, BlockSounds, CORE_NAMESPACE, Shape, Tint};
+pub use registry::{BlockDef, BlockRegistry, BlockSounds, CORE_NAMESPACE, Shape, Support, Tint};
 pub use save::{
     ChunkToSave, FORMAT_VERSION, LoadedChunk, PlayerSave, REGION_SIZE, SaveReport, SaveStore,
-    UNKNOWN_BLOCK, UnknownBlocks, WorldMeta, write_atomic,
+    SavedInventory, SavedStack, UNKNOWN_BLOCK, UnknownBlocks, WorldMeta, write_atomic,
 };
 pub use streaming::{ChunkStreamer, StreamEvent, StreamStats, StreamingConfig};
 pub use trees::{Part, Rng64, TreeBlocks, TreeKind, Wood, grow as grow_tree};

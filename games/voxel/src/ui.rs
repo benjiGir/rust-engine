@@ -1,4 +1,5 @@
-//! L'interface, avec egui : barre d'objets, inventaire (E) et inspecteur de debug (F3).
+//! L'interface, avec egui : barre d'objets, écrans (inventaire, établi, four, coffre)
+//! et inspecteur de debug (F3).
 //!
 //! egui est une interface « en mode immédiat » : à chaque image, on décrit toute
 //! l'interface depuis zéro (« un bouton ici, un texte là »), et egui s'occupe de
@@ -13,13 +14,14 @@ use engine_ecs::{Entity, World};
 use engine_inspect::Inspect;
 use engine_render::egui::{self, Color32, TextureHandle, TextureOptions};
 use engine_render::{TEXTURE_SIZE, UiFrame};
-use engine_voxel::{BlockId, BlockRegistry};
+use engine_voxel::{BlockRegistry, FurnaceState, Icon, ItemId, ItemRegistry, Recipe};
+use glam::IVec3;
 
 use crate::VoxelGame;
 use crate::components::{
     Collider, Health, Hurt, Mob, MoveIntent, Player, PreviousPosition, Transform, Velocity, Wander,
 };
-use crate::inventory::HOTBAR;
+use crate::inventory::{HOTBAR, ItemStack, Slot, click_slot};
 use crate::mobs::MobRegistry;
 use crate::player;
 
@@ -28,10 +30,23 @@ const SLOT_SIZE: f32 = 44.0;
 pub struct GameUi {
     pub ctx: egui::Context,
     state: egui_winit::State,
+    /// Un écran est ouvert (la souris est libre) : lequel est dans `screen`.
     pub inventory_open: bool,
+    pub screen: Screen,
     pub inspector_open: bool,
-    /// Une icône par bloc, créée au premier affichage.
-    icons: HashMap<BlockId, TextureHandle>,
+    /// Une icône par objet, créée au premier affichage.
+    icons: HashMap<ItemId, TextureHandle>,
+}
+
+/// L'écran ouvert.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Screen {
+    /// L'inventaire (E) : armure, grille 2 × 2, livre de recettes.
+    Inventory,
+    /// L'établi : grille 3 × 3.
+    Workbench,
+    Furnace(IVec3),
+    Chest(IVec3),
 }
 
 impl GameUi {
@@ -49,6 +64,7 @@ impl GameUi {
             ctx,
             state,
             inventory_open: false,
+            screen: Screen::Inventory,
             inspector_open: false,
             icons: HashMap::new(),
         }
@@ -79,26 +95,37 @@ impl GameUi {
         self.icons.clear();
     }
 
-    /// L'icône d'un bloc : sa texture de côté, ou sa couleur s'il n'en a pas.
+    /// L'icône d'un objet : la texture de côté de son bloc, ou son image à lui
+    /// (`items/<nom>.png`), ou à défaut sa couleur.
     fn icon(
         &mut self,
-        block: BlockId,
-        registry: &BlockRegistry,
+        item: ItemId,
+        items: &ItemRegistry,
+        blocks: &BlockRegistry,
         textures: &[Vec<u8>],
     ) -> egui::TextureId {
         let ctx = self.ctx.clone();
         self.icons
-            .entry(block)
+            .entry(item)
             .or_insert_with(|| {
-                let def = registry.def(block);
+                let def = items.get(item);
                 let size = TEXTURE_SIZE as usize;
-                let layer = def.face_textures[1] as usize;
-                let pixels = match layer.checked_sub(1).and_then(|i| textures.get(i)) {
-                    Some(pixels) => pixels.clone(),
-                    None => {
-                        let [r, g, b] = def.color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
-                        [r, g, b, 255].repeat(size * size)
+                let plain = |color: [f32; 3]| {
+                    let [r, g, b] = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
+                    [r, g, b, 255].repeat(size * size)
+                };
+                let pixels = match &def.icon {
+                    Icon::Block(block) => {
+                        let layer = blocks.def(*block).face_textures[1] as usize;
+                        match layer.checked_sub(1).and_then(|i| textures.get(i)) {
+                            Some(pixels) => pixels.clone(),
+                            None => plain(blocks.def(*block).color),
+                        }
                     }
+                    Icon::Texture(key) => blocks
+                        .asset_path(key, "items", "png")
+                        .and_then(|path| crate::assets::load_png(&path).ok())
+                        .unwrap_or_else(|| plain(def.color)),
                 };
                 let image = egui::ColorImage::from_rgba_unmultiplied([size, size], &pixels);
                 // `NEAREST` : des pixels nets, le style pixel art.
@@ -124,7 +151,7 @@ impl VoxelGame {
         let output = ctx.run_ui(raw, |ui| {
             self.draw_hud(ui.ctx());
             if self.ui.inventory_open {
-                self.draw_inventory(ui.ctx());
+                self.draw_screen(ui.ctx());
             }
             if self.ui.inspector_open {
                 self.draw_inspector(ui.ctx());
@@ -139,12 +166,16 @@ impl VoxelGame {
         (frame, output.platform_output)
     }
 
-    /// Une case d'inventaire : l'icône et la quantité. Renvoie `true` si on a cliqué.
-    fn slot_widget(&mut self, ui: &mut egui::Ui, index: usize, highlighted: bool) -> bool {
-        let stack = self.inventory.slots[index];
+    /// Dessine une case et la pile qu'elle contient. Renvoie `true` si on a cliqué.
+    fn stack_widget(
+        &mut self,
+        ui: &mut egui::Ui,
+        stack: Option<ItemStack>,
+        highlighted: bool,
+    ) -> bool {
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(SLOT_SIZE, SLOT_SIZE), egui::Sense::click());
-        let painter = ui.painter();
+        let painter = ui.painter().clone();
         painter.rect_filled(rect, 4.0, Color32::from_black_alpha(150));
         let stroke = if highlighted {
             egui::Stroke::new(3.0, Color32::WHITE)
@@ -153,36 +184,83 @@ impl VoxelGame {
         };
         painter.rect_stroke(rect, 4.0, stroke, egui::StrokeKind::Inside);
         if let Some(stack) = stack {
-            let icon = self
-                .ui
-                .icon(stack.item, &self.registry, &self.block_textures);
-            let inner = rect.shrink(8.0);
-            ui.painter().image(
-                icon,
-                inner,
-                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                Color32::WHITE,
-            );
-            if stack.count > 1 {
-                ui.painter().text(
-                    rect.right_bottom() - egui::vec2(4.0, 2.0),
-                    egui::Align2::RIGHT_BOTTOM,
-                    stack.count.to_string(),
-                    egui::FontId::proportional(14.0),
-                    Color32::WHITE,
-                );
-            }
+            self.paint_stack(&painter, rect, stack);
         }
         let clicked = response.clicked();
         if let Some(stack) = stack {
-            response.on_hover_text(&self.registry.def(stack.item).name);
+            let def = self.content.items.get(stack.item);
+            let mut text = def.name.clone();
+            if let Some(durability) = def.durability {
+                text += &format!("\nUsure : {} / {durability}", stack.damage);
+            }
+            if let Some(armor) = def.armor {
+                text += &format!("\nProtection : {}", armor.protection);
+            }
+            response.on_hover_text(text);
         }
         clicked
     }
 
-    /// La barre d'objets en bas de l'écran, et la vie au-dessus.
+    /// L'icône, la quantité et la barre d'usure d'une pile.
+    fn paint_stack(&mut self, painter: &egui::Painter, rect: egui::Rect, stack: ItemStack) {
+        let icon = self.ui.icon(
+            stack.item,
+            &self.content.items,
+            &self.registry,
+            &self.block_textures,
+        );
+        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        painter.image(icon, rect.shrink(8.0), uv, Color32::WHITE);
+        if stack.count > 1 {
+            painter.text(
+                rect.right_bottom() - egui::vec2(4.0, 2.0),
+                egui::Align2::RIGHT_BOTTOM,
+                stack.count.to_string(),
+                egui::FontId::proportional(14.0),
+                Color32::WHITE,
+            );
+        }
+        // L'usure : une barre qui passe du vert au rouge.
+        if let Some(durability) = self.content.items.get(stack.item).durability
+            && stack.damage > 0
+        {
+            let left = 1.0 - stack.damage as f32 / durability as f32;
+            let bar = egui::Rect::from_min_size(
+                rect.left_bottom() + egui::vec2(6.0, -7.0),
+                egui::vec2(SLOT_SIZE - 12.0, 3.0),
+            );
+            painter.rect_filled(bar, 0.0, Color32::BLACK);
+            let mut fill = bar;
+            fill.set_width(bar.width() * left);
+            let color = Color32::from_rgb(((1.0 - left) * 255.0) as u8, (left * 220.0) as u8, 40);
+            painter.rect_filled(fill, 0.0, color);
+        }
+    }
+
+    /// Une case de l'inventaire du joueur (ou de son armure, de sa grille).
+    fn slot_widget(&mut self, ui: &mut egui::Ui, slot: Slot, highlighted: bool) {
+        let stack = *self.inventory.slot_mut(slot);
+        if self.stack_widget(ui, stack, highlighted) {
+            self.inventory.click(slot, &self.content.items);
+        }
+    }
+
+    /// La barre d'objets en bas de l'écran, la vie au-dessus, et l'avancement du minage.
     fn draw_hud(&mut self, ctx: &egui::Context) {
         let health = player::health(&self.ecs, self.player);
+        if let Some((_, progress)) = self.mining {
+            egui::Area::new(egui::Id::unique("mining"))
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 26.0))
+                .show(ctx, |ui| {
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(60.0, 6.0), egui::Sense::hover());
+                    ui.painter()
+                        .rect_filled(rect, 2.0, Color32::from_black_alpha(160));
+                    let mut fill = rect.shrink(1.0);
+                    fill.set_width(fill.width() * progress.clamp(0.0, 1.0));
+                    ui.painter().rect_filled(fill, 1.0, Color32::from_gray(230));
+                });
+        }
         egui::Area::new(egui::Id::unique("hud"))
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
             .show(ctx, |ui| {
@@ -212,14 +290,14 @@ impl VoxelGame {
                     ui.horizontal(|ui| {
                         for i in 0..HOTBAR {
                             let selected = i == self.inventory.selected;
-                            if self.slot_widget(ui, i, selected) {
+                            if self.stack_widget(ui, self.inventory.slots[i], selected) {
                                 self.inventory.selected = i;
                             }
                         }
                     });
                     if let Some(item) = self.inventory.selected_item() {
                         ui.label(
-                            egui::RichText::new(&self.registry.def(item).name)
+                            egui::RichText::new(&self.content.items.get(item).name)
                                 .color(Color32::WHITE),
                         );
                     }
@@ -227,58 +305,254 @@ impl VoxelGame {
             });
     }
 
-    /// L'inventaire (touche E) : la réserve, la barre, et la pile tenue à la souris.
-    fn draw_inventory(&mut self, ctx: &egui::Context) {
-        egui::Window::new("Inventaire")
-            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -40.0))
-            .resizable(false)
-            .collapsible(false)
-            .show(ctx, |ui| {
-                ui.label("Clic : prendre, poser, empiler ou échanger une pile.");
-                for row in 0..3 {
+    /// La réserve (3 rangées) et la barre d'objets du joueur.
+    fn player_slots(&mut self, ui: &mut egui::Ui) {
+        for row in 0..3 {
+            ui.horizontal(|ui| {
+                for column in 0..HOTBAR {
+                    self.slot_widget(ui, Slot::Main(HOTBAR + row * HOTBAR + column), false);
+                }
+            });
+        }
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            for index in 0..HOTBAR {
+                let selected = index == self.inventory.selected;
+                self.slot_widget(ui, Slot::Main(index), selected);
+            }
+        });
+    }
+
+    /// La grille d'artisanat (`size` × `size`) et sa case de résultat.
+    fn craft_grid(&mut self, ui: &mut egui::Ui, size: usize) {
+        let grid = self.inventory.craft_grid(size);
+        let recipe = self.content.recipes.find(&grid, size).cloned();
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                for y in 0..size {
                     ui.horizontal(|ui| {
-                        for column in 0..HOTBAR {
-                            let index = HOTBAR + row * HOTBAR + column;
-                            if self.slot_widget(ui, index, false) {
-                                self.inventory.click(index);
-                            }
+                        for x in 0..size {
+                            self.slot_widget(ui, Slot::Craft(y * 3 + x), false);
                         }
                     });
                 }
-                ui.separator();
-                ui.horizontal(|ui| {
-                    for index in 0..HOTBAR {
-                        let selected = index == self.inventory.selected;
-                        if self.slot_widget(ui, index, selected) {
-                            self.inventory.click(index);
+            });
+            ui.label(egui::RichText::new("=>").size(22.0));
+            let result = recipe.as_ref().map(|r| {
+                let (item, count) = r.result();
+                ItemStack::new(item, count)
+            });
+            if self.stack_widget(ui, result, recipe.is_some())
+                && let Some(recipe) = &recipe
+            {
+                self.inventory
+                    .take_craft_result(recipe, size, &self.content.items);
+            }
+        });
+    }
+
+    /// Le livre de recettes : ce qu'on peut fabriquer avec ce qu'on a. Un clic fabrique.
+    fn recipe_book(&mut self, ui: &mut egui::Ui, size: usize) {
+        ui.label(egui::RichText::new("Livre de recettes").strong());
+        let craftable: Vec<Recipe> = self
+            .content
+            .recipes
+            .iter()
+            .filter(|r| r.grid_size() <= size && self.inventory.can_craft(r))
+            .cloned()
+            .collect();
+        if craftable.is_empty() {
+            ui.label("Rien à fabriquer avec ce que tu as.");
+            return;
+        }
+        egui::ScrollArea::vertical()
+            .max_height(260.0)
+            .min_scrolled_height(200.0)
+            .show(ui, |ui| {
+                for recipe in craftable {
+                    let (item, count) = recipe.result();
+                    ui.horizontal(|ui| {
+                        if self.stack_widget(ui, Some(ItemStack::new(item, count)), false) {
+                            self.inventory.craft_from_book(&recipe, &self.content.items);
                         }
+                        let names: Vec<String> = recipe
+                            .ingredients()
+                            .iter()
+                            .filter_map(|i| i.example())
+                            .map(|i| self.content.items.get(i).name.clone())
+                            .collect();
+                        ui.label(format!(
+                            "{}\n{}",
+                            self.content.items.get(item).name,
+                            compact(&names)
+                        ));
+                    });
+                }
+            });
+    }
+
+    /// L'écran ouvert, et la pile tenue qui suit la souris.
+    fn draw_screen(&mut self, ctx: &egui::Context) {
+        let title = match self.ui.screen {
+            Screen::Inventory => "Inventaire",
+            Screen::Workbench => "Établi",
+            Screen::Furnace(_) => "Four",
+            Screen::Chest(_) => "Coffre",
+        };
+        egui::Window::new(title)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -20.0))
+            .resizable(false)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                match self.ui.screen {
+                    Screen::Inventory => {
+                        ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                ui.label("Armure");
+                                for (i, slot) in engine_voxel::ArmorSlot::ALL.iter().enumerate() {
+                                    ui.horizontal(|ui| {
+                                        self.slot_widget(ui, Slot::Armor(i), false);
+                                        ui.label(slot.name());
+                                    });
+                                }
+                                ui.label(format!(
+                                    "Protection : {}",
+                                    self.inventory.protection(&self.content.items)
+                                ));
+                            });
+                            ui.separator();
+                            ui.vertical(|ui| {
+                                ui.label("Artisanat");
+                                self.craft_grid(ui, 2);
+                            });
+                            ui.separator();
+                            ui.vertical(|ui| self.recipe_book(ui, 2));
+                        });
                     }
-                });
-                match self.inventory.cursor {
-                    Some(held) => ui.label(format!(
-                        "En main : {} × {}",
-                        self.registry.def(held.item).name,
-                        held.count
-                    )),
-                    None => ui.label("En main : rien"),
-                };
+                    Screen::Workbench => {
+                        ui.horizontal(|ui| {
+                            ui.vertical(|ui| self.craft_grid(ui, 3));
+                            ui.separator();
+                            ui.vertical(|ui| self.recipe_book(ui, 3));
+                        });
+                    }
+                    Screen::Furnace(pos) => self.furnace_panel(ui, pos),
+                    Screen::Chest(pos) => self.chest_panel(ui, pos),
+                }
+                ui.separator();
+                self.player_slots(ui);
+                ui.label("Clic : prendre, poser, empiler ou échanger une pile. Échap : fermer.");
             });
         // La pile tenue suit la souris.
         if let (Some(held), Some(pointer)) = (self.inventory.cursor, ctx.pointer_hover_pos()) {
-            let icon = self
-                .ui
-                .icon(held.item, &self.registry, &self.block_textures);
-            let rect = egui::Rect::from_center_size(pointer, egui::vec2(28.0, 28.0));
-            ctx.layer_painter(egui::LayerId::new(
+            let rect = egui::Rect::from_center_size(pointer, egui::vec2(SLOT_SIZE, SLOT_SIZE));
+            let painter = ctx.layer_painter(egui::LayerId::new(
                 egui::Order::Tooltip,
                 egui::Id::unique("cursor"),
-            ))
-            .image(
-                icon,
-                rect,
-                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                Color32::WHITE,
-            );
+            ));
+            self.paint_stack(&painter, rect, held);
+        }
+    }
+
+    /// Une case d'un conteneur (coffre, four) : ses objets sont dans l'entité du bloc.
+    fn container_slot(&mut self, ui: &mut egui::Ui, pos: IVec3, index: usize) -> bool {
+        let stored = self.streamer().block_entity(pos).and_then(|e| {
+            e.caps
+                .as_ref()?
+                .inventory
+                .as_ref()?
+                .slots
+                .get(index)
+                .cloned()
+                .flatten()
+        });
+        let stack = stored.as_ref().and_then(|s| {
+            Some(ItemStack {
+                item: self.content.items.id(&s.item)?,
+                count: s.count,
+                damage: s.damage,
+            })
+        });
+        if !self.stack_widget(ui, stack, false) {
+            return false;
+        }
+        let mut slot = stack;
+        let mut cursor = self.inventory.cursor.take();
+        click_slot(&mut slot, &mut cursor, &self.content.items, |_| true);
+        self.inventory.cursor = cursor;
+        let items = self.content.items.clone();
+        let mut streamer = self.streamer_mut();
+        if let Some(entity) = streamer.block_entity_mut(pos)
+            && let Some(inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut())
+            && let Some(target) = inventory.slots.get_mut(index)
+        {
+            *target = slot.map(|s| engine_voxel::ItemStack {
+                item: items.get(s.item).key.clone(),
+                count: s.count,
+                damage: s.damage,
+            });
+        }
+        true
+    }
+
+    fn chest_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
+        for row in 0..3 {
+            ui.horizontal(|ui| {
+                for column in 0..9 {
+                    self.container_slot(ui, pos, row * 9 + column);
+                }
+            });
+        }
+    }
+
+    fn furnace_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
+        let state = self
+            .streamer()
+            .block_entity(pos)
+            .map(FurnaceState::read)
+            .unwrap_or_default();
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.label("Entrée");
+                changed |= self.container_slot(ui, pos, engine_voxel::FURNACE_INPUT);
+                // La flamme : ce qui reste du combustible en cours.
+                let burn = if state.burn_total > 0 {
+                    state.burn_left as f32 / state.burn_total as f32
+                } else {
+                    0.0
+                };
+                ui.add(
+                    egui::ProgressBar::new(burn)
+                        .desired_width(SLOT_SIZE)
+                        .fill(Color32::from_rgb(240, 120, 30)),
+                );
+                ui.label("Combustible");
+                changed |= self.container_slot(ui, pos, engine_voxel::FURNACE_FUEL);
+            });
+            ui.vertical(|ui| {
+                ui.add_space(SLOT_SIZE / 2.0);
+                let cook = if state.cook_total > 0 {
+                    state.progress as f32 / state.cook_total as f32
+                } else {
+                    0.0
+                };
+                ui.add(
+                    egui::ProgressBar::new(cook)
+                        .desired_width(90.0)
+                        .show_percentage(),
+                );
+            });
+            ui.vertical(|ui| {
+                ui.label("Sortie");
+                changed |= self.container_slot(ui, pos, engine_voxel::FURNACE_OUTPUT);
+            });
+        });
+        if changed {
+            // Le four dort peut-être : on le réveille au prochain tick.
+            self.mods
+                .machines
+                .schedule(engine_voxel::GridPos::world(pos), 1);
         }
     }
 
@@ -421,4 +695,26 @@ pub fn offscreen_input(width: u32, height: u32) -> egui::RawInput {
         )),
         ..Default::default()
     }
+}
+
+/// « Planches de chêne × 3, Bâton » : les ingrédients regroupés.
+fn compact(names: &[String]) -> String {
+    let mut groups: Vec<(String, usize)> = Vec::new();
+    for name in names {
+        match groups.iter_mut().find(|(n, _)| n == name) {
+            Some((_, count)) => *count += 1,
+            None => groups.push((name.clone(), 1)),
+        }
+    }
+    groups
+        .iter()
+        .map(|(n, c)| {
+            if *c > 1 {
+                format!("{n} × {c}")
+            } else {
+                n.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }

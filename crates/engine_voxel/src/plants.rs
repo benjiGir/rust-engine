@@ -165,7 +165,11 @@ impl BlockBehavior for Leaves {
             positions
                 .iter()
                 .copied()
-                .filter(|at| !self.attached(streamer.world(), at.pos))
+                // Les feuilles posées par le joueur portent une entité de bloc : elles restent.
+                .filter(|at| {
+                    streamer.block_entity(at.pos).is_none()
+                        && !self.attached(streamer.world(), at.pos)
+                })
                 .collect()
         };
         for at in lonely {

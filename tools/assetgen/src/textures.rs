@@ -662,6 +662,475 @@ fn cactus_top() -> Image {
     image
 }
 
+// ----- Objets et artisanat (phase O3) -----
+
+fn cobblestone() -> Image {
+    let mut image = Image::filled(scale(STONE, 0.9)).noise(scale(STONE, 0.9), 0.1, 110);
+    // Des pierres arrondies séparées par des joints sombres.
+    let mut rng = Rng::new(111);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let cell = ((x / 4) + (y / 4) * 7 + (rng.next_u64() % 2) as usize) % 3;
+            if x % 4 == 0 || y % 4 == ((x / 4) % 2) * 2 {
+                image.set(x, y, scale(STONE, 0.6));
+            } else if cell == 0 {
+                image.set(x, y, scale(STONE, 1.05));
+            }
+        }
+    }
+    image
+}
+
+fn workbench_top() -> Image {
+    let wood = [0.62, 0.45, 0.27];
+    let mut image = planks(wood, 112);
+    for i in 0..SIZE {
+        for (x, y) in [(i, 0), (i, 15), (0, i), (15, i)] {
+            image.set(x, y, scale(wood, 0.6));
+        }
+    }
+    // Une grille de 3 × 3 cases gravée sur le plateau.
+    for i in 2..14 {
+        for k in [5, 10] {
+            image.set(k, i, scale(wood, 0.55));
+            image.set(i, k, scale(wood, 0.55));
+        }
+    }
+    image
+}
+
+fn workbench_side() -> Image {
+    let wood = [0.55, 0.4, 0.24];
+    let mut image = planks(wood, 113);
+    // Des outils accrochés : une scie et un marteau.
+    for x in 3..8 {
+        image.set(x, 5, [0.75, 0.75, 0.78]);
+    }
+    for y in 3..9 {
+        image.set(11, y, [0.4, 0.28, 0.15]);
+    }
+    for x in 9..14 {
+        image.set(x, 3, [0.6, 0.6, 0.62]);
+    }
+    image
+}
+
+fn furnace_front() -> Image {
+    let mut image = cobblestone();
+    // La bouche du four : un trou sombre avec des braises.
+    for y in 8..14 {
+        for x in 4..12 {
+            image.set(x, y, [0.12, 0.1, 0.1]);
+        }
+    }
+    for x in [5, 7, 9, 10] {
+        image.set(x, 13, [0.95, 0.5, 0.1]);
+    }
+    for x in 3..13 {
+        image.set(x, 7, scale(STONE, 0.5));
+    }
+    image
+}
+
+fn furnace_top() -> Image {
+    let base = scale(STONE, 0.85);
+    Image::filled(base).noise(base, 0.06, 114)
+}
+
+fn chest_side() -> Image {
+    let wood = [0.62, 0.43, 0.22];
+    let mut image = planks(wood, 115);
+    for i in 0..SIZE {
+        for (x, y) in [(i, 0), (i, 15), (0, i), (15, i), (i, 5)] {
+            image.set(x, y, scale(wood, 0.55));
+        }
+    }
+    // La serrure.
+    for (x, y) in [(7, 5), (8, 5), (7, 6), (8, 6), (7, 7), (8, 7)] {
+        image.set(x, y, [0.8, 0.8, 0.82]);
+    }
+    image
+}
+
+fn chest_top() -> Image {
+    let wood = [0.62, 0.43, 0.22];
+    let mut image = planks(wood, 116);
+    for i in 0..SIZE {
+        for (x, y) in [(i, 0), (i, 15), (0, i), (15, i)] {
+            image.set(x, y, scale(wood, 0.55));
+        }
+    }
+    image
+}
+
+/// Une icône dessinée à partir d'un masque de 16 lignes de 16 caractères. Chaque
+/// caractère choisit une couleur dans `palette` ; « . » est transparent. Un contour
+/// sombre est ajouté autour, pour que l'icône se détache du fond.
+fn icon(mask: &[&str; 16], palette: &[(char, [f32; 3])]) -> Image {
+    let mut image = Image::transparent();
+    for (y, row) in mask.iter().enumerate() {
+        for (x, c) in row.chars().enumerate().take(SIZE) {
+            if let Some((_, color)) = palette.iter().find(|(k, _)| *k == c) {
+                image.set(x, y, *color);
+            }
+        }
+    }
+    let opaque = |img: &Image, x: i32, y: i32| {
+        (0..16).contains(&x)
+            && (0..16).contains(&y)
+            && img.pixels[x as usize + y as usize * SIZE][3] > 0
+    };
+    let copy = Image {
+        pixels: image.pixels,
+    };
+    for y in 0..16i32 {
+        for x in 0..16i32 {
+            if !opaque(&copy, x, y)
+                && [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                    .iter()
+                    .any(|(dx, dy)| opaque(&copy, x + dx, y + dy))
+            {
+                image.set(x as usize, y as usize, [0.08, 0.06, 0.05]);
+            }
+        }
+    }
+    image
+}
+
+const HANDLE: [f32; 3] = [0.5, 0.35, 0.18];
+
+/// Les cinq outils, dessinés en diagonale : la tête (H, h plus sombre) et le manche (S).
+fn tool(kind: &str, head: [f32; 3]) -> Image {
+    let mask: [&str; 16] = match kind {
+        "pickaxe" => [
+            "................",
+            "....hHHHHHh.....",
+            "...HHHHHHHHH....",
+            "..hHH....SHHh...",
+            "..HH....SS.HH...",
+            "..H....SS...H...",
+            "......SS........",
+            ".....SS.........",
+            "....SS..........",
+            "...SS...........",
+            "..SS............",
+            ".SS.............",
+            "SS..............",
+            "S...............",
+            "................",
+            "................",
+        ],
+        "axe" => [
+            "................",
+            ".......hHH......",
+            "......hHHHH.....",
+            ".....hHHHHH.....",
+            ".....HHHSHH.....",
+            "......HSSH......",
+            "......SS........",
+            ".....SS.........",
+            "....SS..........",
+            "...SS...........",
+            "..SS............",
+            ".SS.............",
+            "SS..............",
+            "S...............",
+            "................",
+            "................",
+        ],
+        "shovel" => [
+            "................",
+            "..........hHh...",
+            ".........hHHHh..",
+            "........hHHHHH..",
+            ".........HHHHh..",
+            "........SHHHh...",
+            ".......SS.......",
+            "......SS........",
+            ".....SS.........",
+            "....SS..........",
+            "...SS...........",
+            "..SS............",
+            ".SS.............",
+            "SS..............",
+            "S...............",
+            "................",
+        ],
+        "hoe" => [
+            "................",
+            "......hHHHHh....",
+            "......HHHHHH....",
+            "...........SH...",
+            "..........SS....",
+            ".........SS.....",
+            "........SS......",
+            ".......SS.......",
+            "......SS........",
+            ".....SS.........",
+            "....SS..........",
+            "...SS...........",
+            "..SS............",
+            ".SS.............",
+            "SS..............",
+            "................",
+        ],
+        _ => [
+            "...............h",
+            "..............hH",
+            ".............hHh",
+            "............hHh.",
+            "...........hHh..",
+            "..........hHh...",
+            ".........hHh....",
+            "........hHh.....",
+            "...SS..hHh......",
+            "....SShHh.......",
+            ".....SSh........",
+            ".....SSS........",
+            "....SS.SS.......",
+            "...SS...........",
+            "..S.............",
+            "................",
+        ],
+    };
+    icon(
+        &mask,
+        &[('H', head), ('h', scale(head, 0.7)), ('S', HANDLE)],
+    )
+}
+
+fn shears() -> Image {
+    let metal = [0.78, 0.78, 0.82];
+    let mask = [
+        "................",
+        ".........h.....h",
+        "........hH....hH",
+        ".......hH....hH.",
+        "......hH....hH..",
+        ".....hH....hH...",
+        "......hH..hH....",
+        ".......hHhH.....",
+        "........hH......",
+        ".......RR.RR....",
+        "......R..R..R...",
+        ".....R..R....R..",
+        ".....R..R....R..",
+        "......RR......R.",
+        "...............R",
+        "................",
+    ];
+    icon(
+        &mask,
+        &[
+            ('H', metal),
+            ('h', scale(metal, 0.7)),
+            ('R', [0.7, 0.15, 0.12]),
+        ],
+    )
+}
+
+/// Les pièces d'armure.
+fn armor(piece: &str, color: [f32; 3]) -> Image {
+    let mask: [&str; 16] = match piece {
+        "helmet" => [
+            "................",
+            "................",
+            "................",
+            "....HHHHHHHH....",
+            "...HHHHHHHHHH...",
+            "..HHhhhhhhhhHH..",
+            "..HHh......hHH..",
+            "..HHh......hHH..",
+            "..HH........HH..",
+            "..HH........HH..",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+        ],
+        "chestplate" => [
+            "................",
+            "..HHH......HHH..",
+            ".HHHHH....HHHHH.",
+            ".HHHHHHHHHHHHHH.",
+            ".HHHHHHHHHHHHHH.",
+            "..hHHHHHHHHHHh..",
+            "....HHHHHHHH....",
+            "....HHHHHHHH....",
+            "....hHHHHHHh....",
+            "....HHHHHHHH....",
+            "....HHHHHHHH....",
+            "....hHHHHHHh....",
+            "................",
+            "................",
+            "................",
+            "................",
+        ],
+        "leggings" => [
+            "................",
+            "....HHHHHHHH....",
+            "....hhhhhhhh....",
+            "....HHHHHHHH....",
+            "....HHH..HHH....",
+            "....HHH..HHH....",
+            "....HHH..HHH....",
+            "....HHH..HHH....",
+            "....HHH..HHH....",
+            "....hHH..HHh....",
+            "....HHH..HHH....",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+        ],
+        _ => [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "...HHH....HHH...",
+            "...HHH....HHH...",
+            "...HHH....HHH...",
+            "..HHHH....HHHH..",
+            ".HHHHH....HHHHH.",
+            ".hhhhh....hhhhh.",
+            "................",
+            "................",
+            "................",
+            "................",
+        ],
+    };
+    icon(&mask, &[('H', color), ('h', scale(color, 0.7))])
+}
+
+/// Un objet « matière » : lingot, minerai brut, gemme, poudre, bâton...
+fn material(kind: &str, color: [f32; 3]) -> Image {
+    let mask: [&str; 16] = match kind {
+        "ingot" => [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "......LLLLLLL...",
+            ".....LLLLLLLLL..",
+            "....LHHHHHHHL...",
+            "...LHHHHHHHH....",
+            "..hHHHHHHHHh....",
+            "..hhhhhhhhh.....",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+        ],
+        "raw" => [
+            "................",
+            "................",
+            "................",
+            "......HHH.......",
+            ".....HLHHH......",
+            "....HHHHhHH.....",
+            "...HHLHHHHHH....",
+            "...HHHHHhHHHH...",
+            "...HHHhHHHLHH...",
+            "....HHHHHHHh....",
+            ".....hHHHhH.....",
+            ".......hh.......",
+            "................",
+            "................",
+            "................",
+            "................",
+        ],
+        "gem" => [
+            "................",
+            "................",
+            "................",
+            "......LLLL......",
+            ".....LLHHHH.....",
+            "....LHHHHHHH....",
+            "...HHHHHHHHHh...",
+            "...hHHHHHHHhh...",
+            "....hHHHHHhh....",
+            ".....hHHHhh.....",
+            "......hHhh......",
+            ".......hh.......",
+            "................",
+            "................",
+            "................",
+            "................",
+        ],
+        "dust" => [
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            ".......H........",
+            "......HHL.......",
+            ".....HHHHH......",
+            "....HHLHHHH.....",
+            "...HHHHHHHHH....",
+            "..hhhhhhhhhhh...",
+            "................",
+            "................",
+            "................",
+            "................",
+        ],
+        "seeds" => [
+            "................",
+            "................",
+            "................",
+            "................",
+            ".....H....H.....",
+            "....HH...HH.....",
+            "..........h.....",
+            "...H...H........",
+            "..HH..HH...H....",
+            "......h...HH....",
+            "....H.......H...",
+            "...HH......HH...",
+            "................",
+            "................",
+            "................",
+            "................",
+        ],
+        _ => [
+            "................",
+            "..............hS",
+            ".............hS.",
+            "............hS..",
+            "...........hS...",
+            "..........hS....",
+            ".........hS.....",
+            "........hS......",
+            ".......hS.......",
+            "......hS........",
+            ".....hS.........",
+            "....hS..........",
+            "...hS...........",
+            "..hS............",
+            "................",
+            "................",
+        ],
+    };
+    icon(
+        &mask,
+        &[
+            ('H', color),
+            ('h', scale(color, 0.7)),
+            ('L', scale(color, 1.3)),
+            ('S', color),
+        ],
+    )
+}
+
 /// Écrit toutes les textures ; renvoie les chemins.
 pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
     let core = root.join("assets/core/textures");
@@ -816,11 +1285,64 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("lily_pad.png"), lily_pad()),
         (core.join("cactus_side.png"), cactus_side()),
         (core.join("cactus_top.png"), cactus_top()),
+        (core.join("cobblestone.png"), cobblestone()),
+        (core.join("workbench_top.png"), workbench_top()),
+        (core.join("workbench_side.png"), workbench_side()),
+        (core.join("furnace_front.png"), furnace_front()),
+        (core.join("furnace_top.png"), furnace_top()),
+        (core.join("chest_side.png"), chest_side()),
+        (core.join("chest_top.png"), chest_top()),
         (root.join("mods/example/textures/breaker.png"), breaker()),
         (root.join("mods/example/textures/ruby.png"), ruby()),
     ];
+    let mut textures = textures;
+    textures.extend(item_icons(&root.join("assets/core/items")));
     for (path, image) in &textures {
         image.save(path)?;
     }
     Ok(textures.into_iter().map(|(path, _)| path).collect())
+}
+
+/// Les icônes des objets (`assets/core/items/`).
+fn item_icons(dir: &Path) -> Vec<(PathBuf, Image)> {
+    let mut out = Vec::new();
+    let mut add = |name: &str, image: Image| out.push((dir.join(format!("{name}.png")), image));
+    for (name, kind, color) in [
+        ("stick", "stick", HANDLE),
+        ("coal", "raw", [0.18, 0.18, 0.2]),
+        ("charcoal", "raw", [0.25, 0.2, 0.17]),
+        ("raw_iron", "raw", [0.75, 0.62, 0.52]),
+        ("raw_copper", "raw", [0.82, 0.5, 0.3]),
+        ("raw_gold", "raw", [0.95, 0.78, 0.3]),
+        ("iron_ingot", "ingot", [0.8, 0.8, 0.84]),
+        ("copper_ingot", "ingot", [0.85, 0.5, 0.3]),
+        ("gold_ingot", "ingot", [0.98, 0.82, 0.25]),
+        ("sapphire", "gem", [0.3, 0.5, 1.0]),
+        ("malachite", "gem", [0.2, 0.7, 0.45]),
+        ("jade", "gem", [0.4, 0.9, 0.6]),
+        ("cinnabar_dust", "dust", [0.85, 0.15, 0.12]),
+        ("flint", "gem", [0.3, 0.3, 0.33]),
+        ("seeds", "seeds", [0.6, 0.65, 0.3]),
+    ] {
+        add(name, material(kind, color));
+    }
+    for (material, color) in [
+        ("wooden", [0.62, 0.46, 0.28]),
+        ("stone", [0.55, 0.55, 0.57]),
+        ("copper", [0.85, 0.52, 0.32]),
+        ("iron", [0.82, 0.82, 0.86]),
+        ("golden", [0.98, 0.82, 0.25]),
+        ("sapphire", [0.3, 0.52, 1.0]),
+    ] {
+        for kind in ["pickaxe", "axe", "shovel", "hoe", "sword"] {
+            add(&format!("{material}_{kind}"), tool(kind, color));
+        }
+        if !matches!(material, "wooden" | "stone") {
+            for piece in ["helmet", "chestplate", "leggings", "boots"] {
+                add(&format!("{material}_{piece}"), armor(piece, color));
+            }
+        }
+    }
+    add("shears", shears());
+    out
 }

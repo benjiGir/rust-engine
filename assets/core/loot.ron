@@ -1,0 +1,32 @@
+// Ce que lâche un bloc cassé. Un bloc absent d'ici lâche son propre objet (s'il en a un).
+// Rien n'est lâché si l'outil n'a pas le niveau demandé par le bloc (`tier` dans blocks.ron).
+//
+// Chaque entrée est tirée indépendamment :
+// - item : l'objet ; count : (min, max) ; chance (1.0) : la probabilité ;
+// - tool : seulement avec cet outil en main (les cisailles pour les feuilles) ;
+// - without : seulement SANS cet outil.
+{
+    "stone": [(item: "cobblestone", count: (1, 1))],
+    "grass": [(item: "dirt", count: (1, 1))],
+    "lamp_lit": [(item: "lamp", count: (1, 1))],
+    "glass": [],
+    "ice": [],
+    "gravel": [(item: "gravel", count: (1, 1)), (item: "flint", count: (1, 1), chance: 0.1)],
+    "coal_ore": [(item: "coal", count: (1, 1))],
+    "iron_ore": [(item: "raw_iron", count: (1, 1))],
+    "copper_ore": [(item: "raw_copper", count: (2, 4))],
+    "gold_ore": [(item: "raw_gold", count: (1, 1))],
+    "cinnabar_ore": [(item: "cinnabar_dust", count: (4, 5))],
+    "malachite_ore": [(item: "malachite", count: (4, 8))],
+    "sapphire_ore": [(item: "sapphire", count: (1, 1))],
+    "jade_ore": [(item: "jade", count: (1, 1))],
+    "oak_leaves": [(item: "oak_leaves", count: (1, 1), tool: Shears), (item: "oak_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
+    "birch_leaves": [(item: "birch_leaves", count: (1, 1), tool: Shears), (item: "birch_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
+    "spruce_leaves": [(item: "spruce_leaves", count: (1, 1), tool: Shears), (item: "spruce_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
+    "acacia_leaves": [(item: "acacia_leaves", count: (1, 1), tool: Shears), (item: "acacia_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
+    "jungle_leaves": [(item: "jungle_leaves", count: (1, 1), tool: Shears), (item: "jungle_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
+    "tall_grass": [(item: "tall_grass", count: (1, 1), tool: Shears), (item: "seeds", count: (1, 1), chance: 0.125, without: Shears)],
+    "fern": [(item: "fern", count: (1, 1), tool: Shears), (item: "seeds", count: (1, 1), chance: 0.125, without: Shears)],
+    "dead_bush": [(item: "stick", count: (0, 2))],
+    "vine": [(item: "vine", count: (1, 1), tool: Shears)],
+}

@@ -1,27 +1,58 @@
-//! L'inventaire : 9 cases de barre d'objets (touches 1 à 9) et 27 de réserve.
+//! L'inventaire : 9 cases de barre d'objets (touches 1 à 9), 27 de réserve, 4 d'armure,
+//! et la grille d'artisanat en cours.
 //!
-//! Casser un bloc le met dans l'inventaire ; en poser un le retire. Les objets du même
-//! type s'empilent par 64. On le sauvegarde avec des identifiants texte, comme les chunks.
+//! On y range des **objets** ([`ItemId`]), pas des blocs : un outil, un lingot ou un bloc
+//! de pierre. Ce qui s'empile s'empile jusqu'à sa pile maximale (64, ou 1 pour un outil) ;
+//! un outil garde son usure (`damage`).
+//!
+//! On le sauvegarde avec une **palette** : la liste des identifiants texte des objets
+//! présents, et pour chaque case un numéro dans cette palette. Les numéros d'objets
+//! changent quand on ajoute un mod ; les identifiants texte, jamais.
 
-use engine_voxel::{BlockId, BlockRegistry};
+use engine_voxel::{
+    ArmorSlot, Ingredient, ItemId, ItemRegistry, Recipe, SavedInventory, SavedStack,
+};
 
 pub const HOTBAR: usize = 9;
 pub const SLOTS: usize = 36;
-pub const STACK_SIZE: u32 = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ItemStack {
-    pub item: BlockId,
+    pub item: ItemId,
     pub count: u32,
+    /// L'usure (outils, armures) : 0 = neuf.
+    pub damage: u32,
+}
+
+impl ItemStack {
+    pub fn new(item: ItemId, count: u32) -> Self {
+        Self {
+            item,
+            count,
+            damage: 0,
+        }
+    }
+}
+
+/// Une case quelque part : l'inventaire, l'armure, une grille d'artisanat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slot {
+    Main(usize),
+    Armor(usize),
+    Craft(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Inventory {
     /// Les cases 0 à 8 forment la barre d'objets, 9 à 35 la réserve.
     pub slots: [Option<ItemStack>; SLOTS],
+    /// Tête, torse, jambes, pieds.
+    pub armor: [Option<ItemStack>; 4],
+    /// La grille d'artisanat (2 × 2 dans l'inventaire, 3 × 3 sur l'établi), par rangées.
+    pub craft: [Option<ItemStack>; 9],
     /// La case choisie dans la barre.
     pub selected: usize,
-    /// La pile « tenue à la souris » quand l'inventaire est ouvert.
+    /// La pile « tenue à la souris » quand un écran est ouvert.
     pub cursor: Option<ItemStack>,
 }
 
@@ -29,31 +60,76 @@ impl Default for Inventory {
     fn default() -> Self {
         Self {
             slots: [None; SLOTS],
+            armor: [None; 4],
+            craft: [None; 9],
             selected: 0,
             cursor: None,
         }
     }
 }
 
+/// Un clic sur une case avec la pile en main : prendre, poser, compléter, échanger.
+/// `accepts` : la case accepte-t-elle cet objet (une case d'armure ne prend qu'une
+/// armure de son emplacement) ?
+pub fn click_slot(
+    slot: &mut Option<ItemStack>,
+    cursor: &mut Option<ItemStack>,
+    items: &ItemRegistry,
+    accepts: impl Fn(ItemId) -> bool,
+) {
+    if let Some(held) = cursor
+        && !accepts(held.item)
+    {
+        return;
+    }
+    match (slot.as_mut(), cursor.as_mut()) {
+        // Même objet, empilable : on complète la pile de la case.
+        (Some(stack), Some(held))
+            if stack.item == held.item && held.damage == 0 && stack.damage == 0 =>
+        {
+            let max = items.get(stack.item).max_stack;
+            let moved = held.count.min(max.saturating_sub(stack.count));
+            stack.count += moved;
+            held.count -= moved;
+            if held.count == 0 {
+                *cursor = None;
+            }
+        }
+        // Sinon (prendre, poser, ou deux objets différents) : on échange.
+        _ => std::mem::swap(slot, cursor),
+    }
+}
+
 impl Inventory {
-    /// Range `count` objets ; renvoie ce qui n'a pas trouvé de place.
-    ///
-    /// D'abord les piles existantes du même objet (barre puis réserve), puis les cases
-    /// vides : on complète avant d'entamer une nouvelle pile.
-    pub fn add(&mut self, item: BlockId, mut count: u32) -> u32 {
-        for slot in self.slots.iter_mut().flatten() {
-            if slot.item == item && slot.count < STACK_SIZE {
-                let moved = count.min(STACK_SIZE - slot.count);
-                slot.count += moved;
-                count -= moved;
-                if count == 0 {
-                    return 0;
+    /// Range `count` objets neufs ; renvoie ce qui n'a pas trouvé de place.
+    pub fn add(&mut self, item: ItemId, count: u32, items: &ItemRegistry) -> u32 {
+        self.add_stack(ItemStack::new(item, count), items)
+    }
+
+    /// Range une pile (avec son usure). D'abord les piles existantes du même objet, puis
+    /// les cases vides : on complète avant d'entamer une nouvelle pile.
+    pub fn add_stack(&mut self, stack: ItemStack, items: &ItemRegistry) -> u32 {
+        let max = items.get(stack.item).max_stack.max(1);
+        let mut count = stack.count;
+        if stack.damage == 0 {
+            for slot in self.slots.iter_mut().flatten() {
+                if slot.item == stack.item && slot.damage == 0 && slot.count < max {
+                    let moved = count.min(max - slot.count);
+                    slot.count += moved;
+                    count -= moved;
+                    if count == 0 {
+                        return 0;
+                    }
                 }
             }
         }
         for slot in self.slots.iter_mut().filter(|s| s.is_none()) {
-            let moved = count.min(STACK_SIZE);
-            *slot = Some(ItemStack { item, count: moved });
+            let moved = count.min(max);
+            *slot = Some(ItemStack {
+                item: stack.item,
+                count: moved,
+                damage: stack.damage,
+            });
             count -= moved;
             if count == 0 {
                 return 0;
@@ -62,13 +138,17 @@ impl Inventory {
         count
     }
 
+    pub fn selected_stack(&self) -> Option<ItemStack> {
+        self.slots[self.selected]
+    }
+
     /// L'objet de la case choisie.
-    pub fn selected_item(&self) -> Option<BlockId> {
-        self.slots[self.selected].map(|s| s.item)
+    pub fn selected_item(&self) -> Option<ItemId> {
+        self.selected_stack().map(|s| s.item)
     }
 
     /// Retire un objet de la case choisie (on vient de le poser).
-    pub fn consume_selected(&mut self) -> Option<BlockId> {
+    pub fn consume_selected(&mut self) -> Option<ItemId> {
         let slot = &mut self.slots[self.selected];
         let stack = slot.as_mut()?;
         let item = stack.item;
@@ -79,28 +159,115 @@ impl Inventory {
         Some(item)
     }
 
-    /// Un clic sur une case, inventaire ouvert : prendre, poser, fusionner ou échanger
-    /// avec la pile tenue à la souris.
-    pub fn click(&mut self, index: usize) {
-        let slot = &mut self.slots[index];
-        match (slot.as_mut(), self.cursor.as_mut()) {
-            // Même objet : on complète la pile de la case.
-            (Some(stack), Some(held)) if stack.item == held.item => {
-                let moved = held.count.min(STACK_SIZE - stack.count);
-                stack.count += moved;
-                held.count -= moved;
-                if held.count == 0 {
-                    self.cursor = None;
+    /// Use l'outil en main ; renvoie `true` s'il vient de casser.
+    pub fn wear_selected(&mut self, items: &ItemRegistry) -> bool {
+        let slot = &mut self.slots[self.selected];
+        let Some(stack) = slot.as_mut() else {
+            return false;
+        };
+        let Some(durability) = items.get(stack.item).durability else {
+            return false;
+        };
+        stack.damage += 1;
+        if stack.damage >= durability {
+            *slot = None;
+            return true;
+        }
+        false
+    }
+
+    pub fn slot_mut(&mut self, slot: Slot) -> &mut Option<ItemStack> {
+        match slot {
+            Slot::Main(i) => &mut self.slots[i],
+            Slot::Armor(i) => &mut self.armor[i],
+            Slot::Craft(i) => &mut self.craft[i],
+        }
+    }
+
+    /// Un clic sur une case de l'inventaire, de l'armure ou de la grille.
+    pub fn click(&mut self, slot: Slot, items: &ItemRegistry) {
+        let mut cursor = self.cursor.take();
+        let target = self.slot_mut(slot);
+        match slot {
+            Slot::Armor(i) => click_slot(target, &mut cursor, items, |item| {
+                items
+                    .get(item)
+                    .armor
+                    .is_some_and(|a| a.slot == ArmorSlot::ALL[i])
+            }),
+            _ => click_slot(target, &mut cursor, items, |_| true),
+        }
+        self.cursor = cursor;
+    }
+
+    /// La protection totale de l'armure portée.
+    pub fn protection(&self, items: &ItemRegistry) -> u32 {
+        self.armor
+            .iter()
+            .flatten()
+            .filter_map(|s| items.get(s.item).armor.map(|a| a.protection))
+            .sum()
+    }
+
+    /// Les objets de la grille d'artisanat (`size × size`), pour chercher une recette.
+    pub fn craft_grid(&self, size: usize) -> Vec<Option<ItemId>> {
+        (0..size * size)
+            .map(|i| self.craft[(i / size) * 3 + i % size].map(|s| s.item))
+            .collect()
+    }
+
+    /// Prend le résultat de la recette : un objet de chaque case de la grille est consommé.
+    /// Le résultat va dans la main (s'il y a la place).
+    pub fn take_craft_result(
+        &mut self,
+        recipe: &Recipe,
+        size: usize,
+        items: &ItemRegistry,
+    ) -> bool {
+        let (item, count) = recipe.result();
+        let room = match self.cursor {
+            None => true,
+            Some(held) => held.item == item && held.count + count <= items.get(item).max_stack,
+        };
+        if !room {
+            return false;
+        }
+        for i in 0..size * size {
+            let cell = &mut self.craft[(i / size) * 3 + i % size];
+            if let Some(stack) = cell {
+                stack.count -= 1;
+                if stack.count == 0 {
+                    *cell = None;
                 }
             }
-            // Sinon (prendre, poser, ou deux objets différents) : on échange.
-            _ => std::mem::swap(slot, &mut self.cursor),
         }
+        match &mut self.cursor {
+            Some(held) => held.count += count,
+            None => self.cursor = Some(ItemStack::new(item, count)),
+        }
+        true
+    }
+
+    /// Range tout ce qui traîne (la grille, la main) dans l'inventaire ; renvoie ce qui
+    /// n'a pas trouvé de place (à lâcher par terre).
+    pub fn put_away(&mut self, items: &ItemRegistry) -> Vec<ItemStack> {
+        let mut loose: Vec<ItemStack> = self.craft.iter_mut().filter_map(Option::take).collect();
+        loose.extend(self.cursor.take());
+        loose
+            .into_iter()
+            .filter_map(|stack| {
+                let left = self.add_stack(stack, items);
+                (left > 0).then_some(ItemStack {
+                    count: left,
+                    ..stack
+                })
+            })
+            .collect()
     }
 
     /// Le nombre total d'un objet.
     #[cfg(test)]
-    pub fn count(&self, item: BlockId) -> u32 {
+    pub fn count(&self, item: ItemId) -> u32 {
         self.slots
             .iter()
             .flatten()
@@ -109,34 +276,121 @@ impl Inventory {
             .sum()
     }
 
-    /// Pour `world.ron` : chaque case en (identifiant texte, quantité).
-    pub fn to_save(&self, registry: &BlockRegistry) -> Vec<Option<(String, u32)>> {
-        // La pile tenue à la souris retourne dans l'inventaire (ou se perd s'il est plein).
-        let mut copy = self.clone();
-        if let Some(held) = copy.cursor.take() {
-            copy.add(held.item, held.count);
-        }
-        copy.slots
+    /// Les cases à prendre pour réunir les ingrédients d'une recette (une par ingrédient),
+    /// `None` s'il en manque. Pour le livre de recettes.
+    fn find_ingredients(&self, ingredients: &[&Ingredient]) -> Option<Vec<usize>> {
+        let mut left: Vec<u32> = self
+            .slots
             .iter()
-            .map(|slot| slot.map(|s| (registry.def(s.item).key.clone(), s.count)))
-            .collect()
+            .map(|s| s.map_or(0, |s| s.count))
+            .collect();
+        let mut taken = Vec::new();
+        // Les ingrédients précis d'abord : un groupe ne prend pas l'objet exact qu'un
+        // autre ingrédient demande.
+        let mut order: Vec<&&Ingredient> = ingredients.iter().collect();
+        order.sort_by_key(|i| matches!(i, Ingredient::Any(_)));
+        for ingredient in order {
+            let index = (0..SLOTS).find(|&i| {
+                left[i] > 0 && self.slots[i].is_some_and(|s| ingredient.matches(s.item))
+            })?;
+            left[index] -= 1;
+            taken.push(index);
+        }
+        Some(taken)
+    }
+
+    /// Une recette faisable avec ce qu'on a ?
+    pub fn can_craft(&self, recipe: &Recipe) -> bool {
+        self.find_ingredients(&recipe.ingredients()).is_some()
+    }
+
+    /// Fabrique une recette du livre : prend les ingrédients dans l'inventaire et range le
+    /// résultat. Renvoie le reste qui n'a pas trouvé de place (0 si tout est rangé).
+    pub fn craft_from_book(&mut self, recipe: &Recipe, items: &ItemRegistry) -> Option<u32> {
+        let taken = self.find_ingredients(&recipe.ingredients())?;
+        for i in taken {
+            let slot = &mut self.slots[i];
+            if let Some(stack) = slot {
+                stack.count -= 1;
+                if stack.count == 0 {
+                    *slot = None;
+                }
+            }
+        }
+        let (item, count) = recipe.result();
+        Some(self.add(item, count, items))
+    }
+
+    /// Pour `world.ron` : une palette d'identifiants et des cases qui y renvoient.
+    pub fn to_save(&self, items: &ItemRegistry) -> SavedInventory {
+        let mut copy = self.clone();
+        copy.put_away(items);
+        let mut palette: Vec<String> = Vec::new();
+        let mut save = |slot: &Option<ItemStack>| {
+            slot.map(|s| {
+                let key = &items.get(s.item).key;
+                let index = palette.iter().position(|k| k == key).unwrap_or_else(|| {
+                    palette.push(key.clone());
+                    palette.len() - 1
+                });
+                SavedStack {
+                    item: index as u32,
+                    count: s.count,
+                    damage: s.damage,
+                }
+            })
+        };
+        let slots = copy.slots.iter().map(&mut save).collect();
+        let armor = copy.armor.iter().map(&mut save).collect();
+        SavedInventory {
+            palette,
+            slots,
+            armor,
+            selected: self.selected as u32,
+        }
     }
 
     /// L'inverse de [`Inventory::to_save`]. Un objet d'un mod absent est perdu (avec un avertissement).
-    pub fn from_save(saved: &[Option<(String, u32)>], registry: &BlockRegistry) -> Self {
+    pub fn from_save(saved: &SavedInventory, items: &ItemRegistry) -> Self {
+        let mut inventory = Self::default();
+        let ids: Vec<Option<ItemId>> = saved
+            .palette
+            .iter()
+            .map(|key| {
+                let id = items.id(key);
+                if id.is_none() {
+                    log::warn!("objet « {key} » inconnu (mod absent ?) : retiré de l'inventaire");
+                }
+                id
+            })
+            .collect();
+        let load = |s: &Option<SavedStack>| {
+            let s = s.as_ref()?;
+            let item = (*ids.get(s.item as usize)?)?;
+            Some(ItemStack {
+                item,
+                count: s.count.clamp(1, items.get(item).max_stack.max(1)),
+                damage: s.damage,
+            })
+        };
+        for (slot, saved) in inventory.slots.iter_mut().zip(&saved.slots) {
+            *slot = load(saved);
+        }
+        for (slot, saved) in inventory.armor.iter_mut().zip(&saved.armor) {
+            *slot = load(saved);
+        }
+        inventory.selected = (saved.selected as usize).min(HOTBAR - 1);
+        inventory
+    }
+
+    /// L'ancien format (avant les objets) : (identifiant de bloc, quantité) par case.
+    pub fn from_old_save(saved: &[Option<(String, u32)>], items: &ItemRegistry) -> Self {
         let mut inventory = Self::default();
         for (slot, saved) in inventory.slots.iter_mut().zip(saved) {
-            let Some((key, count)) = saved else { continue };
-            match registry.id(key) {
-                Some(item) => {
-                    *slot = Some(ItemStack {
-                        item,
-                        count: (*count).clamp(1, STACK_SIZE),
-                    })
-                }
-                None => {
-                    log::warn!("objet « {key} » inconnu (mod absent ?) : retiré de l'inventaire")
-                }
+            if let Some((key, count)) = saved
+                && let Some(item) = items.id(key)
+            {
+                *slot = Some(ItemStack::new(item, *count));
             }
         }
         inventory
@@ -145,136 +399,127 @@ impl Inventory {
 
 #[cfg(test)]
 mod tests {
+    use engine_voxel::{BlockRegistry, Recipes};
+
     use super::*;
 
-    fn blocks() -> (BlockRegistry, BlockId, BlockId) {
-        let registry = BlockRegistry::builtin().as_ref().clone();
-        let stone = registry.id("core:stone").unwrap();
-        let dirt = registry.id("core:dirt").unwrap();
-        (registry, stone, dirt)
+    fn items() -> ItemRegistry {
+        ItemRegistry::builtin(&BlockRegistry::builtin()).unwrap()
+    }
+
+    fn id(items: &ItemRegistry, key: &str) -> ItemId {
+        items.id(key).unwrap()
     }
 
     #[test]
-    fn stacks_fill_up_before_new_ones_start() {
-        let (_, stone, dirt) = blocks();
+    fn stacks_respect_their_maximum() {
+        let items = items();
+        let (stone, pickaxe) = (id(&items, "core:stone"), id(&items, "core:iron_pickaxe"));
         let mut inv = Inventory::default();
-        assert_eq!(inv.add(stone, 10), 0);
-        assert_eq!(inv.add(dirt, 1), 0);
-        assert_eq!(inv.add(stone, 60), 0);
-        // 10 + 60 = 70 : une pile pleine de 64 et une nouvelle de 6.
-        assert_eq!(
-            inv.slots[0],
-            Some(ItemStack {
-                item: stone,
-                count: 64
-            })
-        );
-        assert_eq!(
-            inv.slots[1],
-            Some(ItemStack {
-                item: dirt,
-                count: 1
-            })
-        );
-        assert_eq!(
-            inv.slots[2],
-            Some(ItemStack {
-                item: stone,
-                count: 6
-            })
-        );
-        assert_eq!(inv.count(stone), 70);
+        assert_eq!(inv.add(stone, 70, &items), 0);
+        assert_eq!(inv.slots[0].unwrap().count, 64);
+        assert_eq!(inv.slots[1].unwrap().count, 6);
+        // Les outils ne s'empilent pas.
+        inv.add(pickaxe, 2, &items);
+        assert_eq!(inv.slots[2].unwrap().count, 1);
+        assert_eq!(inv.slots[3].unwrap().count, 1);
+        assert_eq!(inv.add(stone, 64 * 40, &items), 64 * 40 - (64 * 32 + 58));
     }
 
     #[test]
-    fn overflow_is_returned_when_full() {
-        let (_, stone, _) = blocks();
+    fn tools_wear_out_and_break() {
+        let items = items();
+        let pickaxe = id(&items, "core:wooden_pickaxe");
+        let durability = items.get(pickaxe).durability.unwrap();
         let mut inv = Inventory::default();
-        assert_eq!(inv.add(stone, 36 * 64 + 5), 5);
-        assert_eq!(inv.count(stone), 36 * 64);
+        inv.add(pickaxe, 1, &items);
+        for _ in 0..durability - 1 {
+            assert!(!inv.wear_selected(&items));
+        }
+        assert_eq!(inv.selected_stack().unwrap().damage, durability - 1);
+        assert!(
+            inv.wear_selected(&items),
+            "il casse à la dernière utilisation"
+        );
+        assert!(inv.selected_stack().is_none());
     }
 
     #[test]
-    fn placing_consumes_the_selected_slot() {
-        let (_, stone, _) = blocks();
-        let mut inv = Inventory::default();
-        inv.add(stone, 2);
-        assert_eq!(inv.consume_selected(), Some(stone));
-        assert_eq!(inv.consume_selected(), Some(stone));
-        assert_eq!(inv.consume_selected(), None);
-        assert_eq!(inv.slots[0], None);
+    fn armor_slots_only_take_their_piece() {
+        let items = items();
+        let (helmet, boots) = (
+            id(&items, "core:iron_helmet"),
+            id(&items, "core:iron_boots"),
+        );
+        let mut inv = Inventory {
+            cursor: Some(ItemStack::new(boots, 1)),
+            ..Default::default()
+        };
+        inv.click(Slot::Armor(0), &items); // la tête refuse des bottes
+        assert!(inv.armor[0].is_none());
+        inv.click(Slot::Armor(3), &items);
+        assert_eq!(inv.armor[3].unwrap().item, boots);
+        inv.cursor = Some(ItemStack::new(helmet, 1));
+        inv.click(Slot::Armor(0), &items);
+        assert_eq!(inv.protection(&items), 4);
     }
 
     #[test]
-    fn clicking_picks_up_merges_and_swaps() {
-        let (_, stone, dirt) = blocks();
+    fn crafting_in_the_grid_and_from_the_book() {
+        let items = items();
+        let recipes = Recipes::builtin(&items).unwrap();
+        let (log, planks, stick) = (
+            id(&items, "core:oak_log"),
+            id(&items, "core:oak_planks"),
+            id(&items, "core:stick"),
+        );
         let mut inv = Inventory::default();
-        inv.slots[0] = Some(ItemStack {
-            item: stone,
-            count: 40,
-        });
-        inv.slots[1] = Some(ItemStack {
-            item: stone,
-            count: 30,
-        });
-        inv.slots[2] = Some(ItemStack {
-            item: dirt,
-            count: 5,
-        });
-        inv.click(0); // prendre les 40 pierres
-        assert_eq!(
-            inv.cursor,
-            Some(ItemStack {
-                item: stone,
-                count: 40
-            })
-        );
-        inv.click(1); // compléter la pile de 30 : 64, il en reste 6 en main
-        assert_eq!(inv.slots[1].unwrap().count, 64);
-        assert_eq!(inv.cursor.unwrap().count, 6);
-        inv.click(2); // objet différent : échange
-        assert_eq!(
-            inv.cursor,
-            Some(ItemStack {
-                item: dirt,
-                count: 5
-            })
-        );
-        assert_eq!(
-            inv.slots[2],
-            Some(ItemStack {
-                item: stone,
-                count: 6
-            })
-        );
-        inv.click(0); // case vide : on pose
-        assert_eq!(inv.cursor, None);
-        assert_eq!(
-            inv.slots[0],
-            Some(ItemStack {
-                item: dirt,
-                count: 5
-            })
-        );
+        // Une bûche dans la grille 2 × 2 : 4 planches.
+        inv.craft[4] = Some(ItemStack::new(log, 2));
+        let recipe = recipes.find(&inv.craft_grid(2), 2).unwrap().clone();
+        assert!(inv.take_craft_result(&recipe, 2, &items));
+        assert_eq!(inv.cursor, Some(ItemStack::new(planks, 4)));
+        assert_eq!(inv.craft[4].unwrap().count, 1);
+        // Le livre : des bâtons avec les planches de l'inventaire.
+        inv.put_away(&items);
+        let sticks = recipes.iter().find(|r| r.result().0 == stick).unwrap();
+        assert!(inv.can_craft(sticks));
+        assert_eq!(inv.craft_from_book(sticks, &items), Some(0));
+        assert_eq!(inv.count(stick), 4);
+        assert_eq!(inv.count(planks), 2);
     }
 
     #[test]
-    fn save_round_trip_and_unknown_items() {
-        let (registry, stone, dirt) = blocks();
+    fn save_round_trip_with_palette() {
+        let items = items();
+        let (stone, pickaxe, helmet) = (
+            id(&items, "core:stone"),
+            id(&items, "core:iron_pickaxe"),
+            id(&items, "core:golden_helmet"),
+        );
         let mut inv = Inventory::default();
-        inv.add(stone, 70);
-        inv.cursor = Some(ItemStack {
-            item: dirt,
-            count: 3,
-        });
-        let mut saved = inv.to_save(&registry);
-        assert_eq!(saved[0], Some(("core:stone".into(), 64)));
-        // La pile en main a été rangée.
-        assert!(saved.contains(&Some(("core:dirt".into(), 3))));
-        saved[5] = Some(("absent:item".into(), 9));
-        let back = Inventory::from_save(&saved, &registry);
-        assert_eq!(back.count(stone), 70);
-        assert_eq!(back.count(dirt), 3);
-        assert_eq!(back.slots[5], None);
+        inv.add(stone, 70, &items);
+        inv.add_stack(
+            ItemStack {
+                item: pickaxe,
+                count: 1,
+                damage: 17,
+            },
+            &items,
+        );
+        inv.armor[0] = Some(ItemStack::new(helmet, 1));
+        inv.selected = 2;
+        let mut saved = inv.to_save(&items);
+        assert_eq!(
+            saved.palette,
+            vec!["core:stone", "core:iron_pickaxe", "core:golden_helmet"]
+        );
+        let back = Inventory::from_save(&saved, &items);
+        assert_eq!(back, inv);
+        // Un objet d'un mod disparu est retiré, le reste est gardé.
+        saved.palette[0] = "absent:thing".into();
+        let back = Inventory::from_save(&saved, &items);
+        assert_eq!(back.count(stone), 0);
+        assert_eq!(back.slots[2].unwrap().damage, 17);
     }
 }

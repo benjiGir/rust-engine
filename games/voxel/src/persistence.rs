@@ -72,7 +72,7 @@ impl VoxelGame {
         let selected = self
             .inventory
             .selected_item()
-            .map(|id| self.registry.def(id).key.clone());
+            .map(|id| self.content.items.get(id).key.clone());
         WorldMeta {
             format_version: FORMAT_VERSION,
             seed: self.streamer().generator().seed(),
@@ -88,7 +88,8 @@ impl VoxelGame {
                 selected_block: selected,
             }),
             mods: loaded_mods(&self.registry),
-            inventory: self.inventory.to_save(&self.registry),
+            inventory: Vec::new(),
+            items: Some(self.inventory.to_save(&self.content.items)),
         }
     }
 
