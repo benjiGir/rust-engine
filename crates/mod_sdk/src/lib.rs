@@ -26,6 +26,7 @@
 //! Le jeu et le mod ne s'échangent que des entiers : les textes et les listes passent
 //! par la mémoire du mod. Ce kit cache ces détails (décrits dans `docs/modding.md`).
 
+mod ffi;
 mod host;
 
 use std::cell::RefCell;
@@ -142,11 +143,11 @@ impl Block {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum EventKind {
-    BlockBroken = 1,
-    BlockPlaced = 2,
-    EntityDied = 3,
-    Tick = 4,
-    PlayerDamaged = 5,
+    BlockBroken = ffi::EVENT_BLOCK_BROKEN,
+    BlockPlaced = ffi::EVENT_BLOCK_PLACED,
+    EntityDied = ffi::EVENT_ENTITY_DIED,
+    Tick = ffi::EVENT_TICK,
+    PlayerDamaged = ffi::EVENT_PLAYER_DAMAGED,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -246,21 +247,23 @@ pub mod __private {
             ))
         };
         Some(match kind {
-            1 => Event::BlockBroken {
+            ffi::EVENT_BLOCK_BROKEN => Event::BlockBroken {
                 pos: grid_pos(0)?,
                 block: Block(*v.get(4)? as u16),
             },
-            2 => Event::BlockPlaced {
+            ffi::EVENT_BLOCK_PLACED => Event::BlockPlaced {
                 pos: grid_pos(0)?,
                 block: Block(*v.get(4)? as u16),
                 facing: pos(5)?,
             },
-            3 => Event::EntityDied {
+            ffi::EVENT_ENTITY_DIED => Event::EntityDied {
                 pos: pos(0)?,
                 kind: String::from_utf8_lossy(bytes.get(12..)?).into_owned(),
             },
-            4 => Event::Tick(*v.first()? as u32 as u64 | (*v.get(1)? as u32 as u64) << 32),
-            5 => Event::PlayerDamaged {
+            ffi::EVENT_TICK => {
+                Event::Tick(*v.first()? as u32 as u64 | (*v.get(1)? as u32 as u64) << 32)
+            }
+            ffi::EVENT_PLAYER_DAMAGED => Event::PlayerDamaged {
                 amount: f32::from_bits(*v.first()? as u32),
                 health_left: f32::from_bits(*v.get(1)? as u32),
             },
@@ -283,10 +286,10 @@ pub mod __private {
 
     pub fn machine_call(kind: i32) -> Option<MachineCall> {
         Some(match kind {
-            0 => MachineCall::Placed,
-            1 => MachineCall::Loaded,
-            2 => MachineCall::NeighborChanged,
-            3 => MachineCall::ScheduledTick,
+            ffi::MACHINES_PLACED => MachineCall::Placed,
+            ffi::MACHINES_LOADED => MachineCall::Loaded,
+            ffi::MACHINES_NEIGHBOR => MachineCall::NeighborChanged,
+            ffi::MACHINES_TICK => MachineCall::ScheduledTick,
             _ => return None,
         })
     }

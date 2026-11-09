@@ -23,5 +23,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo xtask check-arch
+      - run: cargo xtask hooks --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace

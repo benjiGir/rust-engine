@@ -1,0 +1,134 @@
+// Le catalogue de l'interface entre le jeu et les mods : la seule source de vérité.
+//
+// `cargo xtask hooks` en génère :
+// - `crates/mod_sdk/src/ffi.rs` : les imports du mod (et leurs versions inertes hors
+//   WebAssembly), et les numéros des événements et des appels de machines ;
+// - `crates/engine_mods/src/runtime/abi.rs` : les mêmes numéros, côté jeu ;
+// - les tableaux de l'interface binaire dans `docs/modding.md`.
+// `cargo xtask hooks --check` (lancé par la CI) refuse un fichier généré pas à jour, et le
+// test `host_matches_the_catalog` (engine_mods) vérifie que le jeu définit exactement ces
+// fonctions, avec ces types.
+//
+// Ajouter une fonction : l'écrire ici, lancer `cargo xtask hooks`, puis la définir côté
+// jeu (`engine_mods/src/runtime/host.rs`) et l'envelopper côté mod (`mod_sdk/src/host.rs`).
+//
+// `ret` : le type renvoyé, s'il y en a un. Types : I32, I64, F32, F64 (ce que WebAssembly sait passer). `fallback` : ce que la
+// fonction renvoie hors WebAssembly (compilation native des mods, leurs tests).
+#![enable(implicit_some)]
+(
+    module: "voxel",
+    functions: [
+        // Bases.
+        (name: "log", group: "Bases",
+         params: [("ptr", I32), ("len", I32)],
+         doc: "Écrit le texte dans le journal du jeu, préfixé du nom du mod."),
+        (name: "subscribe", group: "Bases",
+         params: [("kind", I32)],
+         doc: "S'abonne à un type d'événement (voir les événements) : `on_event` le recevra."),
+        (name: "random", group: "Bases",
+         params: [], ret: I32, fallback: "4",
+         doc: "Un nombre pseudo-aléatoire positif (reproductible pour une même graine)."),
+        (name: "give_item", group: "Bases",
+         params: [("id", I32), ("count", I32)],
+         doc: "Donne `count` objets du bloc `id` au joueur."),
+        (name: "spawn_entity", group: "Bases",
+         params: [("ptr", I32), ("len", I32), ("x", F32), ("y", F32), ("z", F32)],
+         doc: "Fait apparaître une créature (identifiant texte, par exemple `core:pig`) à cette position."),
+
+        // Blocs.
+        (name: "block_id", group: "Blocs",
+         params: [("ptr", I32), ("len", I32)], ret: I32, fallback: "-1",
+         doc: "Le numéro d'un bloc à partir de son identifiant (`core:stone`) ; −1 s'il n'existe pas."),
+        (name: "get_block", group: "Blocs",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32)], ret: I32, fallback: "0",
+         doc: "Le bloc à cette position (0 : de l'air, ou une grille inconnue)."),
+        (name: "set_block", group: "Blocs",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("id", I32)], ret: I32, fallback: "0",
+         doc: "Pose un bloc ; les voisins sont prévenus. 1 si c'est fait."),
+        (name: "get_power", group: "Blocs",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32)], ret: I32, fallback: "0",
+         doc: "La puissance émise par ce bloc (0 à 15)."),
+        (name: "received_power", group: "Blocs",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32)], ret: I32, fallback: "0",
+         doc: "La plus forte puissance reçue des 6 voisins."),
+        (name: "set_power", group: "Blocs",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("power", I32)], ret: I32, fallback: "0",
+         doc: "Change la puissance émise (0 à 15) ; les voisins sont prévenus. 1 si c'est fait."),
+        (name: "get_data", group: "Blocs",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("ptr", I32), ("cap", I32)], ret: I32, fallback: "-1",
+         doc: "Copie l'état libre du bloc (au plus `cap` octets) ; renvoie sa taille, −1 sans état."),
+        (name: "set_data", group: "Blocs",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("ptr", I32), ("len", I32)], ret: I32, fallback: "0",
+         doc: "Remplace l'état libre du bloc, sauvegardé avec le monde. 1 si c'est fait."),
+        (name: "schedule_tick", group: "Blocs",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("delay", I32)],
+         doc: "Réveille la machine dans `delay` ticks (20 par seconde)."),
+
+        // Capacités.
+        (name: "add_energy", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("capacity", I64), ("rate", I64), ("sides", I32)], ret: I32, fallback: "0",
+         doc: "Donne au bloc un stockage d'énergie, ouvert sur les faces `sides` (6 bits). 1 si c'est fait."),
+        (name: "add_tank", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("capacity", I32), ("sides", I32)], ret: I32, fallback: "0",
+         doc: "Ajoute un réservoir de `capacity` mB. 1 si c'est fait."),
+        (name: "add_inventory", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("slots", I32), ("sides", I32)], ret: I32, fallback: "0",
+         doc: "Donne au bloc un inventaire de `slots` cases. 1 si c'est fait."),
+        (name: "add_kinetic", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("sides", I32)], ret: I32, fallback: "0",
+         doc: "Donne au bloc une rotation (vitesse, capacité et consommation de contrainte). 1 si c'est fait."),
+        (name: "energy_stored", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32)], ret: I64, fallback: "-1",
+         doc: "L'énergie stockée ; −1 sans stockage."),
+        (name: "energy_insert", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("face", I32), ("amount", I64), ("simulate", I32)], ret: I64, fallback: "0",
+         doc: "Insère de l'énergie par cette face ; renvoie la quantité acceptée."),
+        (name: "energy_extract", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("face", I32), ("amount", I64), ("simulate", I32)], ret: I64, fallback: "0",
+         doc: "Retire de l'énergie par cette face ; renvoie la quantité retirée."),
+        (name: "fluid_amount", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("ptr", I32), ("len", I32)], ret: I32, fallback: "0",
+         doc: "La quantité (mB) de ce fluide dans les réservoirs du bloc."),
+        (name: "fluid_fill", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("face", I32), ("ptr", I32), ("len", I32), ("amount", I32), ("simulate", I32)], ret: I32, fallback: "0",
+         doc: "Remplit avec ce fluide par cette face ; renvoie la quantité acceptée (mB)."),
+        (name: "fluid_drain", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("face", I32), ("ptr", I32), ("len", I32), ("amount", I32), ("simulate", I32)], ret: I32, fallback: "0",
+         doc: "Vide ce fluide par cette face ; renvoie la quantité retirée (mB)."),
+        (name: "item_count", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("ptr", I32), ("len", I32)], ret: I32, fallback: "0",
+         doc: "Le nombre de cet objet dans l'inventaire du bloc."),
+        (name: "item_insert", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("face", I32), ("ptr", I32), ("len", I32), ("count", I32), ("simulate", I32)], ret: I32, fallback: "0",
+         doc: "Range des objets par cette face ; renvoie le nombre accepté."),
+        (name: "item_extract", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("face", I32), ("ptr", I32), ("len", I32), ("count", I32), ("simulate", I32)], ret: I32, fallback: "0",
+         doc: "Sort des objets par cette face ; renvoie le nombre retiré."),
+        (name: "kinetic_speed", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32)], ret: F32, fallback: "0.0",
+         doc: "La vitesse de rotation (tr/min, signée)."),
+        (name: "set_kinetic", group: "Capacités",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("speed", F32), ("capacity", F32), ("impact", F32)], ret: I32, fallback: "0",
+         doc: "Règle la vitesse, la capacité et la consommation de contrainte. 1 si c'est fait."),
+    ],
+    events: [
+        (id: 1, name: "BlockBroken", constant: "BLOCK_BROKEN",
+         data: "`grille, x, y, z, bloc` (i32)", doc: "un bloc a été cassé"),
+        (id: 2, name: "BlockPlaced", constant: "BLOCK_PLACED",
+         data: "`grille, x, y, z, bloc, dx, dy, dz` (i32 ; `d` : direction horizontale du regard du joueur)",
+         doc: "un bloc a été posé"),
+        (id: 3, name: "EntityDied", constant: "ENTITY_DIED",
+         data: "`x, y, z` (f32), puis le type de créature en UTF-8", doc: "une créature est morte"),
+        (id: 4, name: "Tick", constant: "TICK",
+         data: "le numéro du tick (u64)", doc: "un tick de machines (20 par seconde)"),
+        (id: 5, name: "PlayerDamaged", constant: "PLAYER_DAMAGED",
+         data: "`dégâts, vie restante` (f32)", doc: "le joueur a perdu de la vie"),
+    ],
+    machine_calls: [
+        (id: 0, name: "Placed", constant: "PLACED", doc: "elles viennent d'être posées"),
+        (id: 1, name: "Loaded", constant: "LOADED",
+         doc: "leur chunk vient d'être chargé (les ticks programmés ne sont pas sauvegardés)"),
+        (id: 2, name: "NeighborChanged", constant: "NEIGHBOR", doc: "un voisin a changé"),
+        (id: 3, name: "ScheduledTick", constant: "TICK", doc: "leur tick programmé est arrivé"),
+    ],
+)

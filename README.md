@@ -33,7 +33,7 @@ crates/engine_voxel     # blocs et fluides (registres moddables), chunks 32³, t
                         # sauvegarde, machines (block entities, capacités, ticks programmés), grilles
 crates/engine_mods      # mods : manifestes mod.ron, ordre de chargement, scripts WebAssembly (wasmtime, bac à sable)
 crates/mod_sdk          # le kit pour écrire le script d'un mod en Rust (compilé en wasm32)
-tools/xtask             # tâches du projet : cargo xtask build-mods
+tools/xtask             # tâches du projet : cargo xtask build-mods, check-arch, hooks, bench, ctl
 docs/                   # modding.md (écrire un mod), architecture.md (réseaux, fluides, structures mobiles)
 games/voxel             # le jeu (E : inventaire et artisanat, clic droit : établi/four/coffre, F3 : inspecteur,
                         # F : vol, T : temps, F1/F2 : rendu, F4 : bras, F6 : culling des grottes) ; clic gauche maintenu : miner
@@ -116,7 +116,9 @@ pas de fichier de plus de 2500 lignes) : `cargo xtask check-arch`, aussi lancé 
 
 En jeu, modifier un shader, une texture, un son, un `blocks.ron` ou le `.wasm` d'un mod le recharge aussitôt (F5 pour forcer).
 
-Mods : `cargo xtask build-mods` compile les scripts ; voir `docs/modding.md`.
+Mods : `cargo xtask build-mods` compile les scripts ; voir `docs/modding.md`. L'interface entre le jeu et
+les mods est décrite une seule fois, dans `crates/mod_sdk/hooks.ron` : `cargo xtask hooks` en génère le SDK, les
+numéros du jeu et la doc (`--check` dans la CI).
 
 ## Avant chaque commit
 

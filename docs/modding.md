@@ -139,24 +139,28 @@ en place.
 
 `mod_sdk::subscribe(EventKind::...)` dans `init`, puis `Mod::event` les reçoit :
 
-| Événement | Données |
-|---|---|
-| `BlockBroken` | position, bloc cassé |
-| `BlockPlaced` | position, bloc posé, direction horizontale du regard du joueur |
-| `EntityDied` | type de créature (`core:zombie`), position |
-| `Tick` | numéro du tick de machines (20 par seconde) |
-| `PlayerDamaged` | dégâts, vie restante |
+<!-- hooks:events -->
+| Événement | Quand | Données (interface binaire) |
+|---|---|---|
+| `BlockBroken` (1) | un bloc a été cassé | `grille, x, y, z, bloc` (i32) |
+| `BlockPlaced` (2) | un bloc a été posé | `grille, x, y, z, bloc, dx, dy, dz` (i32 ; `d` : direction horizontale du regard du joueur) |
+| `EntityDied` (3) | une créature est morte | `x, y, z` (f32), puis le type de créature en UTF-8 |
+| `Tick` (4) | un tick de machines (20 par seconde) | le numéro du tick (u64) |
+| `PlayerDamaged` (5) | le joueur a perdu de la vie | `dégâts, vie restante` (f32) |
+<!-- /hooks:events -->
 
 ### Les appels de machines
 
 `Mod::machines(call, positions)` reçoit **toutes les machines du mod à réveiller d'un coup** :
 
+<!-- hooks:machines -->
 | `MachineCall` | Quand |
 |---|---|
-| `Placed` | elles viennent d'être posées |
-| `Loaded` | leur chunk vient d'être chargé (les ticks programmés ne sont pas sauvegardés) |
-| `NeighborChanged` | un voisin a changé |
-| `ScheduledTick` | leur tick programmé est arrivé |
+| `Placed` (0) | elles viennent d'être posées |
+| `Loaded` (1) | leur chunk vient d'être chargé (les ticks programmés ne sont pas sauvegardés) |
+| `NeighborChanged` (2) | un voisin a changé |
+| `ScheduledTick` (3) | leur tick programmé est arrivé |
+<!-- /hooks:machines -->
 
 Pourquoi par lot : chaque passage du jeu au script coûte un temps fixe (voir les mesures
 ci-dessous). 10 000 machines en un appel coûtent bien moins que 10 000 appels.
@@ -232,18 +236,65 @@ mémoire.
 | `on_event(type: i32, ptr: i32, taille: i32)` | facultatif |
 | `on_machines(type: i32, ptr: i32, nombre: i32)` | facultatif ; type 0 posées, 1 chargées, 2 voisin, 3 tick |
 
-**Données** (entiers 32 bits petit-boutistes) :
-- positions de `on_machines` : `nombre` fois `grille, x, y, z` ;
-- `BlockBroken` (1) : `grille, x, y, z, bloc` ; `BlockPlaced` (2) : `grille, x, y, z, bloc, dx, dy, dz` ;
-- `EntityDied` (3) : `x, y, z` puis le type en UTF-8 ; `Tick` (4) : le tick sur 64 bits ;
-- `PlayerDamaged` (5) : `dégâts, vie` en `f32`.
+**Données** (petit-boutistes) : les positions de `on_machines` sont `nombre` fois
+`grille, x, y, z` (i32) ; celles de chaque événement sont dans le tableau des événements
+ci-dessus, avec son numéro.
 
-**Imports** (module `voxel`) : un bloc s'y désigne par `grille, x, y, z` ; une face par 0 à 5
-(+X, −X, +Y, −Y, +Z, −Z) ou −1 ; un texte par `(ptr, taille)` ; `simulate` vaut 0 ou 1. Les
-signatures exactes sont dans `crates/mod_sdk/src/host.rs` (bloc `ffi`) et
-`crates/engine_mods/src/runtime/host.rs`. En cas d'échec (grille ou bloc inexistant), une
-fonction renvoie 0 ou −1, jamais une erreur ; seul un pointeur hors de la mémoire du mod arrête
-le script.
+**Imports** (module `voxel`) : un bloc s'y désigne par `g, x, y, z` (grille puis position) ;
+une face par 0 à 5 (+X, −X, +Y, −Y, +Z, −Z) ou −1 ; un texte par `(ptr, len)` ; `simulate` vaut
+0 ou 1. En cas d'échec (grille ou bloc inexistant), une fonction renvoie 0 ou −1, jamais une
+erreur ; seul un pointeur hors de la mémoire du mod arrête le script.
+
+Ces tableaux sont générés depuis le catalogue `crates/mod_sdk/hooks.ron` (`cargo xtask
+hooks`), la seule source de vérité : le SDK et les numéros du jeu en sont générés aussi, et un
+test vérifie que le jeu définit exactement ces fonctions.
+
+<!-- hooks:imports -->
+*Bases*
+
+| Fonction | Rôle |
+|---|---|
+| `log(ptr: i32, len: i32)` | Écrit le texte dans le journal du jeu, préfixé du nom du mod. |
+| `subscribe(kind: i32)` | S'abonne à un type d'événement (voir les événements) : `on_event` le recevra. |
+| `random() -> i32` | Un nombre pseudo-aléatoire positif (reproductible pour une même graine). |
+| `give_item(id: i32, count: i32)` | Donne `count` objets du bloc `id` au joueur. |
+| `spawn_entity(ptr: i32, len: i32, x: f32, y: f32, z: f32)` | Fait apparaître une créature (identifiant texte, par exemple `core:pig`) à cette position. |
+
+*Blocs*
+
+| Fonction | Rôle |
+|---|---|
+| `block_id(ptr: i32, len: i32) -> i32` | Le numéro d'un bloc à partir de son identifiant (`core:stone`) ; −1 s'il n'existe pas. |
+| `get_block(g: i32, x: i32, y: i32, z: i32) -> i32` | Le bloc à cette position (0 : de l'air, ou une grille inconnue). |
+| `set_block(g: i32, x: i32, y: i32, z: i32, id: i32) -> i32` | Pose un bloc ; les voisins sont prévenus. 1 si c'est fait. |
+| `get_power(g: i32, x: i32, y: i32, z: i32) -> i32` | La puissance émise par ce bloc (0 à 15). |
+| `received_power(g: i32, x: i32, y: i32, z: i32) -> i32` | La plus forte puissance reçue des 6 voisins. |
+| `set_power(g: i32, x: i32, y: i32, z: i32, power: i32) -> i32` | Change la puissance émise (0 à 15) ; les voisins sont prévenus. 1 si c'est fait. |
+| `get_data(g: i32, x: i32, y: i32, z: i32, ptr: i32, cap: i32) -> i32` | Copie l'état libre du bloc (au plus `cap` octets) ; renvoie sa taille, −1 sans état. |
+| `set_data(g: i32, x: i32, y: i32, z: i32, ptr: i32, len: i32) -> i32` | Remplace l'état libre du bloc, sauvegardé avec le monde. 1 si c'est fait. |
+| `schedule_tick(g: i32, x: i32, y: i32, z: i32, delay: i32)` | Réveille la machine dans `delay` ticks (20 par seconde). |
+
+*Capacités*
+
+| Fonction | Rôle |
+|---|---|
+| `add_energy(g: i32, x: i32, y: i32, z: i32, capacity: i64, rate: i64, sides: i32) -> i32` | Donne au bloc un stockage d'énergie, ouvert sur les faces `sides` (6 bits). 1 si c'est fait. |
+| `add_tank(g: i32, x: i32, y: i32, z: i32, capacity: i32, sides: i32) -> i32` | Ajoute un réservoir de `capacity` mB. 1 si c'est fait. |
+| `add_inventory(g: i32, x: i32, y: i32, z: i32, slots: i32, sides: i32) -> i32` | Donne au bloc un inventaire de `slots` cases. 1 si c'est fait. |
+| `add_kinetic(g: i32, x: i32, y: i32, z: i32, sides: i32) -> i32` | Donne au bloc une rotation (vitesse, capacité et consommation de contrainte). 1 si c'est fait. |
+| `energy_stored(g: i32, x: i32, y: i32, z: i32) -> i64` | L'énergie stockée ; −1 sans stockage. |
+| `energy_insert(g: i32, x: i32, y: i32, z: i32, face: i32, amount: i64, simulate: i32) -> i64` | Insère de l'énergie par cette face ; renvoie la quantité acceptée. |
+| `energy_extract(g: i32, x: i32, y: i32, z: i32, face: i32, amount: i64, simulate: i32) -> i64` | Retire de l'énergie par cette face ; renvoie la quantité retirée. |
+| `fluid_amount(g: i32, x: i32, y: i32, z: i32, ptr: i32, len: i32) -> i32` | La quantité (mB) de ce fluide dans les réservoirs du bloc. |
+| `fluid_fill(g: i32, x: i32, y: i32, z: i32, face: i32, ptr: i32, len: i32, amount: i32, simulate: i32) -> i32` | Remplit avec ce fluide par cette face ; renvoie la quantité acceptée (mB). |
+| `fluid_drain(g: i32, x: i32, y: i32, z: i32, face: i32, ptr: i32, len: i32, amount: i32, simulate: i32) -> i32` | Vide ce fluide par cette face ; renvoie la quantité retirée (mB). |
+| `item_count(g: i32, x: i32, y: i32, z: i32, ptr: i32, len: i32) -> i32` | Le nombre de cet objet dans l'inventaire du bloc. |
+| `item_insert(g: i32, x: i32, y: i32, z: i32, face: i32, ptr: i32, len: i32, count: i32, simulate: i32) -> i32` | Range des objets par cette face ; renvoie le nombre accepté. |
+| `item_extract(g: i32, x: i32, y: i32, z: i32, face: i32, ptr: i32, len: i32, count: i32, simulate: i32) -> i32` | Sort des objets par cette face ; renvoie le nombre retiré. |
+| `kinetic_speed(g: i32, x: i32, y: i32, z: i32) -> f32` | La vitesse de rotation (tr/min, signée). |
+| `set_kinetic(g: i32, x: i32, y: i32, z: i32, speed: f32, capacity: f32, impact: f32) -> i32` | Règle la vitesse, la capacité et la consommation de contrainte. 1 si c'est fait. |
+
+<!-- /hooks:imports -->
 
 ## Les coûts mesurés
 

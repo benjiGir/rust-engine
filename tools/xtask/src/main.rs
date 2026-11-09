@@ -7,10 +7,12 @@
 //! - `check-arch` : vérifie les règles d'architecture (voir `check_arch.rs`).
 //! - `ctl <commande>...` : pilote le jeu lancé avec `VOXEL_CONTROL` (voir `ctl.rs`).
 //! - `bench [--runs N] [--compare ancien.csv]` : le benchmark reproductible (voir `bench.rs`).
+//! - `hooks [--check]` : génère l'interface des mods depuis son catalogue (voir `hooks.rs`).
 
 mod bench;
 mod check_arch;
 mod ctl;
+mod hooks;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -25,9 +27,12 @@ fn main() -> Result<()> {
         "build-mods" => build_mods(),
         "check-arch" => check_arch::run(&root()),
         "ctl" => ctl::run(std::env::args().skip(2).collect()),
+        "hooks" => hooks::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         "bench" => bench::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         _ => {
-            eprintln!("usage : cargo xtask build-mods | check-arch | ctl <commande>... | bench");
+            eprintln!(
+                "usage : cargo xtask build-mods | check-arch | ctl <commande>... | bench | hooks"
+            );
             bail!("tâche inconnue : « {task} »")
         }
     }

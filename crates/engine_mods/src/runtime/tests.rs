@@ -311,3 +311,167 @@ fn the_example_mod_breaks_blocks_when_powered() {
     );
     assert!(runtime.disabled().is_empty());
 }
+
+/// Le catalogue `mod_sdk/hooks.ron`, réduit à ce que le test compare.
+#[derive(serde::Deserialize)]
+struct Catalog {
+    module: String,
+    functions: Vec<CatalogFunction>,
+    events: Vec<CatalogEntry>,
+    machine_calls: Vec<CatalogEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct CatalogFunction {
+    name: String,
+    params: Vec<(String, CatalogType)>,
+    #[serde(default)]
+    ret: Option<CatalogType>,
+}
+
+#[derive(serde::Deserialize, Debug, Clone, Copy)]
+enum CatalogType {
+    I32,
+    I64,
+    F32,
+    F64,
+}
+
+#[derive(serde::Deserialize)]
+struct CatalogEntry {
+    id: i32,
+    name: String,
+}
+
+fn catalog() -> Catalog {
+    let text = include_str!("../../../mod_sdk/hooks.ron");
+    ron::from_str(text).expect("catalogue illisible")
+}
+
+fn wasm_type(ty: &wasmtime::ValType) -> String {
+    use wasmtime::ValType;
+    match ty {
+        ValType::I32 => "I32",
+        ValType::I64 => "I64",
+        ValType::F32 => "F32",
+        ValType::F64 => "F64",
+        _ => "autre",
+    }
+    .to_string()
+}
+
+/// Le jeu définit exactement les fonctions du catalogue, avec les mêmes types : un mod
+/// compilé avec le SDK (généré depuis le catalogue) se lie toujours.
+#[test]
+fn host_matches_the_catalog() {
+    let catalog = catalog();
+    let host = ScriptHost::new().unwrap();
+    let streamer = Rc::new(RefCell::new(ChunkStreamer::new(
+        TerrainGenerator::new(1),
+        StreamingConfig::default(),
+    )));
+    let state = HostState {
+        mod_id: "test".into(),
+        streamer,
+        registry: BlockRegistry::builtin(),
+        requests: Requests::default(),
+        subscriptions: Vec::new(),
+        limits: wasmtime::StoreLimitsBuilder::new().build(),
+        rng: 1,
+    };
+    let mut store = wasmtime::Store::new(&host.engine, state);
+    let mut defined = std::collections::BTreeMap::new();
+    let funcs: Vec<(String, wasmtime::Func)> = host
+        .linker
+        .iter(&mut store)
+        .filter(|(module, _, _)| *module == catalog.module)
+        .filter_map(|(_, name, ext)| Some((name.to_string(), ext.into_func()?)))
+        .collect();
+    for (name, func) in funcs {
+        let ty = func.ty(&store);
+        let params: Vec<String> = ty.params().map(|p| wasm_type(&p)).collect();
+        let results: Vec<String> = ty.results().map(|r| wasm_type(&r)).collect();
+        defined.insert(name, (params, results));
+    }
+
+    let mut errors = Vec::new();
+    for f in &catalog.functions {
+        let expected_params: Vec<String> = f.params.iter().map(|(_, t)| format!("{t:?}")).collect();
+        let expected_results: Vec<String> = f.ret.iter().map(|t| format!("{t:?}")).collect();
+        match defined.remove(&f.name) {
+            None => errors.push(format!("« {} » est au catalogue, pas dans le jeu", f.name)),
+            Some((params, results)) => {
+                if params != expected_params || results != expected_results {
+                    errors.push(format!(
+                        "« {} » : le jeu prend {params:?} → {results:?}, le catalogue dit {expected_params:?} → {expected_results:?}",
+                        f.name
+                    ));
+                }
+            }
+        }
+    }
+    for name in defined.keys() {
+        errors.push(format!(
+            "« {name} » est définie par le jeu mais absente du catalogue"
+        ));
+    }
+    assert!(errors.is_empty(), "{}", errors.join("\n"));
+}
+
+/// Les numéros envoyés par le jeu sont ceux du catalogue (abi.rs en est généré, mais
+/// `ModEvent::kind` choisit encore la constante à la main).
+#[test]
+fn event_numbers_match_the_catalog() {
+    let catalog = catalog();
+    let id = |name: &str| {
+        catalog
+            .events
+            .iter()
+            .find(|e| e.name == name)
+            .map(|e| e.id)
+            .unwrap_or_else(|| panic!("{name} absent du catalogue"))
+    };
+    let at = GridPos::world(IVec3::ZERO);
+    let events = [
+        (
+            "BlockBroken",
+            ModEvent::BlockBroken {
+                at,
+                block: BlockId(1),
+            },
+        ),
+        (
+            "BlockPlaced",
+            ModEvent::BlockPlaced {
+                at,
+                block: BlockId(1),
+                facing: IVec3::X,
+            },
+        ),
+        (
+            "EntityDied",
+            ModEvent::EntityDied {
+                kind: "core:pig".into(),
+                position: Vec3::ZERO,
+            },
+        ),
+        ("Tick", ModEvent::Tick(1)),
+        (
+            "PlayerDamaged",
+            ModEvent::PlayerDamaged {
+                amount: 1.0,
+                health_left: 19.0,
+            },
+        ),
+    ];
+    assert_eq!(events.len(), catalog.events.len(), "un événement sans test");
+    for (name, event) in events {
+        assert_eq!(event.kind(), id(name), "{name}");
+    }
+    let calls: Vec<(String, i32)> = catalog
+        .machine_calls
+        .iter()
+        .map(|m| (m.name.clone(), m.id))
+        .collect();
+    assert_eq!(calls.len(), 4);
+}

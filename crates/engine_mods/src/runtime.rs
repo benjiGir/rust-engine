@@ -42,18 +42,7 @@ pub const FUEL_PER_CALL: u64 = 50_000_000;
 pub const MEMORY_LIMIT: usize = 32 << 20;
 
 /// Les numéros de l'ABI, partagés avec `mod_sdk`.
-pub mod abi {
-    pub const EVENT_BLOCK_BROKEN: i32 = 1;
-    pub const EVENT_BLOCK_PLACED: i32 = 2;
-    pub const EVENT_ENTITY_DIED: i32 = 3;
-    pub const EVENT_TICK: i32 = 4;
-    pub const EVENT_PLAYER_DAMAGED: i32 = 5;
-
-    pub const MACHINES_PLACED: i32 = 0;
-    pub const MACHINES_LOADED: i32 = 1;
-    pub const MACHINES_NEIGHBOR: i32 = 2;
-    pub const MACHINES_TICK: i32 = 3;
-}
+pub mod abi;
 
 /// Un événement du jeu, tel que transmis aux mods.
 #[derive(Debug, Clone, PartialEq)]
