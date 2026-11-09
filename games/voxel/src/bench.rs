@@ -8,7 +8,11 @@
 //! maillé autour du point de départ), puis la caméra suit le trajet pendant quelques
 //! secondes en mesurant chaque image :
 //! - **FPS moyen** et **1 % le plus lent** (la moyenne des 1 % d'images les plus longues,
-//!   en FPS) : les saccades se voient dans le second, pas dans le premier ;
+//!   en FPS). Attention : sans VSync, une image lente est presque toujours une attente du
+//!   système (ses 3 tampons d'écran sont pleins, il faut attendre le rafraîchissement
+//!   suivant), pas du travail du jeu. Mesuré : sur 1 300 images, aucune ne dépassait 4,4 ms
+//!   de travail. Les vraies saccades du jeu se voient dans le 99e centile du CPU, ou avec
+//!   `VOXEL_BENCH_VSYNC=1` (comme en jeu) ;
 //! - **CPU** : le temps médian du jeu par image (simulation, mise à jour, préparation du
 //!   rendu), sans l'attente de l'écran, et le 99e centile ;
 //! - **GPU** : le temps médian de la passe du décor, mesuré par le GPU (`gpu_timer.rs`) ;
@@ -270,7 +274,11 @@ impl VoxelGame {
         let _ = ctx
             .window
             .request_inner_size(LogicalSize::new(width, height));
-        self.renderer.set_vsync(false);
+        // `VOXEL_BENCH_VSYNC=1` : comme en jeu, pour voir les images ratées. Sans VSync,
+        // le « 1 % le plus lent » mesure surtout l'attente d'une image libre auprès du
+        // système (les 3 tampons de l'écran sont pleins), pas le travail du jeu.
+        self.renderer
+            .set_vsync(std::env::var("VOXEL_BENCH_VSYNC").is_ok_and(|v| v == "1"));
         self.day.time = 0.5;
         self.day.speed = TimeSpeed::Frozen;
         if player::mode(&self.ecs, self.player) != MoveMode::Fly {

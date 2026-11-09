@@ -21,7 +21,9 @@ use anyhow::{Context as _, Result, bail};
 const METRICS: [(&str, &str, bool); 4] = [
     ("cpu_ms", "CPU (ms)", false),
     ("gpu_ms", "GPU (ms)", false),
-    ("fps_1pct", "1 % lent (FPS)", true),
+    // Pas le « 1 % le plus lent » en FPS : sans VSync, il mesure surtout l'attente d'une
+    // image libre auprès du système, pas le travail du jeu (voir `games/voxel/src/bench.rs`).
+    ("cpu_p99_ms", "CPU 99e (ms)", false),
     ("chunks_dessines", "chunks", false),
 ];
 
@@ -177,7 +179,14 @@ fn stats(values: &[f64]) -> Option<(f64, f64)> {
     }
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
-    let median = sorted[sorted.len() / 2];
+    // Nombre pair de passages : la moyenne des deux du milieu (sinon, avec 2 passages, on
+    // prendrait le plus grand, et un seul passage perturbé ferait croire à un recul).
+    let n = sorted.len();
+    let median = if n.is_multiple_of(2) {
+        (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+    } else {
+        sorted[n / 2]
+    };
     Some((median, sorted[sorted.len() - 1] - sorted[0]))
 }
 
@@ -253,6 +262,8 @@ mod tests {
         );
         let (median, spread) = stats(&results["foret"]["cpu_ms"]).unwrap();
         assert!((median - 2.2).abs() < 1e-9 && (spread - 0.4).abs() < 1e-9);
+        let (median, _) = stats(&[1.0, 3.0]).unwrap();
+        assert!((median - 2.0).abs() < 1e-9, "deux passages : la moyenne");
     }
 
     #[test]

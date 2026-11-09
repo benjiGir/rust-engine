@@ -110,6 +110,9 @@ Variables du jeu :
   `cargo xtask bench` (3 passages, médianes, résultat dans `target/bench/<commit>.csv`), puis après un
   changement `cargo xtask bench --compare target/bench/<ancien>.csv` : seuls les écarts plus grands que
   le bruit de mesure sont signalés. Laisser la fenêtre au premier plan : cachée, macOS la ralentit.
+  `VOXEL_BENCH_SIZE=640x360` change la taille, `VOXEL_BENCH_VSYNC=1` garde la VSync (comme en jeu). Sans VSync,
+  le « 1 % le plus lent » mesure surtout l'attente de l'écran par le système : les saccades du jeu se voient
+  dans le 99e centile du CPU, que `--compare` utilise.
 
 Les règles d'architecture (le moteur ne dépend pas du jeu, la simulation pas de l'affichage,
 pas de fichier de plus de 2500 lignes) : `cargo xtask check-arch`, aussi lancé par la CI.
