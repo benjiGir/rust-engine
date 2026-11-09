@@ -362,6 +362,7 @@ impl VoxelGame {
                     let start = Instant::now();
                     // L'interface aussi : la barre d'objets, l'inventaire ou l'inspecteur.
                     let (ui, _) = self.build_ui(crate::ui::offscreen_input(WIDTH, HEIGHT));
+                    self.update_visibility(WIDTH as f32 / HEIGHT as f32);
                     let capture = self
                         .renderer
                         .capture(&self.camera, WIDTH, HEIGHT, Some(ui))?;

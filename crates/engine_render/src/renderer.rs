@@ -124,6 +124,9 @@ pub struct RenderStats {
     pub meshes_drawn: usize,
     /// Maillages chargés au total.
     pub meshes_total: usize,
+    /// Maillages dans le champ mais écartés, invisibles depuis la caméra (culling des
+    /// grottes).
+    pub meshes_hidden: usize,
     /// Triangles envoyés au GPU (maillages dessinés et cubes instanciés).
     pub triangles: usize,
 }
@@ -228,6 +231,8 @@ pub struct Renderer {
     pub clear_color: wgpu::Color,
     /// Ne dessine que les maillages dont la boîte touche le champ de vision.
     pub frustum_culling: bool,
+    /// Les seuls maillages à dessiner (`None` : tous), voir [`Renderer::set_visible_meshes`].
+    visible_meshes: Option<std::collections::HashSet<MeshId>>,
     /// `None` : pas de brouillard.
     pub fog: Option<Fog>,
     pub sun: Sun,
@@ -479,6 +484,7 @@ impl Renderer {
             meshes: HashMap::new(),
             next_mesh_id: 0,
             frustum_culling: true,
+            visible_meshes: None,
             fog: None,
             sun: Sun::default(),
             time: 0.0,
@@ -629,6 +635,19 @@ impl Renderer {
     /// Retire un maillage ; ses tampons GPU sont libérés.
     pub fn remove_mesh(&mut self, id: MeshId) {
         self.meshes.remove(&id);
+    }
+
+    /// Ne dessiner que ces maillages (le jeu sait lesquels sont visibles, par exemple
+    /// grâce au culling des grottes), ou tous avec `None`. Valable jusqu'au prochain appel.
+    pub fn set_visible_meshes(&mut self, ids: Option<&[MeshId]>) {
+        match ids {
+            Some(ids) => {
+                let set = self.visible_meshes.get_or_insert_with(Default::default);
+                set.clear();
+                set.extend(ids.iter().copied());
+            }
+            None => self.visible_meshes = None,
+        }
     }
 
     pub fn mesh_count(&self) -> usize {
@@ -810,10 +829,18 @@ impl Renderer {
 
             // `filter` saute les chunks hors champ : ils ne coûtent alors rien au GPU.
             let culling = self.frustum_culling;
+            let allowed = self.visible_meshes.as_ref();
             let visible: Vec<&GpuMesh> = self
                 .meshes
-                .values()
-                .filter(|m| !culling || frustum.intersects(&m.bounds))
+                .iter()
+                .filter(|(_, m)| !culling || frustum.intersects(&m.bounds))
+                // Dans le champ mais caché (derrière la roche) : compté à part.
+                .filter(|(id, _)| {
+                    let shown = allowed.is_none_or(|ids| ids.contains(id));
+                    stats.meshes_hidden += usize::from(!shown);
+                    shown
+                })
+                .map(|(_, m)| m)
                 .collect();
 
             // Passe 1 : l'opaque, dans n'importe quel ordre (le tampon de profondeur trie).

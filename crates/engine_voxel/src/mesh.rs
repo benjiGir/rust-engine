@@ -75,6 +75,8 @@ pub struct ChunkMesh {
     pub indices: Vec<u32>,
     /// Les triangles translucides (eau, verre), dans les mêmes sommets.
     pub translucent_indices: Vec<u32>,
+    /// Les faces du chunk reliées par l'air, pour le culling des grottes.
+    pub visibility: crate::FaceConnections,
 }
 
 impl ChunkMesh {
@@ -725,8 +727,19 @@ pub fn mesh_greedy(world: &World, chunk_pos: IVec3) -> ChunkMesh {
     Neighbourhood::from_world(world, chunk_pos).map_or_else(ChunkMesh::default, |h| greedy(&h))
 }
 
+/// Un maillage vide, avec déjà les connexions du chunk pour le culling des grottes : le
+/// chunk est en mémoire et on est sur un thread de fond, c'est le bon moment.
+fn new_mesh(hood: &Neighbourhood) -> ChunkMesh {
+    ChunkMesh {
+        visibility: hood.chunks[13]
+            .as_ref()
+            .map_or_default(|chunk| crate::FaceConnections::of_chunk(chunk, &hood.registry)),
+        ..ChunkMesh::default()
+    }
+}
+
 fn culled(hood: &Neighbourhood) -> ChunkMesh {
-    let mut mesh = ChunkMesh::default();
+    let mut mesh = new_mesh(hood);
     let origin = World::chunk_origin(hood.position);
 
     for y in 0..SIZE {
@@ -754,7 +767,7 @@ fn culled(hood: &Neighbourhood) -> ChunkMesh {
 /// le long de `u` tant que l'apparence est la même, puis le long de `v` tant que
 /// toute la ligne suivante correspond. On émet ce quad et on efface ses cases.
 fn greedy(hood: &Neighbourhood) -> ChunkMesh {
-    let mut mesh = ChunkMesh::default();
+    let mut mesh = new_mesh(hood);
     let origin = World::chunk_origin(hood.position);
     let n = CHUNK_SIZE;
     // Un seul masque, réutilisé pour chaque tranche : pas d'allocation dans la boucle.

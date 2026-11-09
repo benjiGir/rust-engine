@@ -34,6 +34,7 @@ mod registry;
 mod save;
 mod streaming;
 mod trees;
+mod visibility;
 mod world;
 
 pub use biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry, OreDef, Relief};
@@ -77,4 +78,5 @@ pub use save::{
 };
 pub use streaming::{ChunkStreamer, StreamEvent, StreamStats, StreamingConfig};
 pub use trees::{Part, Rng64, TreeBlocks, TreeKind, Wood, grow as grow_tree};
+pub use visibility::{FACE_DIRECTIONS, FaceConnections, VisibilityGraph};
 pub use world::World;

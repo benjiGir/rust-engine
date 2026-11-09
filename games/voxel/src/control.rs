@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-9 \
-| inventory | mode walk|fly | time 0-1 | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -159,6 +159,8 @@ pub enum Command {
     Inventory,
     Mode(MoveMode),
     Time(f32),
+    /// Le culling des grottes allumé ou non.
+    Culling(bool),
     Screenshot(PathBuf, u32, u32),
     Quit,
 }
@@ -312,6 +314,14 @@ pub fn parse(line: &str) -> Result<Command> {
             count(&[1])?;
             Command::Time(number(0)?.rem_euclid(1.0))
         }
+        "culling" => {
+            count(&[1])?;
+            match args[0] {
+                "on" => Command::Culling(true),
+                "off" => Command::Culling(false),
+                other => bail!("culling : on ou off, pas « {other} »"),
+            }
+        }
         "screenshot" => {
             count(&[1, 3])?;
             let (width, height) = if args.len() == 3 {
@@ -408,7 +418,11 @@ impl VoxelGame {
         let playing = self.mode == Mode::Playing;
         let needs_world = !matches!(
             command,
-            Command::Help | Command::State | Command::Screenshot(..) | Command::Quit
+            Command::Help
+                | Command::State
+                | Command::Screenshot(..)
+                | Command::Culling(_)
+                | Command::Quit
         );
         if needs_world && !playing {
             bail!("pas en jeu (menu ou pause) : lancer un monde, par exemple avec VOXEL_WORLD");
@@ -560,8 +574,13 @@ impl VoxelGame {
                 self.day.time = time;
                 Ok(self.state_json())
             }
+            Command::Culling(enabled) => {
+                self.culling.enabled = enabled;
+                Ok(ok())
+            }
             Command::Screenshot(path, width, height) => {
                 let (ui, _) = self.build_ui(crate::ui::offscreen_input(width, height));
+                self.update_visibility(width as f32 / height as f32);
                 let capture = self
                     .renderer
                     .capture(&self.camera, width, height, Some(ui))?;
@@ -646,7 +665,8 @@ impl VoxelGame {
             "{{\"ok\":true,\"mode\":\"{mode}\",\"move\":\"{}\",\"pos\":{},\"on_ground\":{},\"in_liquid\":{},\"frozen\":{},\
 \"yaw\":{:.1},\"pitch\":{:.1},\"health\":[{:.1},{:.1}],\"time\":{:.3},\"clock\":{},\
 \"biome\":{},\"target\":{target},\"selected\":{selected},\"walking\":{},\
-\"chunks\":{{\"loaded\":{},\"queued\":{},\"idle\":{}}}}}",
+\"chunks\":{{\"loaded\":{},\"queued\":{},\"idle\":{}}},\
+\"render\":{{\"drawn\":{},\"hidden\":{},\"total\":{},\"triangles\":{},\"cave_culling\":{}}}}}",
             // Les mêmes mots que la commande `mode`.
             match player::mode(&self.ecs, self.player) {
                 MoveMode::Walk => "walk",
@@ -667,6 +687,11 @@ impl VoxelGame {
             stats.loaded,
             stats.queued,
             streamer.is_idle(),
+            self.last_render.meshes_drawn,
+            self.last_render.meshes_hidden,
+            self.last_render.meshes_total,
+            self.last_render.triangles,
+            self.culling.enabled,
         )
     }
 }

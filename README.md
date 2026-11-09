@@ -36,7 +36,7 @@ crates/mod_sdk          # le kit pour écrire le script d'un mod en Rust (compil
 tools/xtask             # tâches du projet : cargo xtask build-mods
 docs/                   # modding.md (écrire un mod), architecture.md (réseaux, fluides, structures mobiles)
 games/voxel             # le jeu (E : inventaire et artisanat, clic droit : établi/four/coffre, F3 : inspecteur,
-                        # F : vol, T : temps, F1/F2 : rendu, F4 : bras) ; clic gauche maintenu : miner
+                        # F : vol, T : temps, F1/F2 : rendu, F4 : bras, F6 : culling des grottes) ; clic gauche maintenu : miner
 assets/core/            # blocks.ron (les blocs de base), biomes.ron (15 biomes), ores.ron (minerais par profondeur),
                         # fluids.ron, items.ron (objets, outils, armures), recipes.ron, smelting.ron, loot.ron,
                         # textures/ et items/ (PNG 16×16), sounds/ (WAV)
@@ -88,6 +88,7 @@ Variables du jeu :
 - `VOXEL_SCREENSHOTS=dossier` (enregistre les captures PNG, dont une par biome, puis quitte, même écran éteint) ;
   `VOXEL_SHOTS=biome` ne garde que les captures dont le nom contient ce texte ;
 - `VOXEL_HIDE_ARM=1` (cache le bras à la première personne, aussi avec F4) ;
+- `VOXEL_CAVE_CULLING=0` (dessine aussi les grottes invisibles, pour comparer ; aussi avec F6) ;
 - sans aucune de ces variables, le jeu s'ouvre sur le menu principal (Jouer, Nouveau monde,
   Options, Quitter) ; Échap ouvre la pause. Les options sont dans `settings.ron` ;
 - `VOXEL_MENU_DEMO=1` (scénario automatique : menu, un monde, retour au menu, quitter) ;

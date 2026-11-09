@@ -39,6 +39,7 @@ mod audio;
 mod components;
 mod content;
 mod control;
+mod culling;
 mod daytime;
 mod drops;
 mod events;
@@ -197,6 +198,8 @@ struct VoxelGame {
     last_render: RenderStats,
     /// `VOXEL_CONTROL` : la marche et les `wait` commandés (voir `control.rs`).
     remote: control::Remote,
+    /// Le culling des grottes : quels chunks sont visibles depuis la caméra.
+    culling: culling::CaveCulling,
 }
 
 /// Comment lancer un monde : depuis quel dossier, avec quelle graine.
@@ -545,6 +548,7 @@ impl VoxelGame {
             frame_stats: FrameStats::new(),
             last_render: RenderStats::default(),
             remote: control::Remote::default(),
+            culling: culling::CaveCulling::from_env(),
         })
     }
 
@@ -871,6 +875,7 @@ impl VoxelGame {
         let (ui_frame, platform) = self.build_ui(raw);
         self.ui.handle_output(&ctx.window, platform);
 
+        self.update_visibility(self.renderer.aspect());
         let start = Instant::now();
         let result = self.renderer.render(&self.camera, Some(ui_frame));
         self.frame_stats.record_render(start.elapsed());
@@ -895,6 +900,7 @@ impl VoxelGame {
     fn shutdown(mut self) -> Renderer {
         self.save_now();
         self.renderer.clear_meshes();
+        self.renderer.set_visible_meshes(None);
         self.renderer.set_instances(&[]);
         self.renderer.set_hand(&[], [1.0, 0.0]);
         self.renderer.outline = None;
@@ -1076,6 +1082,9 @@ impl VoxelGame {
             let mesher = self.streamer().config().mesher.other();
             log::info!("maillage {} : on remaille tout", mesher.name());
             self.streamer_mut().set_mesher(mesher);
+        }
+        if input.key_pressed(KeyCode::F6) {
+            self.toggle_cave_culling();
         }
         if input.key_pressed(KeyCode::F2) {
             self.renderer.frustum_culling = !self.renderer.frustum_culling;
@@ -1722,12 +1731,14 @@ impl VoxelGame {
             match event {
                 // Libérer est presque gratuit : ça ne compte pas dans le budget.
                 StreamEvent::Unload(pos) => {
+                    self.culling.graph.remove(pos);
                     if let Some(id) = self.meshes.remove(&pos) {
                         self.renderer.remove_mesh(id);
                     }
                 }
                 StreamEvent::Mesh(pos, mesh) => {
                     uploads += 1;
+                    self.culling.graph.set(pos, mesh.visibility);
                     // `insert` et `remove` rendent l'ancienne valeur : on libère l'ancien maillage.
                     let old = match upload(&mut self.renderer, &mesh) {
                         Some(id) => self.meshes.insert(pos, id),
@@ -1753,13 +1764,14 @@ impl VoxelGame {
             ""
         };
         ctx.status = format!(
-            "{} | {}{frozen} | {} entités | {} chunks | {pending} en attente | {}/{} dessinés | {triangles:.2} M tri",
+            "{} | {}{frozen} | {} entités | {} chunks | {pending} en attente | {}/{} dessinés ({} cachés) | {triangles:.2} M tri",
             self.day.clock(),
             player::mode(&self.ecs, self.player).name(),
             self.ecs.len(),
             stream.loaded,
             render.meshes_drawn,
             render.meshes_total,
+            render.meshes_hidden,
         );
 
         if let Some(report) = self.frame_stats.tick() {
@@ -1771,7 +1783,7 @@ impl VoxelGame {
             log::info!(
                 "image : moy {:.2} ms, max {:.2} ms | streaming : max {:.2} ms, envois GPU : max {:.2} ms ({} au total) | \
                  rendu : max {:.2} ms | modifs : {} (max {:.2} ms) | chunks : {} chargés, {} à générer, {} en cours | \
-                 dessinés {}/{}, {triangles:.2} M triangles",
+                 dessinés {}/{} ({} cachés), {triangles:.2} M triangles",
                 report.avg_frame_ms,
                 report.max_frame_ms,
                 report.max_streaming_ms,
@@ -1785,6 +1797,7 @@ impl VoxelGame {
                 stream.in_flight,
                 render.meshes_drawn,
                 render.meshes_total,
+                render.meshes_hidden,
             );
             let fluids = self.fluid_report;
             log::info!(
