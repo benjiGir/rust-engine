@@ -129,6 +129,11 @@ pub struct RenderStats {
     pub meshes_hidden: usize,
     /// Triangles envoyés au GPU (maillages dessinés et cubes instanciés).
     pub triangles: usize,
+    /// Temps du GPU sur la passe du décor, mesuré par le GPU (la dernière mesure
+    /// arrivée, de quelques images plus tôt). `None` si le GPU ne sait pas mesurer.
+    pub gpu_scene: Option<std::time::Duration>,
+    /// Temps passé à attendre l'image suivante de l'écran (la VSync) : pas du travail.
+    pub wait: std::time::Duration,
 }
 
 /// Identifiant d'un maillage chargé, renvoyé par [`Renderer::add_mesh`].
@@ -233,6 +238,8 @@ pub struct Renderer {
     pub frustum_culling: bool,
     /// Les seuls maillages à dessiner (`None` : tous), voir [`Renderer::set_visible_meshes`].
     visible_meshes: Option<std::collections::HashSet<MeshId>>,
+    /// Le chronomètre du GPU (`None` sans `TIMESTAMP_QUERY`).
+    gpu_timer: Option<crate::gpu_timer::GpuTimer>,
     /// `None` : pas de brouillard.
     pub fog: Option<Fog>,
     pub sun: Sun,
@@ -278,9 +285,12 @@ impl Renderer {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("device"),
+                // Les timestamps du GPU, s'il les a (voir `gpu_timer.rs`).
+                required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
                 ..Default::default()
             })
             .await?;
+        let gpu_timer = crate::gpu_timer::GpuTimer::new(&device, &queue);
 
         // On part de la configuration proposée par wgpu pour cette surface.
         let mut config = surface
@@ -289,6 +299,7 @@ impl Renderer {
         // On préfère un format sRGB : le GPU convertit alors nos couleurs linéaires
         // pour l'écran, ce qui donne des dégradés corrects.
         let caps = surface.get_capabilities(&adapter);
+        log::debug!("modes de présentation possibles : {:?}", caps.present_modes);
         if let Some(srgb) = caps.formats.iter().copied().find(|f| f.is_srgb()) {
             config.format = srgb;
         }
@@ -485,6 +496,7 @@ impl Renderer {
             next_mesh_id: 0,
             frustum_culling: true,
             visible_meshes: None,
+            gpu_timer,
             fog: None,
             sun: Sun::default(),
             time: 0.0,
@@ -571,6 +583,7 @@ impl Renderer {
             wgpu::PresentMode::AutoNoVsync
         };
         self.surface.configure(&self.device, &self.config);
+        log::debug!("présentation : {:?}", self.config.present_mode);
     }
 
     /// Les boîtes du bras et de l'objet tenu, avec la lumière à la position du joueur.
@@ -674,6 +687,7 @@ impl Renderer {
         // Avec la VSync, attendre l'image suivante se fait ici : ce temps-là n'est pas
         // du travail, mais il apparaît dans la trace.
         let acquire = engine_trace::span("attente de l'écran");
+        let acquire_start = std::time::Instant::now();
         // Un `enum` riche : chaque cas porte (ou non) une texture. `match` nous oblige
         // à traiter tous les cas, sinon le code ne compile pas.
         use wgpu::CurrentSurfaceTexture as Current;
@@ -700,6 +714,7 @@ impl Renderer {
             Current::Validation => anyhow::bail!("erreur de validation de la surface"),
         };
         drop(acquire);
+        let wait = acquire_start.elapsed();
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -709,10 +724,11 @@ impl Renderer {
         });
 
         let size = [self.config.width, self.config.height];
-        let stats = {
+        let mut stats = {
             let _span = engine_trace::span("dessin");
             self.draw_scene(&view, &ui_view, None, camera, size, ui)
         };
+        stats.wait = wait;
         let _span = engine_trace::span("présentation");
         self.queue.present(frame);
         if suboptimal {
@@ -755,8 +771,13 @@ impl Renderer {
             sun_color: self.sun.color.extend(self.time).to_array(),
         };
         let frustum = Frustum::from_view_proj(view_proj);
+        if let Some(timer) = &mut self.gpu_timer {
+            timer.collect(&self.device);
+            timer.begin_frame();
+        }
         let mut stats = RenderStats {
             meshes_total: self.meshes.len(),
+            gpu_scene: self.gpu_timer.as_ref().and_then(|t| t.last()),
             ..RenderStats::default()
         };
         self.queue
@@ -812,6 +833,7 @@ impl Renderer {
                     }),
                     stencil_ops: None,
                 }),
+                timestamp_writes: self.gpu_timer.as_ref().and_then(|t| t.pass_writes()),
                 ..Default::default()
             });
             // La caméra est partagée par les deux pipelines (même bind group).
@@ -885,6 +907,10 @@ impl Renderer {
                 .draw(&mut pass, self.outline.is_some(), self.crosshair);
         }
 
+        if let Some(timer) = &self.gpu_timer {
+            timer.resolve(&mut encoder);
+        }
+
         // Le bras, dans sa propre passe : la profondeur est effacée avant, il passe donc
         // devant tout le décor et ne traverse jamais un mur trop proche.
         if self.hand_count > 0 {
@@ -954,6 +980,9 @@ impl Renderer {
                 .submit(extra.into_iter().chain([encoder.finish()]));
         } else {
             self.queue.submit([encoder.finish()]);
+        }
+        if let Some(timer) = &mut self.gpu_timer {
+            timer.after_submit();
         }
         // Les textures qu'egui n'utilise plus : libérées après une image dessinée.
         for id in std::mem::take(&mut self.egui_free) {

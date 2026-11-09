@@ -45,6 +45,9 @@ pub struct Context {
     pub fixed_dt: f32,
     /// Texte libre ajouté au titre de la fenêtre, après les FPS (ex. « 120 chunks »).
     pub status: String,
+    /// Le temps de l'image précédente passé dans le jeu (pas fixes, update, render),
+    /// attente de l'écran comprise si le rendu l'attend.
+    pub frame_work: Duration,
     exit_requested: bool,
 }
 
@@ -155,6 +158,7 @@ impl<G: Game> App<G> {
             input: Input::default(),
             fixed_dt: timestep.step().as_secs_f32(),
             status: String::new(),
+            frame_work: Duration::ZERO,
             exit_requested: false,
         };
         let game = G::new(&mut ctx)?;
@@ -247,6 +251,7 @@ impl<G: Game> Running<G> {
 
         // Les étapes de l'image, pour `engine_trace` (traces, images lentes).
         engine_trace::begin_frame();
+        let work = Instant::now();
         {
             let _frame = engine_trace::span("image");
             for _ in 0..self.timestep.advance(frame_time) {
@@ -260,6 +265,7 @@ impl<G: Game> Running<G> {
             let _span = engine_trace::span("render");
             self.game.render(&mut self.ctx, self.timestep.alpha());
         }
+        self.ctx.frame_work = work.elapsed();
         if let Some(report) = engine_trace::end_frame() {
             log::warn!("{report}");
         }

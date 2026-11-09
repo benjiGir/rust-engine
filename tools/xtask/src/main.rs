@@ -6,7 +6,9 @@
 //!   et copie le `.wasm` à l'endroit indiqué par son `mod.ron`.
 //! - `check-arch` : vérifie les règles d'architecture (voir `check_arch.rs`).
 //! - `ctl <commande>...` : pilote le jeu lancé avec `VOXEL_CONTROL` (voir `ctl.rs`).
+//! - `bench [--runs N] [--compare ancien.csv]` : le benchmark reproductible (voir `bench.rs`).
 
+mod bench;
 mod check_arch;
 mod ctl;
 
@@ -23,8 +25,9 @@ fn main() -> Result<()> {
         "build-mods" => build_mods(),
         "check-arch" => check_arch::run(&root()),
         "ctl" => ctl::run(std::env::args().skip(2).collect()),
+        "bench" => bench::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         _ => {
-            eprintln!("usage : cargo xtask build-mods | check-arch | ctl <commande>...");
+            eprintln!("usage : cargo xtask build-mods | check-arch | ctl <commande>... | bench");
             bail!("tâche inconnue : « {task} »")
         }
     }

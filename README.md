@@ -102,7 +102,12 @@ Variables du jeu :
 - `VOXEL_CONTROL=1` (ou un numéro de port, 7878 par défaut) : le jeu écoute des commandes texte sur
   `127.0.0.1` et répond en JSON. Utile pour tester sans clavier ou écrire des scénarios :
   `cargo xtask ctl state "goto 0 80 0" "wait 2" "look 0 -60" break "screenshot shots/a.png"`.
-  `cargo xtask ctl help` liste les commandes (déplacement, regard, blocs, inventaire, heure, capture).
+  `cargo xtask ctl help` liste les commandes (déplacement, regard, blocs, inventaire, heure, capture) ;
+- `VOXEL_BENCH=fichier.csv` : le benchmark reproductible (graine fixe, 6 trajets, midi figé, sans VSync,
+  1280 × 720) ; `VOXEL_BENCH_ONLY=foret,ocean` pour quelques trajets. Plus simple :
+  `cargo xtask bench` (3 passages, médianes, résultat dans `target/bench/<commit>.csv`), puis après un
+  changement `cargo xtask bench --compare target/bench/<ancien>.csv` : seuls les écarts plus grands que
+  le bruit de mesure sont signalés. Sous macOS les FPS plafonnent au rythme de l'écran : comparer CPU et GPU.
 
 Les règles d'architecture (le moteur ne dépend pas du jeu, la simulation pas de l'affichage,
 pas de fichier de plus de 2500 lignes) : `cargo xtask check-arch`, aussi lancé par la CI.

@@ -36,6 +36,7 @@
 
 mod assets;
 mod audio;
+mod bench;
 mod components;
 mod content;
 mod control;
@@ -200,6 +201,8 @@ struct VoxelGame {
     remote: control::Remote,
     /// Le culling des grottes : quels chunks sont visibles depuis la caméra.
     culling: culling::CaveCulling,
+    /// `VOXEL_BENCH` : le benchmark reproductible (voir `bench.rs`).
+    bench: Option<bench::Bench>,
 }
 
 /// Comment lancer un monde : depuis quel dossier, avec quelle graine.
@@ -222,6 +225,7 @@ impl Launch {
             "VOXEL_AUTOFLY",
             "VOXEL_SCREENSHOTS",
             "VOXEL_STRESS",
+            "VOXEL_BENCH",
         ]
         .iter()
         .any(|v| std::env::var(v).is_ok());
@@ -549,6 +553,7 @@ impl VoxelGame {
             last_render: RenderStats::default(),
             remote: control::Remote::default(),
             culling: culling::CaveCulling::from_env(),
+            bench: bench::Bench::from_env(),
         })
     }
 
@@ -813,6 +818,10 @@ impl VoxelGame {
         }
         if let Err(err) = self.run_tour(ctx) {
             log::error!("captures : {err:#}");
+            ctx.exit();
+        }
+        if let Err(err) = self.run_bench(ctx, dt) {
+            log::error!("benchmark : {err:#}");
             ctx.exit();
         }
 
@@ -1782,7 +1791,7 @@ impl VoxelGame {
             };
             log::info!(
                 "image : moy {:.2} ms, max {:.2} ms | streaming : max {:.2} ms, envois GPU : max {:.2} ms ({} au total) | \
-                 rendu : max {:.2} ms | modifs : {} (max {:.2} ms) | chunks : {} chargés, {} à générer, {} en cours | \
+                 rendu : max {:.2} ms | modifs : {} (max {:.2} ms) | chunks : {} chargés, {} à générer, {} en cours, {} tâches jetées sur {} | \
                  dessinés {}/{} ({} cachés), {triangles:.2} M triangles",
                 report.avg_frame_ms,
                 report.max_frame_ms,
@@ -1795,6 +1804,8 @@ impl VoxelGame {
                 stream.loaded,
                 stream.queued,
                 stream.in_flight,
+                stream.jobs_discarded,
+                stream.jobs_done,
                 render.meshes_drawn,
                 render.meshes_total,
                 render.meshes_hidden,

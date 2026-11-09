@@ -120,6 +120,11 @@ pub struct StreamStats {
     pub in_flight: usize,
     /// Maillages prêts, pas encore envoyés au GPU.
     pub meshes_waiting: usize,
+    /// Tâches de fond terminées depuis le lancement.
+    pub jobs_done: u64,
+    /// Parmi elles, celles dont le résultat a été jeté (chunk déchargé entre-temps,
+    /// ou bloc modifié à côté) : du travail perdu.
+    pub jobs_discarded: u64,
 }
 
 /// Où en est un chunk.
@@ -198,6 +203,9 @@ pub struct ChunkStreamer {
     centre: Option<IVec3>,
     next_ticket: u32,
     in_flight: usize,
+    /// Compteurs de [`StreamStats::jobs_done`] et [`StreamStats::jobs_discarded`].
+    jobs_done: u64,
+    jobs_discarded: u64,
     // Chaque tâche reçoit un clone du `Sender` ; le `Receiver` reste ici.
     sender: Sender<JobResult>,
     receiver: Receiver<JobResult>,
@@ -253,6 +261,8 @@ impl ChunkStreamer {
             centre: None,
             next_ticket: 0,
             in_flight: 0,
+            jobs_done: 0,
+            jobs_discarded: 0,
             sender,
             receiver,
             events: VecDeque::new(),
@@ -756,6 +766,8 @@ impl ChunkStreamer {
                 .iter()
                 .filter(|e| matches!(e, StreamEvent::Mesh(..)))
                 .count(),
+            jobs_done: self.jobs_done,
+            jobs_discarded: self.jobs_discarded,
         }
     }
 
@@ -865,10 +877,12 @@ impl ChunkStreamer {
         // `try_recv` renvoie `Err` dès que le canal est vide : on ne bloque jamais l'image.
         while let Ok(result) = self.receiver.try_recv() {
             self.in_flight -= 1;
+            self.jobs_done += 1;
             match result {
                 JobResult::Generated { pos, chunk, saved } => {
                     // Le chunk a pu être déchargé pendant sa génération : on jette le résultat.
                     if self.slots.get(&pos) != Some(&Slot::Generating) {
+                        self.jobs_discarded += 1;
                         continue;
                     }
                     if let Some(chunk) = chunk {
@@ -890,9 +904,11 @@ impl ChunkStreamer {
                     light,
                 } => {
                     let Some(info) = self.columns.get_mut(&column) else {
+                        self.jobs_discarded += 1;
                         continue; // Colonne déchargée entre-temps.
                     };
                     if info.light != LightState::Lighting(ticket) {
+                        self.jobs_discarded += 1;
                         continue; // Résultat périmé (un bloc a changé à côté).
                     }
                     info.light = LightState::Done;
@@ -914,6 +930,8 @@ impl ChunkStreamer {
                     if self.slots.get(&pos) == Some(&Slot::Generated(MeshState::Meshing(ticket))) {
                         self.slots.insert(pos, Slot::Generated(MeshState::Done));
                         self.events.push_back(StreamEvent::Mesh(pos, mesh));
+                    } else {
+                        self.jobs_discarded += 1;
                     }
                 }
             }

@@ -9,6 +9,7 @@
 
 mod camera;
 mod frustum;
+mod gpu_timer;
 mod lines;
 mod mesh;
 mod renderer;

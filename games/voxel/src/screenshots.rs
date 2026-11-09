@@ -439,7 +439,7 @@ impl VoxelGame {
 
     /// Le centre d'une zone du biome `key` (en coordonnées de scène) : une colonne dont
     /// les voisines à 24 blocs sont du même biome, pour bien le voir.
-    fn find_biome(&self, key: &str) -> Option<(i32, i32)> {
+    pub(crate) fn find_biome(&self, key: &str) -> Option<(i32, i32)> {
         let o = self.origin();
         let streamer = self.streamer();
         let generator = streamer.generator();
