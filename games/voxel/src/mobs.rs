@@ -16,7 +16,7 @@ use serde::Deserialize;
 use crate::components::{
     Collider, Flying, Health, Hurt, Mob, MoveIntent, PreviousPosition, Transform, Velocity, Wander,
 };
-use crate::events::{self, EntityDied, EntitySpawned, PlayerDamaged, Tick};
+use crate::events::{self, EntityDied, EntitySpawned, PlayerAttacked, Tick};
 
 /// Au plus ce nombre de créatures autour du joueur.
 pub const MAX_MOBS: usize = 12;
@@ -406,19 +406,8 @@ pub fn attack(world: &mut World) {
                 return;
             }
             wander.attack_cooldown = 1.0;
-            let Some(mut health) = world.get_mut::<Health>(player) else {
-                return;
-            };
-            health.current = (health.current - def.damage).max(0.0);
-            let left = health.current;
-            drop(health);
-            events::send(
-                world,
-                PlayerDamaged {
-                    amount: def.damage,
-                    health_left: left,
-                },
-            );
+            // Le jeu applique le coup (armure, invulnérabilité) : voir `survival.rs`.
+            events::send(world, PlayerAttacked { amount: def.damage });
         });
 }
 

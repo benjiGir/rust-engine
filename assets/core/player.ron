@@ -1,12 +1,39 @@
-// Le joueur vu à la première personne : les couleurs de son bras.
+// Le joueur : les couleurs de son bras à la première personne, et les règles de la survie.
 //
+// Le bras :
 // - skin : la peau de la main et de l'avant-bras ;
 // - sleeve : la manche, côté épaule ;
 // - cuff : le liseré au bout de la manche.
+//
+// La survie (temps en secondes, dégâts en points de vie, sur 20) :
+// - invulnerable : après un coup, les suivants sont ignorés pendant ce temps ;
+// - armor_per_point, armor_max : réduction des dégâts par point de protection, et au plus
+//   (l'armure n'arrête ni une chute ni la noyade) ;
+// - safe_fall : hauteur de chute sans dégâts, puis fall_damage_per_block par bloc de plus ;
+// - air : l'air sous l'eau, air_refill : sa reprise par seconde ; sans air, drown_damage
+//   toutes les drown_interval secondes ;
+// - lava_interval : un coup de lave par intervalle (dégâts du fluide × intervalle) ;
+// - burn_time : après la lave, le joueur brûle (l'eau l'éteint), burn_damage toutes
+//   les burn_interval secondes.
 (
     arm: (
         skin: (0.86, 0.66, 0.52),
         sleeve: (0.22, 0.42, 0.62),
         cuff: (0.85, 0.85, 0.82),
+    ),
+    survival: (
+        invulnerable: 0.5,
+        armor_per_point: 0.04,
+        armor_max: 0.8,
+        safe_fall: 3.0,
+        fall_damage_per_block: 1.0,
+        air: 15.0,
+        air_refill: 5.0,
+        drown_damage: 2.0,
+        drown_interval: 1.0,
+        lava_interval: 0.5,
+        burn_time: 4.0,
+        burn_damage: 1.0,
+        burn_interval: 1.0,
     ),
 )

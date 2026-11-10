@@ -413,12 +413,50 @@ impl VoxelGame {
                     ui.painter().rect_filled(fill, 1.0, Color32::from_gray(230));
                 });
         }
+        // Un coup reçu : l'écran rougit un instant.
+        let flash = (1.0 - self.vitals.since_hit / 0.35).clamp(0.0, 1.0);
+        if flash > 0.0 {
+            ctx.layer_painter(egui::LayerId::background()).rect_filled(
+                ctx.content_rect(),
+                0.0,
+                Color32::from_rgba_unmultiplied(200, 0, 0, (flash * 70.0) as u8),
+            );
+        }
+        let air = self.vitals.air / self.survival.air.max(0.01);
+        let burning = self.vitals.burning > 0.0;
         egui::Area::new(egui::Id::unique("hud"))
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
+                    // L'air, seulement quand il manque : dix bulles bleues.
+                    if air < 1.0 {
+                        let (rect, _) = ui.allocate_exact_size(
+                            egui::vec2(10.0 * 16.0, 12.0),
+                            egui::Sense::hover(),
+                        );
+                        let full = air * 10.0;
+                        for i in 0..10 {
+                            let center = rect.min + egui::vec2(i as f32 * 16.0 + 6.5, 6.0);
+                            let fill = (full - i as f32).clamp(0.0, 1.0);
+                            ui.painter()
+                                .circle_filled(center, 5.5, Color32::from_black_alpha(140));
+                            if fill > 0.0 {
+                                ui.painter().circle_filled(
+                                    center,
+                                    4.5 * fill,
+                                    Color32::from_rgb(90, 170, 240),
+                                );
+                            }
+                        }
+                    }
                     // La vie : un carré rouge par tranche de 2 points (la police d'egui n'a
                     // pas de cœur ♥ : on dessine des formes au lieu d'écrire un symbole).
+                    // Orange quand le joueur brûle.
+                    let heart = if burning {
+                        Color32::from_rgb(240, 130, 20)
+                    } else {
+                        Color32::from_rgb(220, 40, 40)
+                    };
                     let squares = (health.max / 2.0).ceil() as usize;
                     let (rect, _) = ui.allocate_exact_size(
                         egui::vec2(squares as f32 * 16.0, 14.0),
@@ -435,8 +473,7 @@ impl VoxelGame {
                         if fill > 0.0 {
                             let mut part = cell.shrink(1.5);
                             part.set_width(part.width() * fill);
-                            ui.painter()
-                                .rect_filled(part, 1.5, Color32::from_rgb(220, 40, 40));
+                            ui.painter().rect_filled(part, 1.5, heart);
                         }
                     }
                     ui.horizontal(|ui| {

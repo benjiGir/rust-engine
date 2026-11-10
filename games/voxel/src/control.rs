@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-9 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -161,6 +161,8 @@ pub enum Command {
     Time(f32),
     /// Le culling des grottes allumé ou non.
     Culling(bool),
+    /// Un coup au joueur (armure et invulnérabilité comprises).
+    Damage(f32),
     Screenshot(PathBuf, u32, u32),
     Quit,
 }
@@ -313,6 +315,14 @@ pub fn parse(line: &str) -> Result<Command> {
         "time" => {
             count(&[1])?;
             Command::Time(number(0)?.rem_euclid(1.0))
+        }
+        "damage" => {
+            count(&[1])?;
+            let amount = number(0)?;
+            if amount <= 0.0 {
+                bail!("damage : un nombre positif");
+            }
+            Command::Damage(amount)
         }
         "culling" => {
             count(&[1])?;
@@ -574,6 +584,13 @@ impl VoxelGame {
                 self.day.time = time;
                 Ok(self.state_json())
             }
+            Command::Damage(amount) => {
+                let dealt = self.hurt_player(amount, crate::survival::DamageCause::Command);
+                Ok(format!(
+                    "{{\"ok\":true,\"dealt\":{}}}",
+                    dealt.map_or("null".into(), |d| format!("{d:.2}"))
+                ))
+            }
             Command::Culling(enabled) => {
                 self.culling.enabled = enabled;
                 Ok(ok())
@@ -666,7 +683,8 @@ impl VoxelGame {
 \"yaw\":{:.1},\"pitch\":{:.1},\"health\":[{:.1},{:.1}],\"time\":{:.3},\"clock\":{},\
 \"biome\":{},\"target\":{target},\"selected\":{selected},\"walking\":{},\
 \"chunks\":{{\"loaded\":{},\"queued\":{},\"idle\":{}}},\
-\"render\":{{\"drawn\":{},\"hidden\":{},\"total\":{},\"triangles\":{},\"cave_culling\":{}}}}}",
+\"render\":{{\"drawn\":{},\"hidden\":{},\"total\":{},\"triangles\":{},\"cave_culling\":{}}},\
+\"survival\":{{\"air\":{:.2},\"burning\":{:.2},\"protection\":{}}}}}",
             // Les mêmes mots que la commande `mode`.
             match player::mode(&self.ecs, self.player) {
                 MoveMode::Walk => "walk",
@@ -692,6 +710,9 @@ impl VoxelGame {
             self.last_render.meshes_total,
             self.last_render.triangles,
             self.culling.enabled,
+            self.vitals.air,
+            self.vitals.burning,
+            self.inventory.protection(&self.content.items),
         )
     }
 }

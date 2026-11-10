@@ -57,6 +57,7 @@ mod settings;
 mod shared;
 mod stats;
 mod stress;
+mod survival;
 mod ui;
 
 use std::cell::{Ref, RefCell, RefMut};
@@ -203,6 +204,9 @@ struct VoxelGame {
     remote: control::Remote,
     /// Le culling des grottes : quels chunks sont visibles depuis la caméra.
     culling: culling::CaveCulling,
+    /// Les règles de la survie (`player.ron`) et l'état du joueur : air, feu, chute.
+    survival: survival::SurvivalRules,
+    vitals: survival::Vitals,
     /// `VOXEL_BENCH` : le benchmark reproductible (voir `bench.rs`).
     bench: Option<bench::Bench>,
 }
@@ -502,7 +506,11 @@ impl VoxelGame {
         );
         let mut hand = hand::Hand::new(hand::ArmColors::load(&assets));
         hand.visible &= settings.show_arm && !launch.title;
+        let survival = survival::SurvivalRules::load(&assets);
+        let vitals = survival::Vitals::new(&survival);
         Ok(Self {
+            survival,
+            vitals,
             renderer,
             camera,
             mouse_captured: false,
@@ -611,7 +619,7 @@ impl VoxelGame {
             stress.record(machine_tick.map(|t| t.duration), start.elapsed());
         }
         self.step_fluids();
-        self.fluid_damage(ctx.fixed_dt);
+        self.update_vitals(ctx.fixed_dt);
         self.footsteps(ctx.fixed_dt);
         self.respawn_if_dead();
     }
@@ -625,30 +633,6 @@ impl VoxelGame {
         self.fluid_steps = 0;
         let report = self.fluids.step(&mut self.world.borrow_mut(), FLUID_BUDGET);
         self.fluid_report = report;
-    }
-
-    /// La lave brûle : des dégâts par seconde tant qu'on y est.
-    fn fluid_damage(&mut self, dt: f32) {
-        let body = player::body(&self.ecs, self.player);
-        let damage = {
-            let streamer = self.streamer();
-            (0..2)
-                .map(|dy| {
-                    streamer.world().block(
-                        (body.position + Vec3::Y * (0.2 + dy as f32))
-                            .floor()
-                            .as_ivec3(),
-                    )
-                })
-                .filter_map(|block| self.fluids.kind_of(block))
-                .map(|kind| kind.damage)
-                .fold(0.0, f32::max)
-        };
-        if damage > 0.0
-            && let Some(mut health) = self.ecs.get_mut::<Health>(self.player)
-        {
-            health.current = (health.current - damage * dt).max(0.0);
-        }
     }
 
     fn window_event(&mut self, ctx: &mut Context, event: &WindowEvent) -> bool {
@@ -1596,6 +1580,7 @@ impl VoxelGame {
         if let Some(mut health) = self.ecs.get_mut::<Health>(self.player) {
             health.current = health.max;
         }
+        self.vitals.reset(&self.survival);
         log::info!("le joueur est mort : retour au point de départ");
     }
 
@@ -1980,6 +1965,7 @@ struct EventReaders {
     placed: EventReader,
     died: EventReader,
     damaged: EventReader,
+    attacked: EventReader,
 }
 
 impl EventReaders {
@@ -1989,6 +1975,7 @@ impl EventReaders {
             placed: ecs.resource::<Events<BlockPlaced>>().reader(),
             died: ecs.resource::<Events<EntityDied>>().reader(),
             damaged: ecs.resource::<Events<PlayerDamaged>>().reader(),
+            attacked: ecs.resource::<Events<events::PlayerAttacked>>().reader(),
         }
     }
 }

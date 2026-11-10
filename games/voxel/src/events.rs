@@ -33,6 +33,14 @@ pub struct EntityDied {
     pub position: glam::Vec3,
 }
 
+/// Une créature frappe le joueur : le jeu en fait un coup (armure, invulnérabilité),
+/// puis un [`PlayerDamaged`] s'il porte.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlayerAttacked {
+    pub amount: f32,
+}
+
+/// Le joueur a perdu de la vie (après l'armure).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerDamaged {
     pub amount: f32,
@@ -49,6 +57,7 @@ pub fn register(world: &mut World) {
     world.insert_resource(Events::<BlockPlaced>::default());
     world.insert_resource(Events::<EntitySpawned>::default());
     world.insert_resource(Events::<EntityDied>::default());
+    world.insert_resource(Events::<PlayerAttacked>::default());
     world.insert_resource(Events::<PlayerDamaged>::default());
     world.insert_resource(Events::<Tick>::default());
 }
@@ -59,6 +68,7 @@ pub fn update(world: &World) {
     world.resource_mut::<Events<BlockPlaced>>().update();
     world.resource_mut::<Events<EntitySpawned>>().update();
     world.resource_mut::<Events<EntityDied>>().update();
+    world.resource_mut::<Events<PlayerAttacked>>().update();
     world.resource_mut::<Events<PlayerDamaged>>().update();
     world.resource_mut::<Events<Tick>>().update();
 }
