@@ -65,6 +65,11 @@ pub struct PlayerSave {
     pub mode: String,
     /// Identifiant texte du bloc choisi dans la barre.
     pub selected_block: Option<String>,
+    /// La faim et sa saturation (absentes des mondes d'avant la phase O4).
+    #[serde(default)]
+    pub food: Option<f32>,
+    #[serde(default)]
+    pub saturation: Option<f32>,
 }
 
 /// Le contenu de `world.ron`.
@@ -962,6 +967,8 @@ pub(crate) mod tests {
                 pitch: -0.2,
                 mode: "walk".into(),
                 selected_block: Some("core:stone".into()),
+                food: Some(14.5),
+                saturation: Some(3.0),
             }),
             mods: vec!["core".into(), "example".into()],
             inventory: vec![Some(("core:stone".into(), 12)), None],

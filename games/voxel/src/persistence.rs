@@ -86,6 +86,8 @@ impl VoxelGame {
                     MoveMode::Fly => "fly".into(),
                 },
                 selected_block: selected,
+                food: Some(self.hunger.food),
+                saturation: Some(self.hunger.saturation),
             }),
             mods: loaded_mods(&self.registry),
             inventory: Vec::new(),

@@ -77,6 +77,14 @@ pub struct ArmorDef {
     pub protection: u32,
 }
 
+/// Ce qu'apporte un aliment (phase O4) : des points de faim, et de la saturation (une
+/// réserve qui s'épuise avant la faim).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct FoodDef {
+    pub nutrition: f32,
+    pub saturation: f32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 pub enum Category {
     Block,
@@ -106,6 +114,8 @@ pub struct ItemDef {
     pub block: Option<BlockId>,
     pub tool: Option<ToolDef>,
     pub armor: Option<ArmorDef>,
+    /// Un aliment : ce qu'il nourrit.
+    pub food: Option<FoodDef>,
     /// Sa couleur, pour l'objet posé au sol.
     pub color: [f32; 3],
     pub icon: Icon,
@@ -127,6 +137,8 @@ struct ItemEntry {
     tool: Option<ToolDef>,
     #[serde(default)]
     armor: Option<ArmorDef>,
+    #[serde(default)]
+    food: Option<FoodDef>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -204,6 +216,7 @@ impl ItemRegistry {
                 block: Some(id),
                 tool: None,
                 armor: None,
+                food: None,
                 color: def.color,
                 icon: Icon::Block(id),
             };
@@ -249,6 +262,7 @@ impl ItemRegistry {
                 block: None,
                 tool: e.tool,
                 armor: e.armor,
+                food: e.food,
                 color: [r, g, b],
                 icon: Icon::Texture(qualify(&e.icon, namespace)),
                 key: e.id,

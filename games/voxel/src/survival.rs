@@ -17,7 +17,7 @@ use glam::Vec3;
 use serde::Deserialize;
 
 use crate::components::{Collider, Health};
-use crate::events::{self, PlayerAttacked, PlayerDamaged};
+use crate::events::{self, EntityDied, PlayerAttacked, PlayerDamaged};
 use crate::player::{self, MoveMode};
 
 /// La hauteur d'une cellule de fluide pleine, en bloc (la même qu'au maillage).
@@ -74,22 +74,189 @@ impl Default for SurvivalRules {
     }
 }
 
+/// Les réglages de la faim, lus dans `player.ron` (section `hunger`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct HungerRules {
+    /// La jauge de faim pleine, et la saturation d'un nouveau joueur.
+    pub max_food: f32,
+    pub start_saturation: f32,
+    /// La fatigue accumulée retire 1 point (de saturation d'abord, puis de faim) à
+    /// chaque fois qu'elle atteint ce seuil.
+    pub exhaustion_per_point: f32,
+    /// La fatigue de chaque effort.
+    pub sprint_per_block: f32,
+    pub jump: f32,
+    pub mine: f32,
+    pub attack: f32,
+    pub hurt: f32,
+    /// Bien nourri (au moins `heal_food`), le joueur regagne 1 point de vie toutes les
+    /// `heal_interval` secondes, au prix de `heal_exhaustion` de fatigue.
+    pub heal_food: f32,
+    pub heal_interval: f32,
+    pub heal_exhaustion: f32,
+    /// Affamé (0), il perd `starve_damage` toutes les `starve_interval` secondes.
+    pub starve_damage: f32,
+    pub starve_interval: f32,
+    /// En dessous, plus de course.
+    pub sprint_min_food: f32,
+    /// Secondes pour manger, bouton tenu.
+    pub eat_time: f32,
+}
+
+impl Default for HungerRules {
+    fn default() -> Self {
+        Self {
+            max_food: 20.0,
+            start_saturation: 5.0,
+            exhaustion_per_point: 4.0,
+            sprint_per_block: 0.1,
+            jump: 0.05,
+            mine: 0.005,
+            attack: 0.1,
+            hurt: 0.1,
+            heal_food: 18.0,
+            heal_interval: 4.0,
+            heal_exhaustion: 6.0,
+            starve_damage: 1.0,
+            starve_interval: 4.0,
+            sprint_min_food: 6.0,
+            eat_time: 1.6,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct PlayerFile {
     #[serde(default)]
     survival: SurvivalRules,
+    #[serde(default)]
+    hunger: HungerRules,
 }
 
-impl SurvivalRules {
-    pub fn load(assets: &Path) -> Self {
-        let path = assets.join("core").join("player.ron");
-        std::fs::read_to_string(&path)
-            .map_err(anyhow::Error::from)
-            .and_then(|text| Ok(ron::from_str::<PlayerFile>(&text)?.survival))
-            .unwrap_or_else(|err| {
-                log::warn!("{} : {err:#} (survie par défaut)", path.display());
-                Self::default()
-            })
+/// Lit `player.ron` (les réglages par défaut s'il manque ou est invalide).
+pub fn load_rules(assets: &Path) -> (SurvivalRules, HungerRules) {
+    let path = assets.join("core").join("player.ron");
+    std::fs::read_to_string(&path)
+        .map_err(anyhow::Error::from)
+        .and_then(|text| Ok(ron::from_str::<PlayerFile>(&text)?))
+        .map(|file| (file.survival, file.hunger))
+        .unwrap_or_else(|err| {
+            log::warn!("{} : {err:#} (survie par défaut)", path.display());
+            (SurvivalRules::default(), HungerRules::default())
+        })
+}
+
+/// La faim du joueur.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hunger {
+    /// De 0 à `max_food`.
+    pub food: f32,
+    /// Une réserve, jamais plus haute que `food`, qui s'épuise d'abord.
+    pub saturation: f32,
+    /// La fatigue accumulée, de 0 à `exhaustion_per_point`.
+    pub exhaustion: f32,
+    heal_timer: f32,
+    starve_timer: f32,
+    /// Depuis combien de temps il mange (bouton tenu), s'il mange.
+    pub chewing: Option<f32>,
+}
+
+/// Ce que la faim fait à la vie pendant un pas.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct HungerEffect {
+    /// Points de vie regagnés.
+    pub heal: f32,
+    /// Points de vie perdus (affamé).
+    pub starve: f32,
+}
+
+impl Hunger {
+    pub fn new(rules: &HungerRules) -> Self {
+        Self {
+            food: rules.max_food,
+            saturation: rules.start_saturation.min(rules.max_food),
+            exhaustion: 0.0,
+            heal_timer: 0.0,
+            starve_timer: 0.0,
+            chewing: None,
+        }
+    }
+
+    /// Le bouton tenu (`holding`) avec un aliment en main : renvoie `true` quand
+    /// l'aliment est mangé. Lâcher le bouton, ou être rassasié, interrompt le repas.
+    pub fn chew(&mut self, rules: &HungerRules, holding: bool, dt: f32) -> bool {
+        if !holding || !self.hungry(rules) {
+            self.chewing = None;
+            return false;
+        }
+        let time = self.chewing.get_or_insert(0.0);
+        *time += dt;
+        if *time >= rules.eat_time {
+            self.chewing = None;
+            return true;
+        }
+        false
+    }
+
+    /// Un effort : la fatigue monte, et chaque seuil atteint retire un point.
+    pub fn exert(&mut self, rules: &HungerRules, amount: f32) {
+        self.exhaustion += amount.max(0.0);
+        while self.exhaustion >= rules.exhaustion_per_point {
+            self.exhaustion -= rules.exhaustion_per_point;
+            if self.saturation > 0.0 {
+                self.saturation = (self.saturation - 1.0).max(0.0);
+            } else {
+                self.food = (self.food - 1.0).max(0.0);
+            }
+        }
+    }
+
+    /// Un pas : régénération si bien nourri et blessé, dégâts si affamé.
+    pub fn step(
+        &mut self,
+        rules: &HungerRules,
+        health: f32,
+        max_health: f32,
+        dt: f32,
+    ) -> HungerEffect {
+        let mut effect = HungerEffect::default();
+        if self.food >= rules.heal_food && health < max_health {
+            self.heal_timer += dt;
+            if self.heal_timer >= rules.heal_interval {
+                self.heal_timer -= rules.heal_interval;
+                effect.heal = 1.0;
+                self.exert(rules, rules.heal_exhaustion);
+            }
+        } else {
+            self.heal_timer = 0.0;
+        }
+        if self.food <= 0.0 {
+            self.starve_timer += dt;
+            if self.starve_timer >= rules.starve_interval {
+                self.starve_timer -= rules.starve_interval;
+                effect.starve = rules.starve_damage;
+            }
+        } else {
+            self.starve_timer = 0.0;
+        }
+        effect
+    }
+
+    /// Mange un aliment : la faim et la saturation montent (la saturation jamais
+    /// au-dessus de la faim).
+    pub fn eat(&mut self, rules: &HungerRules, nutrition: f32, saturation: f32) {
+        self.food = (self.food + nutrition).min(rules.max_food);
+        self.saturation = (self.saturation + saturation).min(self.food);
+    }
+
+    /// Peut-il manger ? (pas quand il est rassasié)
+    pub fn hungry(&self, rules: &HungerRules) -> bool {
+        self.food < rules.max_food
+    }
+
+    pub fn can_sprint(&self, rules: &HungerRules) -> bool {
+        self.food > rules.sprint_min_food
     }
 }
 
@@ -103,12 +270,14 @@ pub enum DamageCause {
     Burning,
     /// Une commande (`ctl damage`), pour les tests.
     Command,
+    /// La faim.
+    Starvation,
 }
 
 impl DamageCause {
     /// L'armure n'arrête ni une chute ni la noyade.
     pub fn ignores_armor(self) -> bool {
-        matches!(self, Self::Fall | Self::Drowning)
+        matches!(self, Self::Fall | Self::Drowning | Self::Starvation)
     }
 
     pub fn name(self) -> &'static str {
@@ -119,6 +288,7 @@ impl DamageCause {
             Self::Lava => "lave",
             Self::Burning => "feu",
             Self::Command => "commande",
+            Self::Starvation => "faim",
         }
     }
 }
@@ -346,6 +516,121 @@ impl crate::VoxelGame {
         }
     }
 
+    /// La faim d'un pas : régénération si bien nourri, dégâts si affamé.
+    pub(crate) fn update_hunger(&mut self, dt: f32) {
+        let health = player::health(&self.ecs, self.player);
+        let effect = self
+            .hunger
+            .step(&self.hunger_rules, health.current, health.max, dt);
+        if effect.heal > 0.0
+            && let Some(mut health) = self.ecs.get_mut::<Health>(self.player)
+        {
+            health.current = (health.current + effect.heal).min(health.max);
+        }
+        if effect.starve > 0.0 {
+            self.hurt_player(effect.starve, DamageCause::Starvation);
+        }
+    }
+
+    /// Un effort (courir, sauter, miner, frapper) : la faim s'en ressent.
+    pub(crate) fn exert(&mut self, amount: f32) {
+        self.hunger.exert(&self.hunger_rules, amount);
+    }
+
+    /// La fatigue des déplacements d'un pas : la course au sol, et chaque saut.
+    pub(crate) fn exert_movement(&mut self, walk: Vec3, jump: bool, sprinting: bool, dt: f32) {
+        if player::mode(&self.ecs, self.player) == MoveMode::Fly {
+            return;
+        }
+        let on_ground = self
+            .ecs
+            .get::<Collider>(self.player)
+            .is_some_and(|c| c.on_ground);
+        if !on_ground {
+            return;
+        }
+        let rules = &self.hunger_rules;
+        let mut effort = 0.0;
+        if sprinting {
+            effort += rules.sprint_per_block * walk.length() * dt;
+        }
+        if jump {
+            effort += rules.jump;
+        }
+        self.exert(effort);
+    }
+
+    /// Peut-il courir ? (pas affamé)
+    pub(crate) fn can_sprint(&self) -> bool {
+        self.hunger.can_sprint(&self.hunger_rules)
+    }
+
+    /// Manger : le bouton droit tenu avec un aliment en main. Renvoie l'avancement
+    /// (0 à 1) pour la barre, ou `None`.
+    pub(crate) fn update_eating(&mut self, holding: bool, dt: f32) -> Option<f32> {
+        let food = self
+            .inventory
+            .selected_item()
+            .and_then(|item| self.content.items.get(item).food);
+        let Some(food) = food else {
+            self.hunger.chewing = None;
+            return None;
+        };
+        if self.hunger.chew(&self.hunger_rules, holding, dt) {
+            self.inventory.consume_selected();
+            self.hunger
+                .eat(&self.hunger_rules, food.nutrition, food.saturation);
+            if let Some(audio) = &mut self.audio {
+                audio.play("core:place_soft");
+            }
+            log::debug!(
+                "miam : faim {:.1}, saturation {:.1}",
+                self.hunger.food,
+                self.hunger.saturation
+            );
+        }
+        self.hunger
+            .chewing
+            .map(|t| (t / self.hunger_rules.eat_time).clamp(0.0, 1.0))
+    }
+
+    /// Le butin des créatures mortes, tombé là où elles sont mortes.
+    pub(crate) fn drop_mob_loot(&mut self) {
+        let died: Vec<(String, Vec3)> = self
+            .readers
+            .loot
+            .read(&self.ecs.resource::<Events<EntityDied>>())
+            .map(|e| (e.kind.clone(), e.position))
+            .collect();
+        for (kind, position) in died {
+            let drops = self
+                .ecs
+                .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+                .by_key(&kind)
+                .map(|def| def.drops.clone())
+                .unwrap_or_default();
+            for drop in drops {
+                let mut rng = engine_voxel::Rng64::new(self.next_random());
+                if rng.next_f32() >= drop.chance {
+                    continue;
+                }
+                let Some(item) = self.content.items.id(&drop.item) else {
+                    log::warn!("butin de {kind} : objet « {} » inconnu", drop.item);
+                    continue;
+                };
+                let (min, max) = drop.count;
+                let span = max.saturating_sub(min) + 1;
+                let count = min + (rng.next_u64() % u64::from(span)) as u32;
+                if count > 0 {
+                    self.drop_stack(
+                        position.floor().as_ivec3(),
+                        crate::inventory::ItemStack::new(item, count),
+                    );
+                }
+            }
+        }
+    }
+
     /// Un coup au joueur : invulnérabilité, armure, puis la vie et l'événement
     /// [`PlayerDamaged`] (le son, les mods). Renvoie les dégâts vraiment subis.
     pub(crate) fn hurt_player(&mut self, amount: f32, cause: DamageCause) -> Option<f32> {
@@ -359,6 +644,7 @@ impl crate::VoxelGame {
             health.current
         };
         log::debug!("{} : -{damage:.1} ({left:.1} restants)", cause.name());
+        self.exert(self.hunger_rules.hurt);
         events::send(
             &self.ecs,
             PlayerDamaged {
@@ -509,6 +795,72 @@ mod tests {
     }
 
     #[test]
+    fn exhaustion_eats_saturation_then_food() {
+        let rules = HungerRules::default();
+        let mut h = Hunger::new(&rules);
+        assert_eq!((h.food, h.saturation), (20.0, 5.0));
+        // 40 blocs de course : 4 de fatigue, un point de saturation.
+        h.exert(&rules, 40.0 * rules.sprint_per_block);
+        assert_eq!((h.food, h.saturation), (20.0, 4.0));
+        // 5 points de plus : la saturation (4) s'épuise, puis la faim perd 1.
+        h.exert(&rules, 5.0 * rules.exhaustion_per_point);
+        assert_eq!((h.food, h.saturation), (19.0, 0.0));
+    }
+
+    #[test]
+    fn well_fed_heals_and_starving_hurts() {
+        let rules = HungerRules::default();
+        let mut h = Hunger::new(&rules);
+        let mut healed = 0.0;
+        for _ in 0..(8.5 / (1.0 / 60.0)) as usize {
+            healed += h.step(&rules, 10.0, 20.0, 1.0 / 60.0).heal;
+        }
+        assert_eq!(healed, 2.0, "un point toutes les 4 s");
+        assert!(h.saturation < 5.0, "la régénération fatigue");
+        // Pleine vie : pas de régénération.
+        assert_eq!(h.step(&rules, 20.0, 20.0, 5.0).heal, 0.0);
+        // Affamé : un coup toutes les 4 s.
+        h.food = 0.0;
+        h.saturation = 0.0;
+        let mut starve = 0.0;
+        for _ in 0..(8.5 / (1.0 / 60.0)) as usize {
+            starve += h.step(&rules, 10.0, 20.0, 1.0 / 60.0).starve;
+        }
+        assert_eq!(starve, 2.0);
+        assert!(!h.can_sprint(&rules));
+    }
+
+    #[test]
+    fn eating_fills_food_then_saturation_capped_by_food() {
+        let rules = HungerRules::default();
+        let mut h = Hunger::new(&rules);
+        h.food = 5.0;
+        h.saturation = 0.0;
+        assert!(h.hungry(&rules));
+        h.eat(&rules, 8.0, 12.8);
+        assert_eq!(h.food, 13.0);
+        assert_eq!(h.saturation, 12.8);
+        h.eat(&rules, 8.0, 12.8);
+        assert_eq!(h.food, 20.0);
+        assert_eq!(h.saturation, 20.0, "jamais plus que la faim");
+        assert!(!h.hungry(&rules));
+    }
+
+    #[test]
+    fn eating_takes_time_and_stops_when_released() {
+        let rules = HungerRules::default();
+        let mut h = Hunger::new(&rules);
+        h.food = 10.0;
+        assert!(!h.chew(&rules, true, 1.0));
+        assert!(!h.chew(&rules, false, 0.1), "lâché : on recommence");
+        assert_eq!(h.chewing, None);
+        assert!(!h.chew(&rules, true, 1.0));
+        assert!(h.chew(&rules, true, 0.7), "1,6 s tenu");
+        h.food = rules.max_food;
+        assert!(!h.chew(&rules, true, 2.0), "rassasié : on ne mange pas");
+    }
+
+    #[test]
     fn rules_are_read_from_player_ron() {
         let text = std::fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/core/player.ron"),
@@ -516,5 +868,6 @@ mod tests {
         .unwrap();
         let file: PlayerFile = ron::from_str(&text).unwrap();
         assert!(file.survival.air > 0.0);
+        assert!(file.hunger.max_food > 0.0);
     }
 }

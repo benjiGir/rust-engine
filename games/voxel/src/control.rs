@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-9 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -163,6 +163,14 @@ pub enum Command {
     Culling(bool),
     /// Un coup au joueur (armure et invulnérabilité comprises).
     Damage(f32),
+    /// Manger tout de suite l'aliment tenu.
+    Eat,
+    /// Les créatures proches : type, position, vie.
+    Mobs,
+    /// Frapper la créature visée (comme un clic gauche).
+    Attack,
+    /// Régler la faim (de 0 à 20), pour les tests.
+    Hunger(f32),
     Screenshot(PathBuf, u32, u32),
     Quit,
 }
@@ -316,6 +324,13 @@ pub fn parse(line: &str) -> Result<Command> {
             count(&[1])?;
             Command::Time(number(0)?.rem_euclid(1.0))
         }
+        "eat" => Command::Eat,
+        "mobs" => Command::Mobs,
+        "attack" => Command::Attack,
+        "hunger" => {
+            count(&[1])?;
+            Command::Hunger(number(0)?)
+        }
         "damage" => {
             count(&[1])?;
             let amount = number(0)?;
@@ -371,11 +386,13 @@ pub struct Remote {
 impl VoxelGame {
     /// L'intention de marche commandée pour ce pas de simulation, s'il y en a une.
     pub(crate) fn remote_intent(&mut self, dt: f32) -> Option<(Vec3, bool)> {
+        let can_sprint = self.can_sprint();
         let walk = self.remote.walk.as_mut()?;
         let forward = self.camera.forward_flat();
         let right = forward.cross(Vec3::Y);
         let direction = (forward * walk.forward + right * walk.right).normalize_or_zero();
-        let speed = if walk.sprint {
+        // Comme au clavier : affamé, on ne court plus.
+        let speed = if walk.sprint && can_sprint {
             SPRINT_SPEED
         } else {
             WALK_SPEED
@@ -591,6 +608,78 @@ impl VoxelGame {
                     dealt.map_or("null".into(), |d| format!("{d:.2}"))
                 ))
             }
+            Command::Mobs => {
+                let registry = self
+                    .ecs
+                    .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+                    .clone();
+                let mut mobs: Vec<(f32, String)> = Vec::new();
+                let eye = player::eye(&self.ecs, self.player, 1.0);
+                self.ecs
+                    .query::<(&crate::components::Transform, &crate::components::Health, &crate::components::Mob)>()
+                    .for_each(|_, (transform, health, mob)| {
+                        let key = registry.get(mob.kind).map_or("?", |d| d.key.as_str());
+                        let distance = transform.position.distance(eye);
+                        mobs.push((
+                            distance,
+                            format!(
+                                "{{\"kind\":{},\"pos\":{},\"health\":{:.1},\"distance\":{distance:.1}}}",
+                                json_str(key),
+                                vec3(transform.position),
+                                health.current
+                            ),
+                        ));
+                    });
+                mobs.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let list: Vec<String> = mobs.into_iter().take(20).map(|(_, m)| m).collect();
+                Ok(format!("{{\"ok\":true,\"mobs\":[{}]}}", list.join(",")))
+            }
+            Command::Attack => {
+                let eye = player::eye(&self.ecs, self.player, 1.0);
+                let forward = self.camera.forward();
+                let (mob, _) = crate::mobs::hit_mob(&self.ecs, eye, forward, crate::REACH)
+                    .context("attack : aucune créature visée à portée")?;
+                let damage = self.player_hit_damage();
+                crate::mobs::damage_mob(&mut self.ecs, mob, damage, forward);
+                self.exert(self.hunger_rules.attack);
+                Ok(format!("{{\"ok\":true,\"damage\":{damage:.1}}}"))
+            }
+            Command::Eat => {
+                // L'aliment en main, sinon le premier de l'inventaire.
+                let items = &self.content.items;
+                let is_food = |slot: &Option<crate::inventory::ItemStack>| {
+                    slot.is_some_and(|s| items.get(s.item).food.is_some())
+                };
+                let index = if is_food(&self.inventory.slots[self.inventory.selected]) {
+                    self.inventory.selected
+                } else {
+                    self.inventory
+                        .slots
+                        .iter()
+                        .position(is_food)
+                        .context("eat : aucun aliment dans l'inventaire")?
+                };
+                if !self.hunger.hungry(&self.hunger_rules) {
+                    bail!("eat : rassasié");
+                }
+                let slot = &mut self.inventory.slots[index];
+                let Some(stack) = slot.as_mut() else {
+                    bail!("eat : case vide");
+                };
+                let food = items.get(stack.item).food.context("eat : pas un aliment")?;
+                stack.count -= 1;
+                if stack.count == 0 {
+                    *slot = None;
+                }
+                self.hunger
+                    .eat(&self.hunger_rules, food.nutrition, food.saturation);
+                Ok(self.state_json())
+            }
+            Command::Hunger(food) => {
+                self.hunger.food = food.clamp(0.0, self.hunger_rules.max_food);
+                self.hunger.saturation = self.hunger.saturation.min(self.hunger.food);
+                Ok(self.state_json())
+            }
             Command::Culling(enabled) => {
                 self.culling.enabled = enabled;
                 Ok(ok())
@@ -684,7 +773,8 @@ impl VoxelGame {
 \"biome\":{},\"target\":{target},\"selected\":{selected},\"walking\":{},\
 \"chunks\":{{\"loaded\":{},\"queued\":{},\"idle\":{}}},\
 \"render\":{{\"drawn\":{},\"hidden\":{},\"total\":{},\"triangles\":{},\"cave_culling\":{}}},\
-\"survival\":{{\"air\":{:.2},\"burning\":{:.2},\"protection\":{}}}}}",
+\"survival\":{{\"air\":{:.2},\"burning\":{:.2},\"protection\":{},\
+\"food\":{:.2},\"saturation\":{:.2},\"exhaustion\":{:.3}}}}}",
             // Les mêmes mots que la commande `mode`.
             match player::mode(&self.ecs, self.player) {
                 MoveMode::Walk => "walk",
@@ -713,6 +803,9 @@ impl VoxelGame {
             self.vitals.air,
             self.vitals.burning,
             self.inventory.protection(&self.content.items),
+            self.hunger.food,
+            self.hunger.saturation,
+            self.hunger.exhaustion,
         )
     }
 }

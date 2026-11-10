@@ -966,6 +966,77 @@ fn bucket(content: Option<[f32; 3]>) -> Image {
     )
 }
 
+/// Une côtelette : la viande, un bord de gras et l'os. Crue (rose) ou grillée (brune).
+fn pork(cooked: bool) -> Image {
+    let mask = [
+        "................",
+        "................",
+        "................",
+        ".....MMMMM......",
+        "...MMMMMMMMM....",
+        "..MMMmMMMMMMF...",
+        "..MMMMMMmMMMF...",
+        ".MMMMMMMMMMMF...",
+        ".MMmMMMMMMMF....",
+        ".MMMMMMMMMFB....",
+        "..MMMMMMMF..BB..",
+        "...FFFFFF....BBb",
+        ".............bb.",
+        "................",
+        "................",
+        "................",
+    ];
+    let (meat, fat) = if cooked {
+        ([0.55, 0.32, 0.16], [0.82, 0.62, 0.38])
+    } else {
+        ([0.9, 0.5, 0.5], [0.98, 0.88, 0.85])
+    };
+    let bone = [0.94, 0.92, 0.85];
+    icon(
+        &mask,
+        &[
+            ('M', meat),
+            ('m', scale(meat, 0.78)),
+            ('F', fat),
+            ('B', bone),
+            ('b', scale(bone, 0.8)),
+        ],
+    )
+}
+
+/// Une pomme rouge, sa queue et une feuille.
+fn apple() -> Image {
+    let mask = [
+        "................",
+        "........s.......",
+        "........sLL.....",
+        ".......s.LL.....",
+        "....RRRsRRR.....",
+        "...RRRRRRRRR....",
+        "..RRRRRRRRRRR...",
+        "..RrRRRRRRRRR...",
+        "..RrRRRRRRRRR...",
+        "..RRRRRRRRRRR...",
+        "..RRRRRRRRRRd...",
+        "...RRRRRRRRd....",
+        "....RRRdRRd.....",
+        ".....dd.dd......",
+        "................",
+        "................",
+    ];
+    let red = [0.82, 0.12, 0.1];
+    icon(
+        &mask,
+        &[
+            ('R', red),
+            ('r', [0.98, 0.55, 0.5]),
+            ('d', scale(red, 0.65)),
+            ('s', [0.4, 0.28, 0.15]),
+            ('L', [0.3, 0.62, 0.2]),
+        ],
+    )
+}
+
 /// Les pièces d'armure.
 fn armor(piece: &str, color: [f32; 3]) -> Image {
     let mask: [&str; 16] = match piece {
@@ -1385,5 +1456,8 @@ fn item_icons(dir: &Path) -> Vec<(PathBuf, Image)> {
     add("bucket", bucket(None));
     add("water_bucket", bucket(Some([0.25, 0.45, 0.95])));
     add("lava_bucket", bucket(Some([1.0, 0.5, 0.1])));
+    add("raw_pork", pork(false));
+    add("cooked_pork", pork(true));
+    add("apple", apple());
     out
 }

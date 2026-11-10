@@ -207,6 +207,11 @@ struct VoxelGame {
     /// Les règles de la survie (`player.ron`) et l'état du joueur : air, feu, chute.
     survival: survival::SurvivalRules,
     vitals: survival::Vitals,
+    /// La faim : ses règles et son état.
+    hunger_rules: survival::HungerRules,
+    hunger: survival::Hunger,
+    /// L'avancement du repas en cours (0 à 1), pour la barre.
+    eat_progress: Option<f32>,
     /// `VOXEL_BENCH` : le benchmark reproductible (voir `bench.rs`).
     bench: Option<bench::Bench>,
 }
@@ -506,11 +511,19 @@ impl VoxelGame {
         );
         let mut hand = hand::Hand::new(hand::ArmColors::load(&assets));
         hand.visible &= settings.show_arm && !launch.title;
-        let survival = survival::SurvivalRules::load(&assets);
+        let (survival, hunger_rules) = survival::load_rules(&assets);
         let vitals = survival::Vitals::new(&survival);
+        let mut hunger = survival::Hunger::new(&hunger_rules);
+        if let Some(saved) = meta.as_ref().and_then(|m| m.player.as_ref()) {
+            hunger.food = saved.food.unwrap_or(hunger.food);
+            hunger.saturation = saved.saturation.unwrap_or(hunger.saturation);
+        }
         Ok(Self {
             survival,
             vitals,
+            hunger_rules,
+            hunger,
+            eat_progress: None,
             renderer,
             camera,
             mouse_captured: false,
@@ -593,7 +606,8 @@ impl VoxelGame {
             Some(_) => Demo::walk(&self.ecs, self.player, &self.camera),
             None if busy => (Vec3::ZERO, false),
             None => {
-                let speed = if input.key_held(keys.key(Action::Sprint)) {
+                // Affamé, on ne court plus.
+                let speed = if input.key_held(keys.key(Action::Sprint)) && self.can_sprint() {
                     SPRINT_SPEED
                 } else {
                     WALK_SPEED
@@ -604,6 +618,8 @@ impl VoxelGame {
             }
         };
         player::set_intent(&self.ecs, self.player, walk, jump);
+        let sprinting = walk.length() > WALK_SPEED + 0.01;
+        self.exert_movement(walk, jump, sprinting, ctx.fixed_dt);
         self.schedule.run(Stage::FixedUpdate, &mut self.ecs);
         // Les machines : un tick tous les 3 pas (20 par seconde).
         let eye = player::eye(&self.ecs, self.player, 1.0);
@@ -620,6 +636,8 @@ impl VoxelGame {
         }
         self.step_fluids();
         self.update_vitals(ctx.fixed_dt);
+        self.update_hunger(ctx.fixed_dt);
+        self.drop_mob_loot();
         self.footsteps(ctx.fixed_dt);
         self.respawn_if_dead();
     }
@@ -762,11 +780,9 @@ impl VoxelGame {
                     block_distance,
                 ) {
                     Some((mob, _)) => {
-                        // Les dégâts de l'arme ou de l'outil en main, sinon un coup de poing.
-                        let damage = self
-                            .held_tool()
-                            .map_or(PUNCH_DAMAGE, |t| t.damage.max(PUNCH_DAMAGE));
+                        let damage = self.player_hit_damage();
                         mobs::damage_mob(&mut self.ecs, mob, damage, self.camera.forward());
+                        self.exert(self.hunger_rules.attack);
                         self.hand.punch();
                         if self.held_tool().is_some() {
                             self.inventory.wear_selected(&self.content.items);
@@ -782,6 +798,9 @@ impl VoxelGame {
                 self.place_at_target();
             }
         }
+        // Manger : le bouton droit tenu avec un aliment en main.
+        let eating = self.mouse_captured && !click_used && ctx.input.mouse_held(MouseButton::Right);
+        self.eat_progress = self.update_eating(eating, dt);
         if interactive {
             self.animate_hand(ctx, dt);
         }
@@ -1269,6 +1288,12 @@ impl VoxelGame {
         }
     }
 
+    /// Les dégâts d'un coup du joueur : l'arme ou l'outil en main, sinon un coup de poing.
+    fn player_hit_damage(&self) -> f32 {
+        self.held_tool()
+            .map_or(PUNCH_DAMAGE, |t| t.damage.max(PUNCH_DAMAGE))
+    }
+
     /// L'outil tenu en main.
     fn held_tool(&self) -> Option<engine_voxel::ToolDef> {
         self.inventory
@@ -1302,6 +1327,7 @@ impl VoxelGame {
                 audio.play("core:break_glass");
             }
         }
+        self.exert(self.hunger_rules.mine);
         true
     }
 
@@ -1966,6 +1992,8 @@ struct EventReaders {
     died: EventReader,
     damaged: EventReader,
     attacked: EventReader,
+    /// Les morts de créatures, pour leur butin (`died` sert aux sons).
+    loot: EventReader,
 }
 
 impl EventReaders {
@@ -1976,6 +2004,7 @@ impl EventReaders {
             died: ecs.resource::<Events<EntityDied>>().reader(),
             damaged: ecs.resource::<Events<PlayerDamaged>>().reader(),
             attacked: ecs.resource::<Events<events::PlayerAttacked>>().reader(),
+            loot: ecs.resource::<Events<EntityDied>>().reader(),
         }
     }
 }

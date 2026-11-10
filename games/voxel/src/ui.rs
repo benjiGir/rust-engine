@@ -400,7 +400,8 @@ impl VoxelGame {
     /// La barre d'objets en bas de l'écran, la vie au-dessus, et l'avancement du minage.
     fn draw_hud(&mut self, ctx: &egui::Context) {
         let health = player::health(&self.ecs, self.player);
-        if let Some((_, progress)) = self.mining {
+        // La barre sous le réticule : le minage, ou le repas en cours.
+        if let Some(progress) = self.mining.map(|(_, p)| p).or(self.eat_progress) {
             egui::Area::new(egui::Id::unique("mining"))
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 26.0))
                 .show(ctx, |ui| {
@@ -457,23 +458,38 @@ impl VoxelGame {
                     } else {
                         Color32::from_rgb(220, 40, 40)
                     };
+                    // À droite, la faim : même dessin, en brun doré.
                     let squares = (health.max / 2.0).ceil() as usize;
+                    let food_squares = (self.hunger_rules.max_food / 2.0).ceil() as usize;
+                    let gap = 24.0;
                     let (rect, _) = ui.allocate_exact_size(
-                        egui::vec2(squares as f32 * 16.0, 14.0),
+                        egui::vec2((squares + food_squares) as f32 * 16.0 + gap, 14.0),
                         egui::Sense::hover(),
                     );
-                    for i in 0..squares {
-                        let fill = ((health.current - i as f32 * 2.0) / 2.0).clamp(0.0, 1.0);
-                        let cell = egui::Rect::from_min_size(
-                            rect.min + egui::vec2(i as f32 * 16.0, 0.0),
-                            egui::vec2(13.0, 13.0),
-                        );
-                        ui.painter()
-                            .rect_filled(cell, 2.0, Color32::from_black_alpha(160));
-                        if fill > 0.0 {
-                            let mut part = cell.shrink(1.5);
-                            part.set_width(part.width() * fill);
-                            ui.painter().rect_filled(part, 1.5, heart);
+                    let food = Color32::from_rgb(205, 135, 55);
+                    let rows = [
+                        (0.0, squares, health.current, heart),
+                        (
+                            squares as f32 * 16.0 + gap,
+                            food_squares,
+                            self.hunger.food,
+                            food,
+                        ),
+                    ];
+                    for (x, count, value, color) in rows {
+                        for i in 0..count {
+                            let fill = ((value - i as f32 * 2.0) / 2.0).clamp(0.0, 1.0);
+                            let cell = egui::Rect::from_min_size(
+                                rect.min + egui::vec2(x + i as f32 * 16.0, 0.0),
+                                egui::vec2(13.0, 13.0),
+                            );
+                            ui.painter()
+                                .rect_filled(cell, 2.0, Color32::from_black_alpha(160));
+                            if fill > 0.0 {
+                                let mut part = cell.shrink(1.5);
+                                part.set_width(part.width() * fill);
+                                ui.painter().rect_filled(part, 1.5, color);
+                            }
                         }
                     }
                     ui.horizontal(|ui| {

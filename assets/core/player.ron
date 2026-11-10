@@ -15,6 +15,13 @@
 // - lava_interval : un coup de lave par intervalle (dégâts du fluide × intervalle) ;
 // - burn_time : après la lave, le joueur brûle (l'eau l'éteint), burn_damage toutes
 //   les burn_interval secondes.
+//
+// La faim (sur max_food ; la saturation est une réserve qui s'épuise d'abord) :
+// - la fatigue de chaque effort (sprint_per_block, jump, mine, attack, hurt) s'accumule ;
+//   chaque exhaustion_per_point retire un point de saturation, puis de faim ;
+// - à heal_food ou plus, 1 point de vie revient toutes les heal_interval secondes (au prix
+//   de heal_exhaustion de fatigue) ; à 0, starve_damage toutes les starve_interval secondes ;
+// - plus de course sous sprint_min_food ; manger prend eat_time secondes, bouton tenu.
 (
     arm: (
         skin: (0.86, 0.66, 0.52),
@@ -35,5 +42,22 @@
         burn_time: 4.0,
         burn_damage: 1.0,
         burn_interval: 1.0,
+    ),
+    hunger: (
+        max_food: 20.0,
+        start_saturation: 5.0,
+        exhaustion_per_point: 4.0,
+        sprint_per_block: 0.1,
+        jump: 0.05,
+        mine: 0.005,
+        attack: 0.1,
+        hurt: 0.1,
+        heal_food: 18.0,
+        heal_interval: 4.0,
+        heal_exhaustion: 6.0,
+        starve_damage: 1.0,
+        starve_interval: 4.0,
+        sprint_min_food: 6.0,
+        eat_time: 1.6,
     ),
 )

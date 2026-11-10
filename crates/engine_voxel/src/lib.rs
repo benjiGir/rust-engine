@@ -57,7 +57,7 @@ pub use generator::{
 };
 pub use grid::{BlockAccess, GridId, GridPos, Grids};
 pub use items::{
-    ArmorDef, ArmorSlot, Category, Icon, ItemDef, ItemId, ItemRegistry, ToolDef, ToolKind,
+    ArmorDef, ArmorSlot, Category, FoodDef, Icon, ItemDef, ItemId, ItemRegistry, ToolDef, ToolKind,
     break_time, can_harvest,
 };
 pub use light::{ColumnLight, LightRegion, MAX_LIGHT, apply_column_light, update_light};

@@ -53,6 +53,22 @@ struct MobFileEntry {
     hops: bool,
     spawn_on: Vec<String>,
     parts: Vec<MobPart>,
+    #[serde(default)]
+    drops: Vec<MobDrop>,
+}
+
+/// Ce que lâche une créature à sa mort : un objet, un nombre (min, max), une chance.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MobDrop {
+    pub item: String,
+    pub count: (u32, u32),
+    #[serde(default = "always")]
+    pub chance: f32,
+}
+
+fn always() -> f32 {
+    1.0
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +84,8 @@ pub struct MobDef {
     pub hops: bool,
     pub spawn_on: Vec<BlockId>,
     pub parts: Vec<MobPart>,
+    /// Son butin (les objets sont vérifiés à la mort : ils peuvent venir d'un mod).
+    pub drops: Vec<MobDrop>,
 }
 
 /// Toutes les créatures connues. Leur numéro (`Mob::kind`) est leur place dans la liste.
@@ -142,9 +160,14 @@ impl MobRegistry {
                 hops: entry.hops,
                 spawn_on,
                 parts: entry.parts,
+                drops: entry.drops,
             });
         }
         Ok(())
+    }
+
+    pub fn by_key(&self, key: &str) -> Option<&MobDef> {
+        self.defs.iter().find(|d| d.key == key)
     }
 
     pub fn get(&self, kind: u32) -> Option<&MobDef> {
