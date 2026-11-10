@@ -27,6 +27,7 @@ mod items;
 mod light;
 mod machines;
 mod mesh;
+mod pathfind;
 mod physics;
 mod plants;
 mod raycast;
@@ -69,6 +70,7 @@ pub use mesh::{
     ChunkMesh, FLAG_CUTOUT, FLAG_FILLED, FLAG_SWAY, MeshVertex, Mesher, Neighbourhood,
     TEXTURE_MASK, mesh_culled, mesh_greedy,
 };
+pub use pathfind::{Path, PathRules, find_path};
 pub use physics::{PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
 pub use raycast::{RayHit, ray_aabb, raycast};
 pub use registry::{BlockDef, BlockRegistry, BlockSounds, CORE_NAMESPACE, Shape, Support, Tint};

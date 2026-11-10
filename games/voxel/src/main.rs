@@ -51,6 +51,7 @@ mod inventory;
 mod menus;
 mod mobs;
 mod modding;
+mod navigation;
 mod persistence;
 mod player;
 mod screenshots;
@@ -458,6 +459,16 @@ impl VoxelGame {
         events::register(&mut ecs);
         ecs.insert_resource(shared::SharedStreamer(world.clone()));
         ecs.insert_resource(Arc::new(mob_registry));
+        // Les blocs où les créatures ne vont jamais : les fluides qui blessent (la lave).
+        ecs.insert_resource(Arc::new(navigation::DangerBlocks(
+            (0..registry.len())
+                .map(|i| {
+                    fluids
+                        .kind_of(BlockId(i as u16))
+                        .is_some_and(|kind| kind.damage > 0.0)
+                })
+                .collect(),
+        )));
         ecs.insert_resource(mobs::FixedDt(ctx.fixed_dt));
         ecs.insert_resource(mobs::GameRng(0x2545_F491_4F6C_DD1D ^ seed as u64));
         ecs.insert_resource(mobs::SimClock::default());

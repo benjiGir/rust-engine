@@ -83,6 +83,8 @@ pub struct Wander {
     pub timer: f32,
     /// Temps avant de pouvoir blesser à nouveau (créatures hostiles).
     pub attack_cooldown: f32,
+    /// Après un coup, un animal fuit pendant ce temps.
+    pub panic: f32,
 }
 
 /// Clignote en rouge quelques instants après un coup.

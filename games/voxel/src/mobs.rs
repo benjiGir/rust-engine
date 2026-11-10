@@ -17,6 +17,7 @@ use crate::components::{
     Collider, Flying, Health, Hurt, Mob, MoveIntent, PreviousPosition, Transform, Velocity, Wander,
 };
 use crate::events::{self, EntityDied, EntitySpawned, PlayerAttacked, Tick};
+use crate::navigation::{DangerBlocks, PathFollow, SEARCHES_PER_STEP, cell_of};
 
 /// Au plus ce nombre de créatures autour du joueur.
 /// Distance d'apparition (entre les deux) et de disparition, en blocs.
@@ -319,6 +320,8 @@ pub fn spawn_mob(world: &mut World, kind: u32, position: Vec3) -> Option<Entity>
         Mob { kind },
         Wander::default(),
     ));
+    // À part : un « bundle » prend au plus 8 composants.
+    world.insert(entity, PathFollow::default());
     events::send(
         world,
         EntitySpawned {
@@ -329,15 +332,19 @@ pub fn spawn_mob(world: &mut World, kind: u32, position: Vec3) -> Option<Entity>
     Some(entity)
 }
 
-/// L'IA : errer, sauter les obstacles, poursuivre le joueur si hostile.
+/// L'IA : chacune choisit un but (poursuivre le joueur, fuir après un coup, errer vers
+/// un point proche, ou rester là), puis suit un chemin vers lui (`navigation.rs`).
 pub fn wander(world: &mut World) {
     let dt = world.resource::<FixedDt>().0;
     let player = world.resource::<PlayerEntity>().0;
     let target = world.get::<Transform>(player).map(|t| t.position);
     let registry = world.resource::<Arc<MobRegistry>>().clone();
+    let danger = world.resource::<Arc<DangerBlocks>>().clone();
     let shared = world.streamer();
     let streamer = shared.borrow();
     let mut rng = world.resource_mut::<GameRng>();
+    // Au plus tant de recherches de chemin à ce pas, pour toutes les créatures.
+    let mut searches = SEARCHES_PER_STEP;
     world
         .query::<(
             &mut Transform,
@@ -345,59 +352,100 @@ pub fn wander(world: &mut World) {
             &mut MoveIntent,
             &Mob,
             &Collider,
+            &mut PathFollow,
         )>()
-        .for_each(|entity, (transform, wander, intent, mob, collider)| {
-            let Some(def) = registry.get(mob.kind) else {
-                return;
-            };
-            // Loin du joueur : elle ne pense pas (zone de simulation).
-            if target.is_some_and(|t| {
-                crate::spawning::horizontal_distance(t, transform.position)
-                    > crate::spawning::SIM_DISTANCE
-            }) {
-                intent.walk = Vec3::ZERO;
-                intent.jump = false;
-                return;
-            }
-            wander.timer -= dt;
-            wander.attack_cooldown = (wander.attack_cooldown - dt).max(0.0);
-            let chasing = def.hostile
-                && target.is_some_and(|t| t.distance(transform.position) < CHASE_DISTANCE);
-            if chasing {
-                let to = target.unwrap_or_default() - transform.position;
-                wander.direction = Vec3::new(to.x, 0.0, to.z).normalize_or_zero();
-            } else if wander.timer <= 0.0 {
-                // Une nouvelle idée : une direction au hasard, ou rester sur place.
-                wander.timer = 2.0 + rng.next_f32() * 3.0;
-                wander.direction = if rng.next_f32() < 0.3 {
-                    Vec3::ZERO
-                } else {
-                    let angle = rng.next_f32() * std::f32::consts::TAU;
-                    Vec3::new(angle.cos(), 0.0, angle.sin())
+        .for_each(
+            |entity, (transform, wander, intent, mob, collider, follow)| {
+                let Some(def) = registry.get(mob.kind) else {
+                    return;
                 };
-            }
-            // Un coup reçu : la créature s'arrête un instant.
-            let stunned = world.get::<Hurt>(entity).is_some_and(|h| h.timer > 0.2);
-            let direction = if stunned {
-                Vec3::ZERO
-            } else {
-                wander.direction
-            };
-            intent.walk = direction * def.speed;
-            if direction != Vec3::ZERO {
-                // Se tourner doucement vers sa direction.
-                let wanted = direction.z.atan2(direction.x);
-                let delta = (wanted - transform.yaw + std::f32::consts::PI)
-                    .rem_euclid(std::f32::consts::TAU)
-                    - std::f32::consts::PI;
-                transform.yaw += delta * (dt * 8.0).min(1.0);
-            }
-            // Sauter : par bonds (slime), ou devant un obstacle d'un bloc.
-            let ahead =
-                transform.position + direction * (collider.width * 0.5 + 0.4) + Vec3::Y * 0.5;
-            let blocked = streamer.world().is_solid(ahead.floor().as_ivec3());
-            intent.jump = direction != Vec3::ZERO && (def.hops || blocked);
-        });
+                let position = transform.position;
+                // Loin du joueur : elle ne pense pas (zone de simulation).
+                if target.is_some_and(|t| {
+                    crate::spawning::horizontal_distance(t, position)
+                        > crate::spawning::SIM_DISTANCE
+                }) {
+                    intent.walk = Vec3::ZERO;
+                    intent.jump = false;
+                    return;
+                }
+                wander.timer -= dt;
+                wander.panic = (wander.panic - dt).max(0.0);
+                wander.attack_cooldown = (wander.attack_cooldown - dt).max(0.0);
+                let chasing =
+                    def.hostile && target.is_some_and(|t| t.distance(position) < CHASE_DISTANCE);
+
+                // Le but.
+                let goal = if chasing {
+                    target.map(cell_of)
+                } else if wander.panic > 0.0
+                    && let Some(from) = target
+                {
+                    // Fuir : à l'opposé du joueur, à 8 blocs.
+                    let away = Vec3::new(position.x - from.x, 0.0, position.z - from.z)
+                        .normalize_or_zero();
+                    Some(cell_of(position + away * 8.0))
+                } else {
+                    if wander.timer <= 0.0 {
+                        // Une nouvelle idée : un point proche, ou rester sur place.
+                        wander.timer = 3.0 + rng.next_f32() * 4.0;
+                        follow.wander_goal = if rng.next_f32() < 0.3 {
+                            None
+                        } else {
+                            let angle = rng.next_f32() * std::f32::consts::TAU;
+                            let distance = 3.0 + rng.next_f32() * 5.0;
+                            Some(cell_of(
+                                position + Vec3::new(angle.cos(), 0.0, angle.sin()) * distance,
+                            ))
+                        };
+                    }
+                    follow.wander_goal
+                };
+                match goal {
+                    Some(goal) if searches > 0 && follow.wants(goal, position) => {
+                        let _span = engine_trace::span("créatures : chemin");
+                        follow.plan(streamer.world(), &danger, position, collider.height, goal);
+                        searches -= 1;
+                    }
+                    Some(_) => {}
+                    None => follow.clear(),
+                }
+
+                // Marcher : le long du chemin ; tout près du joueur, droit sur lui.
+                let close = target.filter(|t| chasing && t.distance(position) < 2.0);
+                let (mut direction, path_jump) = match (follow.steer(position, dt), close) {
+                    (_, Some(t)) => (
+                        Vec3::new(t.x - position.x, 0.0, t.z - position.z).normalize_or_zero(),
+                        false,
+                    ),
+                    (Some(step), None) => step,
+                    (None, None) => (Vec3::ZERO, false),
+                };
+                // Un coup reçu : elle s'arrête un instant (le recul).
+                if world.get::<Hurt>(entity).is_some_and(|h| h.timer > 0.2) {
+                    direction = Vec3::ZERO;
+                }
+                let speed = if wander.panic > 0.0 {
+                    def.speed * 1.5
+                } else {
+                    def.speed
+                };
+                intent.walk = direction * speed;
+                wander.direction = direction;
+                if direction != Vec3::ZERO {
+                    // Se tourner doucement vers sa direction.
+                    let wanted = direction.z.atan2(direction.x);
+                    let delta = (wanted - transform.yaw + std::f32::consts::PI)
+                        .rem_euclid(std::f32::consts::TAU)
+                        - std::f32::consts::PI;
+                    transform.yaw += delta * (dt * 8.0).min(1.0);
+                }
+                // Sauter : par bonds (slime), vers une case plus haute, ou devant un obstacle.
+                let ahead = position + direction * (collider.width * 0.5 + 0.4) + Vec3::Y * 0.5;
+                let blocked = streamer.world().is_solid(ahead.floor().as_ivec3());
+                intent.jump = direction != Vec3::ZERO && (def.hops || path_jump || blocked);
+            },
+        );
 }
 
 /// Les créatures hostiles blessent le joueur au contact.
@@ -505,6 +553,19 @@ pub fn damage_mob(world: &mut World, entity: Entity, amount: f32, from: Vec3) {
         velocity.0 = push + Vec3::Y * 5.0;
     }
     world.insert(entity, Hurt { timer: 0.4 });
+    // Un animal fuit ; une créature hostile, elle, ne recule pas.
+    let hostile = world
+        .get::<Mob>(entity)
+        .and_then(|m| {
+            world
+                .resource::<Arc<MobRegistry>>()
+                .get(m.kind)
+                .map(|d| d.hostile)
+        })
+        .unwrap_or(true);
+    if !hostile && let Some(mut wander) = world.get_mut::<Wander>(entity) {
+        wander.panic = 4.0;
+    }
 }
 
 /// Les boîtes à dessiner pour toutes les créatures, interpolées entre deux pas.
@@ -643,6 +704,7 @@ mod tests {
         world.insert_resource(GameRng(7));
         world.insert_resource(SimClock::default());
         world.insert_resource(crate::spawning::Sky::default());
+        world.insert_resource(Arc::new(DangerBlocks::default()));
         events::register(&mut world);
         let player = world.spawn((Transform::default(), Flying));
         world.insert_resource(PlayerEntity(player));
@@ -776,6 +838,48 @@ mod tests {
             "le slime s'est dissous"
         );
         assert!(world.get::<Transform>(animal).is_some(), "le cochon reste");
+    }
+
+    /// Un slime, de l'autre côté d'un mur trop haut pour sauter : il en fait le tour
+    /// pour atteindre le joueur (en ligne droite, il resterait collé au mur).
+    #[test]
+    fn hostile_mobs_walk_around_walls_to_reach_the_player() {
+        let mut world = sim();
+        let stone = blocks().id("core:stone").unwrap();
+        {
+            let shared = world.streamer();
+            let mut streamer = shared.borrow_mut();
+            // Une plateforme dans le ciel, et un mur de 3 blocs au milieu (z de -3 à 3).
+            for x in -8..9 {
+                for z in -8..9 {
+                    streamer.set_block_raw(IVec3::new(x, 150, z), stone);
+                }
+            }
+            for z in -3..4 {
+                for y in 151..154 {
+                    streamer.set_block_raw(IVec3::new(0, y, z), stone);
+                }
+            }
+        }
+        let player = world.resource::<PlayerEntity>().0;
+        world.get_mut::<Transform>(player).unwrap().position = Vec3::new(4.5, 151.0, 0.5);
+        let slime = world
+            .resource::<Arc<MobRegistry>>()
+            .id("example:slime")
+            .unwrap();
+        let mob = spawn_mob(&mut world, slime, Vec3::new(-3.5, 151.0, 0.5)).unwrap();
+        let mut planned = false;
+        for _ in 0..(20 * 60) {
+            wander(&mut world);
+            physics(&mut world);
+            planned |= !world.get::<PathFollow>(mob).unwrap().remaining().is_empty();
+            let at = world.get::<Transform>(mob).unwrap().position;
+            if at.distance(Vec3::new(4.5, 151.0, 0.5)) < 2.0 {
+                return;
+            }
+        }
+        let at = world.get::<Transform>(mob).unwrap().position;
+        panic!("pas arrivé (chemin trouvé : {planned}), il est en {at}");
     }
 
     #[test]
