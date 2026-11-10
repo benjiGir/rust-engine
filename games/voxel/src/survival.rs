@@ -20,6 +20,9 @@ use crate::components::{Collider, Health};
 use crate::events::{self, EntityDied, PlayerAttacked, PlayerDamaged};
 use crate::player::{self, MoveMode};
 
+/// Une créature morte plus loin ne rapporte pas d'expérience.
+const XP_RADIUS: f32 = 16.0;
+
 /// La hauteur d'une cellule de fluide pleine, en bloc (la même qu'au maillage).
 const FLUID_SURFACE: f32 = 0.875;
 /// À la surface de l'eau, la bouche est un peu sous les yeux : l'œil doit être au moins
@@ -145,6 +148,47 @@ pub fn load_rules(assets: &Path) -> (SurvivalRules, HungerRules) {
             log::warn!("{} : {err:#} (survie par défaut)", path.display());
             (SurvivalRules::default(), HungerRules::default())
         })
+}
+
+/// L'expérience du joueur : des points, qui font des niveaux de plus en plus chers
+/// (7 points pour le niveau 1, puis 2 de plus à chaque niveau). Elle servira à
+/// l'enchantement (phase O10) ; elle est perdue à la mort.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Experience {
+    /// Le total des points gagnés.
+    pub points: u32,
+}
+
+impl Experience {
+    /// Les points qu'il faut pour passer du niveau `level` au suivant.
+    pub fn cost(level: u32) -> u32 {
+        7 + 2 * level
+    }
+
+    /// Le niveau atteint, et les points déjà gagnés vers le suivant.
+    pub fn level(self) -> (u32, u32) {
+        let mut level = 0;
+        let mut left = self.points;
+        while left >= Self::cost(level) {
+            left -= Self::cost(level);
+            level += 1;
+        }
+        (level, left)
+    }
+
+    /// L'avancement vers le niveau suivant, de 0 à 1 (la barre du HUD).
+    pub fn progress(self) -> f32 {
+        let (level, into) = self.level();
+        into as f32 / Self::cost(level) as f32
+    }
+
+    /// Ajoute des points ; renvoie le nouveau niveau s'il a changé.
+    pub fn add(&mut self, points: u32) -> Option<u32> {
+        let before = self.level().0;
+        self.points = self.points.saturating_add(points);
+        let after = self.level().0;
+        (after > before).then_some(after)
+    }
 }
 
 /// La faim du joueur.
@@ -614,13 +658,19 @@ impl crate::VoxelGame {
             .read(&self.ecs.resource::<Events<EntityDied>>())
             .map(|e| (e.kind.clone(), e.position))
             .collect();
+        let player_at = player::body(&self.ecs, self.player).position;
         for (kind, position) in died {
-            let drops = self
+            let (drops, xp) = self
                 .ecs
                 .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                 .by_key(&kind)
-                .map(|def| def.drops.clone())
+                .map(|def| (def.drops.clone(), def.xp))
                 .unwrap_or_default();
+            // L'expérience, si le joueur était là (pas pour une créature morte au loin).
+            if position.distance(player_at) <= XP_RADIUS {
+                let points = self.roll_range(xp);
+                self.grant_xp(points);
+            }
             for drop in drops {
                 let mut rng = engine_voxel::Rng64::new(self.next_random());
                 if rng.next_f32() >= drop.chance {
@@ -639,6 +689,28 @@ impl crate::VoxelGame {
                         crate::inventory::ItemStack::new(item, count),
                     );
                 }
+            }
+        }
+    }
+
+    /// Un nombre au hasard entre min et max (inclus).
+    pub(crate) fn roll_range(&mut self, (min, max): (u32, u32)) -> u32 {
+        if max <= min {
+            return min;
+        }
+        let mut rng = engine_voxel::Rng64::new(self.next_random());
+        min + (rng.next_u64() % u64::from(max - min + 1)) as u32
+    }
+
+    /// Gagne de l'expérience ; un message et un son à chaque niveau.
+    pub(crate) fn grant_xp(&mut self, points: u32) {
+        if points == 0 {
+            return;
+        }
+        if let Some(level) = self.experience.add(points) {
+            self.toast(&format!("Niveau {level}"));
+            if let Some(audio) = &mut self.audio {
+                audio.play("core:break_glass");
             }
         }
     }
@@ -870,6 +942,20 @@ mod tests {
         assert!(h.chew(&rules, true, 0.7), "1,6 s tenu");
         h.food = rules.max_food;
         assert!(!h.chew(&rules, true, 2.0), "rassasié : on ne mange pas");
+    }
+
+    #[test]
+    fn levels_cost_more_and_more() {
+        assert_eq!(Experience { points: 0 }.level(), (0, 0));
+        assert_eq!(Experience { points: 6 }.level(), (0, 6));
+        assert_eq!(Experience { points: 7 }.level(), (1, 0));
+        // 7 + 9 + 11 = 27 points pour le niveau 3.
+        assert_eq!(Experience { points: 27 }.level(), (3, 0));
+        assert_eq!(Experience { points: 30 }.level(), (3, 3));
+        assert!((Experience { points: 30 }.progress() - 3.0 / 13.0).abs() < 1e-6);
+        let mut xp = Experience::default();
+        assert_eq!(xp.add(5), None);
+        assert_eq!(xp.add(25), Some(3), "plusieurs niveaux d'un coup");
     }
 
     #[test]

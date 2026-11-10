@@ -496,6 +496,40 @@ impl VoxelGame {
                             }
                         }
                     }
+                    // L'expérience : une barre verte, le niveau par-dessus.
+                    let (level, _) = self.experience.level();
+                    let (bar, _) =
+                        ui.allocate_exact_size(egui::vec2(rect.width(), 7.0), egui::Sense::hover());
+                    ui.painter()
+                        .rect_filled(bar, 2.0, Color32::from_black_alpha(160));
+                    let mut fill = bar.shrink(1.0);
+                    fill.set_width(fill.width() * self.experience.progress());
+                    ui.painter()
+                        .rect_filled(fill, 1.5, Color32::from_rgb(120, 220, 60));
+                    if level > 0 {
+                        // Dans l'espace entre la vie et la faim, juste au-dessus de la barre.
+                        // Un contour sombre (le texte décalé dans 4 directions), puis le
+                        // chiffre : lisible sur le décor.
+                        let at = egui::pos2(bar.center().x, rect.center().y);
+                        let font = egui::FontId::proportional(14.0);
+                        let text = level.to_string();
+                        for offset in [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)] {
+                            ui.painter().text(
+                                at + egui::vec2(offset.0, offset.1),
+                                egui::Align2::CENTER_CENTER,
+                                &text,
+                                font.clone(),
+                                Color32::BLACK,
+                            );
+                        }
+                        ui.painter().text(
+                            at,
+                            egui::Align2::CENTER_CENTER,
+                            text,
+                            font,
+                            Color32::from_rgb(170, 255, 90),
+                        );
+                    }
                     ui.horizontal(|ui| {
                         for i in 0..HOTBAR {
                             let selected = i == self.inventory.selected;

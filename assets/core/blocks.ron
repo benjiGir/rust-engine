@@ -27,6 +27,7 @@
 // - tool : l'outil qui va le plus vite (Pickaxe, Axe, Shovel, Hoe, Sword, Shears) ;
 // - tier (0) : le niveau d'outil minimal pour que le bloc lâche quelque chose
 //   (1 bois, 2 pierre ou cuivre, 3 fer, 4 saphir) ;
+// - xp ((0, 0)) : l'expérience gagnée en le cassant avec le bon outil (min, max) ;
 // - support : Floor (un bloc plein dessous), Any (un bloc plein à côté), Water (de l'eau
 //   dessous) : sans support, le bloc tombe et lâche son objet ;
 // - gravity (false) : tombe s'il n'y a rien dessous (sable, gravier).
@@ -159,47 +160,47 @@
     (
         id: "core:coal_ore", name: "Minerai de charbon", color: (0.3, 0.3, 0.3), texture: "coal_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
-        hardness: 3.0, tool: Pickaxe, tier: 1,
+        hardness: 3.0, tool: Pickaxe, tier: 1, xp: (0, 2),
     ),
     (
         id: "core:iron_ore", name: "Minerai de fer", color: (0.65, 0.55, 0.48), texture: "iron_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
-        hardness: 3.0, tool: Pickaxe, tier: 2,
+        hardness: 3.0, tool: Pickaxe, tier: 2, xp: (1, 2),
     ),
     (
         id: "core:copper_ore", name: "Minerai de cuivre", color: (0.7, 0.45, 0.3), texture: "copper_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
-        hardness: 3.0, tool: Pickaxe, tier: 2,
+        hardness: 3.0, tool: Pickaxe, tier: 2, xp: (0, 1),
     ),
     (
         id: "core:gold_ore", name: "Minerai d'or", color: (0.85, 0.75, 0.3), texture: "gold_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
-        hardness: 3.0, tool: Pickaxe, tier: 3,
+        hardness: 3.0, tool: Pickaxe, tier: 3, xp: (1, 3),
     ),
     // Un minerai rouge (cinabre) : il donnera la poudre des circuits.
     (
         id: "core:cinnabar_ore", name: "Minerai de cinabre", color: (0.7, 0.2, 0.2), texture: "cinnabar_ore",
         light_emission: 3,
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
-        hardness: 3.0, tool: Pickaxe, tier: 3,
+        hardness: 3.0, tool: Pickaxe, tier: 3, xp: (1, 3),
     ),
     // Un minerai vert, pour les enchantements à venir.
     (
         id: "core:malachite_ore", name: "Minerai de malachite", color: (0.3, 0.6, 0.45), texture: "malachite_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
-        hardness: 3.0, tool: Pickaxe, tier: 2,
+        hardness: 3.0, tool: Pickaxe, tier: 2, xp: (2, 5),
     ),
     // La gemme bleue, rare et profonde.
     (
         id: "core:sapphire_ore", name: "Minerai de saphir", color: (0.3, 0.45, 0.85), texture: "sapphire_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
-        hardness: 3.0, tool: Pickaxe, tier: 3,
+        hardness: 3.0, tool: Pickaxe, tier: 3, xp: (3, 7),
     ),
     // Un minerai rare des montagnes.
     (
         id: "core:jade_ore", name: "Minerai de jade", color: (0.35, 0.75, 0.55), texture: "jade_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
-        hardness: 3.0, tool: Pickaxe, tier: 3,
+        hardness: 3.0, tool: Pickaxe, tier: 3, xp: (3, 7),
     ),
     // ----- La végétation (phase O2) -----
     (

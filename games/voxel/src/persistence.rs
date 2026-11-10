@@ -89,6 +89,7 @@ impl VoxelGame {
                 food: Some(self.hunger.food),
                 saturation: Some(self.hunger.saturation),
                 spawn_point: self.bed.map(|b| b.to_array()),
+                xp: Some(self.experience.points),
             }),
             mods: loaded_mods(&self.registry),
             inventory: Vec::new(),

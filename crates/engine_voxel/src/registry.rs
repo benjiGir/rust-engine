@@ -89,6 +89,8 @@ pub struct BlockDef {
     pub support: Support,
     /// Tombe s'il n'a rien dessous.
     pub gravity: bool,
+    /// L'expérience gagnée en le cassant (min, max), s'il lâche son butin : les minerais.
+    pub xp: (u32, u32),
     /// D'où vient la définition, pour les messages d'erreur.
     pub source: String,
 }
@@ -214,6 +216,8 @@ struct BlockFileEntry {
     support: Support,
     #[serde(default)]
     gravity: bool,
+    #[serde(default)]
+    xp: (u32, u32),
 }
 
 fn one() -> f32 {
@@ -265,6 +269,7 @@ impl BlockRegistry {
             tier: 0,
             support: Support::None,
             gravity: false,
+            xp: (0, 0),
             source: "intégré".into(),
         };
         Self {
@@ -441,6 +446,7 @@ impl BlockRegistry {
                 tier: entry.tier,
                 support: entry.support,
                 gravity: entry.gravity,
+                xp: entry.xp,
                 source: origin.to_string(),
             });
         }

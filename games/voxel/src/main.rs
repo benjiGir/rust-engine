@@ -215,6 +215,8 @@ struct VoxelGame {
     eat_progress: Option<f32>,
     /// Le lit où réapparaître, s'il y en a un.
     bed: Option<IVec3>,
+    /// L'expérience gagnée.
+    experience: survival::Experience,
     /// `VOXEL_BENCH` : le benchmark reproductible (voir `bench.rs`).
     bench: Option<bench::Bench>,
 }
@@ -520,7 +522,9 @@ impl VoxelGame {
         let vitals = survival::Vitals::new(&survival);
         let mut hunger = survival::Hunger::new(&hunger_rules);
         let mut bed = None;
+        let mut experience = survival::Experience::default();
         if let Some(saved) = meta.as_ref().and_then(|m| m.player.as_ref()) {
+            experience.points = saved.xp.unwrap_or(0);
             hunger.food = saved.food.unwrap_or(hunger.food);
             hunger.saturation = saved.saturation.unwrap_or(hunger.saturation);
             bed = saved.spawn_point.map(IVec3::from);
@@ -532,6 +536,7 @@ impl VoxelGame {
             hunger,
             eat_progress: None,
             bed,
+            experience,
             renderer,
             camera,
             mouse_captured: false,
@@ -1335,6 +1340,11 @@ impl VoxelGame {
         }
         let harvest = engine_voxel::can_harvest(&def, tool.as_ref());
         self.drop_loot(pos, block, tool.map(|t| t.kind), harvest);
+        // Un minerai cassé avec le bon outil : de l'expérience.
+        if harvest {
+            let points = self.roll_range(def.xp);
+            self.grant_xp(points);
+        }
         for stack in contents {
             self.drop_stack(pos, stack);
         }

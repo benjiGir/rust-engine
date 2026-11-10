@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-9 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | respawn | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | respawn | xp n | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -173,6 +173,8 @@ pub enum Command {
     Use,
     /// Réapparaître, depuis l'écran de mort.
     Respawn,
+    /// Gagner des points d'expérience.
+    Xp(u32),
     /// Régler la faim (de 0 à 20), pour les tests.
     Hunger(f32),
     Screenshot(PathBuf, u32, u32),
@@ -333,6 +335,10 @@ pub fn parse(line: &str) -> Result<Command> {
         "attack" => Command::Attack,
         "use" => Command::Use,
         "respawn" => Command::Respawn,
+        "xp" => {
+            count(&[1])?;
+            Command::Xp(number(0)?.max(0.0) as u32)
+        }
         "hunger" => {
             count(&[1])?;
             Command::Hunger(number(0)?)
@@ -654,6 +660,10 @@ impl VoxelGame {
                 let pos = self.place_at_target().context("use : rien à faire ici")?;
                 Ok(format!("{{\"ok\":true,\"placed\":{}}}", ivec3(pos)))
             }
+            Command::Xp(points) => {
+                self.grant_xp(points);
+                Ok(self.state_json())
+            }
             Command::Respawn => {
                 if !matches!(self.mode, Mode::Dead(_)) {
                     bail!("respawn : le joueur n'est pas mort");
@@ -802,7 +812,7 @@ impl VoxelGame {
 \"chunks\":{{\"loaded\":{},\"queued\":{},\"idle\":{}}},\
 \"render\":{{\"drawn\":{},\"hidden\":{},\"total\":{},\"triangles\":{},\"cave_culling\":{}}},\
 \"survival\":{{\"air\":{:.2},\"burning\":{:.2},\"protection\":{},\
-\"food\":{:.2},\"saturation\":{:.2},\"exhaustion\":{:.3},\"bed\":{},\"death\":{}}}}}",
+\"food\":{:.2},\"saturation\":{:.2},\"exhaustion\":{:.3},\"bed\":{},\"death\":{},\"xp\":{},\"level\":{}}}}}",
             // Les mêmes mots que la commande `mode`.
             match player::mode(&self.ecs, self.player) {
                 MoveMode::Walk => "walk",
@@ -839,6 +849,8 @@ impl VoxelGame {
                 Mode::Dead(message) => json_str(message),
                 _ => "null".into(),
             },
+            self.experience.points,
+            self.experience.level().0,
         )
     }
 }

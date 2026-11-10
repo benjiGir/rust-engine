@@ -73,6 +73,9 @@ pub struct PlayerSave {
     /// Le lit où réapparaître.
     #[serde(default)]
     pub spawn_point: Option<[i32; 3]>,
+    /// Les points d'expérience.
+    #[serde(default)]
+    pub xp: Option<u32>,
 }
 
 /// Le contenu de `world.ron`.
@@ -973,6 +976,7 @@ pub(crate) mod tests {
                 food: Some(14.5),
                 saturation: Some(3.0),
                 spawn_point: Some([4, 70, -2]),
+                xp: Some(42),
             }),
             mods: vec!["core".into(), "example".into()],
             inventory: vec![Some(("core:stone".into(), 12)), None],

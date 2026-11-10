@@ -55,6 +55,8 @@ struct MobFileEntry {
     parts: Vec<MobPart>,
     #[serde(default)]
     drops: Vec<MobDrop>,
+    #[serde(default)]
+    xp: (u32, u32),
 }
 
 /// Ce que lâche une créature à sa mort : un objet, un nombre (min, max), une chance.
@@ -86,6 +88,8 @@ pub struct MobDef {
     pub parts: Vec<MobPart>,
     /// Son butin (les objets sont vérifiés à la mort : ils peuvent venir d'un mod).
     pub drops: Vec<MobDrop>,
+    /// L'expérience qu'elle rapporte (min, max).
+    pub xp: (u32, u32),
 }
 
 /// Toutes les créatures connues. Leur numéro (`Mob::kind`) est leur place dans la liste.
@@ -161,6 +165,7 @@ impl MobRegistry {
                 spawn_on,
                 parts: entry.parts,
                 drops: entry.drops,
+                xp: entry.xp,
             });
         }
         Ok(())

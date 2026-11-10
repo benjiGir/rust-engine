@@ -54,7 +54,10 @@ impl VoxelGame {
         }
         self.mining = None;
         self.hunger.chewing = None;
-        log::info!("{message} ({dropped} objets lâchés en {feet})");
+        // L'expérience est perdue.
+        let (level, _) = self.experience.level();
+        self.experience = crate::survival::Experience::default();
+        log::info!("{message} ({dropped} objets lâchés en {feet}, niveau {level} perdu)");
         self.mode = Mode::Dead(message.to_string());
     }
 
