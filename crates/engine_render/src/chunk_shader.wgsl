@@ -44,6 +44,7 @@ const POSITION_BIAS: f32 = 8.0;
 // Les drapeaux de `texture` (voir `engine_voxel::mesh`).
 const FLAG_CUTOUT: u32 = 65536u;   // 1 << 16 : pixels transparents découpés
 const FLAG_SWAY: u32 = 131072u;    // 1 << 17 : se balance au vent
+const FLAG_FILLED: u32 = 262144u;  // 1 << 18 : pixels transparents remplis (feuille opaque)
 const TEXTURE_MASK: u32 = 65535u;
 
 struct VertexOut {
@@ -105,7 +106,12 @@ fn face_uv(position: vec3<f32>, normal: vec3<f32>) -> vec2<f32> {
 
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-    let texel = textureSample(block_textures, block_sampler, face_uv(in.world_position, in.normal), in.texture);
+    var texel = textureSample(block_textures, block_sampler, face_uv(in.world_position, in.normal), in.texture);
+    // Une feuille au cœur du feuillage : ses trous deviennent un vert sombre (la couleur
+    // de la feuille, assombrie), comme le fond d'un buisson dense.
+    if (in.flags & FLAG_FILLED) != 0u && texel.a < 0.5 {
+        texel = vec4<f32>(vec3<f32>(0.32), 1.0);
+    }
     // Feuilles et plantes : les pixels transparents de la texture sont jetés. Le reste
     // est opaque, dessiné dans la passe opaque (pas de tri, pas de mélange).
     if (in.flags & FLAG_CUTOUT) != 0u && texel.a < 0.5 {

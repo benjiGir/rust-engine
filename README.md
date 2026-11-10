@@ -89,8 +89,8 @@ Variables du jeu :
   `VOXEL_SHOTS=biome` ne garde que les captures dont le nom contient ce texte ;
 - `VOXEL_HIDE_ARM=1` (cache le bras à la première personne, aussi avec F4) ;
 - `VOXEL_CAVE_CULLING=0` (dessine aussi les grottes invisibles, pour comparer ; aussi avec F6) ;
-- `VOXEL_LEAF_CULLING=0` (garde les faces de feuilles au cœur des arbres, pour comparer ; avec le culling,
-  la caméra en vol à l'intérieur d'un feuillage voit des trous) ;
+- `VOXEL_LEAF_CULLING=0` (sans culling des feuilles, pour comparer ; avec, une feuille entourée de feuilles
+  est dessinée opaque et les faces contre elle disparaissent) ;
 - sans aucune de ces variables, le jeu s'ouvre sur le menu principal (Jouer, Nouveau monde,
   Options, Quitter) ; Échap ouvre la pause. Les options sont dans `settings.ron` ;
 - `VOXEL_MENU_DEMO=1` (scénario automatique : menu, un monde, retour au menu, quitter) ;

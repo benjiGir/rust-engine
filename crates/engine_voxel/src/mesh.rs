@@ -126,6 +126,9 @@ impl MeshVertex {
 pub const FLAG_CUTOUT: u32 = 1 << 16;
 /// Le sommet se balance au vent.
 pub const FLAG_SWAY: u32 = 1 << 17;
+/// Les pixels transparents de la texture sont remplis d'un vert sombre : une feuille au
+/// cœur du feuillage, dessinée opaque (culling des feuilles).
+pub const FLAG_FILLED: u32 = 1 << 18;
 /// Les bits de la couche de texture dans [`MeshVertex::texture`].
 pub const TEXTURE_MASK: u32 = 0xFFFF;
 
@@ -499,19 +502,30 @@ impl Neighbourhood {
         if def.liquid && other.liquid {
             return None;
         }
-        // Culling des feuilles : cette face, tournée vers une autre feuille, ne se voit
-        // qu'à travers les trous de celle-ci. Si derrière elle il y a encore une feuille
-        // ou un bloc plein, il faudrait voir à travers deux couches : on ne la dessine pas.
-        // Le cœur d'un arbre perd ainsi la plupart de ses faces, l'extérieur ne change pas.
-        if self.leaf_culling && def.cutout && is_leaf(other) {
-            let beyond = self.get(p + face.normal() * 2);
-            let behind = self.registry.def(beyond);
-            if !beyond.is_air() && (!behind.transparent || is_leaf(behind)) {
-                return None;
-            }
+        // Culling des feuilles : une feuille entourée de feuilles (ou de blocs pleins) est
+        // dessinée opaque (voir `enclosed_leaf`) : une face contre elle ne se voit plus.
+        if self.enclosed_leaf(p + face.normal()) {
+            return None;
         }
         let visible = other.transparent && (neighbour != block || def.cutout);
         visible.then_some(block)
+    }
+
+    /// Une feuille au cœur du feuillage : ses 6 voisins sont des feuilles ou des blocs
+    /// pleins. Elle est alors dessinée opaque (ses pixels transparents remplis, voir
+    /// [`FLAG_FILLED`]) : on ne voit rien derrière elle, et les faces contre elle sont
+    /// retirées. À travers les trous des feuilles du bord, on voit donc un feuillage
+    /// dense, jamais le ciel. (Retirer seulement les faces entre feuilles laissait voir le
+    /// ciel : les trous des textures s'alignent d'une couche à l'autre.)
+    fn enclosed_leaf(&self, p: IVec3) -> bool {
+        if !self.leaf_culling || !is_leaf(self.registry.def(self.get(p))) {
+            return false;
+        }
+        Face::ALL.iter().all(|face| {
+            let neighbour = self.get(p + face.normal());
+            let def = self.registry.def(neighbour);
+            !neighbour.is_air() && (!def.transparent || is_leaf(def))
+        })
     }
 
     /// L'apparence de la face `face` du bloc `block` en `p`.
@@ -607,7 +621,12 @@ impl Neighbourhood {
             block,
             texture,
             drops,
-            flags: block_flags(def),
+            // Une feuille opaque : ses trous sont remplis, plus découpés.
+            flags: if self.enclosed_leaf(p) {
+                (block_flags(def) & !FLAG_CUTOUT) | FLAG_FILLED
+            } else {
+                block_flags(def)
+            },
             color: [
                 rgb[0] * tint[0],
                 rgb[1] * tint[1],
@@ -1083,7 +1102,7 @@ mod tests {
     }
 
     #[test]
-    fn buried_leaf_faces_are_culled() {
+    fn enclosed_leaves_are_opaque_and_hide_their_neighbours_faces() {
         let leaves = id("core:oak_leaves");
         let mut world = World::new();
         for x in 1..4 {
@@ -1098,11 +1117,21 @@ mod tests {
         let culled = Mesher::Culling.mesh(&hood());
         // Sans culling : 6 faces par feuille.
         assert_eq!(all.quad_count(), 27 * 6);
-        // Sur chaque rangée de 3 feuilles, les 2 faces tournées vers le cœur (une feuille,
-        // puis encore une derrière) disparaissent : 27 rangées. Les 54 faces de
-        // l'extérieur restent toutes.
-        assert_eq!(culled.quad_count(), 27 * 6 - 27 * 2);
-        assert!(Mesher::Greedy.mesh(&hood()).quad_count() < all.quad_count());
+        // Le centre (2, 2, 2) est entouré : opaque. Les 6 faces de ses voisines tournées
+        // vers lui disparaissent ; les siennes restent, remplies (pas de trous).
+        assert_eq!(culled.quad_count(), 27 * 6 - 6);
+        let centre = Vec3::splat(2.0);
+        let filled: Vec<&[MeshVertex]> = culled
+            .vertices
+            .chunks(4)
+            .filter(|q| q[0].texture & FLAG_FILLED != 0)
+            .collect();
+        assert_eq!(filled.len(), 6, "les 6 faces du centre");
+        for quad in filled {
+            assert_eq!(quad[0].texture & FLAG_CUTOUT, 0, "plus découpée");
+            let middle = quad.iter().map(|v| culled.world_position(v)).sum::<Vec3>() / 4.0;
+            assert!((middle - (centre + Vec3::splat(0.5))).abs().max_element() <= 0.5);
+        }
     }
 
     #[test]

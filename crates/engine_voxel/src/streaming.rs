@@ -81,7 +81,8 @@ pub struct StreamingConfig {
     /// les chunks devenus lointains seraient quand même calculés avant les proches.
     pub max_jobs_in_flight: usize,
     pub mesher: Mesher,
-    /// Retirer les faces de feuilles au cœur des arbres (moins de triangles, même image).
+    /// Dessiner opaques les feuilles au cœur des arbres, et retirer les faces contre elles
+    /// (moins de triangles, même image).
     pub leaf_culling: bool,
 }
 
@@ -1339,13 +1340,19 @@ pub(crate) mod tests {
         let mut s = streamer();
         pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
         let leaves = BlockRegistry::builtin().id("core:oak_leaves").unwrap();
-        // Une rangée de feuilles à cheval sur les chunks x = 0 et x = 1, dans le ciel.
-        for x in 29..36 {
-            assert!(s.set_block(IVec3::new(x, 150, 5), leaves));
+        // Un cube de feuilles 3 × 3 × 3 à cheval sur les chunks x = 0 et x = 1, dans le ciel :
+        // son centre (32, 150, 5), entouré, est opaque, et la face +X de la feuille en
+        // x = 31 (chunk 0) est cachée contre lui.
+        for x in 31..34 {
+            for y in 149..152 {
+                for z in 4..7 {
+                    assert!(s.set_block(IVec3::new(x, y, z), leaves));
+                }
+            }
         }
         pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
-        // x = 33 : deuxième bloc du chunk x = 1. La face +X de la feuille en x = 31 (chunk 0)
-        // était cachée (une feuille, puis une autre derrière) : elle redevient visible.
+        // x = 33, deuxième bloc du chunk x = 1 : le centre n'est plus entouré, la face en
+        // x = 31, à deux blocs, redevient visible. Le chunk 0 doit être remaillé.
         assert!(s.set_block(IVec3::new(33, 150, 5), BlockId::AIR));
         let events: Vec<StreamEvent> = std::iter::from_fn(|| s.next_event()).collect();
         let remeshed = meshed(&events);

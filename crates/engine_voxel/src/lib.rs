@@ -66,8 +66,8 @@ pub use machines::{
     Machines, Scheduler, TickReport, received_power,
 };
 pub use mesh::{
-    ChunkMesh, FLAG_CUTOUT, FLAG_SWAY, MeshVertex, Mesher, Neighbourhood, TEXTURE_MASK,
-    mesh_culled, mesh_greedy,
+    ChunkMesh, FLAG_CUTOUT, FLAG_FILLED, FLAG_SWAY, MeshVertex, Mesher, Neighbourhood,
+    TEXTURE_MASK, mesh_culled, mesh_greedy,
 };
 pub use physics::{PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
 pub use raycast::{RayHit, ray_aabb, raycast};
