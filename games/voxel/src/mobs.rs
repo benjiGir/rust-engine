@@ -9,7 +9,7 @@ use crate::shared::StreamerExt;
 use anyhow::{Context as _, Result, bail};
 use engine_ecs::{Entity, World};
 use engine_render::CubeInstance;
-use engine_voxel::{BlockId, BlockRegistry, ChunkStreamer, PlayerBody, ray_aabb};
+use engine_voxel::{BlockRegistry, ChunkStreamer, PlayerBody, ray_aabb};
 use glam::{IVec3, Vec3};
 use serde::Deserialize;
 
@@ -19,10 +19,7 @@ use crate::components::{
 use crate::events::{self, EntityDied, EntitySpawned, PlayerAttacked, Tick};
 
 /// Au plus ce nombre de créatures autour du joueur.
-pub const MAX_MOBS: usize = 12;
 /// Distance d'apparition (entre les deux) et de disparition, en blocs.
-const SPAWN_MIN: f32 = 14.0;
-const SPAWN_MAX: f32 = 36.0;
 const DESPAWN_DISTANCE: f32 = 96.0;
 /// Distance à laquelle une créature hostile repère le joueur.
 const CHASE_DISTANCE: f32 = 14.0;
@@ -57,6 +54,19 @@ struct MobFileEntry {
     drops: Vec<MobDrop>,
     #[serde(default)]
     xp: (u32, u32),
+    // L'apparition (voir `spawning.rs`) : tout est facultatif.
+    #[serde(default)]
+    light: Option<(u8, u8)>,
+    #[serde(default)]
+    when: crate::spawning::When,
+    #[serde(default)]
+    biomes: Vec<String>,
+    #[serde(default)]
+    group: Option<(u32, u32)>,
+    #[serde(default)]
+    weight: Option<u32>,
+    #[serde(default)]
+    dissolves: Option<bool>,
 }
 
 /// Ce que lâche une créature à sa mort : un objet, un nombre (min, max), une chance.
@@ -84,7 +94,8 @@ pub struct MobDef {
     pub hostile: bool,
     pub damage: f32,
     pub hops: bool,
-    pub spawn_on: Vec<BlockId>,
+    /// Où et quand elle apparaît (voir `spawning.rs`).
+    pub spawn: crate::spawning::SpawnRules,
     pub parts: Vec<MobPart>,
     /// Son butin (les objets sont vérifiés à la mort : ils peuvent venir d'un mod).
     pub drops: Vec<MobDrop>,
@@ -129,7 +140,11 @@ impl MobRegistry {
         blocks: &BlockRegistry,
     ) -> Result<()> {
         let entries: Vec<MobFileEntry> =
-            ron::from_str(text).with_context(|| format!("{origin} : fichier RON invalide"))?;
+            // `IMPLICIT_SOME` : un champ facultatif s'écrit `weight: 30`, sans `Some(...)`.
+            ron::Options::default()
+                .with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME)
+                .from_str(text)
+                .with_context(|| format!("{origin} : fichier RON invalide"))?;
         for entry in entries {
             if !entry.id.starts_with(&format!("{namespace}:")) {
                 bail!(
@@ -162,7 +177,18 @@ impl MobRegistry {
                 hostile: entry.hostile,
                 damage: entry.damage,
                 hops: entry.hops,
-                spawn_on,
+                spawn: crate::spawning::SpawnRules {
+                    on: spawn_on,
+                    // Par défaut : les hostiles dans le noir, les autres au jour.
+                    light: entry
+                        .light
+                        .unwrap_or(if entry.hostile { (0, 7) } else { (9, 15) }),
+                    when: entry.when,
+                    biomes: entry.biomes,
+                    group: entry.group.unwrap_or((1, 1)),
+                    weight: entry.weight.unwrap_or(10),
+                    dissolves: entry.dissolves.unwrap_or(entry.hostile),
+                },
                 parts: entry.parts,
                 drops: entry.drops,
                 xp: entry.xp,
@@ -219,6 +245,7 @@ impl GameRng {
 pub struct SimClock {
     pub tick: u64,
     pub spawn_timer: f32,
+    pub dissolve_timer: f32,
 }
 
 // ----- Les systèmes -----
@@ -238,6 +265,11 @@ pub fn surroundings_ready(streamer: &ChunkStreamer, body: &PlayerBody) -> bool {
 /// La physique de toutes les entités (joueur compris) : gravité, collisions, eau.
 pub fn physics(world: &mut World) {
     let dt = world.resource::<FixedDt>().0;
+    let player = world.resource::<PlayerEntity>().0;
+    let center = world
+        .get::<Transform>(player)
+        .map(|t| t.position)
+        .unwrap_or_default();
     let shared = world.streamer();
     let streamer = shared.borrow();
     world
@@ -251,7 +283,9 @@ pub fn physics(world: &mut World) {
         .for_each(
             |entity, (transform, previous, velocity, collider, intent)| {
                 previous.0 = transform.position;
-                if world.has::<Flying>(entity) {
+                if world.has::<Flying>(entity)
+                    || crate::spawning::asleep(world, entity, transform.position, center)
+                {
                     return;
                 }
                 let mut body =
@@ -270,62 +304,6 @@ pub fn physics(world: &mut World) {
                 collider.in_liquid = body.in_liquid;
             },
         );
-}
-
-/// Fait apparaître des créatures sur leurs blocs, autour du joueur.
-pub fn spawn(world: &mut World) {
-    let dt = world.resource::<FixedDt>().0;
-    {
-        let mut clock = world.resource_mut::<SimClock>();
-        clock.spawn_timer -= dt;
-        if clock.spawn_timer > 0.0 {
-            return;
-        }
-        clock.spawn_timer = 1.0;
-    }
-    if world.query::<(&Mob,)>().count() >= MAX_MOBS {
-        return;
-    }
-    let player = world.resource::<PlayerEntity>().0;
-    let Some(center) = world.get::<Transform>(player).map(|t| t.position) else {
-        return;
-    };
-    // Choisir un endroit au hasard, puis vérifier que le sol convient.
-    let (angle, distance, pick) = {
-        let mut rng = world.resource_mut::<GameRng>();
-        (
-            rng.next_f32() * std::f32::consts::TAU,
-            SPAWN_MIN + rng.next_f32() * (SPAWN_MAX - SPAWN_MIN),
-            rng.next_f32(),
-        )
-    };
-    let x = (center.x + angle.cos() * distance).floor() as i32;
-    let z = (center.z + angle.sin() * distance).floor() as i32;
-    let found = {
-        let shared = world.streamer();
-        let streamer = shared.borrow();
-        let registry = world.resource::<Arc<MobRegistry>>();
-        let height = streamer.generator().column(x, z).height;
-        let ground = IVec3::new(x, height, z);
-        let voxels = streamer.world();
-        let loaded = streamer.is_lit(engine_voxel::World::split(ground).0);
-        let clear = voxels.block(ground + IVec3::Y).is_air()
-            && voxels.block(ground + IVec3::Y * 2).is_air();
-        let floor = voxels.block(ground);
-        let candidates: Vec<u32> = (0..registry.len() as u32)
-            .filter(|&k| registry.get(k).is_some_and(|d| d.spawn_on.contains(&floor)))
-            .collect();
-        (loaded && clear && !candidates.is_empty()).then(|| {
-            let kind = candidates[(pick * candidates.len() as f32) as usize % candidates.len()];
-            (
-                kind,
-                Vec3::new(x as f32 + 0.5, height as f32 + 1.0, z as f32 + 0.5),
-            )
-        })
-    };
-    if let Some((kind, position)) = found {
-        spawn_mob(world, kind, position);
-    }
 }
 
 /// Crée une créature et prévient les abonnés (`EntitySpawned`).
@@ -372,6 +350,15 @@ pub fn wander(world: &mut World) {
             let Some(def) = registry.get(mob.kind) else {
                 return;
             };
+            // Loin du joueur : elle ne pense pas (zone de simulation).
+            if target.is_some_and(|t| {
+                crate::spawning::horizontal_distance(t, transform.position)
+                    > crate::spawning::SIM_DISTANCE
+            }) {
+                intent.walk = Vec3::ZERO;
+                intent.jump = false;
+                return;
+            }
             wander.timer -= dt;
             wander.attack_cooldown = (wander.attack_cooldown - dt).max(0.0);
             let chasing = def.hostile
@@ -655,6 +642,7 @@ mod tests {
         world.insert_resource(FixedDt(1.0 / 60.0));
         world.insert_resource(GameRng(7));
         world.insert_resource(SimClock::default());
+        world.insert_resource(crate::spawning::Sky::default());
         events::register(&mut world);
         let player = world.spawn((Transform::default(), Flying));
         world.insert_resource(PlayerEntity(player));
@@ -701,10 +689,103 @@ mod tests {
     }
 
     #[test]
+    fn far_mobs_sleep_outside_the_simulation_zone() {
+        let mut world = sim();
+        let pig = world.resource::<Arc<MobRegistry>>().id("core:pig").unwrap();
+        // Le joueur à l'origine ; le cochon à 60 blocs, dans le terrain chargé, en l'air.
+        let mob = spawn_mob(&mut world, pig, Vec3::new(60.5, 120.0, 5.5)).unwrap();
+        for _ in 0..30 {
+            physics(&mut world);
+        }
+        assert_eq!(
+            world.get::<Transform>(mob).unwrap().position.y,
+            120.0,
+            "endormi"
+        );
+        // Le joueur s'approche : il tombe.
+        let player = world.resource::<PlayerEntity>().0;
+        world.get_mut::<Transform>(player).unwrap().position = Vec3::new(50.0, 80.0, 5.0);
+        for _ in 0..30 {
+            physics(&mut world);
+        }
+        assert!(
+            world.get::<Transform>(mob).unwrap().position.y < 119.0,
+            "réveillé"
+        );
+    }
+
+    /// Le jour, des cochons ; la nuit, des slimes (le mod d'exemple), jamais l'inverse.
+    #[test]
+    fn day_spawns_animals_and_night_spawns_monsters() {
+        let census = |world: &World| {
+            let registry = world.resource::<Arc<MobRegistry>>().clone();
+            let mut found = (0, 0);
+            world.query::<(&Mob,)>().for_each(|_, (mob,)| {
+                if registry.get(mob.kind).is_some_and(|d| d.hostile) {
+                    found.0 += 1;
+                } else {
+                    found.1 += 1;
+                }
+            });
+            found
+        };
+        for night in [false, true] {
+            let mut world = sim();
+            let player = world.resource::<PlayerEntity>().0;
+            world.get_mut::<Transform>(player).unwrap().position = Vec3::new(5.0, 70.0, 5.0);
+            *world.resource_mut::<crate::spawning::Sky>() = crate::spawning::Sky {
+                daylight: if night { 0.1 } else { 1.0 },
+                night,
+            };
+            for _ in 0..400 {
+                world.resource_mut::<SimClock>().spawn_timer = 0.0;
+                crate::spawning::spawn(&mut world);
+                world.apply_commands();
+            }
+            let (hostiles, passives) = census(&world);
+            if night {
+                assert!(
+                    hostiles > 0 && passives == 0,
+                    "nuit : {hostiles} / {passives}"
+                );
+            } else {
+                assert!(
+                    passives > 0 && hostiles == 0,
+                    "jour : {hostiles} / {passives}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn night_creatures_dissolve_in_the_sun() {
+        let mut world = sim();
+        let registry = world.resource::<Arc<MobRegistry>>().clone();
+        let slime = registry.id("example:slime").unwrap();
+        let pig = registry.id("core:pig").unwrap();
+        // Dehors, en plein jour : au-dessus de la plus haute colonne, la lumière du ciel.
+        let monster = spawn_mob(&mut world, slime, Vec3::new(5.5, 150.0, 5.5)).unwrap();
+        let animal = spawn_mob(&mut world, pig, Vec3::new(6.5, 150.0, 5.5)).unwrap();
+        for _ in 0..40 {
+            world.resource_mut::<SimClock>().dissolve_timer = 0.0;
+            crate::spawning::dissolve(&mut world);
+            world.apply_commands();
+        }
+        assert!(
+            world.get::<Transform>(monster).is_none(),
+            "le slime s'est dissous"
+        );
+        assert!(world.get::<Transform>(animal).is_some(), "le cochon reste");
+    }
+
+    #[test]
     fn entities_wait_frozen_until_the_terrain_is_loaded() {
         let mut world = sim();
         let pig = world.resource::<Arc<MobRegistry>>().id("core:pig").unwrap();
-        // Loin du terrain chargé (rayon de 2 chunks autour de l'origine).
+        // Loin du terrain chargé (rayon de 2 chunks autour de l'origine), mais près du
+        // joueur : dans la zone de simulation, elle devrait bouger.
+        let player = world.resource::<PlayerEntity>().0;
+        world.get_mut::<Transform>(player).unwrap().position = Vec3::new(5002.0, 80.0, 5.0);
         let mob = spawn_mob(&mut world, pig, Vec3::new(5000.5, 80.0, 5.5)).unwrap();
         for _ in 0..60 {
             physics(&mut world);

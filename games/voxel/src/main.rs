@@ -56,6 +56,7 @@ mod player;
 mod screenshots;
 mod settings;
 mod shared;
+mod spawning;
 mod stats;
 mod stress;
 mod survival;
@@ -460,12 +461,18 @@ impl VoxelGame {
         ecs.insert_resource(mobs::FixedDt(ctx.fixed_dt));
         ecs.insert_resource(mobs::GameRng(0x2545_F491_4F6C_DD1D ^ seed as u64));
         ecs.insert_resource(mobs::SimClock::default());
+        ecs.insert_resource(spawning::Sky::default());
         let player = player::spawn(&mut ecs, eye, mode);
         ecs.insert_resource(mobs::PlayerEntity(player));
         let mut schedule = Schedule::new();
         schedule
             .add(Stage::FixedUpdate, "tick", mobs::tick)
-            .add(Stage::FixedUpdate, "créatures : apparition", mobs::spawn)
+            .add(
+                Stage::FixedUpdate,
+                "créatures : apparition",
+                spawning::spawn,
+            )
+            .add(Stage::FixedUpdate, "créatures : soleil", spawning::dissolve)
             .add(Stage::FixedUpdate, "créatures : IA", mobs::wander)
             .add(Stage::FixedUpdate, "physique", mobs::physics)
             .add(Stage::FixedUpdate, "créatures : attaque", mobs::attack)
@@ -742,6 +749,11 @@ impl VoxelGame {
             self.handle_keys(ctx);
         }
         self.day.update(dt);
+        // L'heure, pour l'apparition des créatures (l'ECS ne connaît pas le jour).
+        *self.ecs.resource_mut::<spawning::Sky>() = spawning::Sky {
+            daylight: self.day.daylight(),
+            night: self.day.is_night(),
+        };
         self.update_remote(dt);
         if let Some(audio) = &mut self.audio {
             audio.update_ambience(self.day.daylight());
