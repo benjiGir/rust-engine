@@ -633,7 +633,7 @@ mod tests {
         assert!(!registry.is_solid(BlockId::AIR) && registry.is_transparent(BlockId::AIR));
         assert_eq!(
             registry.placeable().count(),
-            62,
+            63,
             "sans l'air, l'eau, la lave, le socle, l'inconnu et la lampe allumée"
         );
         let water = registry.id("core:water").unwrap();

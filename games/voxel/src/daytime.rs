@@ -82,6 +82,11 @@ impl DayCycle {
         smoothstep(-0.12, 0.3, self.sun_direction().y)
     }
 
+    /// La nuit : le soleil est sous l'horizon (on peut dormir).
+    pub fn is_night(&self) -> bool {
+        self.sun_direction().y < 0.0
+    }
+
     /// L'intensité de la lumière du ciel, de [`MOONLIGHT`] (la nuit) à 1.
     pub fn daylight(&self) -> f32 {
         MOONLIGHT + (1.0 - MOONLIGHT) * self.day_factor()
@@ -120,6 +125,13 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn night_is_between_sunset_and_sunrise() {
+        let at = |time| DayCycle::new(time, 600.0).is_night();
+        assert!(at(0.0) && at(0.2) && at(0.8) && at(0.95));
+        assert!(!at(0.3) && !at(0.5) && !at(0.7));
+    }
 
     #[test]
     fn noon_is_bright_and_midnight_is_dark() {

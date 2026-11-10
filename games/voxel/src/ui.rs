@@ -40,6 +40,8 @@ pub struct GameUi {
     icons: HashMap<ItemId, TextureHandle>,
     /// La fenêtre « Diviser la pile » (Maj + clic droit), si elle est ouverte.
     pub split: Option<Split>,
+    /// Un message en haut de l'écran (« Point de réapparition fixé ») et son heure.
+    pub toast: Option<(String, std::time::Instant)>,
 }
 
 /// Une pile qu'on s'apprête à diviser, et combien d'objets prendre.
@@ -96,6 +98,7 @@ impl GameUi {
             menu_open: false,
             icons: HashMap::new(),
             split: None,
+            toast: None,
         }
     }
 
@@ -179,10 +182,11 @@ impl VoxelGame {
         // `Context` est un `Arc` : le cloner ne copie rien, et libère `self` pour la closure.
         let ctx = self.ui.ctx.clone();
         let output = ctx.run_ui(raw, |ui| {
-            // Au menu principal, ni barre d'objets ni vie : seulement le menu.
-            if !matches!(self.mode, crate::Mode::Title(_)) {
+            // Au menu principal et à l'écran de mort, ni barre d'objets ni vie.
+            if !matches!(self.mode, crate::Mode::Title(_) | crate::Mode::Dead(_)) {
                 self.draw_hud(ui.ctx());
             }
+            self.draw_toast(ui.ctx());
             self.draw_menus(ui.ctx());
             if self.ui.inventory_open {
                 self.draw_screen(ui.ctx());

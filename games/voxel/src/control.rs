@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-9 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | respawn | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -169,6 +169,10 @@ pub enum Command {
     Mobs,
     /// Frapper la créature visée (comme un clic gauche).
     Attack,
+    /// Un clic droit sur le bloc visé : un lit, un conteneur, sinon poser.
+    Use,
+    /// Réapparaître, depuis l'écran de mort.
+    Respawn,
     /// Régler la faim (de 0 à 20), pour les tests.
     Hunger(f32),
     Screenshot(PathBuf, u32, u32),
@@ -327,6 +331,8 @@ pub fn parse(line: &str) -> Result<Command> {
         "eat" => Command::Eat,
         "mobs" => Command::Mobs,
         "attack" => Command::Attack,
+        "use" => Command::Use,
+        "respawn" => Command::Respawn,
         "hunger" => {
             count(&[1])?;
             Command::Hunger(number(0)?)
@@ -449,6 +455,9 @@ impl VoxelGame {
                 | Command::State
                 | Command::Screenshot(..)
                 | Command::Culling(_)
+                | Command::Respawn
+                | Command::Inventory
+                | Command::Mobs
                 | Command::Quit
         );
         if needs_world && !playing {
@@ -634,6 +643,24 @@ impl VoxelGame {
                 let list: Vec<String> = mobs.into_iter().take(20).map(|(_, m)| m).collect();
                 Ok(format!("{{\"ok\":true,\"mobs\":[{}]}}", list.join(",")))
             }
+            Command::Use => {
+                let hit = self.aimed()?;
+                if self.use_bed(hit.block_pos) {
+                    return Ok(self.state_json());
+                }
+                if self.open_container() {
+                    return Ok(ok());
+                }
+                let pos = self.place_at_target().context("use : rien à faire ici")?;
+                Ok(format!("{{\"ok\":true,\"placed\":{}}}", ivec3(pos)))
+            }
+            Command::Respawn => {
+                if !matches!(self.mode, Mode::Dead(_)) {
+                    bail!("respawn : le joueur n'est pas mort");
+                }
+                self.respawn();
+                Ok(self.state_json())
+            }
             Command::Attack => {
                 let eye = player::eye(&self.ecs, self.player, 1.0);
                 let forward = self.camera.forward();
@@ -728,6 +755,7 @@ impl VoxelGame {
             Mode::Title(_) => "title",
             Mode::Playing => "playing",
             Mode::Paused(_) => "paused",
+            Mode::Dead(_) => "dead",
         };
         let feet = player::body(&self.ecs, self.player).position;
         // L'état de la physique est dans le `Collider` (le `PlayerBody` est recréé).
@@ -774,7 +802,7 @@ impl VoxelGame {
 \"chunks\":{{\"loaded\":{},\"queued\":{},\"idle\":{}}},\
 \"render\":{{\"drawn\":{},\"hidden\":{},\"total\":{},\"triangles\":{},\"cave_culling\":{}}},\
 \"survival\":{{\"air\":{:.2},\"burning\":{:.2},\"protection\":{},\
-\"food\":{:.2},\"saturation\":{:.2},\"exhaustion\":{:.3}}}}}",
+\"food\":{:.2},\"saturation\":{:.2},\"exhaustion\":{:.3},\"bed\":{},\"death\":{}}}}}",
             // Les mêmes mots que la commande `mode`.
             match player::mode(&self.ecs, self.player) {
                 MoveMode::Walk => "walk",
@@ -806,6 +834,11 @@ impl VoxelGame {
             self.hunger.food,
             self.hunger.saturation,
             self.hunger.exhaustion,
+            self.bed.map_or("null".into(), ivec3),
+            match &self.mode {
+                Mode::Dead(message) => json_str(message),
+                _ => "null".into(),
+            },
         )
     }
 }

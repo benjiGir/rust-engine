@@ -441,6 +441,13 @@
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.5, tool: Pickaxe, tier: 1,
     ),
+    // Le lit (phase O4) : clic droit pour y réapparaître, et la nuit pour dormir.
+    (
+        id: "core:bed", name: "Lit de feuillage", color: (0.34, 0.56, 0.24),
+        textures: (top: "bed_top", side: "bed_side", bottom: "oak_planks"),
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.6, tool: Axe,
+    ),
     (
         id: "core:chest", name: "Coffre", color: (0.62, 0.45, 0.25),
         textures: (top: "chest_top", side: "chest_side", bottom: "chest_top"),

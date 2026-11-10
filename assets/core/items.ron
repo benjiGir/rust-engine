@@ -86,6 +86,7 @@
     // Des groupes d'objets, utilisables dans les recettes (« #planks » : n'importe quelles planches).
     tags: {
         "planks": ["oak_planks", "birch_planks", "spruce_planks", "acacia_planks", "jungle_planks"],
+        "leaves": ["oak_leaves", "birch_leaves", "spruce_leaves", "acacia_leaves", "jungle_leaves"],
         "logs": ["oak_log", "birch_log", "spruce_log", "acacia_log", "jungle_log"],
         "stones": ["cobblestone", "deepstone"],
         "coals": ["coal", "charcoal"],

@@ -70,6 +70,9 @@ pub struct PlayerSave {
     pub food: Option<f32>,
     #[serde(default)]
     pub saturation: Option<f32>,
+    /// Le lit où réapparaître.
+    #[serde(default)]
+    pub spawn_point: Option<[i32; 3]>,
 }
 
 /// Le contenu de `world.ron`.
@@ -969,6 +972,7 @@ pub(crate) mod tests {
                 selected_block: Some("core:stone".into()),
                 food: Some(14.5),
                 saturation: Some(3.0),
+                spawn_point: Some([4, 70, -2]),
             }),
             mods: vec!["core".into(), "example".into()],
             inventory: vec![Some(("core:stone".into(), 12)), None],

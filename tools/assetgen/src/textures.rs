@@ -772,6 +772,61 @@ fn chest_top() -> Image {
     image
 }
 
+/// Le matelas du lit de feuillage : un vert tacheté.
+fn mattress_pixel(x: usize, y: usize) -> [f32; 3] {
+    let green = [0.34, 0.56, 0.24];
+    if (x * 7 + y * 13 + x * y).is_multiple_of(5) {
+        scale(green, 0.78)
+    } else if (x * 3 + y * 11).is_multiple_of(7) {
+        scale(green, 1.15)
+    } else {
+        green
+    }
+}
+
+/// Le dessus du lit : le matelas, un oreiller pâle en haut, le cadre en bois.
+fn bed_top() -> Image {
+    let wood = [0.6, 0.42, 0.22];
+    let mut image = Image::filled(wood);
+    for y in 1..SIZE - 1 {
+        for x in 1..SIZE - 1 {
+            let pillow = (2..=4).contains(&y) && (3..=12).contains(&x);
+            let color = if pillow {
+                if y == 4 {
+                    [0.82, 0.8, 0.72]
+                } else {
+                    [0.93, 0.91, 0.84]
+                }
+            } else {
+                mattress_pixel(x, y)
+            };
+            image.set(x, y, color);
+        }
+    }
+    image
+}
+
+/// Le côté du lit : le matelas en haut, le cadre et les pieds en bas.
+fn bed_side() -> Image {
+    let wood = [0.6, 0.42, 0.22];
+    let mut image = planks(wood, 117);
+    for y in 0..7 {
+        for x in 0..SIZE {
+            image.set(x, y, mattress_pixel(x, y));
+        }
+    }
+    for x in 0..SIZE {
+        image.set(x, 7, scale(wood, 0.6));
+    }
+    // L'ombre sous le lit, entre les deux pieds.
+    for y in 12..SIZE {
+        for x in 2..SIZE - 2 {
+            image.set(x, y, scale(wood, 0.3));
+        }
+    }
+    image
+}
+
 /// Une icône dessinée à partir d'un masque de 16 lignes de 16 caractères. Chaque
 /// caractère choisit une couleur dans `palette` ; « . » est transparent. Un contour
 /// sombre est ajouté autour, pour que l'icône se détache du fond.
@@ -1401,6 +1456,8 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("furnace_top.png"), furnace_top()),
         (core.join("chest_side.png"), chest_side()),
         (core.join("chest_top.png"), chest_top()),
+        (core.join("bed_top.png"), bed_top()),
+        (core.join("bed_side.png"), bed_side()),
         (root.join("mods/example/textures/breaker.png"), breaker()),
         (root.join("mods/example/textures/ruby.png"), ruby()),
     ];

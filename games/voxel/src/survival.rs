@@ -280,6 +280,19 @@ impl DamageCause {
         matches!(self, Self::Fall | Self::Drowning | Self::Starvation)
     }
 
+    /// La phrase de l'écran de mort.
+    pub fn death_message(self) -> &'static str {
+        match self {
+            Self::Mob => "Tué par une créature.",
+            Self::Fall => "Tombé de trop haut.",
+            Self::Drowning => "Noyé.",
+            Self::Lava => "Brûlé dans la lave.",
+            Self::Burning => "Mort dans les flammes.",
+            Self::Command => "Tué par une commande.",
+            Self::Starvation => "Mort de faim.",
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Self::Mob => "créature",
@@ -328,6 +341,8 @@ pub struct Vitals {
     burn_timer: f32,
     /// Secondes depuis le dernier coup reçu (pour le HUD).
     pub since_hit: f32,
+    /// La cause du dernier coup reçu : le message de l'écran de mort.
+    pub last_cause: Option<DamageCause>,
 }
 
 impl Vitals {
@@ -342,6 +357,7 @@ impl Vitals {
             lava_timer: rules.lava_interval,
             burn_timer: 0.0,
             since_hit: f32::INFINITY,
+            last_cause: None,
         }
     }
 
@@ -439,12 +455,8 @@ impl Vitals {
         };
         self.invulnerable = rules.invulnerable;
         self.since_hit = 0.0;
+        self.last_cause = Some(cause);
         Some(amount * (1.0 - reduction))
-    }
-
-    /// Après la mort : de l'air, pas de feu, pas de chute en cours.
-    pub fn reset(&mut self, rules: &SurvivalRules) {
-        *self = Self::new(rules);
     }
 }
 

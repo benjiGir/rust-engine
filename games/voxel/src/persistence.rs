@@ -88,6 +88,7 @@ impl VoxelGame {
                 selected_block: selected,
                 food: Some(self.hunger.food),
                 saturation: Some(self.hunger.saturation),
+                spawn_point: self.bed.map(|b| b.to_array()),
             }),
             mods: loaded_mods(&self.registry),
             inventory: Vec::new(),

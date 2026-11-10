@@ -42,6 +42,7 @@ mod content;
 mod control;
 mod culling;
 mod daytime;
+mod death;
 mod drops;
 mod events;
 mod hand;
@@ -82,7 +83,7 @@ use engine_voxel::{
 };
 use glam::{IVec3, Vec2, Vec3};
 
-use components::{Collider, Health, Transform, Velocity};
+use components::{Collider, Transform, Velocity};
 use daytime::DayCycle;
 use events::{BlockBroken, BlockPlaced, EntityDied, PlayerDamaged};
 use inventory::Inventory;
@@ -212,6 +213,8 @@ struct VoxelGame {
     hunger: survival::Hunger,
     /// L'avancement du repas en cours (0 à 1), pour la barre.
     eat_progress: Option<f32>,
+    /// Le lit où réapparaître, s'il y en a un.
+    bed: Option<IVec3>,
     /// `VOXEL_BENCH` : le benchmark reproductible (voir `bench.rs`).
     bench: Option<bench::Bench>,
 }
@@ -280,6 +283,8 @@ pub enum Mode {
     Title(menus::TitlePage),
     Playing,
     Paused(menus::PausePage),
+    /// L'écran de mort, avec sa cause.
+    Dead(String),
 }
 
 impl VoxelGame {
@@ -514,9 +519,11 @@ impl VoxelGame {
         let (survival, hunger_rules) = survival::load_rules(&assets);
         let vitals = survival::Vitals::new(&survival);
         let mut hunger = survival::Hunger::new(&hunger_rules);
+        let mut bed = None;
         if let Some(saved) = meta.as_ref().and_then(|m| m.player.as_ref()) {
             hunger.food = saved.food.unwrap_or(hunger.food);
             hunger.saturation = saved.saturation.unwrap_or(hunger.saturation);
+            bed = saved.spawn_point.map(IVec3::from);
         }
         Ok(Self {
             survival,
@@ -524,6 +531,7 @@ impl VoxelGame {
             hunger_rules,
             hunger,
             eat_progress: None,
+            bed,
             renderer,
             camera,
             mouse_captured: false,
@@ -587,8 +595,9 @@ impl VoxelGame {
         match self.mode {
             // En pause, le monde s'arrête.
             Mode::Paused(_) => return,
-            // Le monde du menu vit (créatures, machines), sans joueur aux commandes.
-            Mode::Title(_) => {
+            // Le monde du menu vit (créatures, machines), sans joueur aux commandes ; de
+            // même quand le joueur est mort.
+            Mode::Title(_) | Mode::Dead(_) => {
                 player::set_intent(&self.ecs, self.player, Vec3::ZERO, false);
                 self.schedule.run(Stage::FixedUpdate, &mut self.ecs);
                 self.step_fluids();
@@ -639,7 +648,7 @@ impl VoxelGame {
         self.update_hunger(ctx.fixed_dt);
         self.drop_mob_loot();
         self.footsteps(ctx.fixed_dt);
-        self.respawn_if_dead();
+        self.check_death();
     }
 
     /// Une étape des fluides tous les 6 pas (10 par seconde), dans un budget de temps.
@@ -794,7 +803,12 @@ impl VoxelGame {
                     None => self.mine(dt),
                 }
             }
-            if ctx.input.mouse_pressed(MouseButton::Right) && !self.open_container() {
+            // Un clic droit : un lit, un conteneur, sinon poser.
+            let bed = self.target.map(|hit| hit.block_pos);
+            if ctx.input.mouse_pressed(MouseButton::Right)
+                && !bed.is_some_and(|pos| self.use_bed(pos))
+                && !self.open_container()
+            {
                 self.place_at_target();
             }
         }
@@ -868,9 +882,13 @@ impl VoxelGame {
             .world()
             .light(self.camera.position.floor().as_ivec3());
         let held = self.inventory.selected_item();
-        let arm = self
-            .hand
-            .instances(held, &self.content.items, &self.registry);
+        // Mort : plus de bras.
+        let arm = if matches!(self.mode, Mode::Dead(_)) {
+            Vec::new()
+        } else {
+            self.hand
+                .instances(held, &self.content.items, &self.registry)
+        };
         self.renderer
             .set_hand(&arm, [sky as f32 / 15.0, block as f32 / 15.0]);
         // L'heure décide du soleil et de la couleur du ciel, donc du brouillard.
@@ -1588,28 +1606,6 @@ impl VoxelGame {
     }
 
     /// Mort : on réapparaît au point de départ, en pleine forme.
-    fn respawn_if_dead(&mut self) {
-        let health = player::health(&self.ecs, self.player);
-        if health.current > 0.0 {
-            return;
-        }
-        let spawn = self.spawn;
-        player::set_eye(
-            &self.ecs,
-            self.player,
-            Vec3::new(
-                spawn.x as f32 + 0.5,
-                spawn.y as f32 + 3.0,
-                spawn.z as f32 + 0.5,
-            ),
-        );
-        if let Some(mut health) = self.ecs.get_mut::<Health>(self.player) {
-            health.current = health.max;
-        }
-        self.vitals.reset(&self.survival);
-        log::info!("le joueur est mort : retour au point de départ");
-    }
-
     /// Le streamer des chunks (partagé avec l'ECS et les mods).
     fn streamer(&self) -> Ref<'_, ChunkStreamer> {
         self.world.borrow()

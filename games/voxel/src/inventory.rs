@@ -235,6 +235,18 @@ impl Inventory {
     }
 
     /// Retire un objet de la case choisie (on vient de le poser).
+    /// Vide tout l'inventaire (cases, armure, grille d'artisanat, main) et rend les
+    /// piles : à la mort, elles tombent par terre.
+    pub fn take_all(&mut self) -> Vec<ItemStack> {
+        self.slots
+            .iter_mut()
+            .chain(self.armor.iter_mut())
+            .chain(self.craft.iter_mut())
+            .chain(std::iter::once(&mut self.cursor))
+            .filter_map(Option::take)
+            .collect()
+    }
+
     pub fn consume_selected(&mut self) -> Option<ItemId> {
         let slot = &mut self.slots[self.selected];
         let stack = slot.as_mut()?;
@@ -561,6 +573,19 @@ mod tests {
         let mut logs = Some(ItemStack::new(id(&items, "core:oak_log"), 4));
         click_slot(&mut logs, &mut cursor, &items, |_| true, Click::Take(2));
         assert_eq!(logs.map(|s| s.count), Some(4));
+    }
+
+    #[test]
+    fn take_all_empties_everything() {
+        let items = items();
+        let mut inv = Inventory::default();
+        inv.add(id(&items, "core:stick"), 70, &items);
+        inv.armor[1] = Some(ItemStack::new(id(&items, "core:iron_chestplate"), 1));
+        inv.craft[4] = Some(ItemStack::new(id(&items, "core:coal"), 3));
+        inv.cursor = Some(ItemStack::new(id(&items, "core:coal"), 2));
+        let taken: u32 = inv.take_all().iter().map(|s| s.count).sum();
+        assert_eq!(taken, 70 + 1 + 3 + 2);
+        assert!(inv.take_all().is_empty(), "plus rien");
     }
 
     #[test]

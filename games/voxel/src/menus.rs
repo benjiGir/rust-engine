@@ -141,7 +141,7 @@ pub fn parse_seed(text: &str) -> u32 {
 }
 
 /// Un gros bouton de menu.
-fn button(ui: &mut egui::Ui, text: &str) -> bool {
+pub(crate) fn button(ui: &mut egui::Ui, text: &str) -> bool {
     ui.add_sized(
         [260.0, 36.0],
         egui::Button::new(RichText::new(text).size(18.0)),
@@ -155,11 +155,12 @@ impl VoxelGame {
         match self.mode.clone() {
             Mode::Title(page) => self.draw_title(ctx, page),
             Mode::Paused(page) => self.draw_pause(ctx, page),
+            Mode::Dead(message) => self.draw_dead(ctx, &message),
             Mode::Playing => {}
         }
     }
 
-    fn menu_window(ctx: &egui::Context, title: &str, add: impl FnOnce(&mut egui::Ui)) {
+    pub(crate) fn menu_window(ctx: &egui::Context, title: &str, add: impl FnOnce(&mut egui::Ui)) {
         egui::Window::new(title)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .resizable(false)
