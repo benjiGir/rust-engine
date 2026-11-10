@@ -26,9 +26,15 @@
         (id: "core:jade", name: "Jade", category: Material, color: (0.4, 0.9, 0.6), icon: "jade"),
         (id: "core:seeds", name: "Graines", category: Material, color: (0.6, 0.65, 0.3), icon: "seeds"),
         (id: "core:flint", name: "Silex", category: Material, color: (0.25, 0.25, 0.27), icon: "flint"),
+        // Le butin des créatures (phase O5).
+        (id: "core:leather", name: "Cuir", category: Material, color: (0.58, 0.36, 0.2), icon: "leather"),
+        (id: "core:shadow_dust", name: "Poussière d'ombre", category: Material, color: (0.3, 0.22, 0.42), icon: "shadow_dust"),
+        (id: "core:spores", name: "Spores", category: Material, color: (0.78, 0.82, 0.35), icon: "spores"),
         // La nourriture (phase O4).
         (id: "core:raw_pork", name: "Côtelette crue", category: Food, color: (0.9, 0.5, 0.5), icon: "raw_pork", food: (nutrition: 3.0, saturation: 1.8)),
         (id: "core:cooked_pork", name: "Côtelette grillée", category: Food, color: (0.55, 0.32, 0.16), icon: "cooked_pork", food: (nutrition: 8.0, saturation: 12.8)),
+        (id: "core:raw_beef", name: "Bœuf cru", category: Food, color: (0.75, 0.22, 0.2), icon: "raw_beef", food: (nutrition: 3.0, saturation: 1.8)),
+        (id: "core:cooked_beef", name: "Steak", category: Food, color: (0.42, 0.24, 0.13), icon: "cooked_beef", food: (nutrition: 8.0, saturation: 12.8)),
         (id: "core:apple", name: "Pomme", category: Food, color: (0.82, 0.12, 0.1), icon: "apple", food: (nutrition: 4.0, saturation: 2.4)),
         (id: "core:wooden_pickaxe", name: "Pioche en bois", category: Tool, color: (0.6, 0.45, 0.28), icon: "wooden_pickaxe", durability: 60, tool: (kind: Pickaxe, tier: 1, speed: 2.0, damage: 3.0)),
         (id: "core:wooden_axe", name: "Hache en bois", category: Tool, color: (0.6, 0.45, 0.28), icon: "wooden_axe", durability: 60, tool: (kind: Axe, tier: 1, speed: 2.0, damage: 5.0)),

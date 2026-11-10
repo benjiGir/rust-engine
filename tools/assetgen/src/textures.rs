@@ -1021,8 +1021,9 @@ fn bucket(content: Option<[f32; 3]>) -> Image {
     )
 }
 
-/// Une côtelette : la viande, un bord de gras et l'os. Crue (rose) ou grillée (brune).
-fn pork(cooked: bool) -> Image {
+/// Une côtelette : la viande, un bord de gras et l'os. `meat` et `fat` : ses couleurs
+/// (rose cru, brun grillé ; plus rouge pour le bœuf).
+fn chop(meat: [f32; 3], fat: [f32; 3]) -> Image {
     let mask = [
         "................",
         "................",
@@ -1041,11 +1042,6 @@ fn pork(cooked: bool) -> Image {
         "................",
         "................",
     ];
-    let (meat, fat) = if cooked {
-        ([0.55, 0.32, 0.16], [0.82, 0.62, 0.38])
-    } else {
-        ([0.9, 0.5, 0.5], [0.98, 0.88, 0.85])
-    };
     let bone = [0.94, 0.92, 0.85];
     icon(
         &mask,
@@ -1057,6 +1053,30 @@ fn pork(cooked: bool) -> Image {
             ('b', scale(bone, 0.8)),
         ],
     )
+}
+
+/// Une peau tannée : un cuir aux bords irréguliers, avec des coutures.
+fn leather() -> Image {
+    let mask = [
+        "................",
+        "................",
+        "...HH......HH...",
+        "...HHHHHHHHHH...",
+        "....HHhHHhHHH...",
+        "....HHHHHHHH....",
+        "...HHHhHHHhHH...",
+        "...HHHHHHHHHH...",
+        "....HhHHHHhH....",
+        "....HHHHHHHH....",
+        "...HHHHhHHHHH...",
+        "...HH......HH...",
+        "................",
+        "................",
+        "................",
+        "................",
+    ];
+    let hide = [0.58, 0.36, 0.2];
+    icon(&mask, &[('H', hide), ('h', scale(hide, 0.65))])
 }
 
 /// Une pomme rouge, sa queue et une feuille.
@@ -1513,8 +1533,13 @@ fn item_icons(dir: &Path) -> Vec<(PathBuf, Image)> {
     add("bucket", bucket(None));
     add("water_bucket", bucket(Some([0.25, 0.45, 0.95])));
     add("lava_bucket", bucket(Some([1.0, 0.5, 0.1])));
-    add("raw_pork", pork(false));
-    add("cooked_pork", pork(true));
+    add("raw_pork", chop([0.9, 0.5, 0.5], [0.98, 0.88, 0.85]));
+    add("cooked_pork", chop([0.55, 0.32, 0.16], [0.82, 0.62, 0.38]));
+    add("raw_beef", chop([0.75, 0.22, 0.2], [0.95, 0.85, 0.8]));
+    add("cooked_beef", chop([0.42, 0.24, 0.13], [0.7, 0.5, 0.3]));
+    add("leather", leather());
+    add("shadow_dust", material("dust", [0.3, 0.22, 0.42]));
+    add("spores", material("seeds", [0.78, 0.82, 0.35]));
     add("apple", apple());
     out
 }

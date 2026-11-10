@@ -877,17 +877,30 @@ mod tests {
 
     /// Le jour, des cochons ; la nuit, des slimes (le mod d'exemple), jamais l'inverse.
     #[test]
-    fn day_spawns_animals_and_night_spawns_monsters() {
+    fn day_spawns_animals_and_monsters_only_in_the_dark() {
+        // (hostiles au jour, hostiles dans le noir, animaux) : la lumière du ciel à
+        // l'endroit où chacune est apparue, en plein jour.
         let census = |world: &World| {
             let registry = world.resource::<Arc<MobRegistry>>().clone();
-            let mut found = (0, 0);
-            world.query::<(&Mob,)>().for_each(|_, (mob,)| {
-                if registry.get(mob.kind).is_some_and(|d| d.hostile) {
-                    found.0 += 1;
-                } else {
-                    found.1 += 1;
-                }
-            });
+            let shared = world.streamer();
+            let streamer = shared.borrow();
+            let mut found = (0, 0, 0);
+            world
+                .query::<(&Transform, &Mob)>()
+                .for_each(|_, (transform, mob)| {
+                    if registry.get(mob.kind).is_some_and(|d| d.hostile) {
+                        let (sky, block) = streamer
+                            .world()
+                            .light((transform.position + Vec3::Y * 0.5).floor().as_ivec3());
+                        if crate::spawning::effective_light(sky, block, 1.0) > 7 {
+                            found.0 += 1;
+                        } else {
+                            found.1 += 1;
+                        }
+                    } else {
+                        found.2 += 1;
+                    }
+                });
             found
         };
         for night in [false, true] {
@@ -903,16 +916,17 @@ mod tests {
                 crate::spawning::spawn(&mut world);
                 world.apply_commands();
             }
-            let (hostiles, passives) = census(&world);
+            let (lit, dark, passives) = census(&world);
             if night {
                 assert!(
-                    hostiles > 0 && passives == 0,
-                    "nuit : {hostiles} / {passives}"
+                    lit + dark > 0 && passives == 0,
+                    "nuit : {lit} + {dark} / {passives}"
                 );
             } else {
+                // Le jour : des animaux ; des hostiles seulement dans le noir (les grottes).
                 assert!(
-                    passives > 0 && hostiles == 0,
-                    "jour : {hostiles} / {passives}"
+                    passives > 0 && lit == 0,
+                    "jour : {lit} + {dark} / {passives}"
                 );
             }
         }

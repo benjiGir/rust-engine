@@ -12,6 +12,7 @@
         (input: "#logs", output: "charcoal", time: 10.0),
         (input: "cactus", output: "malachite", time: 10.0),
         (input: "raw_pork", output: "cooked_pork", time: 10.0),
+        (input: "raw_beef", output: "cooked_beef", time: 10.0),
     ],
     fuels: [
         ("#coals", 80.0),
