@@ -58,7 +58,13 @@ pub struct PlayerBody {
     /// ou un slime utilisent la même physique avec une autre taille.
     pub width: f32,
     pub height: f32,
+    /// Une poussée horizontale (un coup qui fait reculer), ajoutée à la marche ; elle
+    /// s'amortit vite au sol, plus lentement en l'air.
+    pub impulse: Vec3,
 }
+
+/// L'amortissement de la poussée, par seconde : au sol, en l'air.
+const IMPULSE_DECAY: (f32, f32) = (8.0, 1.5);
 
 impl PlayerBody {
     pub fn new(position: Vec3) -> Self {
@@ -70,6 +76,7 @@ impl PlayerBody {
             submersion: 0.0,
             width: PLAYER_WIDTH,
             height: PLAYER_HEIGHT,
+            impulse: Vec3::ZERO,
         }
     }
 
@@ -131,14 +138,23 @@ impl PlayerBody {
             self.velocity.y *= 1.0 - (2.0 * dt / drag).min(0.9);
             self.velocity.y = self.velocity.y.clamp(-SWIM_SINK_SPEED, SWIM_UP_SPEED);
         } else {
-            self.velocity.x = walk.x;
-            self.velocity.z = walk.z;
+            self.velocity.x = walk.x + self.impulse.x;
+            self.velocity.z = walk.z + self.impulse.z;
             if jump && self.on_ground {
                 self.velocity.y = JUMP_SPEED;
             }
             self.velocity.y = (self.velocity.y - GRAVITY * dt).max(-MAX_FALL_SPEED);
         }
 
+        let decay = if self.on_ground {
+            IMPULSE_DECAY.0
+        } else {
+            IMPULSE_DECAY.1
+        };
+        self.impulse *= 1.0 - (decay * dt).min(1.0);
+        if self.impulse.length_squared() < 1e-4 {
+            self.impulse = Vec3::ZERO;
+        }
         let delta = self.velocity * dt;
         self.on_ground = false;
         // Y d'abord : on sait tout de suite si l'on est posé avant de glisser en X et Z.
@@ -257,6 +273,29 @@ impl PlayerBody {
 mod tests {
     use super::*;
     use crate::registry::test_blocks::stone;
+
+    #[test]
+    fn an_impulse_pushes_then_fades() {
+        let mut world = World::new();
+        for x in -5..30 {
+            for z in -5..5 {
+                world.set_block(IVec3::new(x, 0, z), stone());
+            }
+        }
+        let mut body = PlayerBody::new(Vec3::new(0.5, 1.0, 0.5));
+        body.on_ground = true;
+        body.impulse = Vec3::new(5.0, 0.0, 0.0);
+        for _ in 0..60 {
+            body.step(&world, Vec3::ZERO, false, 1.0 / 60.0);
+        }
+        // Repoussé, sans marcher, puis arrêté : la poussée s'est éteinte.
+        assert!(
+            body.position.x > 0.9 && body.position.x < 3.0,
+            "{}",
+            body.position.x
+        );
+        assert_eq!(body.impulse, Vec3::ZERO);
+    }
 
     const DT: f32 = 1.0 / 60.0;
 

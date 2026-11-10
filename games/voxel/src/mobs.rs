@@ -14,10 +14,12 @@ use glam::{IVec3, Vec3};
 use serde::Deserialize;
 
 use crate::components::{
-    Collider, Flying, Health, Hurt, Mob, MoveIntent, PreviousPosition, Transform, Velocity, Wander,
+    Collider, Flying, Health, Hurt, Impulse, Mob, MoveIntent, PreviousPosition, Transform,
+    Velocity, Wander,
 };
 use crate::events::{self, EntityDied, EntitySpawned, PlayerAttacked, Tick};
 use crate::navigation::{DangerBlocks, PathFollow, SEARCHES_PER_STEP, cell_of};
+use crate::survival::{Senses, SurvivalRules, Vitals};
 
 /// Au plus ce nombre de créatures autour du joueur.
 /// Distance d'apparition (entre les deux) et de disparition, en blocs.
@@ -68,6 +70,8 @@ struct MobFileEntry {
     weight: Option<u32>,
     #[serde(default)]
     dissolves: Option<bool>,
+    #[serde(default)]
+    ranged: Option<crate::projectiles::RangedDef>,
 }
 
 /// Ce que lâche une créature à sa mort : un objet, un nombre (min, max), une chance.
@@ -102,10 +106,12 @@ pub struct MobDef {
     pub drops: Vec<MobDrop>,
     /// L'expérience qu'elle rapporte (min, max).
     pub xp: (u32, u32),
+    /// Une attaque à distance (voir `projectiles.rs`).
+    pub ranged: Option<crate::projectiles::RangedDef>,
 }
 
 /// Toutes les créatures connues. Leur numéro (`Mob::kind`) est leur place dans la liste.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct MobRegistry {
     defs: Vec<MobDef>,
 }
@@ -193,6 +199,7 @@ impl MobRegistry {
                 parts: entry.parts,
                 drops: entry.drops,
                 xp: entry.xp,
+                ranged: entry.ranged,
             });
         }
         Ok(())
@@ -293,6 +300,7 @@ pub fn physics(world: &mut World) {
                     PlayerBody::with_size(transform.position, collider.width, collider.height);
                 body.velocity = velocity.0;
                 body.on_ground = collider.on_ground;
+                body.impulse = world.get::<Impulse>(entity).map_or(Vec3::ZERO, |i| i.0);
                 collider.frozen = !surroundings_ready(&streamer, &body);
                 if collider.frozen {
                     velocity.0 = Vec3::ZERO;
@@ -301,6 +309,9 @@ pub fn physics(world: &mut World) {
                 body.step(streamer.world(), intent.walk, intent.jump, dt);
                 transform.position = body.position;
                 velocity.0 = body.velocity;
+                if let Some(mut impulse) = world.get_mut::<Impulse>(entity) {
+                    impulse.0 = body.impulse;
+                }
                 collider.on_ground = body.on_ground;
                 collider.in_liquid = body.in_liquid;
             },
@@ -322,6 +333,8 @@ pub fn spawn_mob(world: &mut World, kind: u32, position: Vec3) -> Option<Entity>
     ));
     // À part : un « bundle » prend au plus 8 composants.
     world.insert(entity, PathFollow::default());
+    let rules = world.resource::<Arc<SurvivalRules>>().clone();
+    world.insert(entity, MobVitals(Vitals::new(&rules)));
     events::send(
         world,
         EntitySpawned {
@@ -425,6 +438,20 @@ pub fn wander(world: &mut World) {
                 if world.get::<Hurt>(entity).is_some_and(|h| h.timer > 0.2) {
                     direction = Vec3::ZERO;
                 }
+                // Une créature qui tire s'arrête à portée, face au joueur.
+                if chasing && let (Some(ranged), Some(t)) = (def.ranged, target) {
+                    let eye = crate::projectiles::eye_of(position, collider);
+                    let aim_at = t + Vec3::Y * 1.2;
+                    if crate::projectiles::holds_position(&ranged, streamer.world(), eye, aim_at) {
+                        direction = Vec3::ZERO;
+                        let to = aim_at - position;
+                        let wanted = to.z.atan2(to.x);
+                        let delta = (wanted - transform.yaw + std::f32::consts::PI)
+                            .rem_euclid(std::f32::consts::TAU)
+                            - std::f32::consts::PI;
+                        transform.yaw += delta * (dt * 8.0).min(1.0);
+                    }
+                }
                 let speed = if wander.panic > 0.0 {
                     def.speed * 1.5
                 } else {
@@ -446,6 +473,61 @@ pub fn wander(world: &mut World) {
                 intent.jump = direction != Vec3::ZERO && (def.hops || path_jump || blocked);
             },
         );
+}
+
+/// L'état de survie d'une créature : chute, lave, feu (les mêmes règles que le joueur,
+/// sans la noyade : les animaux nagent à la surface).
+#[derive(Debug, Clone)]
+pub struct MobVitals(pub Vitals);
+
+/// Les créatures se blessent comme le joueur : une chute trop haute, la lave, le feu.
+pub fn environment(world: &mut World) {
+    let dt = world.resource::<FixedDt>().0;
+    let player = world.resource::<PlayerEntity>().0;
+    let center = world
+        .get::<Transform>(player)
+        .map(|t| t.position)
+        .unwrap_or_default();
+    let rules = world.resource::<Arc<SurvivalRules>>().clone();
+    let danger = world.resource::<Arc<DangerBlocks>>().clone();
+    let shared = world.streamer();
+    let streamer = shared.borrow();
+    let mut hurt = Vec::new();
+    world
+        .query::<(&Transform, &Collider, &mut MobVitals)>()
+        .for_each(|entity, (transform, collider, vitals)| {
+            if crate::spawning::asleep(world, entity, transform.position, center) {
+                return;
+            }
+            let voxels = streamer.world();
+            let at = |dy: f32| voxels.block((transform.position + Vec3::Y * dy).floor().as_ivec3());
+            let blocks = [at(0.2), at(collider.height * 0.6)];
+            let fluid_damage = blocks.iter().map(|b| danger.damage(*b)).fold(0.0, f32::max);
+            let in_water = blocks
+                .iter()
+                .any(|b| voxels.registry().def(*b).liquid && danger.damage(*b) <= 0.0);
+            let senses = Senses {
+                feet_y: transform.position.y,
+                on_ground: collider.on_ground,
+                in_liquid: collider.in_liquid,
+                in_water,
+                head_under: false,
+                fluid_damage,
+                flying: false,
+            };
+            for (amount, cause) in vitals.0.step(&rules, senses, dt) {
+                if vitals.0.hurt(&rules, amount, cause, 0).is_some() {
+                    hurt.push((entity, amount));
+                }
+            }
+        });
+    drop(streamer);
+    for (entity, amount) in hurt {
+        if let Some(mut health) = world.get_mut::<Health>(entity) {
+            health.current -= amount;
+        }
+        world.insert(entity, Hurt { timer: 0.4 });
+    }
 }
 
 /// Les créatures hostiles blessent le joueur au contact.
@@ -470,7 +552,13 @@ pub fn attack(world: &mut World) {
             }
             wander.attack_cooldown = 1.0;
             // Le jeu applique le coup (armure, invulnérabilité) : voir `survival.rs`.
-            events::send(world, PlayerAttacked { amount: def.damage });
+            events::send(
+                world,
+                PlayerAttacked {
+                    amount: def.damage,
+                    from: transform.position,
+                },
+            );
         });
 }
 
@@ -544,14 +632,23 @@ pub fn hit_mob(world: &World, origin: Vec3, dir: Vec3, max: f32) -> Option<(Enti
 }
 
 /// Un coup : des dégâts, un petit bond en arrière, un éclair rouge.
-pub fn damage_mob(world: &mut World, entity: Entity, amount: f32, from: Vec3) {
+/// Renvoie `false` si le coup tombe pendant son invulnérabilité (juste après un autre
+/// coup) : cliquer très vite ne tue pas plus vite.
+pub fn damage_mob(world: &mut World, entity: Entity, amount: f32, from: Vec3) -> bool {
+    if world.get::<Hurt>(entity).is_some_and(|h| h.timer > 0.0) {
+        return false;
+    }
     if let Some(mut health) = world.get_mut::<Health>(entity) {
         health.current -= amount;
     }
+    // Le recul : un petit bond, et une poussée qui s'amortit (voir `PlayerBody::impulse`).
     if let Some(mut velocity) = world.get_mut::<Velocity>(entity) {
-        let push = Vec3::new(from.x, 0.0, from.z).normalize_or_zero() * 3.0;
-        velocity.0 = push + Vec3::Y * 5.0;
+        velocity.0.y = 5.0;
     }
+    world.insert(
+        entity,
+        Impulse(Vec3::new(from.x, 0.0, from.z).normalize_or_zero() * 5.0),
+    );
     world.insert(entity, Hurt { timer: 0.4 });
     // Un animal fuit ; une créature hostile, elle, ne recule pas.
     let hostile = world
@@ -566,6 +663,7 @@ pub fn damage_mob(world: &mut World, entity: Entity, amount: f32, from: Vec3) {
     if !hostile && let Some(mut wander) = world.get_mut::<Wander>(entity) {
         wander.panic = 4.0;
     }
+    true
 }
 
 /// Les boîtes à dessiner pour toutes les créatures, interpolées entre deux pas.
@@ -705,6 +803,7 @@ mod tests {
         world.insert_resource(SimClock::default());
         world.insert_resource(crate::spawning::Sky::default());
         world.insert_resource(Arc::new(DangerBlocks::default()));
+        world.insert_resource(Arc::new(SurvivalRules::default()));
         events::register(&mut world);
         let player = world.spawn((Transform::default(), Flying));
         world.insert_resource(PlayerEntity(player));
@@ -883,6 +982,104 @@ mod tests {
     }
 
     #[test]
+    fn mobs_get_hurt_by_falls_and_lava() {
+        let mut world = sim();
+        let blocks = blocks();
+        let (stone, lava) = (
+            blocks.id("core:stone").unwrap(),
+            blocks.id("core:lava").unwrap(),
+        );
+        let mut danger = vec![0.0; blocks.len()];
+        danger[lava.0 as usize] = 4.0;
+        world.insert_resource(Arc::new(DangerBlocks(danger)));
+        {
+            let shared = world.streamer();
+            let mut streamer = shared.borrow_mut();
+            // Deux dalles dans le ciel ; sur la seconde, de la lave.
+            for x in 0..3 {
+                for z in 0..3 {
+                    streamer.set_block_raw(IVec3::new(x, 140, z), stone);
+                    streamer.set_block_raw(IVec3::new(x + 10, 140, z), stone);
+                    streamer.set_block_raw(IVec3::new(x + 10, 141, z), lava);
+                }
+            }
+        }
+        let player = world.resource::<PlayerEntity>().0;
+        world.get_mut::<Transform>(player).unwrap().position = Vec3::new(5.0, 141.0, 1.0);
+        let pig = world.resource::<Arc<MobRegistry>>().id("core:pig").unwrap();
+        // Lâché de 20 blocs : 17 de trop, plus que ses 10 points de vie.
+        let falling = spawn_mob(&mut world, pig, Vec3::new(1.5, 161.0, 1.5)).unwrap();
+        let burning = spawn_mob(&mut world, pig, Vec3::new(11.5, 141.0, 1.5)).unwrap();
+        for _ in 0..(3 * 60) {
+            physics(&mut world);
+            environment(&mut world);
+            world.apply_commands();
+        }
+        let health = |e| world.get::<Health>(e).unwrap().current;
+        assert!(
+            health(falling) <= 0.0,
+            "la chute l'a tué : {}",
+            health(falling)
+        );
+        assert!(
+            health(burning) < 10.0,
+            "la lave l'a brûlé : {}",
+            health(burning)
+        );
+    }
+
+    /// Un archer (une créature de test) s'arrête à portée et touche le joueur.
+    #[test]
+    fn ranged_mobs_stop_at_range_and_hit_the_player() {
+        let mut world = sim();
+        let stone = blocks().id("core:stone").unwrap();
+        let mut registry = world.resource::<Arc<MobRegistry>>().as_ref().clone();
+        registry
+            .add_source(
+                "core",
+                r#"[(id: "core:archer", name: "Archer", health: 10.0, speed: 2.0, size: (0.6, 1.8),
+                    hostile: true, spawn_on: [], parts: [],
+                    ranged: (range: 12.0, interval: 1.0, speed: 16.0, damage: 3.0))]"#,
+                "test",
+                &blocks(),
+            )
+            .unwrap();
+        let archer = registry.id("core:archer").unwrap();
+        world.insert_resource(Arc::new(registry));
+        {
+            let shared = world.streamer();
+            let mut streamer = shared.borrow_mut();
+            for x in -10..10 {
+                for z in -3..4 {
+                    streamer.set_block_raw(IVec3::new(x, 150, z), stone);
+                }
+            }
+        }
+        // Le joueur au sol (pas en vol : on ne tire pas sur qui vole).
+        let player = world.resource::<PlayerEntity>().0;
+        world.remove::<Flying>(player);
+        world.get_mut::<Transform>(player).unwrap().position = Vec3::new(6.5, 151.0, 0.5);
+        // À 11 blocs : il poursuit (moins de 14) et il est à portée (12).
+        let mob = spawn_mob(&mut world, archer, Vec3::new(-4.5, 151.0, 0.5)).unwrap();
+        let mut reader = world.resource::<Events<PlayerAttacked>>().reader();
+        let mut hits = 0;
+        for _ in 0..(6 * 60) {
+            wander(&mut world);
+            physics(&mut world);
+            crate::projectiles::shoot(&mut world);
+            crate::projectiles::fly(&mut world);
+            world.apply_commands();
+            hits += reader
+                .read(&world.resource::<Events<PlayerAttacked>>())
+                .count();
+            world.resource_mut::<Events<PlayerAttacked>>().update();
+        }
+        let at = world.get::<Transform>(mob).unwrap().position;
+        assert!(hits >= 2, "au moins deux projectiles au but : {hits}");
+        assert!(at.x < 6.5 - 3.0, "il garde ses distances : {at}");
+    }
+
+    #[test]
     fn entities_wait_frozen_until_the_terrain_is_loaded() {
         let mut world = sim();
         let pig = world.resource::<Arc<MobRegistry>>().id("core:pig").unwrap();
@@ -911,8 +1108,13 @@ mod tests {
         // Le rayon le touche.
         let (hit, _) = hit_mob(&world, Vec3::new(0.0, 60.4, 5.5), Vec3::X, 10.0).unwrap();
         assert_eq!(hit, mob);
-        for _ in 0..3 {
-            damage_mob(&mut world, mob, 4.0, Vec3::X);
+        // Un coup, puis un second aussitôt : ignoré (invulnérable un instant).
+        assert!(damage_mob(&mut world, mob, 4.0, Vec3::X));
+        assert!(!damage_mob(&mut world, mob, 4.0, Vec3::X));
+        // Trois coups, l'invulnérabilité passée entre chacun : 12 > 10 points de vie.
+        for _ in 0..2 {
+            world.remove::<Hurt>(mob);
+            assert!(damage_mob(&mut world, mob, 4.0, Vec3::X));
         }
         cleanup(&mut world);
         world.apply_commands();

@@ -87,6 +87,10 @@ pub struct Wander {
     pub panic: f32,
 }
 
+/// Une poussée horizontale en cours (le recul d'un coup), gardée d'un pas à l'autre.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Impulse(pub Vec3);
+
 /// Clignote en rouge quelques instants après un coup.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Inspect)]
 pub struct Hurt {

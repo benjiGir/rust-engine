@@ -54,6 +54,7 @@ mod modding;
 mod navigation;
 mod persistence;
 mod player;
+mod projectiles;
 mod screenshots;
 mod settings;
 mod shared;
@@ -465,10 +466,12 @@ impl VoxelGame {
                 .map(|i| {
                     fluids
                         .kind_of(BlockId(i as u16))
-                        .is_some_and(|kind| kind.damage > 0.0)
+                        .map_or(0.0, |kind| kind.damage)
                 })
                 .collect(),
         )));
+        // Les règles de survie, aussi pour les créatures (chute, lave, feu).
+        ecs.insert_resource(Arc::new(survival::load_rules(&assets).0));
         ecs.insert_resource(mobs::FixedDt(ctx.fixed_dt));
         ecs.insert_resource(mobs::GameRng(0x2545_F491_4F6C_DD1D ^ seed as u64));
         ecs.insert_resource(mobs::SimClock::default());
@@ -486,7 +489,14 @@ impl VoxelGame {
             .add(Stage::FixedUpdate, "créatures : soleil", spawning::dissolve)
             .add(Stage::FixedUpdate, "créatures : IA", mobs::wander)
             .add(Stage::FixedUpdate, "physique", mobs::physics)
+            .add(
+                Stage::FixedUpdate,
+                "créatures : environnement",
+                mobs::environment,
+            )
             .add(Stage::FixedUpdate, "créatures : attaque", mobs::attack)
+            .add(Stage::FixedUpdate, "créatures : tirs", projectiles::shoot)
+            .add(Stage::FixedUpdate, "projectiles", projectiles::fly)
             .add(Stage::FixedUpdate, "créatures : mort", mobs::cleanup);
         let readers = EventReaders::new(&ecs);
         let mod_readers = EventReaders::new(&ecs);
@@ -818,8 +828,9 @@ impl VoxelGame {
                 ) {
                     Some((mob, _)) => {
                         let damage = self.player_hit_damage();
-                        mobs::damage_mob(&mut self.ecs, mob, damage, self.camera.forward());
-                        self.exert(self.hunger_rules.attack);
+                        if mobs::damage_mob(&mut self.ecs, mob, damage, self.camera.forward()) {
+                            self.exert(self.hunger_rules.attack);
+                        }
                         self.hand.punch();
                         if self.held_tool().is_some() {
                             self.inventory.wear_selected(&self.content.items);
@@ -896,6 +907,7 @@ impl VoxelGame {
         // Le vent dans les feuilles suit le temps réel depuis le lancement.
         self.renderer.time = self.started.elapsed().as_secs_f32();
         let mut mob_boxes = mobs::instances(&self.ecs, alpha);
+        projectiles::instances(&self.ecs, alpha, &mut mob_boxes);
         // Les objets au sol : de petits cubes qui tournent.
         mob_boxes.extend(drops::instances(
             &self.ecs,

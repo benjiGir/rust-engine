@@ -20,6 +20,9 @@ use crate::components::{Collider, Health};
 use crate::events::{self, EntityDied, PlayerAttacked, PlayerDamaged};
 use crate::player::{self, MoveMode};
 
+/// Le recul d'un coup : vitesse horizontale et verticale (blocs par seconde).
+const KNOCKBACK: (f32, f32) = (5.0, 4.5);
+
 /// Une créature morte plus loin ne rapporte pas d'expérience.
 const XP_RADIUS: f32 = 16.0;
 
@@ -510,17 +513,19 @@ impl crate::VoxelGame {
     pub(crate) fn update_vitals(&mut self, dt: f32) {
         let senses = self.senses();
         let hits = self.vitals.step(&self.survival, senses, dt);
-        let attacks: Vec<f32> = self
+        let attacks: Vec<(f32, Vec3)> = self
             .readers
             .attacked
             .read(&self.ecs.resource::<Events<PlayerAttacked>>())
-            .map(|e| e.amount)
+            .map(|e| (e.amount, e.from))
             .collect();
         for (amount, cause) in hits {
             self.hurt_player(amount, cause);
         }
-        for amount in attacks {
-            self.hurt_player(amount, DamageCause::Mob);
+        for (amount, from) in attacks {
+            if self.hurt_player(amount, DamageCause::Mob).is_some() {
+                self.knock_back(from);
+            }
         }
     }
 
@@ -715,6 +720,20 @@ impl crate::VoxelGame {
         }
     }
 
+    /// Un coup venu de `from` : le joueur recule (pas en vol).
+    fn knock_back(&mut self, from: Vec3) {
+        if player::mode(&self.ecs, self.player) == MoveMode::Fly {
+            return;
+        }
+        let at = player::body(&self.ecs, self.player).position;
+        let away = Vec3::new(at.x - from.x, 0.0, at.z - from.z).normalize_or_zero();
+        if let Some(mut velocity) = self.ecs.get_mut::<crate::components::Velocity>(self.player) {
+            velocity.0.y = KNOCKBACK.1;
+        }
+        self.ecs
+            .insert(self.player, crate::components::Impulse(away * KNOCKBACK.0));
+    }
+
     /// Un coup au joueur : invulnérabilité, armure, puis la vie et l'événement
     /// [`PlayerDamaged`] (le son, les mods). Renvoie les dégâts vraiment subis.
     pub(crate) fn hurt_player(&mut self, amount: f32, cause: DamageCause) -> Option<f32> {
@@ -722,6 +741,16 @@ impl crate::VoxelGame {
         let damage = self
             .vitals
             .hurt(&self.survival, amount, cause, protection)?;
+        // L'armure qui a encaissé s'use ; une pièce peut se briser.
+        if protection > 0 && !cause.ignores_armor() {
+            for item in self.inventory.wear_armor(&self.content.items) {
+                let name = self.content.items.get(item).name.clone();
+                self.toast(&format!("{name} : brisé"));
+                if let Some(audio) = &mut self.audio {
+                    audio.play("core:break_glass");
+                }
+            }
+        }
         let left = {
             let mut health = self.ecs.get_mut::<Health>(self.player)?;
             health.current = (health.current - damage).max(0.0);

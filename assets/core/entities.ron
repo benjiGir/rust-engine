@@ -12,6 +12,8 @@
 //   défaut, les hostiles) ;
 // - drops : son butin à sa mort, (item, count : (min, max), chance : 1.0 par défaut) ;
 // - xp : l'expérience qu'elle rapporte (min, max) ;
+// - ranged : une attaque à distance, (range, interval, speed, damage, color) : elle s'arrête
+//   à portée si elle voit le joueur et lui lance des projectiles ;
 // - parts : les boîtes qui la dessinent. offset est le centre de la boîte depuis les
 //   pieds, dans le repère de la créature (+x = devant) ; size sa taille ; color sa couleur.
 [

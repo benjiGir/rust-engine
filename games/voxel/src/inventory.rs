@@ -275,6 +275,24 @@ impl Inventory {
         false
     }
 
+    /// L'armure encaisse un coup : chaque pièce portée s'use d'un point. Renvoie les
+    /// pièces qui se sont brisées.
+    pub fn wear_armor(&mut self, items: &ItemRegistry) -> Vec<ItemId> {
+        let mut broken = Vec::new();
+        for slot in &mut self.armor {
+            let Some(stack) = slot.as_mut() else { continue };
+            let Some(durability) = items.get(stack.item).durability else {
+                continue;
+            };
+            stack.damage += 1;
+            if stack.damage >= durability {
+                broken.push(stack.item);
+                *slot = None;
+            }
+        }
+        broken
+    }
+
     pub fn slot_mut(&mut self, slot: Slot) -> &mut Option<ItemStack> {
         match slot {
             Slot::Main(i) => &mut self.slots[i],
@@ -573,6 +591,24 @@ mod tests {
         let mut logs = Some(ItemStack::new(id(&items, "core:oak_log"), 4));
         click_slot(&mut logs, &mut cursor, &items, |_| true, Click::Take(2));
         assert_eq!(logs.map(|s| s.count), Some(4));
+    }
+
+    #[test]
+    fn armor_wears_out_and_breaks() {
+        let items = items();
+        let mut inv = Inventory::default();
+        let chest = id(&items, "core:iron_chestplate");
+        let durability = items.get(chest).durability.unwrap();
+        inv.armor[1] = Some(ItemStack::new(chest, 1));
+        for _ in 0..durability - 1 {
+            assert!(inv.wear_armor(&items).is_empty());
+        }
+        assert_eq!(
+            inv.wear_armor(&items),
+            vec![chest],
+            "le dernier coup la brise"
+        );
+        assert!(inv.armor[1].is_none());
     }
 
     #[test]

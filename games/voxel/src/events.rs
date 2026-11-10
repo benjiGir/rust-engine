@@ -38,6 +38,8 @@ pub struct EntityDied {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerAttacked {
     pub amount: f32,
+    /// D'où vient le coup (la créature, le projectile) : le joueur recule à l'opposé.
+    pub from: glam::Vec3,
 }
 
 /// Le joueur a perdu de la vie (après l'armure).

@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-9 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | respawn | xp n | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | respawn | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -175,6 +175,8 @@ pub enum Command {
     Respawn,
     /// Gagner des points d'expérience.
     Xp(u32),
+    /// Faire apparaître une créature à 3 blocs devant le joueur.
+    Summon(String),
     /// Régler la faim (de 0 à 20), pour les tests.
     Hunger(f32),
     Screenshot(PathBuf, u32, u32),
@@ -335,6 +337,10 @@ pub fn parse(line: &str) -> Result<Command> {
         "attack" => Command::Attack,
         "use" => Command::Use,
         "respawn" => Command::Respawn,
+        "summon" => {
+            count(&[1])?;
+            Command::Summon(qualified(args[0]))
+        }
         "xp" => {
             count(&[1])?;
             Command::Xp(number(0)?.max(0.0) as u32)
@@ -660,6 +666,17 @@ impl VoxelGame {
                 let pos = self.place_at_target().context("use : rien à faire ici")?;
                 Ok(format!("{{\"ok\":true,\"placed\":{}}}", ivec3(pos)))
             }
+            Command::Summon(key) => {
+                let kind = self
+                    .ecs
+                    .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+                    .id(&key)
+                    .with_context(|| format!("summon : créature inconnue « {key} »"))?;
+                let feet = player::body(&self.ecs, self.player).position;
+                let at = feet + self.camera.forward_flat() * 3.0;
+                crate::mobs::spawn_mob(&mut self.ecs, kind, at).context("summon : impossible")?;
+                Ok(format!("{{\"ok\":true,\"pos\":{}}}", vec3(at)))
+            }
             Command::Xp(points) => {
                 self.grant_xp(points);
                 Ok(self.state_json())
@@ -677,7 +694,9 @@ impl VoxelGame {
                 let (mob, _) = crate::mobs::hit_mob(&self.ecs, eye, forward, crate::REACH)
                     .context("attack : aucune créature visée à portée")?;
                 let damage = self.player_hit_damage();
-                crate::mobs::damage_mob(&mut self.ecs, mob, damage, forward);
+                if !crate::mobs::damage_mob(&mut self.ecs, mob, damage, forward) {
+                    bail!("attack : la créature vient d'être frappée (invulnérable)");
+                }
                 self.exert(self.hunger_rules.attack);
                 Ok(format!("{{\"ok\":true,\"damage\":{damage:.1}}}"))
             }

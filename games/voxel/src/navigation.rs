@@ -26,13 +26,18 @@ const REACHED: f32 = 0.35;
 const STUCK_TIME: f32 = 1.5;
 const STUCK_DISTANCE: f32 = 0.3;
 
-/// Les blocs où une créature ne va jamais (les fluides qui blessent), indexés par bloc.
+/// Les dégâts par seconde de chaque bloc (les fluides qui blessent, la lave), indexés par
+/// bloc : une créature n'y va jamais, et s'y brûle si elle y tombe.
 #[derive(Debug, Clone, Default)]
-pub struct DangerBlocks(pub Vec<bool>);
+pub struct DangerBlocks(pub Vec<f32>);
 
 impl DangerBlocks {
+    pub fn damage(&self, block: BlockId) -> f32 {
+        self.0.get(block.0 as usize).copied().unwrap_or(0.0)
+    }
+
     pub fn is_danger(&self, block: BlockId) -> bool {
-        self.0.get(block.0 as usize).copied().unwrap_or(false)
+        self.damage(block) > 0.0
     }
 }
 
