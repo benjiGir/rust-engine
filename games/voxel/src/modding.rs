@@ -19,6 +19,9 @@ const RANDOM_TICK_RADIUS: i32 = 4;
 /// ... avec 24 blocs tirés par chunk et par tick (un bloc donné : toutes les 70 s en moyenne).
 const RANDOM_TICKS_PER_CHUNK: u32 = 24;
 
+/// Au plus ce nombre de chunks neufs confiés aux scripts par tick de machines.
+const CHUNKS_PER_TICK: usize = 8;
+
 /// Pas de simulation (60 Hz) par tick de machines (20 Hz).
 const STEPS_PER_MACHINE_TICK: u32 = 3;
 
@@ -70,6 +73,8 @@ pub struct ModSystem {
     registry: Arc<BlockRegistry>,
     steps: u32,
     pub last_tick: TickReport,
+    /// Les chunks neufs en attente d'être décorés par les scripts qui s'y intéressent.
+    pending_chunks: std::collections::VecDeque<IVec3>,
     /// Les réglages des mods (`mod_settings.ron`), partagés avec leurs scripts.
     settings: Rc<RefCell<ModSettings>>,
     settings_path: PathBuf,
@@ -142,6 +147,7 @@ impl ModSystem {
             registry,
             steps: 0,
             last_tick: TickReport::default(),
+            pending_chunks: std::collections::VecDeque::new(),
             settings,
             settings_path,
             world_data,
@@ -186,6 +192,29 @@ impl ModSystem {
             RANDOM_TICKS_PER_CHUNK,
             &mut actions,
         );
+        // Les chunks neufs : les scripts abonnés les décorent, au plus quelques-uns par tick et
+        // seulement quand ils ont du budget (un chunk ne doit pas rester sans sa décoration).
+        let fresh = self.world.borrow_mut().take_fresh_chunks();
+        if self
+            .runtime
+            .has_subscribers(engine_mods::abi::EVENT_CHUNK_GENERATED)
+        {
+            self.pending_chunks.extend(fresh);
+            for _ in 0..CHUNKS_PER_TICK {
+                if !self
+                    .runtime
+                    .subscribers_ready(engine_mods::abi::EVENT_CHUNK_GENERATED)
+                {
+                    break;
+                }
+                let Some(chunk) = self.pending_chunks.pop_front() else {
+                    break;
+                };
+                actions.extend(self.dispatch(&ModEvent::ChunkGenerated { chunk }));
+            }
+        } else {
+            self.pending_chunks.clear();
+        }
         // L'événement « tick » pour les scripts qui s'y sont abonnés.
         let tick = self.machines.scheduler().tick();
         actions.extend(self.dispatch(&ModEvent::Tick(tick)));
@@ -346,4 +375,20 @@ pub fn build_stress_factory(system: &mut ModSystem, n: usize, around: IVec3) -> 
 /// Une durée en millisecondes, pour les logs.
 pub fn ms(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.0
+}
+
+/// Le terrain du jeu et des mods (leurs minerais, biomes et structures). Un fichier de mod
+/// invalide est signalé dans les logs, et le monde se génère sans ce qu'apportent les mods.
+pub fn terrain(
+    seed: u32,
+    registry: &Arc<BlockRegistry>,
+    mods: &[(String, PathBuf)],
+) -> anyhow::Result<engine_voxel::TerrainGenerator> {
+    match engine_voxel::TerrainGenerator::with_mods(seed, registry.clone(), mods) {
+        Ok(generator) => Ok(generator),
+        Err(err) => {
+            log::error!("génération du monde des mods refusée : {err:#}");
+            engine_voxel::TerrainGenerator::with_registry(seed, registry.clone())
+        }
+    }
 }

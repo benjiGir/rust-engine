@@ -166,3 +166,40 @@ fn the_world_remembers_crank_turns_and_other_mods_can_ask() {
     assert_eq!(f32::from_le_bytes(speed.try_into().unwrap()), 32.0);
     assert_eq!(h.call("inconnu", b"").unwrap(), None);
 }
+
+/// Le monde généré avec les mods contient les ateliers de Mécanique, tels que décrits par
+/// `structures.ron`.
+#[test]
+fn the_generator_places_workshops_with_their_machines_and_loot() {
+    use engine_voxel::{StructureKind, TerrainGenerator};
+    let h = Harness::for_mod("mecanique").unwrap();
+    let mods = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dirs: Vec<(String, std::path::PathBuf)> = ["example", "mecanique"]
+        .iter()
+        .map(|m| (m.to_string(), mods.join(m)))
+        .collect();
+    let generator = TerrainGenerator::with_mods(7, h.registry.clone(), &dirs).unwrap();
+    let site = generator
+        .structure_sites_in((-3000, -3000), (3000, 3000))
+        .into_iter()
+        .find(|s| s.kind == StructureKind::Template)
+        .expect("un atelier quelque part");
+    let plan = generator.blueprint(&site).unwrap();
+    let press = h.block_id("mecanique:press");
+    let crank = h.block_id("mecanique:crank");
+    assert!(plan.blocks().iter().any(|&(_, b)| b == press), "la presse");
+    assert!(
+        plan.blocks().iter().any(|&(_, b)| b == crank),
+        "la manivelle"
+    );
+    // Le plan n'est pas tourné : la chaîne reste alignée sur X, et le coffre a son butin.
+    let [(chest, inventory)] = plan.chests() else {
+        panic!("un coffre");
+    };
+    assert!(inventory.slots.iter().flatten().count() >= 2);
+    assert!(chest.y > 0);
+    // Les rubis de l'exemple sont dans le générateur (un filon par défaut ne suffit pas à le
+    // prouver : on regarde la liste des minerais).
+    let ruby = h.block_id("example:ruby");
+    assert!(generator.biomes().ores().iter().any(|o| o.block == ruby));
+}

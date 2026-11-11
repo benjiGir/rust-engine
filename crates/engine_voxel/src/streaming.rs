@@ -231,6 +231,9 @@ pub struct ChunkStreamer {
     /// Positions des blocs actifs des chunks arrivés depuis le dernier appel à
     /// [`ChunkStreamer::take_loaded_block_entities`] : les machines doivent les relancer.
     loaded_block_entities: Vec<IVec3>,
+    /// Les chunks générés pour la première fois (ni relus de la sauvegarde, ni vides) depuis le
+    /// dernier appel à [`ChunkStreamer::take_fresh_chunks`] : les mods peuvent les décorer.
+    fresh_chunks: Vec<IVec3>,
     /// La sauvegarde en cours en tâche de fond : les chunks qu'elle écrit et le canal
     /// par lequel elle rendra son résultat.
     saving: Option<(Vec<IVec3>, Receiver<anyhow::Result<SaveReport>>)>,
@@ -277,6 +280,7 @@ impl ChunkStreamer {
             unknown: HashMap::default(),
             remesh_pending: HashSet::default(),
             loaded_block_entities: Vec::new(),
+            fresh_chunks: Vec::new(),
             saving: None,
         }
     }
@@ -904,8 +908,12 @@ impl ChunkStreamer {
                         self.jobs_discarded += 1;
                         continue;
                     }
+                    let fresh = saved.is_none() && chunk.is_some();
                     if let Some(chunk) = chunk {
                         self.world.insert(pos, Arc::new(chunk));
+                    }
+                    if fresh {
+                        self.fresh_chunks.push(pos);
                     }
                     if let Some(unknown) = saved {
                         // Un chunk relu de la sauvegarde diffère de la génération : il doit
@@ -955,6 +963,11 @@ impl ChunkStreamer {
                 }
             }
         }
+    }
+
+    /// Les chunks neufs (générés, pas relus de la sauvegarde) depuis le dernier appel.
+    pub fn take_fresh_chunks(&mut self) -> Vec<IVec3> {
+        std::mem::take(&mut self.fresh_chunks)
     }
 
     /// Les blocs actifs des chunks chargés récemment (et on oublie la liste).

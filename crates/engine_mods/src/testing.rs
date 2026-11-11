@@ -75,7 +75,7 @@ impl Harness {
             }
         }
 
-        let generator = TerrainGenerator::with_registry(1, registry.clone())?;
+        let generator = TerrainGenerator::with_mods(1, registry.clone(), &dirs)?;
         let mut streamer = ChunkStreamer::new(
             generator,
             StreamingConfig {

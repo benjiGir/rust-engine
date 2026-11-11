@@ -33,6 +33,7 @@ mods/example/
 ├── blocks.ron         # ses blocs (facultatif)
 ├── fluids.ron         # ses fluides (facultatif)
 ├── entities.ron       # ses créatures (facultatif)
+├── ores.ron, biomes.ron, structures.ron   # le monde généré (facultatifs)
 ├── items.ron          # ses objets (facultatif)
 ├── machine_recipes.ron # les recettes de ses machines (facultatif)
 ├── textures/          # PNG 16×16, nommés comme dans blocks.ron
@@ -333,6 +334,7 @@ bloqué). Le temps passé dans le mod appelé compte dans **son** budget ; ce qu
 | `EntityDied` (3) | une créature est morte | `x, y, z` (f32), puis le type de créature en UTF-8 |
 | `Tick` (4) | un tick de machines (20 par seconde) | le numéro du tick (u64) |
 | `PlayerDamaged` (5) | le joueur a perdu de la vie | `dégâts, vie restante` (f32) |
+| `ChunkGenerated` (6) | un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde) : le mod peut le décorer | `grille, cx, cy, cz` (i32 ; coordonnées de chunk, 32 blocs de côté) |
 <!-- /hooks:events -->
 
 ### Les appels de machines
@@ -564,6 +566,59 @@ document. Il contient :
 
 Ce qu'il a fallu ajouter à l'API pour l'écrire : les conduits de mods (`conduit:`), et la lecture et
 l'écriture d'une case d'inventaire (`slot`, `set_slot`).
+
+## La génération du monde
+
+Un mod enrichit le terrain de trois façons, de la plus simple à la plus libre. Tout est calculé par
+le moteur, en tâche de fond, à partir de la graine du monde : le même monde a toujours les mêmes
+structures et filons, et rien ne ralentit l'image.
+
+**1. Des minerais** — `ores.ron` du mod (même format que `assets/core/ores.ron` : bloc, altitude,
+taille d'un filon, nombre par chunk, biomes). Le mod d'exemple y met des filons de rubis.
+
+**2. Des biomes** — `biomes.ron` du mod (même format que `assets/core/biomes.ron`).
+
+**3. Des structures** — `structures.ron` du mod. Les sortes du jeu (villages, ruines, donjons, mines)
+ont leur dessin dans le moteur ; un mod ajoute ses propres **plans**, décrits en texte :
+
+```ron
+(
+    structures: [
+        (id: "mon_mod:atelier", kind: Template, template: "atelier", spacing: 12, chance: 0.5, biomes: []),
+    ],
+    templates: {
+        "atelier": (
+            palette: {'#': "core:cobblestone", 'c': "mon_mod:manivelle"},
+            layers: [                       // de bas en haut ; une ligne par z, un caractère par x
+                ["#####", "#####", "#####"],
+                ["#.c.#", "#...#", "#####"],   // `.` : de l'air, espace : le terrain reste
+            ],
+            chests: [((3, 1, 1), "butin")], // (x, y, z) dans le plan, table de butin
+            rotate: false,                  // ne pas tourner au hasard (oui par défaut)
+        ),
+    },
+    loot: { "butin": (rolls: (2, 4), entries: [(item: "core:coal", count: (2, 5), weight: 6)]) },
+)
+```
+
+`spacing` (en chunks) et `chance` règlent la rareté ; `biomes` où le plan apparaît (vide : toutes les
+terres). Le plan est posé sur le point le plus haut de son emprise, avec des fondations jusqu'au sol
+(`foundation`, pierre taillée par défaut), et l'air de son volume est dégagé (`clear: false` pour
+l'éviter). Une palette peut citer un bloc à états par son identifiant complet
+(`mecanique:shaft[axis=x]`) ; comme une rotation ne les tourne pas, mettre `rotate: false` pour un
+plan qui en contient. Les tables de butin d'un mod sont à son nom (`mon_mod:butin`) ; il peut aussi
+utiliser celles du jeu (`ruin`, `village`...). Un fichier invalide est refusé avec la raison dans
+les logs, et le monde se génère sans ce que les mods apportent.
+
+**4. Du code, pour décorer** — l'événement `ChunkGenerated` : quand un chunk **non vide** est généré
+pour la première fois (jamais pour un chunk relu d'une sauvegarde), le script peut le décorer.
+`Event::ChunkGenerated { chunk }` donne ses coordonnées de chunk (`chunk.chunk_origin()` : son coin
+minimal, 32 blocs de côté) ; le script lit et écrit dans ce chunk avec `get_block` et `set_block`
+(hors des chunks chargés, ils échouent). Le jeu confie au plus 8 chunks par tick, et seulement quand
+tous les scripts abonnés ont du budget : un chunk n'est pas perdu parce qu'un mod est occupé.
+Le mod d'exemple y pose un rubis sur le sol de certains chunks (réglage `surface_ruby_chance`).
+Limites : un chunk déchargé avant que son événement soit livré n'est pas décoré, et un chunk entièrement
+vide (de l'air) ne déclenche rien.
 
 ## Les coûts mesurés
 

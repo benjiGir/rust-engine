@@ -468,6 +468,12 @@ fn event_numbers_match_the_catalog() {
                 health_left: 19.0,
             },
         ),
+        (
+            "ChunkGenerated",
+            ModEvent::ChunkGenerated {
+                chunk: IVec3::new(1, 2, 3),
+            },
+        ),
     ];
     assert_eq!(events.len(), catalog.events.len(), "un événement sans test");
     for (name, event) in events {

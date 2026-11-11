@@ -193,11 +193,33 @@ impl TerrainGenerator {
         Self::with_biomes(seed, registry, biomes)
     }
 
+    /// Un générateur qui utilise aussi les minerais, biomes et structures des mods (leurs
+    /// `ores.ron`, `biomes.ron` et `structures.ron`, dans l'ordre de chargement). Un fichier de
+    /// mod invalide est une erreur.
+    pub fn with_mods(
+        seed: u32,
+        registry: Arc<BlockRegistry>,
+        mods: &[(String, std::path::PathBuf)],
+    ) -> Result<Self> {
+        let biomes = Arc::new(BiomeRegistry::load_mods(&registry, mods)?);
+        let sources = structures::mod_sources(mods)?;
+        Self::build(seed, registry, biomes, &sources)
+    }
+
     /// Un générateur avec ses propres biomes. Échoue s'il manque un des blocs de base.
     pub fn with_biomes(
         seed: u32,
         registry: Arc<BlockRegistry>,
         biomes: Arc<BiomeRegistry>,
+    ) -> Result<Self> {
+        Self::build(seed, registry, biomes, &[])
+    }
+
+    fn build(
+        seed: u32,
+        registry: Arc<BlockRegistry>,
+        biomes: Arc<BiomeRegistry>,
+        structure_sources: &[(String, String, String)],
     ) -> Result<Self> {
         let blocks = TerrainBlocks::resolve(&registry)?;
         // Chaque bruit reçoit une graine différente, dérivée de la graine du monde,
@@ -214,7 +236,8 @@ impl TerrainGenerator {
             .filter(|(_, b)| b.kind == BiomeKind::Land)
             .map(|(id, _)| id)
             .collect();
-        let (structures, structure_blocks) = structures::load(&registry, &biomes);
+        let (structures, structure_blocks) =
+            structures::load(&registry, &biomes, structure_sources)?;
         Ok(Self {
             seed,
             structures,

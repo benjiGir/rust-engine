@@ -1,0 +1,88 @@
+// Les structures de Mécanique, ajoutées à celles du jeu (villages, ruines...) par le
+// générateur du monde.
+//
+// Un **plan** (`templates`) décrit une structure en couches de texte, de bas en haut ; dans
+// chaque couche, une ligne par `z` et un caractère par `x` :
+// - un caractère de la `palette` pose son bloc (un bloc à états s'écrit avec son identifiant
+//   complet, comme `mecanique:shaft[axis=x]`) ;
+// - `.` pose de l'air, un espace laisse le terrain tel quel ;
+// - `chests` : (x, y, z) dans le plan et la table de butin du coffre ;
+// - `rotate: false` : ne pas tourner le plan au hasard (ici les arbres sont orientés) ;
+// - `foundation` : de quoi combler le vide sous le plan (pierre taillée par défaut) ;
+// - `clear` : dégager l'air dans son volume (oui par défaut).
+//
+// `kind: Template` place le plan : `spacing` (en chunks) et `chance` règlent sa rareté,
+// `biomes` où il apparaît (vide : toutes les terres). Les emplacements ne dépendent que de la
+// graine du monde.
+(
+    structures: [
+        (id: "mecanique:workshop", kind: Template, template: "workshop",
+         spacing: 12, chance: 0.5, biomes: []),
+    ],
+    templates: {
+        "workshop": (
+            palette: {
+                '#': "core:cobblestone",
+                'p': "core:oak_planks",
+                'w': "core:glass",
+                'c': "mecanique:crank",
+                's': "mecanique:shaft[axis=x]",
+                'g': "mecanique:gear[axis=x]",
+                'm': "mecanique:press",
+            },
+            layers: [
+                // Le sol.
+                [
+                    "#########",
+                    "#########",
+                    "#########",
+                    "#########",
+                    "#########",
+                    "#########",
+                    "#########",
+                ],
+                // Les murs, la porte (en haut) et la chaîne de machines : manivelle, arbre,
+                // engrenage, arbre, presse.
+                [
+                    "####.####",
+                    "#.......#",
+                    "#.......#",
+                    "#csgsm..#",
+                    "#.......#",
+                    "#.......#",
+                    "#########",
+                ],
+                [
+                    "####.####",
+                    "#.......#",
+                    "#.......#",
+                    "w.......w",
+                    "#.......#",
+                    "#.......#",
+                    "#########",
+                ],
+                // Le toit.
+                [
+                    "ppppppppp",
+                    "ppppppppp",
+                    "ppppppppp",
+                    "ppppppppp",
+                    "ppppppppp",
+                    "ppppppppp",
+                    "ppppppppp",
+                ],
+            ],
+            chests: [((7, 1, 4), "workshop")],
+            rotate: false,
+        ),
+    },
+    loot: {
+        "workshop": (rolls: (2, 4), entries: [
+            (item: "mecanique:iron_plate", count: (1, 3), weight: 8),
+            (item: "mecanique:copper_plate", count: (1, 3), weight: 8),
+            (item: "core:iron_ingot", count: (1, 2), weight: 5),
+            (item: "core:coal", count: (2, 5), weight: 6),
+            (item: "core:stick", count: (2, 6), weight: 6),
+        ]),
+    },
+)

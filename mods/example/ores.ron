@@ -1,0 +1,6 @@
+// Les minerais du mod : posés par le générateur du monde après le terrain (voir
+// assets/core/ores.ron pour la signification des champs). Ici, des filons de rubis en
+// profondeur : un bloc de rubis, qu'on peut miner et reposer.
+[
+    (block: "ruby", height: (2, 50), size: 4, per_chunk: 3.0),
+]

@@ -25,6 +25,34 @@ fn break_period() -> u32 {
     mod_sdk::setting_i32("break_period", DEFAULT_BREAK_PERIOD).clamp(5, 200) as u32
 }
 
+/// Un chunk neuf reçoit un rubis en surface 1 fois sur N (0 : jamais).
+fn surface_ruby_chance() -> u32 {
+    mod_sdk::setting_i32("surface_ruby_chance", 24).clamp(0, 1000) as u32
+}
+
+/// Décore un chunk neuf : un rubis posé sur le sol, à un endroit tiré au hasard. On descend
+/// le long d'une colonne jusqu'à trouver de l'air au-dessus d'un bloc plein. Écrire dans le
+/// chunk annoncé seulement : les blocs hors des chunks chargés ne se posent pas.
+fn decorate(chunk: Pos, ruby: Block) {
+    let chance = surface_ruby_chance();
+    if chance == 0 || !mod_sdk::random().is_multiple_of(chance) {
+        return;
+    }
+    let origin = chunk.chunk_origin();
+    let (dx, dz) = (
+        (mod_sdk::random() % mod_sdk::CHUNK_SIZE as u32) as i32,
+        (mod_sdk::random() % mod_sdk::CHUNK_SIZE as u32) as i32,
+    );
+    for dy in (0..mod_sdk::CHUNK_SIZE - 1).rev() {
+        let here = Pos::new(origin.x + dx, origin.y + dy, origin.z + dz);
+        let above = Pos::new(here.x, here.y + 1, here.z);
+        if mod_sdk::get_block(here) != Block::AIR && mod_sdk::get_block(above) == Block::AIR {
+            mod_sdk::set_block(above, ruby);
+            return;
+        }
+    }
+}
+
 /// Un rubis tombe 1 fois sur N.
 fn ruby_chance() -> u32 {
     mod_sdk::setting_i32("ruby_chance", DEFAULT_RUBY_CHANCE).clamp(1, 64) as u32
@@ -165,11 +193,13 @@ impl Mod for Example {
         self.breaker = find("example:breaker");
         mod_sdk::subscribe(EventKind::BlockBroken);
         mod_sdk::subscribe(EventKind::BlockPlaced);
+        mod_sdk::subscribe(EventKind::ChunkGenerated);
         mod_sdk::log("prêt : casseur et rubis");
     }
 
     fn event(&mut self, event: Event) {
         match event {
+            Event::ChunkGenerated { chunk } => decorate(chunk, self.ruby),
             Event::BlockBroken { block, .. } if block == self.stone => {
                 if mod_sdk::random().is_multiple_of(ruby_chance()) {
                     mod_sdk::give_item(self.ruby, 1);

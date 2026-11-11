@@ -53,3 +53,66 @@ fn the_toggle_disables_the_breaker_and_refreshes_the_menu() {
             .any(|a| matches!(a, MachineAction::ShowMenu { .. }))
     );
 }
+
+#[test]
+fn new_chunks_get_a_surface_ruby() {
+    use engine_mods::ModEvent;
+    let mut h = Harness::for_mod("example").unwrap();
+    // Un rubis dans chaque chunk neuf qui a une surface (réglage forcé à 1 sur 1).
+    h.settings
+        .borrow_mut()
+        .set("example", "surface_ruby_chance", "1");
+    let ruby = h.block_id("example:ruby");
+    // Les filons de rubis du terrain existent déjà : on compte ce que le script ajoute.
+    let count = |h: &Harness| {
+        let streamer = h.streamer.borrow();
+        let mut n = 0;
+        for x in -32..64 {
+            for z in -32..64 {
+                for y in 0..128 {
+                    n += usize::from(streamer.world().block(IVec3::new(x, y, z)) == ruby);
+                }
+            }
+        }
+        n
+    };
+    let before = count(&h);
+    for cx in -1..=1 {
+        for cz in -1..=1 {
+            for cy in 0..3 {
+                h.event(&ModEvent::ChunkGenerated {
+                    chunk: IVec3::new(cx, cy, cz),
+                })
+                .unwrap();
+                h.next_tick();
+            }
+        }
+    }
+    let placed = count(&h) - before;
+    assert!(placed >= 3, "{placed} rubis de surface ajoutés");
+    // Désactivé par le réglage : rien n'est posé (les filons de rubis du terrain, eux, existent déjà).
+    let mut off = Harness::for_mod("example").unwrap();
+    off.settings
+        .borrow_mut()
+        .set("example", "surface_ruby_chance", "0");
+    let count_chunk = |h: &Harness| {
+        let streamer = h.streamer.borrow();
+        let mut n = 0;
+        for x in 0..32 {
+            for y in 0..96 {
+                for z in 0..32 {
+                    n += usize::from(streamer.world().block(IVec3::new(x, y, z)) == ruby);
+                }
+            }
+        }
+        n
+    };
+    let before = count_chunk(&off);
+    for cy in 0..3 {
+        off.event(&ModEvent::ChunkGenerated {
+            chunk: IVec3::new(0, cy, 0),
+        })
+        .unwrap();
+    }
+    assert_eq!(count_chunk(&off), before);
+}

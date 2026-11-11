@@ -45,6 +45,8 @@ pub enum StructureKind {
     Ruin,
     Dungeon,
     Mine,
+    /// Un plan décrit dans les données (`templates` de `structures.ron`) : voir [`Template`].
+    Template,
 }
 
 impl StructureKind {
@@ -55,6 +57,8 @@ impl StructureKind {
             Self::Ruin => 12,
             Self::Dungeon => 10,
             Self::Mine => 70,
+            // Le rayon d'un plan dépend de sa taille : `StructureDef::radius`.
+            Self::Template => 0,
         }
     }
 }
@@ -68,7 +72,70 @@ struct StructureEntry {
     chance: f32,
     #[serde(default)]
     biomes: Vec<String>,
+    /// La table de butin (obligatoire sauf pour un plan, dont les coffres nomment la leur).
+    #[serde(default)]
     loot: String,
+    /// Pour `kind: Template` : le nom du plan.
+    #[serde(default)]
+    template: Option<String>,
+}
+
+/// Un plan dans un fichier : une palette (un caractère → un bloc), des couches de texte
+/// (de bas en haut ; chaque couche a une ligne par `z` et un caractère par `x`), des coffres.
+///
+/// Dans une couche : un caractère de la palette pose son bloc, `.` pose de l'air, un espace
+/// laisse le terrain.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TemplateEntry {
+    palette: HashMap<char, String>,
+    layers: Vec<Vec<String>>,
+    /// Les coffres : (x, y, z) dans le plan, et leur table de butin.
+    #[serde(default)]
+    chests: Vec<((i32, i32, i32), String)>,
+    /// Le bloc qui comble le vide sous le plan, jusqu'au sol (de la pierre taillée par défaut).
+    #[serde(default)]
+    foundation: Option<String>,
+    /// Dégager l'air dans le volume du plan avant de le poser (oui par défaut) : sans cela, un
+    /// plan posé sur une pente resterait enfoui.
+    #[serde(default = "yes")]
+    clear: bool,
+    /// Tourner le plan au hasard d'un quart de tour (oui par défaut). À éteindre si le plan
+    /// contient des blocs à états orientés (une rotation ne les tourne pas).
+    #[serde(default = "yes")]
+    rotate: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// Ce qu'un caractère d'un plan pose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Cell {
+    Air,
+    Block(BlockId),
+}
+
+/// Un plan de structure, résolu : prêt à être posé par le générateur.
+#[derive(Debug, Clone)]
+pub struct Template {
+    w: i32,
+    d: i32,
+    h: i32,
+    /// (x, y, z) dans le plan, et ce qu'on y pose (les espaces n'y sont pas).
+    cells: Vec<(IVec3, Cell)>,
+    chests: Vec<(IVec3, String)>,
+    foundation: BlockId,
+    clear: bool,
+    rotate: bool,
+}
+
+impl Template {
+    /// La plus grande dimension horizontale, en blocs.
+    pub fn size(&self) -> i32 {
+        self.w.max(self.d)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -90,7 +157,10 @@ pub struct ChestLoot {
 #[serde(deny_unknown_fields)]
 struct StructuresFile {
     structures: Vec<StructureEntry>,
+    #[serde(default)]
     loot: HashMap<String, ChestLoot>,
+    #[serde(default)]
+    templates: HashMap<String, TemplateEntry>,
 }
 
 /// Une sorte de structure et où elle peut apparaître.
@@ -102,6 +172,10 @@ pub struct StructureDef {
     pub chance: f32,
     pub biomes: Vec<BiomeId>,
     pub loot: String,
+    /// Jusqu'où elle s'étend depuis son point (en blocs).
+    pub radius: i32,
+    /// Son plan, pour `kind: Template`.
+    pub template: Option<Template>,
 }
 
 /// Toutes les structures du jeu et leurs tables de butin.
@@ -111,31 +185,109 @@ pub struct StructureSet {
     loot: HashMap<String, ChestLoot>,
 }
 
+/// Le nom d'une table de butin ou d'un plan : `ruin` dans le fichier de `core` reste `ruin`
+/// (les tables du jeu n'ont pas d'espace de noms), `ruin` dans celui d'un mod devient `mod:ruin`.
+fn scoped(name: &str, namespace: &str) -> String {
+    if name.contains(':') || namespace == "core" {
+        name.to_string()
+    } else {
+        format!("{namespace}:{name}")
+    }
+}
+
 impl StructureSet {
     pub fn builtin(biomes: &BiomeRegistry) -> Result<Self> {
         Self::parse(BUILTIN_STRUCTURES, "structures.ron intégré", biomes)
     }
 
+    /// Un fichier de structures seul, sans plans (le jeu de base n'en a pas).
     pub fn parse(text: &str, origin: &str, biomes: &BiomeRegistry) -> Result<Self> {
+        let mut set = Self {
+            defs: Vec::new(),
+            loot: HashMap::new(),
+        };
+        set.add_source("core", text, origin, biomes, None)?;
+        Ok(set)
+    }
+
+    /// Ajoute les structures, tables de butin et plans d'un fichier (`core`, puis chaque mod
+    /// dans l'ordre). Un plan a besoin du registre de blocs pour résoudre sa palette.
+    pub fn add_source(
+        &mut self,
+        namespace: &str,
+        text: &str,
+        origin: &str,
+        biomes: &BiomeRegistry,
+        blocks: Option<&BlockRegistry>,
+    ) -> Result<()> {
         let file: StructuresFile = ron::Options::default()
             .with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME)
             .from_str(text)
             .with_context(|| format!("{origin} : RON invalide"))?;
-        let mut defs = Vec::new();
+        for (name, table) in &file.loot {
+            if table.entries.is_empty() || table.entries.iter().all(|e| e.weight == 0) {
+                bail!("{origin} : la table « {name} » n'a aucune entrée");
+            }
+            let key = scoped(name, namespace);
+            if self.loot.insert(key.clone(), table.clone()).is_some() {
+                bail!("{origin} : la table de butin « {key} » est définie deux fois");
+            }
+        }
+        // Les plans de ce fichier, résolus une fois.
+        let mut templates: HashMap<String, Template> = HashMap::new();
+        for (name, entry) in &file.templates {
+            let blocks = blocks.with_context(|| {
+                format!("{origin} : les plans (« {name} ») ont besoin du registre de blocs")
+            })?;
+            let template = self
+                .resolve_template(namespace, name, entry, blocks, origin)
+                .with_context(|| format!("{origin} : plan « {name} »"))?;
+            templates.insert(scoped(name, namespace), template);
+        }
         for entry in file.structures {
+            if entry.id.split_once(':').map(|(ns, _)| ns) != Some(namespace) {
+                bail!(
+                    "{origin} : la structure « {} » doit commencer par « {namespace}: »",
+                    entry.id
+                );
+            }
+            if self.defs.iter().any(|d| d.key == entry.id) {
+                bail!(
+                    "{origin} : la structure « {} » est définie deux fois",
+                    entry.id
+                );
+            }
             if entry.spacing < 2 || !(0.0..=1.0).contains(&entry.chance) {
                 bail!(
                     "{origin} : « {} » : spacing d'au moins 2 et chance entre 0 et 1",
                     entry.id
                 );
             }
-            if !file.loot.contains_key(&entry.loot) {
-                bail!(
-                    "{origin} : « {} » : la table de butin « {} » n'existe pas",
-                    entry.id,
-                    entry.loot
-                );
-            }
+            let (loot, template, radius) = if entry.kind == StructureKind::Template {
+                let name = entry
+                    .template
+                    .as_deref()
+                    .with_context(|| format!("{origin} : « {} » : `template` manque", entry.id))?;
+                let key = scoped(name, namespace);
+                let template = templates.get(&key).cloned().with_context(|| {
+                    format!(
+                        "{origin} : « {} » : plan « {key} » inconnu (dans ce fichier)",
+                        entry.id
+                    )
+                })?;
+                let radius = template.size() + 2;
+                (String::new(), Some(template), radius)
+            } else {
+                let key = scoped(&entry.loot, namespace);
+                if !self.loot.contains_key(&key) {
+                    bail!(
+                        "{origin} : « {} » : la table de butin « {} » n'existe pas",
+                        entry.id,
+                        entry.loot
+                    );
+                }
+                (key, None, entry.kind.radius())
+            };
             let ids = entry
                 .biomes
                 .iter()
@@ -145,23 +297,97 @@ impl StructureSet {
                         .with_context(|| format!("{origin} : biome « {key} » inconnu"))
                 })
                 .collect::<Result<Vec<_>>>()?;
-            defs.push(StructureDef {
+            self.defs.push(StructureDef {
                 key: entry.id,
                 kind: entry.kind,
                 spacing: entry.spacing,
                 chance: entry.chance,
                 biomes: ids,
-                loot: entry.loot,
+                loot,
+                radius,
+                template,
             });
         }
-        for (name, table) in &file.loot {
-            if table.entries.is_empty() || table.entries.iter().all(|e| e.weight == 0) {
-                bail!("{origin} : la table « {name} » n'a aucune entrée");
+        // Les coffres des plans nomment des tables qui doivent exister (ici ou dans `core`).
+        for def in &self.defs {
+            for (_, table) in def.template.iter().flat_map(|t| &t.chests) {
+                if !self.loot.contains_key(table) {
+                    bail!(
+                        "{origin} : le plan de « {} » : la table de butin « {table} » n'existe pas",
+                        def.key
+                    );
+                }
             }
         }
-        Ok(Self {
-            defs,
-            loot: file.loot,
+        Ok(())
+    }
+
+    fn resolve_template(
+        &self,
+        namespace: &str,
+        name: &str,
+        entry: &TemplateEntry,
+        blocks: &BlockRegistry,
+        origin: &str,
+    ) -> Result<Template> {
+        let block = |key: &str| {
+            let key = qualify_block(key, namespace);
+            blocks
+                .id(&key)
+                .with_context(|| format!("bloc inconnu « {key} »"))
+        };
+        if entry.layers.is_empty() {
+            bail!("aucune couche");
+        }
+        let d = entry.layers.iter().map(Vec::len).max().unwrap_or(0) as i32;
+        let w = entry
+            .layers
+            .iter()
+            .flatten()
+            .map(|row| row.chars().count())
+            .max()
+            .unwrap_or(0) as i32;
+        if w == 0 || d == 0 || w > 64 || d > 64 || entry.layers.len() > 64 {
+            bail!("taille invalide (1 à 64 blocs par côté, 64 couches au plus)");
+        }
+        let mut cells = Vec::new();
+        for (y, layer) in entry.layers.iter().enumerate() {
+            for (z, row) in layer.iter().enumerate() {
+                for (x, c) in row.chars().enumerate() {
+                    let p = IVec3::new(x as i32, y as i32, z as i32);
+                    match c {
+                        ' ' => {}
+                        '.' => cells.push((p, Cell::Air)),
+                        c => {
+                            let key = entry.palette.get(&c).with_context(|| {
+                                format!("« {c} » (couche {y}, ligne {z}) n'est pas dans la palette")
+                            })?;
+                            cells.push((p, Cell::Block(block(key)?)));
+                        }
+                    }
+                }
+            }
+        }
+        let mut chests = Vec::new();
+        for ((x, y, z), table) in &entry.chests {
+            if *x < 0 || *y < 0 || *z < 0 || *x >= w || *y >= entry.layers.len() as i32 || *z >= d {
+                bail!("un coffre est hors du plan ({x}, {y}, {z})");
+            }
+            chests.push((IVec3::new(*x, *y, *z), scoped(table, namespace)));
+        }
+        let _ = (name, origin);
+        Ok(Template {
+            w,
+            d,
+            h: entry.layers.len() as i32,
+            cells,
+            chests,
+            foundation: match &entry.foundation {
+                Some(key) => block(key)?,
+                None => block("core:cobblestone")?,
+            },
+            clear: entry.clear,
+            rotate: entry.rotate,
         })
     }
 
@@ -178,6 +404,15 @@ impl StructureSet {
         self.loot
             .values()
             .flat_map(|t| t.entries.iter().map(|e| e.item.as_str()))
+    }
+}
+
+/// Un nom de bloc d'un plan : sans « : », il est dans l'espace de noms du fichier.
+fn qualify_block(name: &str, namespace: &str) -> String {
+    if name.contains(':') {
+        name.to_string()
+    } else {
+        format!("{namespace}:{name}")
     }
 }
 
@@ -411,10 +646,73 @@ impl Builder<'_> {
         }
     }
 
+    /// Pose un plan décrit dans les données, centré en (x, z), sur le sol, au besoin tourné.
+    fn template(&mut self, x: i32, z: i32, t: &Template, set: &StructureSet) {
+        let k = if t.rotate { self.rng.below(4) as u8 } else { 0 };
+        let frame = Frame {
+            origin: IVec3::ZERO,
+            k,
+            w: t.w,
+            d: t.d,
+        };
+        let (ew, ed) = frame.extent();
+        let (x0, z0) = (x - ew / 2, z - ed / 2);
+        let frame = Frame {
+            origin: IVec3::new(x0, 0, z0),
+            ..frame
+        };
+        // Le sol du plan : le point le plus haut de son emprise (il ne s'enfouit pas).
+        let ground = (0..ed)
+            .flat_map(|dz| (0..ew).map(move |dx| (x0 + dx, z0 + dz)))
+            .map(|(px, pz)| self.height(px, pz))
+            .max()
+            .unwrap_or(SEA_LEVEL);
+        let y0 = ground + 1;
+        let at = |p: IVec3| {
+            let mapped = frame.map(p.x, 0, p.z);
+            IVec3::new(mapped.x, y0 + p.y, mapped.z)
+        };
+        if t.clear {
+            for dz in 0..t.d {
+                for dx in 0..t.w {
+                    for dy in 0..t.h {
+                        self.air(at(IVec3::new(dx, dy, dz)));
+                    }
+                }
+            }
+        }
+        // Les fondations : sous chaque colonne dont la couche du bas pose un bloc, jusqu'au sol.
+        for &(p, cell) in &t.cells {
+            if p.y == 0 && matches!(cell, Cell::Block(_)) {
+                let top = at(p);
+                let h = self.height(top.x, top.z);
+                for yy in (h + 1).max(y0 - 12)..y0 {
+                    self.put(IVec3::new(top.x, yy, top.z), t.foundation);
+                }
+            }
+        }
+        for &(p, cell) in &t.cells {
+            match cell {
+                Cell::Air => self.air(at(p)),
+                Cell::Block(block) => self.put(at(p), block),
+            }
+        }
+        for (p, table) in &t.chests {
+            if let Some(loot) = set.loot.get(table) {
+                self.chest_with(at(*p), loot);
+            }
+        }
+    }
+
     /// Un coffre rempli selon la table de butin de la structure.
     fn chest(&mut self, p: IVec3) {
-        let mut inventory = Inventory::new(crate::containers::CHEST_SLOTS);
         let table = self.loot;
+        self.chest_with(p, table);
+    }
+
+    /// Un coffre rempli selon cette table de butin.
+    fn chest_with(&mut self, p: IVec3, table: &ChestLoot) {
+        let mut inventory = Inventory::new(crate::containers::CHEST_SLOTS);
         let rolls = table.rolls.0 + self.rng.below(table.rolls.1 - table.rolls.0 + 1);
         let total: u32 = table.entries.iter().map(|e| e.weight).sum();
         for _ in 0..rolls {
@@ -1033,7 +1331,7 @@ impl TerrainGenerator {
         let mut rng = Rng64::new(hash3(self.seed, cx, d as i32, cz, 700 + d as u64));
         let present = rng.next_f32() < def.chance;
         // Loin des bords de la case : deux structures voisines ne se touchent pas.
-        let margin = (cell / 4).min(def.kind.radius());
+        let margin = (cell / 4).min(def.radius);
         let span = (cell - 2 * margin).max(1) as u32;
         let x = cx * cell + margin + rng.below(span) as i32;
         let z = cz * cell + margin + rng.below(span) as i32;
@@ -1067,6 +1365,7 @@ impl TerrainGenerator {
             StructureKind::Ruin => column.height > SEA_LEVEL,
             StructureKind::Dungeon => column.height > SEA_LEVEL - 2,
             StructureKind::Mine => column.height > SEA_LEVEL + 3,
+            StructureKind::Template => column.height > SEA_LEVEL,
         };
         ok.then_some(StructureSite {
             def: d,
@@ -1085,7 +1384,7 @@ impl TerrainGenerator {
         let mut sites = Vec::new();
         for (d, def) in set.defs.iter().enumerate() {
             let cell = def.spacing * CHUNK_SIZE as i32;
-            let reach = def.kind.radius();
+            let reach = def.radius;
             for cz in (min.1 - reach).div_euclid(cell)..=(max.1 + reach).div_euclid(cell) {
                 for cx in (min.0 - reach).div_euclid(cell)..=(max.0 + reach).div_euclid(cell) {
                     if let Some(site) = self.site_in_cell(d, cx, cz)
@@ -1113,7 +1412,16 @@ impl TerrainGenerator {
         let set = self.structures.as_ref()?;
         let blocks = self.structure_blocks.as_ref()?;
         let def = set.defs.get(site.def)?;
-        let loot = set.loot.get(&def.loot)?;
+        // Un plan n'a pas de table propre : ses coffres nomment les leurs.
+        static EMPTY_LOOT: std::sync::OnceLock<ChestLoot> = std::sync::OnceLock::new();
+        let loot = match set.loot.get(&def.loot) {
+            Some(loot) => loot,
+            None if def.template.is_some() => EMPTY_LOOT.get_or_init(|| ChestLoot {
+                rolls: (0, 0),
+                entries: Vec::new(),
+            }),
+            None => return None,
+        };
         let mut builder = Builder {
             world: self,
             b: blocks,
@@ -1132,6 +1440,11 @@ impl TerrainGenerator {
             StructureKind::Ruin => builder.ruin(site.x, site.z),
             StructureKind::Dungeon => builder.dungeon(site.x, site.z),
             StructureKind::Mine => builder.mine(site.x, site.z),
+            StructureKind::Template => {
+                if let Some(template) = &def.template {
+                    builder.template(site.x, site.z, template, set);
+                }
+            }
         }
         Some(builder.bp)
     }
@@ -1191,17 +1504,38 @@ impl TerrainGenerator {
     }
 }
 
-/// Construit les structures d'un monde, ou `None` si un bloc manque.
+/// Les fichiers `structures.ron` des mods : (espace de noms, texte, origine).
+pub(super) fn mod_sources(
+    mods: &[(String, std::path::PathBuf)],
+) -> Result<Vec<(String, String, String)>> {
+    let mut out = Vec::new();
+    for (namespace, dir) in mods {
+        let path = dir.join("structures.ron");
+        if path.exists() {
+            let text = std::fs::read_to_string(&path)
+                .with_context(|| format!("lecture de {}", path.display()))?;
+            out.push((namespace.clone(), text, path.display().to_string()));
+        }
+    }
+    Ok(out)
+}
+
+/// Construit les structures d'un monde (celles du jeu, puis celles des mods), ou `None` si un
+/// bloc de base manque. Un fichier de mod invalide est une erreur : il est refusé en entier.
 pub(super) fn load(
     registry: &BlockRegistry,
     biomes: &BiomeRegistry,
-) -> (Option<StructureSet>, Option<StructureBlocks>) {
+    sources: &[(String, String, String)],
+) -> Result<(Option<StructureSet>, Option<StructureBlocks>)> {
     let blocks = StructureBlocks::resolve(registry);
     let set = StructureSet::builtin(biomes).ok();
-    if blocks.is_none() || set.is_none() {
-        return (None, None);
+    let (Some(blocks), Some(mut set)) = (blocks, set) else {
+        return Ok((None, None));
+    };
+    for (namespace, text, origin) in sources {
+        set.add_source(namespace, text, origin, biomes, Some(registry))?;
     }
-    (set, blocks)
+    Ok((Some(set), Some(blocks)))
 }
 
 #[cfg(test)]
@@ -1379,5 +1713,112 @@ mod tests {
             }
             assert_eq!(seen.len(), (ex * ez) as usize);
         }
+    }
+
+    const HUT: &str = r#"(
+        structures: [(id: "test:hut", kind: Template, template: "hut", spacing: 6, chance: 1.0)],
+        templates: {"hut": (
+            palette: {'=': "core:cobblestone", 'g': "core:glass"},
+            layers: [["===", "==="], ["=g=", "=.="]],
+            chests: [((1, 1, 1), "stash")],
+        )},
+        loot: {"stash": (rolls: (1, 1), entries: [(item: "core:coal", count: (1, 1), weight: 1)])},
+    )"#;
+
+    fn with_hut(text: &str) -> Result<StructureSet> {
+        let generator = generator();
+        let mut set = StructureSet::builtin(generator.biomes())?;
+        set.add_source(
+            "test",
+            text,
+            "test",
+            generator.biomes(),
+            Some(generator.registry()),
+        )?;
+        Ok(set)
+    }
+
+    #[test]
+    fn a_template_from_a_mod_is_resolved_and_sized() {
+        let set = with_hut(HUT).unwrap();
+        let hut = set.defs().iter().find(|d| d.key == "test:hut").unwrap();
+        assert_eq!(hut.kind, StructureKind::Template);
+        let template = hut.template.as_ref().unwrap();
+        assert_eq!(template.size(), 3);
+        assert_eq!(hut.radius, 5);
+        // Les tables du mod sont à son nom ; celles du jeu restent accessibles.
+        assert!(set.loot("test:stash").is_some() && set.loot("village").is_some());
+    }
+
+    #[test]
+    fn broken_templates_are_refused_with_a_reason() {
+        let bad = |text: &str| format!("{:#}", with_hut(text).unwrap_err());
+        // Une lettre hors de la palette.
+        assert!(bad(&HUT.replace("\"=g=\"", "\"=x=\"")).contains("palette"));
+        // Un bloc inconnu.
+        assert!(bad(&HUT.replace("core:glass", "core:nope")).contains("core:nope"));
+        // Un coffre hors du plan, ou avec une table absente.
+        assert!(bad(&HUT.replace("(1, 1, 1)", "(9, 1, 1)")).contains("hors du plan"));
+        assert!(bad(&HUT.replace("\"stash\")]", "\"absent\")]")).contains("absent"));
+        // Un plan inconnu, une structure hors de l'espace de noms du fichier.
+        assert!(bad(&HUT.replace("template: \"hut\"", "template: \"autre\"")).contains("inconnu"));
+        assert!(bad(&HUT.replace("test:hut", "other:hut")).contains("commencer par"));
+    }
+
+    #[test]
+    fn a_template_is_placed_on_the_ground_with_its_chest_and_foundation() {
+        let generator = generator();
+        let mut set = StructureSet::builtin(generator.biomes()).unwrap();
+        set.add_source(
+            "test",
+            HUT,
+            "test",
+            generator.biomes(),
+            Some(generator.registry()),
+        )
+        .unwrap();
+        let def = set.defs().iter().position(|d| d.key == "test:hut").unwrap();
+        let site = StructureSite {
+            def,
+            kind: StructureKind::Template,
+            x: 100,
+            z: 100,
+            seed: 5,
+        };
+        // Le générateur de ce test n'a pas la structure : on construit le plan à la main.
+        let blocks = generator.structure_blocks.clone().unwrap();
+        let loot = set.loot("village").unwrap();
+        let mut builder = Builder {
+            world: &generator,
+            b: &blocks,
+            rng: Rng64::new(site.seed),
+            bp: Blueprint::default(),
+            heights: HashMap::new(),
+            loot,
+        };
+        builder.template(
+            site.x,
+            site.z,
+            set.defs()[def].template.as_ref().unwrap(),
+            &set,
+        );
+        let plan = builder.bp;
+        let cobble = generator.registry().id("core:cobblestone").unwrap();
+        assert!(plan.blocks().iter().filter(|&&(_, b)| b == cobble).count() >= 6);
+        assert_eq!(plan.chests().len(), 1);
+        // Le plan est posé au-dessus du sol (couche 0 à `ground + 1`).
+        let ground = (0..3)
+            .flat_map(|dx| (0..3).map(move |dz| (99 + dx, 99 + dz)))
+            .map(|(x, z)| generator.column(x, z).height)
+            .max()
+            .unwrap();
+        let lowest_floor = plan
+            .blocks()
+            .iter()
+            .filter(|&&(_, b)| b == cobble)
+            .map(|&(p, _)| p.y)
+            .max()
+            .unwrap();
+        assert!(lowest_floor > ground - 1);
     }
 }

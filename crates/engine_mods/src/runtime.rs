@@ -74,6 +74,10 @@ pub enum ModEvent {
         amount: f32,
         health_left: f32,
     },
+    /// Un chunk (coordonnées de chunk) vient d'être généré pour la première fois.
+    ChunkGenerated {
+        chunk: IVec3,
+    },
 }
 
 impl ModEvent {
@@ -84,6 +88,7 @@ impl ModEvent {
             Self::EntityDied { .. } => abi::EVENT_ENTITY_DIED,
             Self::Tick(_) => abi::EVENT_TICK,
             Self::PlayerDamaged { .. } => abi::EVENT_PLAYER_DAMAGED,
+            Self::ChunkGenerated { .. } => abi::EVENT_CHUNK_GENERATED,
         }
     }
 
@@ -123,6 +128,10 @@ impl ModEvent {
             } => {
                 int(amount.to_bits() as i32);
                 int(health_left.to_bits() as i32);
+            }
+            Self::ChunkGenerated { chunk } => {
+                int(0);
+                chunk.to_array().into_iter().for_each(&mut int);
             }
         }
         out
@@ -711,6 +720,20 @@ impl ModRuntime {
 
     pub fn is_empty(&self) -> bool {
         self.scripts.is_empty()
+    }
+
+    /// Au moins un script est abonné à ce type d'événement.
+    pub fn has_subscribers(&self, kind: i32) -> bool {
+        self.scripts.iter().any(|s| s.borrow().subscribed(kind))
+    }
+
+    /// Tous les scripts abonnés à ce type d'événement ont encore du budget ce tick-ci : un
+    /// événement qui ne doit pas se perdre (un chunk à décorer) ne part que dans ce cas.
+    pub fn subscribers_ready(&self, kind: i32) -> bool {
+        self.scripts.iter().all(|s| {
+            let s = s.borrow();
+            !s.subscribed(kind) || !s.over_budget()
+        })
     }
 
     /// Un nouveau tick de machines : chaque mod retrouve son budget de temps.

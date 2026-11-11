@@ -93,7 +93,7 @@ use engine_mods::ModEvent;
 use engine_render::{Aabb, Camera, ColorVertex, Fog, MeshId, RenderStats, Renderer, Sun};
 use engine_voxel::{
     BlockId, BlockRegistry, CHUNK_SIZE, ChunkMesh, ChunkStreamer, GridPos, MachineAction,
-    MeshVertex, RayHit, StreamEvent, StreamingConfig, TerrainGenerator, raycast,
+    MeshVertex, RayHit, StreamEvent, StreamingConfig, raycast,
 };
 use glam::{IVec3, Vec2, Vec3};
 
@@ -418,7 +418,7 @@ impl VoxelGame {
             config.view_radius,
             config.worker_threads
         );
-        let generator = TerrainGenerator::with_registry(seed, registry.clone())?;
+        let generator = modding::terrain(seed, &registry, &mod_dirs)?;
         let mut streamer = ChunkStreamer::new(generator, config);
         let far = (far_chunks > 0).then(|| {
             let far = far_terrain::FarTerrain::new(&streamer, near_radius, far_chunks);
@@ -2473,7 +2473,7 @@ mod tests {
 
     #[test]
     fn terrain_meshes_convert_without_copy() {
-        let world = TerrainGenerator::new(1).generate_region(1, 1);
+        let world = engine_voxel::TerrainGenerator::new(1).generate_region(1, 1);
         let mesh = mesh_greedy(&world, IVec3::new(0, 1, 0));
         let gpu = gpu_vertices(&mesh.vertices);
         assert_eq!(gpu.len(), mesh.vertices.len());

@@ -14,6 +14,8 @@ pub const EVENT_ENTITY_DIED: i32 = 3;
 pub const EVENT_TICK: i32 = 4;
 /// PlayerDamaged : le joueur a perdu de la vie.
 pub const EVENT_PLAYER_DAMAGED: i32 = 5;
+/// ChunkGenerated : un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde) : le mod peut le décorer.
+pub const EVENT_CHUNK_GENERATED: i32 = 6;
 
 /// Les numéros des appels de machines (`on_machines`).
 /// Placed : elles viennent d'être posées.

@@ -75,11 +75,24 @@ impl Pos {
         Self::in_grid(self.grid, self.x + d.x, self.y + d.y, self.z + d.z)
     }
 
+    /// Pour une position de chunk : le coin minimal du chunk en blocs (32 blocs de côté).
+    pub const fn chunk_origin(self) -> Pos {
+        Pos::in_grid(
+            self.grid,
+            self.x * CHUNK_SIZE,
+            self.y * CHUNK_SIZE,
+            self.z * CHUNK_SIZE,
+        )
+    }
+
     /// Les six voisins directs.
     pub fn neighbors(self) -> [Pos; 6] {
         DIRECTIONS.map(|d| self.offset(d))
     }
 }
+
+/// Le côté d'un chunk, en blocs.
+pub const CHUNK_SIZE: i32 = 32;
 
 /// Les six directions : +X, -X, +Y, -Y, +Z, -Z.
 pub const DIRECTIONS: [Pos; 6] = [
@@ -152,6 +165,7 @@ pub enum EventKind {
     EntityDied = ffi::EVENT_ENTITY_DIED,
     Tick = ffi::EVENT_TICK,
     PlayerDamaged = ffi::EVENT_PLAYER_DAMAGED,
+    ChunkGenerated = ffi::EVENT_CHUNK_GENERATED,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -174,6 +188,12 @@ pub enum Event {
     PlayerDamaged {
         amount: f32,
         health_left: f32,
+    },
+    /// Un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde).
+    /// `chunk` : ses coordonnées de chunk ; son coin minimal est [`Pos::chunk_origin`]. Pour le
+    /// décorer, écrire dans ce chunk seulement (`set_block` hors des chunks chargés échoue).
+    ChunkGenerated {
+        chunk: Pos,
     },
 }
 
@@ -292,6 +312,9 @@ pub mod __private {
             ffi::EVENT_TICK => {
                 Event::Tick(*v.first()? as u32 as u64 | (*v.get(1)? as u32 as u64) << 32)
             }
+            ffi::EVENT_CHUNK_GENERATED => Event::ChunkGenerated {
+                chunk: grid_pos(0)?,
+            },
             ffi::EVENT_PLAYER_DAMAGED => Event::PlayerDamaged {
                 amount: f32::from_bits(*v.first()? as u32),
                 health_left: f32::from_bits(*v.get(1)? as u32),

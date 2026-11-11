@@ -175,6 +175,33 @@ impl BiomeRegistry {
         Ok(registry)
     }
 
+    /// Les biomes et minerais de base, puis ceux de chaque mod (`biomes.ron` et `ores.ron` de son
+    /// dossier), dans l'ordre de chargement.
+    pub fn load_mods(
+        blocks: &BlockRegistry,
+        mods: &[(String, std::path::PathBuf)],
+    ) -> Result<Self> {
+        let mut registry = Self::default();
+        registry.add_biomes("core", BUILTIN_BIOMES, "biomes.ron intégré", blocks)?;
+        registry.add_ores("core", BUILTIN_ORES, "ores.ron intégré", blocks)?;
+        for (namespace, dir) in mods {
+            let biomes = dir.join("biomes.ron");
+            if biomes.exists() {
+                let text = std::fs::read_to_string(&biomes)
+                    .with_context(|| format!("lecture de {}", biomes.display()))?;
+                registry.add_biomes(namespace, &text, &biomes.display().to_string(), blocks)?;
+            }
+            let ores = dir.join("ores.ron");
+            if ores.exists() {
+                let text = std::fs::read_to_string(&ores)
+                    .with_context(|| format!("lecture de {}", ores.display()))?;
+                registry.add_ores(namespace, &text, &ores.display().to_string(), blocks)?;
+            }
+        }
+        registry.check()?;
+        Ok(registry)
+    }
+
     pub fn add_biomes(
         &mut self,
         namespace: &str,

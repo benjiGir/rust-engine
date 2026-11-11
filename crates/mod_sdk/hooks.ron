@@ -178,6 +178,9 @@
          data: "le numéro du tick (u64)", doc: "un tick de machines (20 par seconde)"),
         (id: 5, name: "PlayerDamaged", constant: "PLAYER_DAMAGED",
          data: "`dégâts, vie restante` (f32)", doc: "le joueur a perdu de la vie"),
+        (id: 6, name: "ChunkGenerated", constant: "CHUNK_GENERATED",
+         data: "`grille, cx, cy, cz` (i32 ; coordonnées de chunk, 32 blocs de côté)",
+         doc: "un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde) : le mod peut le décorer"),
     ],
     machine_calls: [
         (id: 0, name: "Placed", constant: "PLACED", doc: "elles viennent d'être posées"),
