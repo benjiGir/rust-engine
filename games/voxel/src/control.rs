@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-9 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | respawn | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -186,6 +186,11 @@ pub enum Command {
     Use,
     /// Réapparaître, depuis l'écran de mort.
     Respawn,
+    /// La pause, la reprise, la page d'options d'un mod, et une action du joueur dans cette page.
+    Pause,
+    Resume,
+    ModOptions(String),
+    OptionsEvent(i32, i32, i32),
     /// Gagner des points d'expérience.
     Xp(u32),
     /// Faire apparaître une créature à 3 blocs devant le joueur.
@@ -388,6 +393,30 @@ pub fn parse(line: &str) -> Result<Command> {
         "attack" => Command::Attack,
         "use" => Command::Use,
         "respawn" => Command::Respawn,
+        "pause" => Command::Pause,
+        "resume" => Command::Resume,
+        "modoptions" => {
+            count(&[1])?;
+            Command::ModOptions(args[0].to_string())
+        }
+        "optionsevent" => {
+            count(&[2, 3])?;
+            let id: i32 = args[1].parse().context("identifiant")?;
+            let value = args.get(2).copied().unwrap_or("0");
+            match args[0] {
+                "button" => Command::OptionsEvent(engine_mods::menu::UI_BUTTON, id, 0),
+                "toggle" => Command::OptionsEvent(
+                    engine_mods::menu::UI_TOGGLE,
+                    id,
+                    i32::from(value == "1" || value == "true"),
+                ),
+                "slider" => {
+                    let v: f32 = value.parse().context("valeur")?;
+                    Command::OptionsEvent(engine_mods::menu::UI_SLIDER, id, v.to_bits() as i32)
+                }
+                other => bail!("action inconnue « {other} » (button, toggle ou slider)"),
+            }
+        }
         "summon" => {
             count(&[1])?;
             Command::Summon(qualified(args[0]))
@@ -519,6 +548,9 @@ impl VoxelGame {
                 | Command::Screenshot(..)
                 | Command::Culling(_)
                 | Command::Respawn
+                | Command::Resume
+                | Command::ModOptions(_)
+                | Command::OptionsEvent(..)
                 | Command::Inventory
                 | Command::Mobs
                 | Command::Quit
@@ -849,6 +881,23 @@ impl VoxelGame {
             Command::Xp(points) => {
                 self.grant_xp(points);
                 Ok(self.state_json())
+            }
+            Command::Pause => {
+                self.mode = Mode::Paused(crate::menus::PausePage::Main);
+                Ok(ok())
+            }
+            Command::Resume => {
+                self.leave_mod_options();
+                self.mode = Mode::Playing;
+                Ok(ok())
+            }
+            Command::ModOptions(id) => {
+                self.open_mod_options(&id);
+                Ok(ok())
+            }
+            Command::OptionsEvent(kind, id, value) => {
+                self.ui.options_events.push((kind, id, value));
+                Ok(ok())
             }
             Command::Respawn => {
                 if !matches!(self.mode, Mode::Dead(_)) {

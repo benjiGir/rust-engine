@@ -526,6 +526,7 @@ impl VoxelGame {
                 items: content.items.clone(),
                 machine_recipes: content.machine_recipes.clone(),
             },
+            &project_root(),
         );
         // Le coffre et le four : des machines natives qui ont besoin des objets et de la fonte.
         engine_voxel::register_containers(
@@ -848,6 +849,7 @@ impl VoxelGame {
                 escape = false;
             }
             Mode::Paused(_) if escape => {
+                self.leave_mod_options();
                 self.mode = Mode::Paused(menus::PausePage::Main);
                 escape = false;
             }
@@ -1901,6 +1903,9 @@ impl VoxelGame {
                     self.show_mod_menu(mod_id, at, &data);
                 }
                 MachineAction::CloseMenu { mod_id } => self.close_mod_menu_of(&mod_id),
+                MachineAction::ShowOptions { mod_id, data } => {
+                    self.show_mod_options(mod_id, &data);
+                }
                 MachineAction::SpawnEntity { kind, position } => {
                     let registry = self.ecs.resource::<Arc<MobRegistry>>().clone();
                     match registry.id(&kind) {

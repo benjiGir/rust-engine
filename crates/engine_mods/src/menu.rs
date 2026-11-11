@@ -16,6 +16,8 @@ pub const UI_TOGGLE: i32 = 2;
 pub const UI_SLIDER: i32 = 3;
 pub const UI_REFRESH: i32 = 4;
 pub const UI_CLOSED: i32 = 5;
+/// La page d'options vient d'être ouverte (le script y répond par `options_show`).
+pub const UI_OPEN: i32 = 6;
 
 /// Un élément d'un menu.
 #[derive(Debug, Clone, PartialEq)]
@@ -233,13 +235,16 @@ mod tests {
     #[test]
     fn the_event_numbers_match_the_sdk() {
         assert_eq!(
-            [UI_BUTTON, UI_TOGGLE, UI_SLIDER, UI_REFRESH, UI_CLOSED],
+            [
+                UI_BUTTON, UI_TOGGLE, UI_SLIDER, UI_REFRESH, UI_CLOSED, UI_OPEN
+            ],
             [
                 mod_sdk::ui::UI_BUTTON,
                 mod_sdk::ui::UI_TOGGLE,
                 mod_sdk::ui::UI_SLIDER,
                 mod_sdk::ui::UI_REFRESH,
-                mod_sdk::ui::UI_CLOSED
+                mod_sdk::ui::UI_CLOSED,
+                mod_sdk::ui::UI_OPEN
             ]
         );
         assert_eq!(MAX_MENU_BYTES, mod_sdk::ui::MAX_MENU_BYTES);

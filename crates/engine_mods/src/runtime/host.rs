@@ -646,6 +646,65 @@ fn define_ui(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
             Ok(())
         },
     )?;
+    linker.func_wrap(
+        "voxel",
+        "options_show",
+        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> HostResult<()> {
+            if len as usize > crate::menu::MAX_MENU_BYTES || len < 0 {
+                log::warn!(
+                    "[mod {}] page d'options trop grosse, ignorée",
+                    caller.data().mod_id
+                );
+                return Ok(());
+            }
+            let data = read_guest(&mut caller, ptr, len)?;
+            let state = caller.data_mut();
+            let mod_id = state.mod_id.clone();
+            state
+                .requests
+                .actions
+                .push(MachineAction::ShowOptions { mod_id, data });
+            Ok(())
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "setting_get",
+        |mut caller: Caller<'_, HostState>,
+         key_ptr: i32,
+         key_len: i32,
+         out_ptr: i32,
+         cap: i32|
+         -> HostResult<i32> {
+            let key = read_string(&mut caller, key_ptr, key_len)?;
+            let state = caller.data();
+            let value = state
+                .settings
+                .borrow()
+                .get(&state.mod_id, &key)
+                .map(str::to_owned);
+            let Some(value) = value else { return Ok(-1) };
+            let n = value.len().min(cap.max(0) as usize);
+            write_guest(&mut caller, out_ptr, &value.as_bytes()[..n])?;
+            Ok(value.len() as i32)
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "setting_set",
+        |mut caller: Caller<'_, HostState>,
+         key_ptr: i32,
+         key_len: i32,
+         val_ptr: i32,
+         val_len: i32|
+         -> HostResult<i32> {
+            let key = read_string(&mut caller, key_ptr, key_len)?;
+            let value = read_string(&mut caller, val_ptr, val_len)?;
+            let state = caller.data();
+            let done = state.settings.borrow_mut().set(&state.mod_id, &key, &value);
+            Ok(done as i32)
+        },
+    )?;
     linker.func_wrap("voxel", "ui_close", |mut caller: Caller<'_, HostState>| {
         let mod_id = caller.data().mod_id.clone();
         caller

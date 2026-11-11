@@ -4,12 +4,15 @@
 
 use std::time::{Duration, Instant};
 
-use engine_mods::ModMenu;
-use engine_mods::menu::{UI_CLOSED, UI_REFRESH};
+use engine_mods::menu::{UI_BUTTON, UI_CLOSED, UI_OPEN, UI_REFRESH, UI_SLIDER, UI_TOGGLE};
+use engine_mods::{ModMenu, Widget};
+use engine_render::egui;
 use engine_voxel::GridPos;
 use glam::IVec3;
 
+use crate::Mode;
 use crate::VoxelGame;
+use crate::menus::PausePage;
 use crate::ui::Screen;
 
 /// Le menu de mod ouvert.
@@ -91,6 +94,19 @@ impl VoxelGame {
         for (kind, id, value) in events {
             self.send_mod_ui(kind, id, value);
         }
+        let options = std::mem::take(&mut self.ui.options_events);
+        if let (Some((owner, _)), false) = (self.ui.options_menu.clone(), options.is_empty()) {
+            for (kind, id, value) in options {
+                let actions = self.mods.options_event(&owner, kind, id, value);
+                self.apply_machine_actions(actions);
+            }
+        }
+        // Les réglages changés sont écrits au plus une fois par seconde (un curseur qu'on
+        // fait glisser ne doit pas écrire à chaque image).
+        if self.ui.settings_saved.elapsed() >= Duration::from_secs(1) {
+            self.ui.settings_saved = Instant::now();
+            self.mods.save_settings();
+        }
         let due = self
             .ui
             .mod_menu
@@ -112,5 +128,124 @@ impl VoxelGame {
             .mods
             .ui_event(&owner, kind, GridPos::world(at), id, value);
         self.apply_machine_actions(actions);
+    }
+}
+
+/// Dessine les éléments d'un menu. Les actions du joueur partent dans `events` (type, id,
+/// valeur) ; les valeurs des cases et curseurs sont mises à jour sur place. `slots` dessine
+/// des cases d'inventaire (première case, nombre, colonnes) : une page d'options n'en a pas.
+pub fn draw_widgets(
+    ui: &mut egui::Ui,
+    widgets: &mut [Widget],
+    events: &mut Vec<(i32, i32, i32)>,
+    slots: &mut dyn FnMut(&mut egui::Ui, usize, usize, usize),
+) {
+    let end = widgets.len();
+    draw_range(ui, widgets, 0..end, events, slots);
+}
+
+fn draw_range(
+    ui: &mut egui::Ui,
+    widgets: &mut [Widget],
+    range: std::ops::Range<usize>,
+    events: &mut Vec<(i32, i32, i32)>,
+    slots: &mut dyn FnMut(&mut egui::Ui, usize, usize, usize),
+) {
+    let mut i = range.start;
+    while i < range.end {
+        match &mut widgets[i] {
+            Widget::Label(text) => {
+                ui.label(text.as_str());
+            }
+            Widget::Separator => {
+                ui.separator();
+            }
+            Widget::Bar { text, value } => {
+                ui.add(
+                    egui::ProgressBar::new(*value)
+                        .text(text.as_str())
+                        .desired_width(200.0),
+                );
+            }
+            Widget::Button { id, text } => {
+                if ui.button(text.as_str()).clicked() {
+                    events.push((UI_BUTTON, *id as i32, 0));
+                }
+            }
+            Widget::Toggle { id, text, on } => {
+                if ui.checkbox(on, text.as_str()).changed() {
+                    events.push((UI_TOGGLE, *id as i32, *on as i32));
+                }
+            }
+            Widget::Slider {
+                id,
+                text,
+                min,
+                max,
+                value,
+            } => {
+                if ui
+                    .add(egui::Slider::new(value, *min..=*max).text(text.as_str()))
+                    .changed()
+                {
+                    events.push((UI_SLIDER, *id as i32, value.to_bits() as i32));
+                }
+            }
+            Widget::Slots {
+                first,
+                count,
+                columns,
+            } => {
+                let (first, count, columns) = (*first, *count, *columns);
+                ui.vertical(|ui| slots(ui, first, count, columns));
+            }
+            Widget::RowBegin => {
+                // Jusqu'à la fin de la ligne (l'analyse du menu garantit qu'il y en a une).
+                let end = widgets[i + 1..]
+                    .iter()
+                    .position(|w| *w == Widget::RowEnd)
+                    .map_or(range.end, |p| i + 1 + p);
+                ui.horizontal(|ui| draw_range(ui, widgets, i + 1..end, events, slots));
+                i = end;
+            }
+            Widget::RowEnd => {}
+        }
+        i += 1;
+    }
+}
+
+impl VoxelGame {
+    /// Le joueur ouvre la page d'options d'un mod (depuis la pause) : le script est prévenu
+    /// et répond avec son menu.
+    pub(crate) fn open_mod_options(&mut self, mod_id: &str) {
+        self.mode = Mode::Paused(PausePage::ModOptions(mod_id.to_string()));
+        self.ui.options_menu = None;
+        let actions = self.mods.options_event(mod_id, UI_OPEN, 0, 0);
+        self.apply_machine_actions(actions);
+    }
+
+    /// Un script envoie le contenu de sa page d'options (seulement si elle est ouverte).
+    pub(crate) fn show_mod_options(&mut self, mod_id: String, data: &[u8]) {
+        let open = matches!(&self.mode, Mode::Paused(PausePage::ModOptions(id)) if *id == mod_id);
+        if !open {
+            return;
+        }
+        match ModMenu::parse(data) {
+            Ok(menu) => self.ui.options_menu = Some((mod_id, menu)),
+            Err(err) => log::warn!("[mod {mod_id}] page d'options refusée : {err:#}"),
+        }
+    }
+
+    /// Quitte la page d'options d'un mod, si elle est ouverte : le script est prévenu, et les
+    /// réglages sont écrits.
+    pub(crate) fn leave_mod_options(&mut self) {
+        if let Mode::Paused(PausePage::ModOptions(id)) = &self.mode {
+            let id = id.clone();
+            let actions = self.mods.options_event(&id, UI_CLOSED, 0, 0);
+            self.apply_machine_actions(actions);
+        }
+        self.ui.options_menu = None;
+        self.ui.options_events.clear();
+        self.mods.save_settings();
     }
 }

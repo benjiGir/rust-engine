@@ -38,6 +38,8 @@ pub enum TitlePage {
 pub enum PausePage {
     Main,
     Options,
+    /// La page d'options d'un mod (son identifiant).
+    ModOptions(String),
 }
 
 /// Un monde sauvegardé, tel qu'affiché dans la liste.
@@ -363,6 +365,13 @@ impl VoxelGame {
                 if button(ui, "Options") {
                     self.mode = Mode::Paused(PausePage::Options);
                 }
+                // Les mods qui ont une page d'options.
+                let mods = self.mods.options_mods.clone();
+                for (id, name) in mods {
+                    if button(ui, &format!("Options : {name}")) {
+                        self.open_mod_options(&id);
+                    }
+                }
                 let label = if self.store.is_some() {
                     "Sauvegarder et retourner au menu"
                 } else {
@@ -377,6 +386,37 @@ impl VoxelGame {
                     self.mode = Mode::Paused(PausePage::Main);
                 }
             }),
+            PausePage::ModOptions(id) => {
+                let title = self
+                    .mods
+                    .options_mods
+                    .iter()
+                    .find(|(m, _)| *m == id)
+                    .map_or_else(|| id.clone(), |(_, name)| name.clone());
+                Self::menu_window(ctx, &title, |ui| {
+                    // Le menu est sorti de l'état pendant le dessin ; les actions sont mises en file.
+                    if let Some((owner, mut menu)) = self.ui.options_menu.take() {
+                        let mut events = Vec::new();
+                        crate::mod_menu::draw_widgets(
+                            ui,
+                            &mut menu.widgets,
+                            &mut events,
+                            &mut |ui, _, _, _| {
+                                ui.label("(cases d'inventaire indisponibles ici)");
+                            },
+                        );
+                        self.ui.options_menu = Some((owner, menu));
+                        self.ui.options_events.extend(events);
+                    } else {
+                        ui.label("Ce mod n'a pas de réglages à afficher.");
+                    }
+                    ui.add_space(8.0);
+                    if button(ui, "Retour") {
+                        self.leave_mod_options();
+                        self.mode = Mode::Paused(PausePage::Main);
+                    }
+                });
+            }
         }
     }
 

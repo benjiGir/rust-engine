@@ -48,6 +48,11 @@ pub struct GameUi {
     pub mod_events: Vec<(i32, i32, i32)>,
     /// Vrai pendant un clic droit : un script peut alors ouvrir son menu.
     pub allow_mod_menu: bool,
+    /// La page d'options d'un mod, ouverte depuis la pause : (mod, menu).
+    pub options_menu: Option<(String, engine_mods::ModMenu)>,
+    pub options_events: Vec<(i32, i32, i32)>,
+    /// Dernière écriture des réglages des mods.
+    pub settings_saved: std::time::Instant,
 }
 
 /// Une pile qu'on s'apprête à diviser, et combien d'objets prendre.
@@ -116,6 +121,9 @@ impl GameUi {
             mod_menu: None,
             mod_events: Vec::new(),
             allow_mod_menu: false,
+            options_menu: None,
+            options_events: Vec::new(),
+            settings_saved: std::time::Instant::now(),
         }
     }
 
@@ -790,130 +798,34 @@ impl VoxelGame {
 
     /// Le menu d'une machine de mod : les éléments décrits par son script, dessinés ici.
     fn mod_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
-        let count = self
-            .ui
-            .mod_menu
-            .as_ref()
-            .map_or(0, |m| m.menu.widgets.len());
+        // Le menu est sorti de l'état pendant le dessin (les cases ont besoin de `self`) ;
+        // les actions sont mises en file, jamais appliquées pendant le dessin.
+        let Some(mut state) = self.ui.mod_menu.take() else {
+            return;
+        };
+        let mut events = Vec::new();
         let mut changed = false;
-        self.mod_widgets(ui, 0..count, pos, &mut changed);
+        crate::mod_menu::draw_widgets(
+            ui,
+            &mut state.menu.widgets,
+            &mut events,
+            &mut |ui, first, count, columns| {
+                for row in (0..count).step_by(columns) {
+                    ui.horizontal(|ui| {
+                        for k in row..(row + columns).min(count) {
+                            changed |= self.container_slot(ui, pos, first + k);
+                        }
+                    });
+                }
+            },
+        );
+        self.ui.mod_menu = Some(state);
+        self.ui.mod_events.extend(events);
         if changed {
             // La machine dort peut-être : on la réveille au prochain tick.
             self.mods
                 .machines
                 .schedule(engine_voxel::GridPos::world(pos), 1);
-        }
-    }
-
-    fn mod_widgets(
-        &mut self,
-        ui: &mut egui::Ui,
-        range: std::ops::Range<usize>,
-        pos: IVec3,
-        changed: &mut bool,
-    ) {
-        use engine_mods::Widget;
-        use engine_mods::menu::{UI_BUTTON, UI_SLIDER, UI_TOGGLE};
-        let mut i = range.start;
-        while i < range.end {
-            // Le menu a pu être remplacé par une action : on relit à chaque élément.
-            let Some(widget) = self
-                .ui
-                .mod_menu
-                .as_ref()
-                .and_then(|m| m.menu.widgets.get(i).cloned())
-            else {
-                return;
-            };
-            match widget {
-                Widget::Label(text) => {
-                    ui.label(text);
-                }
-                Widget::Separator => {
-                    ui.separator();
-                }
-                Widget::Bar { text, value } => {
-                    ui.add(
-                        egui::ProgressBar::new(value)
-                            .text(text)
-                            .desired_width(200.0),
-                    );
-                }
-                Widget::Button { id, text } => {
-                    if ui.button(text).clicked() {
-                        self.ui.mod_events.push((UI_BUTTON, id as i32, 0));
-                    }
-                }
-                Widget::Toggle { id, text, mut on } => {
-                    if ui.checkbox(&mut on, text).changed() {
-                        self.ui.mod_events.push((UI_TOGGLE, id as i32, on as i32));
-                        if let Some(Widget::Toggle { on: stored, .. }) = self
-                            .ui
-                            .mod_menu
-                            .as_mut()
-                            .and_then(|m| m.menu.widgets.get_mut(i))
-                        {
-                            *stored = on;
-                        }
-                    }
-                }
-                Widget::Slider {
-                    id,
-                    text,
-                    min,
-                    max,
-                    mut value,
-                } => {
-                    if ui
-                        .add(egui::Slider::new(&mut value, min..=max).text(text))
-                        .changed()
-                    {
-                        self.ui
-                            .mod_events
-                            .push((UI_SLIDER, id as i32, value.to_bits() as i32));
-                        if let Some(Widget::Slider { value: stored, .. }) = self
-                            .ui
-                            .mod_menu
-                            .as_mut()
-                            .and_then(|m| m.menu.widgets.get_mut(i))
-                        {
-                            *stored = value;
-                        }
-                    }
-                }
-                Widget::Slots {
-                    first,
-                    count,
-                    columns,
-                } => {
-                    ui.vertical(|ui| {
-                        for row in (0..count).step_by(columns) {
-                            ui.horizontal(|ui| {
-                                for k in row..(row + columns).min(count) {
-                                    *changed |= self.container_slot(ui, pos, first + k);
-                                }
-                            });
-                        }
-                    });
-                }
-                Widget::RowBegin => {
-                    // Jusqu'à la fin de la ligne (l'analyse du menu garantit qu'il y en a une).
-                    let end = self
-                        .ui
-                        .mod_menu
-                        .as_ref()
-                        .and_then(|m| {
-                            m.menu.widgets[i + 1..]
-                                .iter()
-                                .position(|w| *w == Widget::RowEnd)
-                        })
-                        .map_or(range.end, |p| i + 1 + p);
-                    ui.horizontal(|ui| self.mod_widgets(ui, i + 1..end, pos, changed));
-                    i = end;
-                }
-                Widget::RowEnd => {}
-            }
-            i += 1;
         }
     }
 

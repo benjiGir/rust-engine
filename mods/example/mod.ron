@@ -9,4 +9,6 @@
     dependencies: [(id: "core", version: "^0.1")],
     // Construit par `cargo run -p xtask -- build-mods` depuis `script/`.
     script: "example.wasm",
+    // Une page d'options (menu pause) : `Mod::options` dans le script.
+    options: true,
 )

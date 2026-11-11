@@ -15,10 +15,20 @@
 use mod_sdk::ui::{Menu, UiEvent};
 use mod_sdk::{Block, Event, EventKind, MachineCall, Mod, Pos};
 
-/// 2 secondes à 20 ticks par seconde.
-const BREAK_PERIOD: u32 = 40;
-/// 1 chance sur 8.
-const RUBY_CHANCE: u32 = 8;
+/// Par défaut : 2 secondes à 20 ticks par seconde (réglable dans la page d'options du mod).
+const DEFAULT_BREAK_PERIOD: i32 = 40;
+/// Par défaut : 1 chance sur 8 (réglable de même).
+const DEFAULT_RUBY_CHANCE: i32 = 8;
+
+/// Le délai du casseur, en ticks, tel que le joueur l'a réglé.
+fn break_period() -> u32 {
+    mod_sdk::setting_i32("break_period", DEFAULT_BREAK_PERIOD).clamp(5, 200) as u32
+}
+
+/// Un rubis tombe 1 fois sur N.
+fn ruby_chance() -> u32 {
+    mod_sdk::setting_i32("ruby_chance", DEFAULT_RUBY_CHANCE).clamp(1, 64) as u32
+}
 
 #[derive(Default)]
 struct Example {
@@ -95,6 +105,39 @@ impl Example {
 }
 
 impl Mod for Example {
+    fn options(&mut self) -> Option<Menu> {
+        Some(
+            Menu::new("Mod d'exemple")
+                .label("Réglages enregistrés pour tous les mondes.")
+                .slider(
+                    1,
+                    "Délai du casseur (ticks)",
+                    5.0,
+                    200.0,
+                    break_period() as f32,
+                )
+                .slider(
+                    2,
+                    "Chance de rubis (1 sur N)",
+                    1.0,
+                    64.0,
+                    ruby_chance() as f32,
+                ),
+        )
+    }
+
+    fn options_event(&mut self, event: UiEvent) {
+        match event {
+            UiEvent::Slider(1, v) => {
+                mod_sdk::set_setting("break_period", &(v.round() as i32).to_string());
+            }
+            UiEvent::Slider(2, v) => {
+                mod_sdk::set_setting("ruby_chance", &(v.round() as i32).to_string());
+            }
+            _ => {}
+        }
+    }
+
     fn used(&mut self, pos: Pos) -> bool {
         mod_sdk::show_menu(pos, &breaker_menu(pos));
         true
@@ -128,7 +171,7 @@ impl Mod for Example {
     fn event(&mut self, event: Event) {
         match event {
             Event::BlockBroken { block, .. } if block == self.stone => {
-                if mod_sdk::random().is_multiple_of(RUBY_CHANCE) {
+                if mod_sdk::random().is_multiple_of(ruby_chance()) {
                     mod_sdk::give_item(self.ruby, 1);
                     mod_sdk::log("un rubis !");
                 }
@@ -153,7 +196,7 @@ impl Mod for Example {
                 // était armé au moment de la sauvegarde, on reprend.
                 MachineCall::Placed | MachineCall::Loaded => {
                     if breaker.armed {
-                        mod_sdk::schedule_tick(pos, BREAK_PERIOD);
+                        mod_sdk::schedule_tick(pos, break_period());
                     }
                 }
                 // Un voisin a changé : alimenté maintenant ? Alors on s'arme.
@@ -161,7 +204,7 @@ impl Mod for Example {
                     if !breaker.armed && !breaker.disabled && mod_sdk::received_power(pos) > 0 {
                         breaker.armed = true;
                         breaker.save(pos);
-                        mod_sdk::schedule_tick(pos, BREAK_PERIOD);
+                        mod_sdk::schedule_tick(pos, break_period());
                     }
                 }
                 MachineCall::ScheduledTick => {

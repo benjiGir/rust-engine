@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use engine_mods::{ModContent, ModEvent, ModInfo, ModRuntime, ScriptHost};
+use engine_mods::{ModContent, ModEvent, ModInfo, ModRuntime, ModSettings, ScriptHost};
 use engine_voxel::{BlockRegistry, ChunkStreamer, Grids, MachineAction, Machines, TickReport};
 use glam::{IVec3, Vec3};
 
@@ -70,6 +70,11 @@ pub struct ModSystem {
     registry: Arc<BlockRegistry>,
     steps: u32,
     pub last_tick: TickReport,
+    /// Les réglages des mods (`mod_settings.ron`), partagés avec leurs scripts.
+    settings: Rc<RefCell<ModSettings>>,
+    settings_path: PathBuf,
+    /// Les mods qui ont une page d'options : (identifiant, nom), s'ils ont un script.
+    pub options_mods: Vec<(String, String)>,
 }
 
 impl ModSystem {
@@ -78,7 +83,15 @@ impl ModSystem {
         world: Rc<RefCell<ChunkStreamer>>,
         registry: Arc<BlockRegistry>,
         content: ModContent,
+        root: &Path,
     ) -> Self {
+        let settings_path = root.join("mod_settings.ron");
+        let settings = Rc::new(RefCell::new(ModSettings::load(&settings_path)));
+        let options_mods = order
+            .iter()
+            .filter(|m| m.manifest.options && m.manifest.script.is_some())
+            .map(|m| (m.id().to_string(), m.manifest.name.clone()))
+            .collect();
         let mut machines = Machines::with_natives(&registry);
         let mut runtime = ModRuntime::default();
         let host = ScriptHost::new()
@@ -86,6 +99,7 @@ impl ModSystem {
             .ok()
             .map(|mut host| {
                 host.set_content(content);
+                host.set_settings(settings.clone());
                 host
             });
         let scripts: Vec<(String, PathBuf)> = order
@@ -114,6 +128,9 @@ impl ModSystem {
             registry,
             steps: 0,
             last_tick: TickReport::default(),
+            settings,
+            settings_path,
+            options_mods,
         }
     }
 
@@ -182,6 +199,25 @@ impl ModSystem {
     ) -> Vec<MachineAction> {
         let requests = self.runtime.ui_event(mod_id, kind, at, id, value);
         self.settle(requests)
+    }
+
+    /// Une action du joueur dans la page d'options du mod `mod_id`.
+    pub fn options_event(
+        &mut self,
+        mod_id: &str,
+        kind: i32,
+        id: i32,
+        value: i32,
+    ) -> Vec<MachineAction> {
+        let requests = self.runtime.options_event(mod_id, kind, id, value);
+        self.settle(requests)
+    }
+
+    /// Écrit les réglages des mods s'ils ont changé.
+    pub fn save_settings(&self) {
+        self.settings
+            .borrow_mut()
+            .save_if_dirty(&self.settings_path);
     }
 
     /// Applique les ticks et les voisins demandés par un script ; le reste revient au jeu.

@@ -25,6 +25,7 @@ pub const UI_TOGGLE: i32 = 2;
 pub const UI_SLIDER: i32 = 3;
 pub const UI_REFRESH: i32 = 4;
 pub const UI_CLOSED: i32 = 5;
+pub const UI_OPEN: i32 = 6;
 
 // Les étiquettes du format (voir `docs/modding.md`).
 pub const TAG_TITLE: u8 = 0;

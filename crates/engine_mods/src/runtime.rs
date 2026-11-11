@@ -165,6 +165,7 @@ pub struct HostState {
     streamer: Rc<RefCell<ChunkStreamer>>,
     registry: Arc<BlockRegistry>,
     content: ModContent,
+    settings: Rc<RefCell<crate::ModSettings>>,
     requests: Requests,
     subscriptions: Vec<i32>,
     limits: StoreLimits,
@@ -176,6 +177,7 @@ pub struct ScriptHost {
     engine: Engine,
     linker: Linker<HostState>,
     content: ModContent,
+    settings: Rc<RefCell<crate::ModSettings>>,
 }
 
 impl ScriptHost {
@@ -190,12 +192,18 @@ impl ScriptHost {
             engine,
             linker,
             content: ModContent::default(),
+            settings: Rc::default(),
         })
     }
 
     /// Les objets et recettes que les scripts chargés ensuite pourront consulter.
     pub fn set_content(&mut self, content: ModContent) {
         self.content = content;
+    }
+
+    /// Les réglages des mods, partagés avec le jeu (qui les écrit dans la page d'options).
+    pub fn set_settings(&mut self, settings: Rc<RefCell<crate::ModSettings>>) {
+        self.settings = settings;
     }
 
     /// Charge un script : compile, instancie, puis appelle `mod_init`.
@@ -214,6 +222,7 @@ impl ScriptHost {
             streamer,
             registry,
             content: self.content.clone(),
+            settings: self.settings.clone(),
             requests: Requests::default(),
             subscriptions: Vec::new(),
             // Le bac à sable mémoire : une seule mémoire, de taille bornée.
@@ -248,6 +257,9 @@ impl ScriptHost {
         let on_ui = instance
             .get_typed_func::<UiArgs, ()>(&mut store, "on_ui")
             .ok();
+        let on_options = instance
+            .get_typed_func::<(i32, i32, i32), ()>(&mut store, "on_options")
+            .ok();
         let mut script = ScriptMod {
             id: mod_id.to_string(),
             store,
@@ -258,6 +270,7 @@ impl ScriptHost {
             on_machines,
             on_use,
             on_ui,
+            on_options,
             disabled: None,
         };
         if let Ok(init) = script
@@ -281,6 +294,7 @@ pub struct ScriptMod {
     on_machines: Option<TypedFunc<(i32, i32, i32), ()>>,
     on_use: Option<TypedFunc<(i32, i32, i32, i32), i32>>,
     on_ui: Option<TypedFunc<UiArgs, ()>>,
+    on_options: Option<TypedFunc<(i32, i32, i32), ()>>,
     /// La raison de sa désactivation, s'il a planté.
     disabled: Option<String>,
 }
@@ -383,6 +397,18 @@ impl ScriptMod {
                 ),
             )
         })
+    }
+
+    /// La page d'options : `kind` vaut `menu::UI_OPEN` à l'ouverture, puis les actions du
+    /// joueur et `menu::UI_CLOSED`. Le script répond en rappelant `options_show`.
+    pub fn options_event(&mut self, kind: i32, id: i32, value: i32) -> Result<Requests> {
+        let Some(on_options) = self.on_options.clone() else {
+            return Ok(Requests::default());
+        };
+        if self.disabled.is_some() {
+            return Ok(Requests::default());
+        }
+        self.guarded(|store| on_options.call(store, (kind, id, value)))
     }
 
     /// Le joueur fait un clic droit sur une machine du mod. Renvoie si le script a pris le
@@ -494,6 +520,15 @@ impl ModRuntime {
 
     pub fn len(&self) -> usize {
         self.scripts.len()
+    }
+
+    /// Transmet une action de la page d'options au script du mod `mod_id`.
+    pub fn options_event(&self, mod_id: &str, kind: i32, id: i32, value: i32) -> Requests {
+        let Some(script) = self.scripts.iter().find(|s| s.borrow().id() == mod_id) else {
+            return Requests::default();
+        };
+        let result = script.borrow_mut().options_event(kind, id, value);
+        result.unwrap_or_default()
     }
 
     /// Transmet une action de menu au script du mod `mod_id`.

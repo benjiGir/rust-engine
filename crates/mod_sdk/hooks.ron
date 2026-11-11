@@ -122,6 +122,18 @@
          params: [],
          doc: "Ferme le menu du mod s'il est ouvert."),
 
+        (name: "options_show", group: "Interface",
+         params: [("ptr", I32), ("len", I32)],
+         doc: "Affiche (ou met à jour) la page d'options du mod : `len` octets décrivant le menu."),
+
+        // Réglages.
+        (name: "setting_get", group: "Réglages",
+         params: [("key_ptr", I32), ("key_len", I32), ("out_ptr", I32), ("cap", I32)], ret: I32, fallback: "-1",
+         doc: "Copie la valeur (texte) du réglage du mod (au plus `cap` octets) ; renvoie sa taille, −1 s'il n'existe pas."),
+        (name: "setting_set", group: "Réglages",
+         params: [("key_ptr", I32), ("key_len", I32), ("val_ptr", I32), ("val_len", I32)], ret: I32, fallback: "0",
+         doc: "Enregistre un réglage du mod (clé de 64 octets, valeur de 1 024, 256 clés au plus). 1 si c'est fait."),
+
         // Objets et recettes.
         (name: "item_id", group: "Objets et recettes",
          params: [("ptr", I32), ("len", I32)], ret: I32, fallback: "-1",

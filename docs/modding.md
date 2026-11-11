@@ -36,6 +36,7 @@ s'appellent `example:...`. Deux mods peuvent avoir chacun un bloc `ruby` sans co
         (id: "core", version: "^0.1"),   // le jeu de base est un mod comme les autres
     ],
     script: "example.wasm",        // facultatif
+    options: true,                 // facultatif : une page d'options (voir plus bas)
 )
 ```
 
@@ -226,6 +227,39 @@ fn ui(&mut self, pos: Pos, event: UiEvent) {
   réveillée (`ScheduledTick`) à chaque changement.
 - `UiEvent::Closed` arrive quand le joueur ferme le menu (Échap).
 
+### Les pages d'options et les réglages
+
+Un mod peut avoir une **page d'options** dans le menu pause (« Options : <nom du mod> »). Il le
+dit dans son manifeste (`options: true`) et la décrit avec le même `Menu` que les machines :
+
+```rust
+fn options(&mut self) -> Option<Menu> {
+    Some(Menu::new("Mon mod")
+        .slider(1, "Délai (ticks)", 5.0, 200.0, mod_sdk::setting_i32("delay", 40) as f32)
+        .toggle(2, "Effets", mod_sdk::setting_bool("fx", true)))
+}
+
+fn options_event(&mut self, event: UiEvent) {
+    match event {
+        UiEvent::Slider(1, v) => { mod_sdk::set_setting("delay", &(v.round() as i32).to_string()); }
+        UiEvent::Toggle(2, on) => { mod_sdk::set_setting("fx", &on.to_string()); }
+        _ => {}
+    }
+}
+```
+
+`options()` est appelée à l'ouverture de la page puis après chaque action du joueur ; elle redonne
+le menu à jour (les cases d'inventaire n'y sont pas disponibles). `UiEvent::Closed` arrive au retour.
+
+Les **réglages** sont des paires clé → texte propres à chaque mod, écrites dans `mod_settings.ron`
+(à la racine du projet, hors des mondes : valables partout, comme les options du jeu). Les lire :
+`setting(clé)`, ou `setting_i32`, `setting_f32`, `setting_bool` avec une valeur par défaut ; les écrire :
+`set_setting(clé, valeur)` (clé de 64 octets, valeur de 1 024, 256 clés par mod). Un script les relit
+quand il veut : un réglage changé dans la page d'options agit aussitôt. Le fichier est écrit au plus
+une fois par seconde, et au retour de la page.
+
+La page n'est disponible qu'en jeu (le script d'un mod vit avec le monde), pas depuis le menu principal.
+
 ### Les événements
 
 `mod_sdk::subscribe(EventKind::...)` dans `init`, puis `Mod::event` les reçoit :
@@ -349,6 +383,7 @@ mémoire.
 | `on_event(type: i32, ptr: i32, taille: i32)` | facultatif |
 | `on_machines(type: i32, ptr: i32, nombre: i32)` | facultatif ; type 0 posées, 1 chargées, 2 voisin, 3 tick |
 | `on_ui(type: i32, g: i32, x: i32, y: i32, z: i32, id: i32, valeur: i32)` | facultatif ; action dans un menu : type 1 bouton, 2 case (valeur 0/1), 3 curseur (bits d'un f32), 4 rafraîchissement, 5 fermé |
+| `on_options(type: i32, id: i32, valeur: i32)` | facultatif ; page d'options : type 6 ouverture, puis 1 à 3 actions du joueur, 5 fermée ; le mod répond par `options_show` |
 | `on_use(g: i32, x: i32, y: i32, z: i32) -> i32` | facultatif ; clic droit du joueur sur une machine du mod ; renvoie 1 si le clic est pris en compte |
 
 **Données** (petit-boutistes) : les positions de `on_machines` sont `nombre` fois
@@ -416,6 +451,14 @@ test vérifie que le jeu définit exactement ces fonctions.
 |---|---|
 | `ui_show(g: i32, x: i32, y: i32, z: i32, ptr: i32, len: i32)` | Ouvre (ou met à jour) le menu de la machine à cette position : `len` octets décrivant le menu (voir `Menu`). Le joueur le voit à l'écran. |
 | `ui_close()` | Ferme le menu du mod s'il est ouvert. |
+| `options_show(ptr: i32, len: i32)` | Affiche (ou met à jour) la page d'options du mod : `len` octets décrivant le menu. |
+
+*Réglages*
+
+| Fonction | Rôle |
+|---|---|
+| `setting_get(key_ptr: i32, key_len: i32, out_ptr: i32, cap: i32) -> i32` | Copie la valeur (texte) du réglage du mod (au plus `cap` octets) ; renvoie sa taille, −1 s'il n'existe pas. |
+| `setting_set(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32) -> i32` | Enregistre un réglage du mod (clé de 64 octets, valeur de 1 024, 256 clés au plus). 1 si c'est fait. |
 
 *Objets et recettes*
 

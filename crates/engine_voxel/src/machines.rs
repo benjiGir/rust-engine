@@ -68,6 +68,11 @@ pub enum MachineAction {
         at: GridPos,
         data: Vec<u8>,
     },
+    /// Afficher (ou mettre à jour) la page d'options du mod.
+    ShowOptions {
+        mod_id: String,
+        data: Vec<u8>,
+    },
     /// Fermer le menu de ce mod.
     CloseMenu {
         mod_id: String,

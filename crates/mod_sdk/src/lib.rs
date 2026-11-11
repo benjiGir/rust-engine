@@ -37,7 +37,8 @@ pub use host::{
     close_menu, data, energy_extract, energy_insert, energy_stored, find_recipe, fluid_amount,
     fluid_drain, fluid_fill, get_block, give_item, give_stack, item_count, item_extract, item_id,
     item_insert, kinetic_speed, log, power, random, received_power, schedule_tick, set_block,
-    set_data, set_kinetic, set_power, show_menu, spawn_entity, subscribe,
+    set_data, set_kinetic, set_power, set_setting, setting, setting_bool, setting_f32, setting_i32,
+    show_menu, show_options, spawn_entity, subscribe,
 };
 
 /// Une grille de blocs : le monde (`Grid::WORLD`), ou une structure mobile (plus tard).
@@ -204,6 +205,14 @@ pub trait Mod {
     }
     /// Le joueur a agi dans le menu de la machine en `pos` (voir [`ui::Menu`]).
     fn ui(&mut self, _pos: Pos, _event: ui::UiEvent) {}
+    /// La page d'options du mod (menu pause) : son contenu actuel, ou `None` s'il n'en a pas.
+    /// Appelée à l'ouverture de la page, puis après chaque action du joueur. Le mod doit aussi
+    /// avoir `options: true` dans son `mod.ron`.
+    fn options(&mut self) -> Option<ui::Menu> {
+        None
+    }
+    /// Une action du joueur dans la page d'options : en général, un `set_setting`.
+    fn options_event(&mut self, _event: ui::UiEvent) {}
 }
 
 // ----- La mécanique d'export (utilisée par `export_mod!`) -----
@@ -346,6 +355,20 @@ macro_rules! export_mod {
                 let pos = $crate::Pos::in_grid($crate::Grid(grid as u32), x, y, z);
                 __MOD.with_borrow_mut(|m| $crate::Mod::ui(m, pos, event));
             }
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn on_options(kind: i32, id: i32, value: i32) {
+            __MOD.with_borrow_mut(|m| {
+                if let Some(event) = $crate::__private::ui_event(kind, id, value) {
+                    $crate::Mod::options_event(m, event);
+                }
+                if kind != $crate::ui::UI_CLOSED
+                    && let Some(menu) = $crate::Mod::options(m)
+                {
+                    $crate::show_options(&menu);
+                }
+            });
         }
 
         #[unsafe(no_mangle)]

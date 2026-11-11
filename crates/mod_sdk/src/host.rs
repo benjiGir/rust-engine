@@ -445,3 +445,53 @@ pub fn close_menu() {
     // SAFETY: aucun argument.
     unsafe { ffi::ui_close() }
 }
+
+/// Affiche (ou met à jour) la page d'options du mod dans le menu pause.
+pub fn show_options(menu: &crate::ui::Menu) {
+    let (ptr, len) = addr(menu.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `menu`.
+    unsafe { ffi::options_show(ptr, len) }
+}
+
+/// Un réglage du mod (texte), tel que le joueur l'a réglé ; `None` s'il n'a jamais été fixé.
+pub fn setting(key: &str) -> Option<String> {
+    let (key_ptr, key_len) = addr(key.as_bytes());
+    let mut buffer = vec![0u8; 64];
+    loop {
+        let (out_ptr, cap) = (buffer.as_mut_ptr() as usize as i32, buffer.len() as i32);
+        // SAFETY: l'hôte lit dans `key` et écrit au plus `cap` octets dans `buffer`.
+        let len = unsafe { ffi::setting_get(key_ptr, key_len, out_ptr, cap) };
+        if len < 0 {
+            return None;
+        }
+        if len as usize <= buffer.len() {
+            buffer.truncate(len as usize);
+            return Some(String::from_utf8_lossy(&buffer).into_owned());
+        }
+        buffer = vec![0u8; len as usize];
+    }
+}
+
+/// Enregistre un réglage du mod (sauvegardé pour tous les mondes). `false` si la clé ou la
+/// valeur est trop longue, ou s'il y a trop de réglages.
+pub fn set_setting(key: &str, value: &str) -> bool {
+    let (key_ptr, key_len) = addr(key.as_bytes());
+    let (val_ptr, val_len) = addr(value.as_bytes());
+    // SAFETY: l'hôte lit dans `key` et `value`, vivants pendant l'appel.
+    unsafe { ffi::setting_set(key_ptr, key_len, val_ptr, val_len) != 0 }
+}
+
+/// Un réglage lu comme nombre décimal, ou `default`.
+pub fn setting_f32(key: &str, default: f32) -> f32 {
+    setting(key).and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Un réglage lu comme entier, ou `default`.
+pub fn setting_i32(key: &str, default: i32) -> i32 {
+    setting(key).and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Un réglage lu comme booléen (`true`/`false`), ou `default`.
+pub fn setting_bool(key: &str, default: bool) -> bool {
+    setting(key).and_then(|v| v.parse().ok()).unwrap_or(default)
+}

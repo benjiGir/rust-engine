@@ -376,6 +376,7 @@ fn host_matches_the_catalog() {
         streamer,
         registry: BlockRegistry::builtin(),
         content: Default::default(),
+        settings: Default::default(),
         requests: Requests::default(),
         subscriptions: Vec::new(),
         limits: wasmtime::StoreLimitsBuilder::new().build(),
@@ -624,4 +625,56 @@ fn a_script_shows_a_menu_and_hears_the_player() {
         plain.ui_event(abi_ui::UI_BUTTON, at, 1, 0).unwrap(),
         Requests::default()
     );
+}
+
+#[test]
+fn a_script_has_an_options_page_and_persistent_settings() {
+    let s = loaded_streamer();
+    // À l'ouverture (kind 6) le mod montre sa page ; sur un curseur (kind 3) il enregistre le
+    // réglage « k » = « v1 », puis relit sa taille (2) pour la donner en objets.
+    let wat = r#"(module
+        (import "voxel" "give_item" (func $give (param i32 i32)))
+        (import "voxel" "options_show" (func $show (param i32 i32)))
+        (import "voxel" "setting_set" (func $set (param i32 i32 i32 i32) (result i32)))
+        (import "voxel" "setting_get" (func $get (param i32 i32 i32 i32) (result i32)))
+        (memory (export "memory") 1)
+        (data (i32.const 0) "\01\02\00hi")
+        (data (i32.const 16) "kv1")
+        (func (export "sdk_alloc") (param i32) (result i32) i32.const 1024)
+        (func (export "on_options") (param $kind i32) (param $id i32) (param $v i32)
+            (if (i32.eq (local.get $kind) (i32.const 6))
+                (then (call $show (i32.const 0) (i32.const 5))))
+            (if (i32.eq (local.get $kind) (i32.const 3))
+                (then
+                    (drop (call $set (i32.const 16) (i32.const 1) (i32.const 17) (i32.const 2)))
+                    (call $give (i32.const 1)
+                        (call $get (i32.const 16) (i32.const 1) (i32.const 512) (i32.const 8))))))
+    )"#;
+    let settings = Rc::new(RefCell::new(crate::ModSettings::default()));
+    let mut host = ScriptHost::new().unwrap();
+    host.set_settings(settings.clone());
+    let registry = s.borrow().world().registry().clone();
+    let mut script = host
+        .load("opt", wat.as_bytes(), s.clone(), registry)
+        .unwrap();
+    let opened = script.options_event(abi_ui::UI_OPEN, 0, 0).unwrap();
+    assert_eq!(
+        opened.actions,
+        vec![MachineAction::ShowOptions {
+            mod_id: "opt".into(),
+            data: vec![1, 2, 0, b'h', b'i']
+        }]
+    );
+    let moved = script.options_event(abi_ui::UI_SLIDER, 1, 0).unwrap();
+    assert_eq!(settings.borrow().get("opt", "k"), Some("v1"));
+    assert!(settings.borrow().is_dirty());
+    assert_eq!(
+        moved.actions,
+        vec![MachineAction::GiveItem {
+            block: BlockId(1),
+            count: 2
+        }]
+    );
+    // Les réglages sont par mod : un autre mod ne voit pas « k ».
+    assert_eq!(settings.borrow().get("autre", "k"), None);
 }

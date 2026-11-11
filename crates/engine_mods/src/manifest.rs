@@ -43,6 +43,9 @@ pub struct ModManifest {
     /// Le script WebAssembly du mod, relatif à son dossier (facultatif).
     #[serde(default)]
     pub script: Option<String>,
+    /// Le mod a une page d'options (`Mod::options` dans son script), dans le menu pause.
+    #[serde(default)]
+    pub options: bool,
 }
 
 /// Un mod trouvé sur le disque.
@@ -75,6 +78,7 @@ pub fn core_mod(assets_core: &Path) -> ModInfo {
             description: String::new(),
             dependencies: Vec::new(),
             script: None,
+            options: false,
         },
         dir: assets_core.to_path_buf(),
     }
@@ -209,6 +213,7 @@ mod tests {
                     })
                     .collect(),
                 script: None,
+                options: false,
             },
             dir: PathBuf::from(id),
         }

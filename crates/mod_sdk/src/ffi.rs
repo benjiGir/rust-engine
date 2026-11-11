@@ -156,6 +156,12 @@ unsafe extern "C" {
     pub fn ui_show(g: i32, x: i32, y: i32, z: i32, ptr: i32, len: i32);
     /// Ferme le menu du mod s'il est ouvert.
     pub fn ui_close();
+    /// Affiche (ou met à jour) la page d'options du mod : `len` octets décrivant le menu.
+    pub fn options_show(ptr: i32, len: i32);
+    /// Copie la valeur (texte) du réglage du mod (au plus `cap` octets) ; renvoie sa taille, −1 s'il n'existe pas.
+    pub fn setting_get(key_ptr: i32, key_len: i32, out_ptr: i32, cap: i32) -> i32;
+    /// Enregistre un réglage du mod (clé de 64 octets, valeur de 1 024, 256 clés au plus). 1 si c'est fait.
+    pub fn setting_set(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32) -> i32;
     /// Le numéro d'un objet (bloc ou non) à partir de son identifiant (`example:ruby`) ; −1 s'il n'existe pas.
     pub fn item_id(ptr: i32, len: i32) -> i32;
     /// Donne `count` objets de numéro `id` (voir `item_id`) au joueur.
@@ -329,6 +335,16 @@ mod inert {
     pub unsafe fn ui_show(_: i32, _: i32, _: i32, _: i32, _: i32, _: i32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn ui_close() {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn options_show(_: i32, _: i32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn setting_get(_: i32, _: i32, _: i32, _: i32) -> i32 {
+        -1
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn setting_set(_: i32, _: i32, _: i32, _: i32) -> i32 {
+        0
+    }
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn item_id(_: i32, _: i32) -> i32 {
         -1
