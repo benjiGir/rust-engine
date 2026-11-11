@@ -37,6 +37,14 @@
         // Les fruits des arbres : ils tombent des feuilles (voir loot.ron).
         (id: "core:pear", name: "Poire", category: Food, color: (0.72, 0.8, 0.25), icon: "pear", food: (nutrition: 4.0, saturation: 2.4)),
         (id: "core:nut", name: "Noix", category: Food, color: (0.5, 0.36, 0.2), icon: "nut", food: (nutrition: 2.0, saturation: 3.0)),
+        // L'alchimie (phase O10) : fioles et potions (potions.ron, brewing.ron).
+        (id: "core:flask", name: "Fiole", category: Material, color: (0.75, 0.88, 0.95), icon: "flask"),
+        (id: "core:water_flask", name: "Fiole d'eau", category: Material, color: (0.3, 0.5, 0.95), icon: "water_flask"),
+        (id: "core:potion_healing", name: "Potion de soin", category: Food, color: (0.9, 0.2, 0.25), icon: "potion_healing", max_stack: 8, food: (nutrition: 0.0, saturation: 0.0)),
+        (id: "core:potion_regeneration", name: "Potion de régénération", category: Food, color: (0.95, 0.5, 0.7), icon: "potion_regeneration", max_stack: 8, food: (nutrition: 0.0, saturation: 0.0)),
+        (id: "core:potion_speed", name: "Potion de vitesse", category: Food, color: (0.5, 0.85, 0.95), icon: "potion_speed", max_stack: 8, food: (nutrition: 0.0, saturation: 0.0)),
+        (id: "core:potion_strength", name: "Potion de force", category: Food, color: (0.6, 0.15, 0.15), icon: "potion_strength", max_stack: 8, food: (nutrition: 0.0, saturation: 0.0)),
+        (id: "core:potion_fire_resistance", name: "Potion de résistance au feu", category: Food, color: (1.0, 0.6, 0.15), icon: "potion_fire_resistance", max_stack: 8, food: (nutrition: 0.0, saturation: 0.0)),
         (id: "core:fertilizer", name: "Engrais", category: Material, color: (0.5, 0.4, 0.25), icon: "fertilizer"),
         (id: "core:flint", name: "Silex", category: Material, color: (0.25, 0.25, 0.27), icon: "flint"),
         // Le butin des créatures (phase O5).

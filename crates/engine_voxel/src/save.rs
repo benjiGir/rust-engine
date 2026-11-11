@@ -96,6 +96,14 @@ pub struct WorldMeta {
     /// plus ancien (on relit alors `inventory`).
     #[serde(default)]
     pub items: Option<SavedInventory>,
+    /// La difficulté choisie à la création : 0 paisible, 1 normale, 2 difficile. Un monde
+    /// plus ancien est normal.
+    #[serde(default = "normal_difficulty")]
+    pub difficulty: u8,
+}
+
+fn normal_difficulty() -> u8 {
+    1
 }
 
 /// Un inventaire sauvegardé : une **palette** d'identifiants texte, et des cases qui
@@ -979,6 +987,7 @@ pub(crate) mod tests {
                 xp: Some(42),
             }),
             mods: vec!["core".into(), "example".into()],
+            difficulty: 2,
             inventory: vec![Some(("core:stone".into(), 12)), None],
             items: Some(SavedInventory {
                 palette: vec!["core:iron_pickaxe".into()],

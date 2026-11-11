@@ -129,6 +129,120 @@ fn farmland(wet: bool) -> Image {
     image
 }
 
+/// Le dessus de la table d'enchantement : un tapis violet, des runes et un saphir au centre.
+fn enchanting_top() -> Image {
+    let base = [0.35, 0.16, 0.5];
+    let mut image = Image::filled(base).noise(base, 0.1, 60);
+    for k in 0..SIZE {
+        for edge in [0, 1, SIZE - 2, SIZE - 1] {
+            image.set(k, edge, [0.75, 0.6, 0.2]);
+            image.set(edge, k, [0.75, 0.6, 0.2]);
+        }
+    }
+    for (x, y) in [
+        (4, 4),
+        (11, 4),
+        (4, 11),
+        (11, 11),
+        (7, 3),
+        (7, 12),
+        (3, 7),
+        (12, 7),
+    ] {
+        image.set(x, y, [0.9, 0.75, 1.0]);
+    }
+    for y in 6..10 {
+        for x in 6..10 {
+            image.set(x, y, [0.3, 0.5, 1.0]);
+        }
+    }
+    image.set(6, 6, [0.7, 0.85, 1.0]);
+    image
+}
+
+/// Le côté : du bois sombre avec un liseré violet.
+fn enchanting_side() -> Image {
+    let wood = [0.3, 0.2, 0.14];
+    let mut image = Image::filled(wood).noise(wood, 0.08, 61);
+    for x in 0..SIZE {
+        image.set(x, 0, [0.5, 0.25, 0.7]);
+        image.set(x, 1, [0.5, 0.25, 0.7]);
+        image.set(x, 14, [0.5, 0.25, 0.7]);
+        image.set(x, 15, [0.5, 0.25, 0.7]);
+    }
+    image
+}
+
+/// Le dessus de l'alambic : une plaque de fer, trois cuves et un brûleur.
+fn brewing_top() -> Image {
+    let iron = [0.42, 0.42, 0.46];
+    let mut image = Image::filled(iron).noise(iron, 0.07, 62);
+    for (cx, cy) in [(4, 4), (11, 4), (7, 11)] {
+        for dy in -2..=2i32 {
+            for dx in -2..=2i32 {
+                if dx * dx + dy * dy <= 5 {
+                    let edge = dx * dx + dy * dy > 3;
+                    image.plot(
+                        cx + dx,
+                        cy + dy,
+                        if edge {
+                            [0.25, 0.25, 0.28]
+                        } else {
+                            [0.35, 0.6, 0.9]
+                        },
+                    );
+                }
+            }
+        }
+    }
+    image
+}
+
+/// Le côté : du bois cerclé de fer.
+fn brewing_side() -> Image {
+    let wood = [0.5, 0.38, 0.24];
+    let mut image = Image::filled(wood).noise(wood, 0.07, 63);
+    for x in 0..SIZE {
+        for y in [2, 3, 12, 13] {
+            image.set(x, y, [0.4, 0.4, 0.44]);
+        }
+    }
+    image
+}
+
+/// Une fiole : un verre rond à col étroit ; `liquid` colore son contenu.
+fn flask(liquid: Option<[f32; 3]>) -> Image {
+    let glass = [0.78, 0.9, 0.96];
+    let mut image = Image::transparent();
+    // Le col et le bouchon.
+    for y in 2..5 {
+        for x in 6..10 {
+            image.set(x, y, if y == 2 { [0.55, 0.38, 0.2] } else { glass });
+        }
+    }
+    // Le ventre.
+    for y in 5..14 {
+        let half = match y {
+            5 => 3,
+            6 => 4,
+            13 => 4,
+            _ => 5,
+        };
+        for x in (8 - half)..(8 + half) {
+            let edge = x == 8 - half || x == 8 + half - 1 || y == 13;
+            let inside = !edge;
+            let color = match liquid {
+                Some(l) if inside && y >= 8 => l,
+                _ if edge => scale(glass, 0.8),
+                _ => glass,
+            };
+            image.set(x as usize, y, color);
+        }
+    }
+    image.set(6, 7, [1.0, 1.0, 1.0]);
+    image
+}
+
 /// Un câble de signal : un trait en croix qui relie les bords de la case.
 fn wire(on: bool) -> Image {
     let color = if on {
@@ -1762,6 +1876,10 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("melon_1.png"), ground_crop("melon", 1)),
         (core.join("melon_2.png"), ground_crop("melon", 2)),
         (core.join("melon_3.png"), ground_crop("melon", 3)),
+        (core.join("enchanting_table_top.png"), enchanting_top()),
+        (core.join("enchanting_table_side.png"), enchanting_side()),
+        (core.join("brewing_stand_top.png"), brewing_top()),
+        (core.join("brewing_stand_side.png"), brewing_side()),
         (core.join("wire.png"), wire(false)),
         (core.join("wire_on.png"), wire(true)),
         (core.join("lever.png"), lever(false)),
@@ -1870,6 +1988,17 @@ fn item_icons(dir: &Path) -> Vec<(PathBuf, Image)> {
     add("melon_seeds", material("seeds", [0.2, 0.22, 0.12]));
     add("pear", material("gem", [0.72, 0.82, 0.25]));
     add("nut", material("raw", [0.5, 0.36, 0.2]));
+    add("flask", flask(None));
+    add("water_flask", flask(Some([0.25, 0.5, 0.95])));
+    for (name, color) in [
+        ("potion_healing", [0.95, 0.2, 0.25]),
+        ("potion_regeneration", [0.95, 0.5, 0.7]),
+        ("potion_speed", [0.45, 0.85, 0.95]),
+        ("potion_strength", [0.65, 0.15, 0.15]),
+        ("potion_fire_resistance", [1.0, 0.6, 0.15]),
+    ] {
+        add(name, flask(Some(color)));
+    }
     add("fertilizer", material("dust", [0.5, 0.4, 0.25]));
     out
 }

@@ -31,6 +31,22 @@ const AMBIENCE_NIGHT: &str = "core:ambience_night";
 pub const SPLASH: &str = "core:splash";
 const RAIN: &str = "core:rain";
 pub const THUNDER: &str = "core:thunder";
+/// Les sons d'ambiance joués de temps en temps, et les morceaux de musique.
+pub const AMBIENT_SOUNDS: &[&str] = &[
+    "core:birds",
+    "core:drip",
+    "core:cave_rumble",
+    "core:waves",
+    "core:owl",
+];
+pub const MUSIC_TRACKS: &[&str] = &[
+    "core:music_day1",
+    "core:music_day2",
+    "core:music_night",
+    "core:music_cave",
+];
+/// Les sons de l'enchantement, de l'alambic et des potions.
+pub const UI_SOUNDS: &[&str] = &["core:enchant", "core:bubbles", "core:gulp"];
 
 /// Les réglages, lus dans l'environnement.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -179,6 +195,15 @@ impl Audio {
         self.rain = start(RAIN, self);
     }
 
+    /// Joue un son d'ambiance ou un morceau de musique sur la piste de l'ambiance (réglée
+    /// par « Musique et ambiance »). Renvoie sa durée en secondes.
+    pub fn play_ambient(&mut self, key: &str) -> Option<f32> {
+        let data = self.sounds.get(key)?.clone();
+        let seconds = data.duration().as_secs_f32();
+        self.ambience.play(data).ok()?;
+        Some(seconds)
+    }
+
     /// Le volume de la pluie, de 0 (rien) à 1 (l'averse).
     pub fn update_rain(&mut self, amount: f32) {
         if (amount - self.last_rain).abs() < 0.02 {
@@ -255,6 +280,9 @@ fn load_sounds(registry: &BlockRegistry) -> HashMap<String, StaticSoundData> {
         RAIN.into(),
         THUNDER.into(),
     ];
+    for key in AMBIENT_SOUNDS.iter().chain(MUSIC_TRACKS).chain(UI_SOUNDS) {
+        keys.push((*key).into());
+    }
     for (_, def) in registry.iter() {
         for key in [&def.sounds.step, &def.sounds.break_, &def.sounds.place]
             .into_iter()
@@ -302,7 +330,12 @@ mod tests {
             SPLASH,
             "core:step_soft",
             "core:break_glass",
-        ] {
+        ]
+        .into_iter()
+        .chain(AMBIENT_SOUNDS.iter().copied())
+        .chain(MUSIC_TRACKS.iter().copied())
+        .chain(UI_SOUNDS.iter().copied())
+        {
             let sound = sounds
                 .get(key)
                 .unwrap_or_else(|| panic!("son « {key} » absent"));

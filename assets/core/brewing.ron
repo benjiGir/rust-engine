@@ -1,0 +1,14 @@
+// L'alambic (phase O10) : une fiole d'eau et un ingrédient donnent une potion.
+//
+// - input : l'objet de la case du haut (la fiole d'eau) ;
+// - reagent : l'ingrédient ; output : la potion obtenue ; time : secondes de préparation.
+// Les effets des potions sont dans potions.ron (côté jeu).
+(
+    recipes: [
+        (input: "water_flask", reagent: "apple", output: "potion_healing", time: 15.0),
+        (input: "water_flask", reagent: "spores", output: "potion_regeneration", time: 20.0),
+        (input: "water_flask", reagent: "carrot", output: "potion_speed", time: 20.0),
+        (input: "water_flask", reagent: "shadow_dust", output: "potion_strength", time: 20.0),
+        (input: "water_flask", reagent: "cinnabar_dust", output: "potion_fire_resistance", time: 20.0),
+    ],
+)

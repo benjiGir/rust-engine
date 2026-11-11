@@ -829,6 +829,7 @@ pub(crate) mod tests {
         world.insert_resource(GameRng(7));
         world.insert_resource(SimClock::default());
         world.insert_resource(crate::spawning::Sky::default());
+        world.insert_resource(crate::spawning::Difficulty(1));
         world.insert_resource(Arc::new(DangerBlocks::default()));
         world.insert_resource(Arc::new(SurvivalRules::default()));
         events::register(&mut world);
@@ -1172,5 +1173,28 @@ pub(crate) mod tests {
                 position: deaths[0].position,
             }]
         );
+    }
+
+    /// Un monde paisible : plus d'hostiles, celles qui restent disparaissent.
+    #[test]
+    fn peaceful_worlds_have_no_hostile_creatures() {
+        let mut world = sim();
+        world.insert_resource(crate::spawning::Difficulty(0));
+        let slime = world
+            .resource::<Arc<MobRegistry>>()
+            .id("example:slime")
+            .unwrap();
+        let pig = world.resource::<Arc<MobRegistry>>().id("core:pig").unwrap();
+        let hostile = spawn_mob(&mut world, slime, Vec3::new(8.5, 90.0, 8.5)).unwrap();
+        let friendly = spawn_mob(&mut world, pig, Vec3::new(9.5, 90.0, 8.5)).unwrap();
+        // La nuit comme le jour : l'hostile finit par partir (un tirage par seconde).
+        world.resource_mut::<crate::spawning::Sky>().night = true;
+        for _ in 0..200 {
+            world.resource_mut::<SimClock>().dissolve_timer = 0.0;
+            crate::spawning::dissolve(&mut world);
+            world.apply_commands();
+        }
+        assert!(world.get::<Mob>(hostile).is_none(), "l'hostile a disparu");
+        assert!(world.get::<Mob>(friendly).is_some(), "le cochon reste");
     }
 }

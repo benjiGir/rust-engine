@@ -335,6 +335,7 @@ impl VoxelGame {
                         crate::Mode::Title(crate::menus::TitlePage::NewWorld {
                             name: "Ma vallée".into(),
                             seed: "montagne".into(),
+                            difficulty: 1,
                             error: None,
                         })
                     }

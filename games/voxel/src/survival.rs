@@ -185,6 +185,18 @@ impl Experience {
         into as f32 / Self::cost(level) as f32
     }
 
+    /// Dépense `levels` niveaux (l'avancement vers le suivant est gardé). `false`, sans rien
+    /// dépenser, s'il n'y en a pas assez.
+    pub fn spend_levels(&mut self, levels: u32) -> bool {
+        let (level, into) = self.level();
+        if level < levels {
+            return false;
+        }
+        let target: u32 = (0..level - levels).map(Self::cost).sum();
+        self.points = target + into.min(Self::cost(level - levels).saturating_sub(1));
+        true
+    }
+
     /// Ajoute des points ; renvoie le nouveau niveau s'il a changé.
     pub fn add(&mut self, points: u32) -> Option<u32> {
         let before = self.level().0;
@@ -638,10 +650,21 @@ impl crate::VoxelGame {
             return None;
         };
         if self.hunger.chew(&self.hunger_rules, holding, dt) {
-            self.inventory.consume_selected();
+            let eaten = self.inventory.consume_selected();
             self.hunger
                 .eat(&self.hunger_rules, food.nutrition, food.saturation);
-            if let Some(audio) = &mut self.audio {
+            if let Some(potion) = eaten.and_then(|item| self.potions.get(item)) {
+                // Une potion : l'effet démarre, la fiole vide revient.
+                let healed = self.effects.drink(potion);
+                if healed > 0.0 {
+                    self.heal(healed);
+                }
+                self.toast(potion.effect.name());
+                self.give_back_flask();
+                if let Some(audio) = &mut self.audio {
+                    audio.play("core:gulp");
+                }
+            } else if let Some(audio) = &mut self.audio {
                 audio.play("core:place_soft");
             }
             log::debug!(
@@ -653,6 +676,24 @@ impl crate::VoxelGame {
         self.hunger
             .chewing
             .map(|t| (t / self.hunger_rules.eat_time).clamp(0.0, 1.0))
+    }
+
+    /// La fiole vide d'une potion bue.
+    fn give_back_flask(&mut self) {
+        let Some(flask) = self.content.items.id("core:flask") else {
+            return;
+        };
+        let items = self.content.items.clone();
+        let left = self
+            .inventory
+            .add_stack(crate::inventory::ItemStack::new(flask, 1), &items);
+        if left > 0 {
+            let at = player::body(&self.ecs, self.player)
+                .position
+                .floor()
+                .as_ivec3();
+            self.drop_stack(at, crate::inventory::ItemStack::new(flask, left));
+        }
     }
 
     /// Le butin des créatures mortes, tombé là où elles sont mortes.
@@ -737,13 +778,26 @@ impl crate::VoxelGame {
     /// Un coup au joueur : invulnérabilité, armure, puis la vie et l'événement
     /// [`PlayerDamaged`] (le son, les mods). Renvoie les dégâts vraiment subis.
     pub(crate) fn hurt_player(&mut self, amount: f32, cause: DamageCause) -> Option<f32> {
+        // En difficile, les créatures frappent plus fort.
+        let amount = if cause == DamageCause::Mob && self.difficulty >= 2 {
+            amount * 1.5
+        } else {
+            amount
+        };
+        // La résistance au feu : ni la lave ni les flammes ne blessent.
+        if matches!(cause, DamageCause::Lava | DamageCause::Burning)
+            && self.effects.has(crate::potions::Effect::FireResistance)
+        {
+            return None;
+        }
         let protection = self.inventory.protection(&self.content.items);
         let damage = self
             .vitals
             .hurt(&self.survival, amount, cause, protection)?;
         // L'armure qui a encaissé s'use ; une pièce peut se briser.
         if protection > 0 && !cause.ignores_armor() {
-            for item in self.inventory.wear_armor(&self.content.items) {
+            let roll = engine_voxel::Rng64::new(self.next_random()).next_f32();
+            for item in self.inventory.wear_armor(&self.content.items, roll) {
                 let name = self.content.items.get(item).name.clone();
                 self.toast(&format!("{name} : brisé"));
                 if let Some(audio) = &mut self.audio {

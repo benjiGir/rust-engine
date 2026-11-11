@@ -163,6 +163,10 @@ pub fn asleep(world: &World, entity: engine_ecs::Entity, position: Vec3, player:
 }
 
 /// Toutes les [`SPAWN_INTERVAL`] secondes, quelques essais d'apparition autour du joueur.
+/// La difficulté du monde : 0 paisible (aucune hostile), 1 normale, 2 difficile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Difficulty(pub u8);
+
 pub fn spawn(world: &mut World) {
     let dt = world.resource::<FixedDt>().0;
     {
@@ -185,7 +189,7 @@ pub fn spawn(world: &mut World) {
             let mut rng = world.resource_mut::<GameRng>();
             std::array::from_fn(|_| rng.next_f32())
         };
-        let hostile = r_kind < 0.5;
+        let hostile = world.resource::<Difficulty>().0 > 0 && r_kind < 0.5;
         if (hostile && hostiles >= HOSTILE_CAP) || (!hostile && passives >= PASSIVE_CAP) {
             continue;
         }
@@ -275,7 +279,8 @@ pub fn dissolve(world: &mut World) {
         clock.dissolve_timer = 1.0;
     }
     let sky = *world.resource::<Sky>();
-    if sky.night {
+    let peaceful = world.resource::<Difficulty>().0 == 0;
+    if sky.night && !peaceful {
         return;
     }
     let registry = world.resource::<Arc<MobRegistry>>().clone();
@@ -285,7 +290,15 @@ pub fn dissolve(world: &mut World) {
     world
         .query::<(&Transform, &Mob)>()
         .for_each(|entity, (transform, mob)| {
-            if !registry.get(mob.kind).is_some_and(|d| d.spawn.dissolves) {
+            let Some(def) = registry.get(mob.kind) else {
+                return;
+            };
+            // Un monde paisible n'a pas d'hostiles : celles qui restent disparaissent.
+            if peaceful && def.hostile {
+                gone.push(entity);
+                return;
+            }
+            if !def.spawn.dissolves {
                 return;
             }
             let head = (transform.position + Vec3::Y * 0.9).floor().as_ivec3();

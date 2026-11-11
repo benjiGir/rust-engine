@@ -74,6 +74,7 @@ impl VoxelGame {
         }
         self.vitals = Vitals::new(&self.survival);
         self.hunger = Hunger::new(&self.hunger_rules);
+        self.effects.clear();
         self.mode = Mode::Playing;
         log::info!("réapparition en {feet}");
     }

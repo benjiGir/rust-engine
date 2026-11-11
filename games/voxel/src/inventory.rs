@@ -9,6 +9,7 @@
 //! présents, et pour chaque case un numéro dans cette palette. Les numéros d'objets
 //! changent quand on ajoute un mod ; les identifiants texte, jamais.
 
+use crate::enchanting::{self, Enchantment};
 use engine_voxel::{
     ArmorSlot, Ingredient, ItemId, ItemRegistry, Recipe, SavedInventory, SavedStack,
 };
@@ -106,6 +107,13 @@ pub fn click_slot(
         },
         Click::Take(n) => take(slot, cursor, items, n),
     }
+}
+
+/// L'objet est-il épargné par l'usure ce coup-ci ? Solidité de niveau L : une chance
+/// sur L + 1 d'être épargné par coup, par tirage `roll` entre 0 et 1.
+fn spared(damage: u32, roll: f32) -> bool {
+    let level = enchanting::level_of(damage, Enchantment::Unbreaking);
+    level > 0 && roll < f32::from(level) / f32::from(level + 1)
 }
 
 /// Deux piles qui peuvent n'en faire qu'une : même objet, neuves.
@@ -259,7 +267,8 @@ impl Inventory {
     }
 
     /// Use l'outil en main ; renvoie `true` s'il vient de casser.
-    pub fn wear_selected(&mut self, items: &ItemRegistry) -> bool {
+    /// `roll` (0 à 1) : le tirage de l'enchantement Solidité, qui épargne parfois l'objet.
+    pub fn wear_selected(&mut self, items: &ItemRegistry, roll: f32) -> bool {
         let slot = &mut self.slots[self.selected];
         let Some(stack) = slot.as_mut() else {
             return false;
@@ -267,8 +276,11 @@ impl Inventory {
         let Some(durability) = items.get(stack.item).durability else {
             return false;
         };
+        if spared(stack.damage, roll) {
+            return false;
+        }
         stack.damage += 1;
-        if stack.damage >= durability {
+        if enchanting::wear(stack.damage) >= durability {
             *slot = None;
             return true;
         }
@@ -277,15 +289,18 @@ impl Inventory {
 
     /// L'armure encaisse un coup : chaque pièce portée s'use d'un point. Renvoie les
     /// pièces qui se sont brisées.
-    pub fn wear_armor(&mut self, items: &ItemRegistry) -> Vec<ItemId> {
+    pub fn wear_armor(&mut self, items: &ItemRegistry, roll: f32) -> Vec<ItemId> {
         let mut broken = Vec::new();
         for slot in &mut self.armor {
             let Some(stack) = slot.as_mut() else { continue };
             let Some(durability) = items.get(stack.item).durability else {
                 continue;
             };
+            if spared(stack.damage, roll) {
+                continue;
+            }
             stack.damage += 1;
-            if stack.damage >= durability {
+            if enchanting::wear(stack.damage) >= durability {
                 broken.push(stack.item);
                 *slot = None;
             }
@@ -328,7 +343,10 @@ impl Inventory {
         self.armor
             .iter()
             .flatten()
-            .filter_map(|s| items.get(s.item).armor.map(|a| a.protection))
+            .filter_map(|s| {
+                let base = items.get(s.item).armor.map(|a| a.protection)?;
+                Some(base + u32::from(enchanting::level_of(s.damage, Enchantment::Protection)))
+            })
             .sum()
     }
 
@@ -622,10 +640,10 @@ mod tests {
         let durability = items.get(chest).durability.unwrap();
         inv.armor[1] = Some(ItemStack::new(chest, 1));
         for _ in 0..durability - 1 {
-            assert!(inv.wear_armor(&items).is_empty());
+            assert!(inv.wear_armor(&items, 1.0).is_empty());
         }
         assert_eq!(
-            inv.wear_armor(&items),
+            inv.wear_armor(&items, 1.0),
             vec![chest],
             "le dernier coup la brise"
         );
@@ -668,11 +686,11 @@ mod tests {
         let mut inv = Inventory::default();
         inv.add(pickaxe, 1, &items);
         for _ in 0..durability - 1 {
-            assert!(!inv.wear_selected(&items));
+            assert!(!inv.wear_selected(&items, 1.0));
         }
         assert_eq!(inv.selected_stack().unwrap().damage, durability - 1);
         assert!(
-            inv.wear_selected(&items),
+            inv.wear_selected(&items, 1.0),
             "il casse à la dernière utilisation"
         );
         assert!(inv.selected_stack().is_none());

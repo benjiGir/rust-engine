@@ -45,9 +45,11 @@ mod culling;
 mod daytime;
 mod death;
 mod drops;
+mod enchanting;
 mod events;
 mod hand;
 mod hot_reload;
+mod interact;
 mod inventory;
 mod menus;
 mod mobs;
@@ -55,10 +57,12 @@ mod modding;
 mod navigation;
 mod persistence;
 mod player;
+mod potions;
 mod projectiles;
 mod screenshots;
 mod settings;
 mod shared;
+mod soundscape;
 mod spawning;
 mod stats;
 mod stress;
@@ -191,6 +195,15 @@ struct VoxelGame {
     tour: Option<screenshots::Tour>,
     day: DayCycle,
     weather: weather::Weather,
+    /// 0 paisible, 1 normale, 2 difficile.
+    difficulty: u8,
+    potions: potions::Potions,
+    effects: potions::Effects,
+    soundscape: soundscape::Soundscape,
+    /// Ce que propose la table d'enchantement : change après chaque enchantement.
+    enchant_seed: u32,
+    /// Un morceau est en cours jusqu'à cette date.
+    music_until: Option<Instant>,
     villages: villagers::Villages,
     trades: trading::TradeBook,
     /// Le brouillard par beau temps (début, fin) : la pluie le resserre.
@@ -242,6 +255,8 @@ pub struct Launch {
     pub seed: Option<u32>,
     /// Le monde de fond du menu principal : survol de caméra, sans joueur.
     pub title: bool,
+    /// La difficulté d'un nouveau monde (0 paisible, 1 normale, 2 difficile).
+    pub difficulty: Option<u8>,
 }
 
 impl Launch {
@@ -266,6 +281,7 @@ impl Launch {
             world: named.then(|| persistence::world_dir(&assets_dir())),
             seed: env_parse("VOXEL_SEED"),
             title: false,
+            difficulty: None,
         })
     }
 
@@ -275,6 +291,7 @@ impl Launch {
             world: None,
             seed: Some(TITLE_SEED),
             title: true,
+            difficulty: None,
         }
     }
 }
@@ -325,6 +342,8 @@ impl VoxelGame {
             .context("chargement des objets")?;
         let trades =
             trading::TradeBook::builtin(&content.items).context("chargement des échanges")?;
+        let potions =
+            potions::Potions::builtin(&content.items).context("chargement des potions")?;
         log::info!("{} types de créatures", mob_registry.len());
 
         let (store, meta) = match &launch.world {
@@ -347,6 +366,13 @@ impl VoxelGame {
             .map(|m| m.seed)
             .or(launch.seed)
             .unwrap_or(DEFAULT_SEED);
+        // Un monde existant garde sa difficulté.
+        let difficulty = meta
+            .as_ref()
+            .map(|m| m.difficulty)
+            .or(launch.difficulty)
+            .unwrap_or(1)
+            .min(2);
         let config = StreamingConfig {
             view_radius: env_parse("VOXEL_RADIUS").unwrap_or(settings.render_distance.clamp(4, 32)),
             // `VOXEL_LEAF_CULLING=0` : garder toutes les faces de feuilles, pour comparer.
@@ -466,6 +492,7 @@ impl VoxelGame {
             &registry,
             content.items.clone(),
             content.smelting.clone(),
+            content.brewing.clone(),
         );
         let mut ecs = engine_ecs::World::new();
         events::register(&mut ecs);
@@ -486,6 +513,7 @@ impl VoxelGame {
         ecs.insert_resource(mobs::FixedDt(ctx.fixed_dt));
         ecs.insert_resource(mobs::GameRng(0x2545_F491_4F6C_DD1D ^ seed as u64));
         ecs.insert_resource(mobs::SimClock::default());
+        ecs.insert_resource(spawning::Difficulty(difficulty));
         ecs.insert_resource(spawning::Sky::default());
         let player = player::spawn(&mut ecs, eye, mode);
         ecs.insert_resource(mobs::PlayerEntity(player));
@@ -618,6 +646,12 @@ impl VoxelGame {
             tour,
             day: DayCycle::new(time, env_parse("VOXEL_DAY_LENGTH").unwrap_or(600.0)),
             weather: weather::Weather::new(seed),
+            difficulty,
+            potions,
+            effects: potions::Effects::default(),
+            soundscape: soundscape::Soundscape::new(seed),
+            enchant_seed: seed ^ 0xE5C4,
+            music_until: None,
             villages: villagers::Villages::default(),
             trades,
             base_fog: (view_distance * 0.6, view_distance * 0.95),
@@ -669,14 +703,14 @@ impl VoxelGame {
                     SPRINT_SPEED
                 } else {
                     WALK_SPEED
-                };
+                } * self.effects.speed_factor();
                 let jump = input.key_held(keys.key(Action::Jump));
                 let direction = self.wish_direction(ctx, false);
                 (direction * speed, jump)
             }
         };
         player::set_intent(&self.ecs, self.player, walk, jump);
-        let sprinting = walk.length() > WALK_SPEED + 0.01;
+        let sprinting = walk.length() > WALK_SPEED * self.effects.speed_factor() + 0.01;
         self.exert_movement(walk, jump, sprinting, ctx.fixed_dt);
         self.schedule.run(Stage::FixedUpdate, &mut self.ecs);
         // Les machines : un tick tous les 3 pas (20 par seconde).
@@ -804,6 +838,8 @@ impl VoxelGame {
                 &self.trades,
             );
         }
+        self.update_soundscape(dt);
+        self.update_effects(dt);
         if let Some(audio) = &mut self.audio {
             if thunder {
                 audio.play(audio::THUNDER);
@@ -873,7 +909,7 @@ impl VoxelGame {
                         }
                         self.hand.punch();
                         if self.held_tool().is_some() {
-                            self.inventory.wear_selected(&self.content.items);
+                            self.wear_held();
                         }
                         if let Some(audio) = &mut self.audio {
                             audio.play("core:break_soft");
@@ -1115,6 +1151,7 @@ impl Game for App {
                         world: Some(project_root().join("saves").join("menu-demo")),
                         seed: Some(7),
                         title: false,
+                        difficulty: None,
                     }),
                     1 => Request::Title,
                     _ => Request::Quit,
@@ -1280,7 +1317,9 @@ impl VoxelGame {
         let screen = match self.registry.def(block).behavior.as_deref() {
             Some("core:chest") => ui::Screen::Chest(hit.block_pos),
             Some("core:furnace") => ui::Screen::Furnace(hit.block_pos),
+            Some("core:brewing_stand") => ui::Screen::Brewing(hit.block_pos),
             _ if self.registry.def(block).key == "core:workbench" => ui::Screen::Workbench,
+            _ if self.registry.def(block).key == "core:enchanting_table" => ui::Screen::Enchant,
             _ => return false,
         };
         // Un conteneur ancien (ou posé par un mod) n'a peut-être pas encore son inventaire.
@@ -1385,6 +1424,9 @@ impl VoxelGame {
             Some((p, progress)) if p == pos => progress,
             _ => 0.0,
         };
+        // Efficacité : +30 % de vitesse par niveau.
+        let time = time
+            / (1.0 + 0.3 * f32::from(self.held_enchant_level(enchanting::Enchantment::Efficiency)));
         let progress = if time <= 0.0 {
             1.0
         } else {
@@ -1398,10 +1440,27 @@ impl VoxelGame {
         }
     }
 
-    /// Les dégâts d'un coup du joueur : l'arme ou l'outil en main, sinon un coup de poing.
+    /// Les dégâts d'un coup du joueur : l'arme ou l'outil en main (plus le Tranchant de son
+    /// enchantement), sinon un coup de poing.
     fn player_hit_damage(&self) -> f32 {
+        let sharp = self.held_enchant_level(enchanting::Enchantment::Sharpness);
         self.held_tool()
             .map_or(PUNCH_DAMAGE, |t| t.damage.max(PUNCH_DAMAGE))
+            + 0.75 * f32::from(sharp)
+            + self.effects.strength_bonus()
+    }
+
+    /// Le niveau d'un enchantement sur l'objet en main (0 s'il n'y en a pas).
+    fn held_enchant_level(&self, kind: enchanting::Enchantment) -> u8 {
+        self.inventory
+            .selected_stack()
+            .map_or(0, |s| enchanting::level_of(s.damage, kind))
+    }
+
+    /// L'objet en main s'use d'un point (Solidité peut l'épargner). `true` s'il se brise.
+    fn wear_held(&mut self) -> bool {
+        let roll = engine_voxel::Rng64::new(self.next_random()).next_f32();
+        self.inventory.wear_selected(&self.content.items, roll)
     }
 
     /// L'outil tenu en main.
@@ -1435,8 +1494,7 @@ impl VoxelGame {
         for stack in contents {
             self.drop_stack(pos, stack);
         }
-        if tool.is_some() && def.hardness > 0.0 && self.inventory.wear_selected(&self.content.items)
-        {
+        if tool.is_some() && def.hardness > 0.0 && self.wear_held() {
             log::info!("l'outil s'est cassé");
             if let Some(audio) = &mut self.audio {
                 audio.play("core:break_glass");
@@ -1497,174 +1555,12 @@ impl VoxelGame {
         }
     }
 
-    /// Pose le bloc de la case choisie contre la face visée. Renvoie sa position si c'est fait.
-    /// Une flèche sur le bloc visé s'il est orienté (piston, inverseur, répéteur) : une barre
-    /// claire dans sa direction, avec un bout plus vif devant.
-    fn direction_hint(&self, out: &mut Vec<engine_render::CubeInstance>) {
-        let Some(hit) = self.target else { return };
-        let streamer = self.streamer();
-        let block = streamer.world().block(hit.block_pos);
-        let directional = matches!(
-            self.registry.def(block).behavior.as_deref(),
-            Some("core:piston" | "core:sticky_piston" | "core:inverter" | "core:repeater")
-        );
-        if !directional {
-            return;
-        }
-        let facing = engine_voxel::facing_of(streamer.block_entity(hit.block_pos));
-        let center = hit.block_pos.as_vec3() + Vec3::splat(0.5) + hit.normal.as_vec3() * 0.52;
-        let along = facing.as_vec3();
-        let bar = Vec3::ONE * 0.12 + along.abs() * 0.5;
-        out.push(engine_render::CubeInstance::new(
-            center,
-            bar,
-            Vec3::new(1.0, 0.9, 0.3),
-        ));
-        out.push(engine_render::CubeInstance::new(
-            center + along * 0.3,
-            Vec3::splat(0.2),
-            Vec3::new(1.0, 0.3, 0.1),
-        ));
-    }
-
-    /// Un clic droit sur un habitant : l'écran d'échange.
-    fn trade_with_villager(&mut self) -> bool {
-        let block_distance = self.target.map_or(REACH, |hit| hit.distance);
-        let Some((mob, _)) = mobs::hit_mob(
-            &self.ecs,
-            self.camera.position,
-            self.camera.forward(),
-            block_distance,
-        ) else {
-            return false;
-        };
-        let key = self.mob_key(mob);
-        if !key.as_deref().is_some_and(|k| self.trades.trades(k)) {
-            return false;
-        }
-        self.ui.screen = ui::Screen::Trade(mob);
-        self.ui.inventory_open = true;
-        true
-    }
-
-    /// L'identifiant d'une créature (`core:farmer`).
-    pub(crate) fn mob_key(&self, mob: engine_ecs::Entity) -> Option<String> {
-        let kind = self.ecs.get::<components::Mob>(mob)?.kind;
-        self.ecs
-            .resource::<std::sync::Arc<MobRegistry>>()
-            .get(kind)
-            .map(|d| d.key.clone())
-    }
-
-    /// Un clic droit sur un levier, un bouton ou un répéteur.
-    fn use_machine(&mut self) -> bool {
-        let Some(hit) = self.target else {
-            return false;
-        };
-        let block = self.streamer().world().block(hit.block_pos);
-        let circuit = matches!(
-            self.registry.def(block).behavior.as_deref(),
-            Some("core:lever" | "core:button" | "core:repeater")
-        );
-        if !circuit {
-            return false;
-        }
-        let (used, actions) = self.mods.use_block(hit.block_pos);
-        self.apply_machine_actions(actions);
-        if used {
-            self.hand.punch();
-            if let Some(audio) = &mut self.audio {
-                audio.play("core:place_hard");
-            }
-        }
-        used
-    }
-
-    /// Un aliment en main, clic droit sur un animal qui l'aime : il entre en rut.
-    fn feed_mob(&mut self) -> bool {
-        let Some(item) = self.inventory.selected_item() else {
-            return false;
-        };
-        let block_distance = self.target.map_or(REACH, |hit| hit.distance);
-        let Some((mob, _)) = mobs::hit_mob(
-            &self.ecs,
-            self.camera.position,
-            self.camera.forward(),
-            block_distance,
-        ) else {
-            return false;
-        };
-        let key = self.content.items.get(item).key.clone();
-        if !breeding::feed(&mut self.ecs, mob, &key) {
-            return false;
-        }
-        self.inventory.consume_selected();
-        self.hand.punch();
-        if let Some(audio) = &mut self.audio {
-            audio.play("core:place_soft");
-        }
-        true
-    }
-
-    /// L'engrais en main, clic droit sur une culture : elle avance de deux stades.
-    fn use_fertilizer(&mut self) -> bool {
-        let Some(item) = self.inventory.selected_item() else {
-            return false;
-        };
-        if self.content.items.get(item).key != "core:fertilizer" {
-            return false;
-        }
-        let Some(hit) = self.target else {
-            return false;
-        };
-        let block = self.streamer().world().block(hit.block_pos);
-        let Some(next) = engine_voxel::fertilized(&self.registry, block) else {
-            return false;
-        };
-        if !self.edit(hit.block_pos, next) {
-            return false;
-        }
-        self.inventory.consume_selected();
-        self.hand.punch();
-        if let Some(audio) = &mut self.audio {
-            audio.play("core:place_soft");
-        }
-        true
-    }
-
-    /// Une houe en main, clic droit sur de l'herbe ou de la terre dégagée : on laboure.
-    /// Renvoie `true` si le sol a été labouré.
-    fn use_hoe(&mut self) -> bool {
-        if !self
-            .held_tool()
-            .is_some_and(|t| t.kind == engine_voxel::ToolKind::Hoe)
-        {
-            return false;
-        }
-        let Some(hit) = self.target else {
-            return false;
-        };
-        // On ne laboure que par le dessus du bloc.
-        if hit.normal != IVec3::Y {
-            return false;
-        }
-        let farmland = engine_voxel::tilled(self.streamer().world(), &self.registry, hit.block_pos);
-        let Some(farmland) = farmland else {
-            return false;
-        };
-        if !self.edit(hit.block_pos, farmland) {
-            return false;
-        }
-        self.inventory.wear_selected(&self.content.items);
-        self.hand.punch();
-        if let Some(audio) = &mut self.audio {
-            audio.play("core:place_soft");
-        }
-        true
-    }
-
     fn place_at_target(&mut self) -> Option<IVec3> {
         let item = self.inventory.selected_item()?;
+        if self.content.items.get(item).key == "core:flask" {
+            self.fill_flask(item);
+            return None;
+        }
         if self.content.items.get(item).key.ends_with("bucket") {
             self.use_bucket(item);
             return None;

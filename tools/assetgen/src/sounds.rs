@@ -15,6 +15,8 @@ use anyhow::Result;
 use crate::Rng;
 
 const RATE: u32 = 44_100;
+/// La musique est écrite à cette fréquence plus basse (elle n'a pas d'aigus à garder).
+const MUSIC_RATE: u32 = 11_025;
 
 /// Du bruit filtré par un passe-bas à un pôle. `cutoff` entre 0 (très sourd) et 1 (brut).
 fn filtered_noise(samples: usize, cutoff: f32, seed: u64) -> Vec<f32> {
@@ -143,6 +145,278 @@ fn thunder(seed: u64) -> Vec<f32> {
     normalize(samples, 0.9)
 }
 
+/// La fréquence d'un demi-ton `n` au-dessus de `root`.
+fn note(root: f32, n: f32) -> f32 {
+    root * 2.0f32.powf(n / 12.0)
+}
+
+/// Une note pincée : un son doux, quelques harmoniques, qui s'éteint.
+fn pluck(out: &mut [f32], rate: u32, start: usize, hz: f32, length: f32, volume: f32, bright: f32) {
+    let n = (length * rate as f32) as usize;
+    for k in 0..n {
+        let Some(s) = out.get_mut(start + k) else {
+            break;
+        };
+        let t = k as f32 / rate as f32;
+        let attack = (t / 0.008).min(1.0);
+        let env = attack * (-t / (length * 0.45)).exp();
+        let phase = t * hz * std::f32::consts::TAU;
+        *s += (phase.sin()
+            + 0.35 * bright * (2.0 * phase).sin()
+            + 0.12 * bright * (3.0 * phase).sin())
+            * env
+            * volume;
+    }
+}
+
+/// Un accord tenu : des sinus lents, avec une montée et une descente douces.
+fn pad(out: &mut [f32], rate: u32, start: usize, hz: f32, length: f32, volume: f32) {
+    let n = (length * rate as f32) as usize;
+    for k in 0..n {
+        let Some(s) = out.get_mut(start + k) else {
+            break;
+        };
+        let t = k as f32 / rate as f32;
+        let env = (t / 1.2).min(1.0) * ((length - t) / 1.5).clamp(0.0, 1.0);
+        let phase = t * hz * std::f32::consts::TAU;
+        *s += (phase.sin() + 0.2 * (2.0 * phase + 0.4).sin()) * env * volume;
+    }
+}
+
+/// Un morceau : une suite d'accords tenus et une mélodie qui se promène sur une gamme,
+/// avec un peu d'écho. Pas de répétition exacte : le hasard (la graine) choisit les notes.
+fn music(
+    seconds_total: f32,
+    seed: u64,
+    root: f32,
+    scale: &[f32],
+    bpm: f32,
+    rest: f32,
+    bright: f32,
+) -> Vec<f32> {
+    let rate = MUSIC_RATE;
+    let n = (seconds_total * rate as f32) as usize;
+    let mut out = vec![0.0f32; n];
+    let beat = 60.0 / bpm;
+    let mut rng = Rng::new(seed);
+    // Les accords : quatre degrés de la gamme, chacun tenu huit temps.
+    let degrees = [0usize, 3 % scale.len(), 4 % scale.len(), 2 % scale.len()];
+    let mut t = 0.0;
+    let mut chord = 0;
+    while t < seconds_total {
+        let d = degrees[chord % degrees.len()];
+        let base = scale[d];
+        for (i, interval) in [0.0, 7.0, 12.0].iter().enumerate() {
+            let hz = note(root / 2.0, base + interval);
+            pad(
+                &mut out,
+                rate,
+                (t * rate as f32) as usize,
+                hz,
+                8.0 * beat + 1.0,
+                0.09 - 0.015 * i as f32,
+            );
+        }
+        t += 8.0 * beat;
+        chord += 1;
+    }
+    // La mélodie : une marche aléatoire sur la gamme, deux octaves.
+    let mut degree = (scale.len() * 2) as i32 / 2;
+    let steps = scale.len() as i32 * 2;
+    let mut t = beat * 2.0;
+    while t < seconds_total - 3.0 {
+        let length = if rng.next_f32() < 0.5 {
+            beat
+        } else {
+            beat * 2.0
+        };
+        if rng.next_f32() >= rest {
+            let octave = degree.div_euclid(scale.len() as i32);
+            let step = degree.rem_euclid(scale.len() as i32) as usize;
+            let semitones = scale[step] + 12.0 * octave as f32;
+            pluck(
+                &mut out,
+                rate,
+                (t * rate as f32) as usize,
+                note(root, semitones),
+                length * 2.2,
+                0.2,
+                bright,
+            );
+        }
+        degree = (degree + (rng.next_u64() % 5) as i32 - 2).clamp(0, steps - 1);
+        t += length;
+    }
+    // L'écho : deux copies décalées et affaiblies.
+    for (delay, gain) in [(beat * 0.75, 0.32f32), (beat * 1.5, 0.18)] {
+        let shift = (delay * rate as f32) as usize;
+        for i in (shift..n).rev() {
+            out[i] += out[i - shift] * gain;
+        }
+    }
+    // Un fondu au début et à la fin.
+    let fade = (1.5 * rate as f32) as usize;
+    for i in 0..fade.min(n / 2) {
+        let g = i as f32 / fade as f32;
+        out[i] *= g;
+        out[n - 1 - i] *= g;
+    }
+    normalize(out, 0.55)
+}
+
+/// Une salve de cris d'oiseau : des glissandos courts et aigus.
+fn birds(seed: u64) -> Vec<f32> {
+    let n = seconds(3.2);
+    let mut samples = vec![0.0f32; n];
+    let mut rng = Rng::new(seed);
+    let mut start = seconds(0.1);
+    while start + seconds(0.3) < n {
+        let base = 2400.0 + rng.next_f32() * 1800.0;
+        let slope = (rng.next_f32() - 0.4) * 3000.0;
+        for chirp in 0..(2 + (rng.next_u64() % 3) as usize) {
+            let begin = start + chirp * seconds(0.11);
+            for k in 0..seconds(0.07) {
+                let Some(s) = samples.get_mut(begin + k) else {
+                    break;
+                };
+                let t = k as f32 / RATE as f32;
+                let env = (std::f32::consts::PI * k as f32 / seconds(0.07) as f32).sin();
+                let hz = base + slope * t * 10.0;
+                *s += (t * hz * std::f32::consts::TAU).sin() * env * 0.25;
+            }
+        }
+        start += seconds(0.5 + rng.next_f32() * 0.7);
+    }
+    normalize(samples, 0.5)
+}
+
+/// Une goutte dans une grotte : un « ploc » clair suivi d'un petit écho.
+fn drip(seed: u64) -> Vec<f32> {
+    let n = seconds(1.2);
+    let mut samples = vec![0.0f32; n];
+    let mut rng = Rng::new(seed);
+    let hz = 900.0 + rng.next_f32() * 500.0;
+    for (delay, gain) in [(0.0, 1.0), (0.22, 0.35), (0.45, 0.15)] {
+        let start = seconds(delay);
+        for k in 0..seconds(0.25) {
+            let Some(s) = samples.get_mut(start + k) else {
+                break;
+            };
+            let t = k as f32 / RATE as f32;
+            let f = hz * (1.0 + t * 6.0);
+            *s += (t * f * std::f32::consts::TAU).sin() * (-t / 0.035).exp() * gain;
+        }
+    }
+    normalize(samples, 0.6)
+}
+
+/// Un grondement lointain dans la roche.
+fn cave_rumble(seed: u64) -> Vec<f32> {
+    let n = seconds(4.5);
+    let noise = filtered_noise(n, 0.006, seed);
+    let samples = (0..n)
+        .map(|i| noise[i] * hit_envelope(i, 1.2, 1.6))
+        .collect();
+    normalize(samples, 0.7)
+}
+
+/// Des vagues : un bruit qui gonfle et retombe, deux fois.
+fn waves(seed: u64) -> Vec<f32> {
+    let n = seconds(7.0);
+    let noise = filtered_noise(n, 0.07, seed);
+    let samples = (0..n)
+        .map(|i| {
+            let t = i as f32 / n as f32;
+            let swell =
+                (t * std::f32::consts::TAU * 2.0 - std::f32::consts::FRAC_PI_2).sin() * 0.5 + 0.5;
+            let fade = (t * std::f32::consts::PI).sin();
+            noise[i] * swell * fade
+        })
+        .collect();
+    normalize(samples, 0.6)
+}
+
+/// Une chouette : deux « hou » graves.
+fn owl(seed: u64) -> Vec<f32> {
+    let n = seconds(2.2);
+    let mut samples = vec![0.0f32; n];
+    let mut rng = Rng::new(seed);
+    let hz = 330.0 + rng.next_f32() * 40.0;
+    for (delay, drop) in [(0.1, 0.0), (0.75, 40.0)] {
+        let start = seconds(delay);
+        for k in 0..seconds(0.45) {
+            let Some(s) = samples.get_mut(start + k) else {
+                break;
+            };
+            let t = k as f32 / RATE as f32;
+            let env = (std::f32::consts::PI * k as f32 / seconds(0.45) as f32)
+                .sin()
+                .powi(2);
+            let phase = t * (hz - drop - t * 60.0) * std::f32::consts::TAU;
+            *s += (phase.sin() + 0.3 * (2.0 * phase).sin()) * env * 0.5;
+        }
+    }
+    normalize(samples, 0.5)
+}
+
+/// Un scintillement : l'enchantement. Des notes aiguës qui montent et s'estompent.
+fn enchant() -> Vec<f32> {
+    let n = seconds(1.4);
+    let mut samples = vec![0.0f32; n];
+    for (i, semitone) in [0.0f32, 4.0, 7.0, 12.0, 16.0, 19.0, 24.0]
+        .iter()
+        .enumerate()
+    {
+        pluck(
+            &mut samples,
+            RATE,
+            seconds(0.08 * i as f32),
+            note(660.0, *semitone),
+            0.7,
+            0.25,
+            0.6,
+        );
+    }
+    normalize(samples, 0.6)
+}
+
+/// Des bulles : l'alambic.
+fn bubbles(seed: u64) -> Vec<f32> {
+    let n = seconds(0.9);
+    let mut samples = vec![0.0f32; n];
+    let mut rng = Rng::new(seed);
+    for _ in 0..6 {
+        let start = (rng.next_f32() * n as f32 * 0.75) as usize;
+        let hz = 300.0 + rng.next_f32() * 500.0;
+        for k in 0..seconds(0.12) {
+            let Some(s) = samples.get_mut(start + k) else {
+                break;
+            };
+            let t = k as f32 / RATE as f32;
+            *s +=
+                (t * hz * (1.0 + t * 12.0) * std::f32::consts::TAU).sin() * (-t / 0.03).exp() * 0.4;
+        }
+    }
+    normalize(samples, 0.6)
+}
+
+/// Une gorgée : deux glouglous graves.
+fn gulp() -> Vec<f32> {
+    let n = seconds(0.55);
+    let mut samples = vec![0.0f32; n];
+    for delay in [0.02, 0.26] {
+        let start = seconds(delay);
+        for k in 0..seconds(0.2) {
+            let Some(s) = samples.get_mut(start + k) else {
+                break;
+            };
+            let t = k as f32 / RATE as f32;
+            *s += (t * (180.0 + t * 500.0) * std::f32::consts::TAU).sin() * (-t / 0.06).exp();
+        }
+    }
+    normalize(samples, 0.6)
+}
+
 /// Le vent : du bruit très filtré dont le volume ondule. Le nombre de vagues est entier
 /// sur la durée : le son peut boucler sans à-coup de volume.
 fn wind(duration: f32, seed: u64) -> Vec<f32> {
@@ -198,6 +472,12 @@ fn crossfade_loop(samples: Vec<f32>) -> Vec<f32> {
 /// Écrit un fichier WAV mono 16 bits. Le format est simple : un en-tête de 44 octets
 /// (« RIFF », « WAVE », le format, la taille), puis les échantillons.
 fn write_wav(path: &Path, samples: &[f32]) -> Result<()> {
+    write_wav_at(path, samples, RATE)
+}
+
+/// Comme [`write_wav`], à une autre fréquence d'échantillonnage (la musique, plus lente,
+/// se contente de 11 025 Hz : quatre fois moins lourde).
+fn write_wav_at(path: &Path, samples: &[f32], rate: u32) -> Result<()> {
     std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))?;
     let mut file = BufWriter::new(File::create(path)?);
     let data_len = (samples.len() * 2) as u32;
@@ -207,8 +487,8 @@ fn write_wav(path: &Path, samples: &[f32]) -> Result<()> {
     file.write_all(&16u32.to_le_bytes())?; // taille du bloc « fmt »
     file.write_all(&1u16.to_le_bytes())?; // PCM
     file.write_all(&1u16.to_le_bytes())?; // mono
-    file.write_all(&RATE.to_le_bytes())?;
-    file.write_all(&(RATE * 2).to_le_bytes())?; // octets par seconde
+    file.write_all(&rate.to_le_bytes())?;
+    file.write_all(&(rate * 2).to_le_bytes())?; // octets par seconde
     file.write_all(&2u16.to_le_bytes())?; // octets par échantillon
     file.write_all(&16u16.to_le_bytes())?; // bits par échantillon
     file.write_all(b"data")?;
@@ -239,7 +519,42 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         ("ambience_day", wind(8.0, 11)),
         ("ambience_night", night(8.0, 12)),
     ];
+    let mut sounds = sounds;
+    sounds.extend([
+        ("birds", birds(21)),
+        ("drip", drip(22)),
+        ("cave_rumble", cave_rumble(23)),
+        ("waves", waves(24)),
+        ("owl", owl(25)),
+        ("enchant", enchant()),
+        ("bubbles", bubbles(26)),
+        ("gulp", gulp()),
+    ]);
     let mut paths = Vec::new();
+    // La musique : quatre morceaux d'humeurs différentes, à leur propre fréquence.
+    let pentatonic = [0.0, 2.0, 4.0, 7.0, 9.0];
+    let lydian = [0.0, 2.0, 4.0, 6.0, 7.0, 9.0, 11.0];
+    let minor = [0.0, 3.0, 5.0, 7.0, 10.0];
+    let dark = [0.0, 1.0, 5.0, 7.0, 8.0];
+    for (name, samples) in [
+        (
+            "music_day1",
+            music(46.0, 31, 261.6, &pentatonic, 72.0, 0.25, 1.0),
+        ),
+        (
+            "music_day2",
+            music(46.0, 32, 293.7, &lydian, 64.0, 0.3, 0.8),
+        ),
+        (
+            "music_night",
+            music(48.0, 33, 220.0, &minor, 52.0, 0.4, 0.6),
+        ),
+        ("music_cave", music(48.0, 34, 110.0, &dark, 44.0, 0.55, 0.4)),
+    ] {
+        let path = dir.join(format!("{name}.wav"));
+        write_wav_at(&path, &samples, MUSIC_RATE)?;
+        paths.push(path);
+    }
     for (name, samples) in sounds {
         let path = dir.join(format!("{name}.wav"));
         write_wav(&path, &samples)?;

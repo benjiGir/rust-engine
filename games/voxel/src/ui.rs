@@ -75,9 +75,13 @@ pub enum Screen {
     /// L'établi : grille 3 × 3.
     Workbench,
     Furnace(IVec3),
+    /// L'alambic.
+    Brewing(IVec3),
     Chest(IVec3),
     /// L'échange avec un habitant.
     Trade(Entity),
+    /// La table d'enchantement.
+    Enchant,
 }
 
 impl GameUi {
@@ -242,7 +246,13 @@ impl VoxelGame {
             let def = self.content.items.get(stack.item);
             let mut text = def.name.clone();
             if let Some(durability) = def.durability {
-                text += &format!("\nUsure : {} / {durability}", stack.damage);
+                text += &format!(
+                    "\nUsure : {} / {durability}",
+                    crate::enchanting::wear(stack.damage)
+                );
+                if let Some((kind, level)) = crate::enchanting::enchantment_of(stack.damage) {
+                    text += &format!("\n{}", crate::enchanting::label(kind, level));
+                }
             }
             if def.key.ends_with("_bucket") && stack.damage > 0 {
                 text += &format!(
@@ -277,11 +287,20 @@ impl VoxelGame {
                 Color32::WHITE,
             );
         }
+        // Un objet enchanté a un liseré violet.
+        if crate::enchanting::enchantment_of(stack.damage).is_some() {
+            painter.rect_stroke(
+                rect.shrink(2.0),
+                3.0,
+                egui::Stroke::new(2.0, Color32::from_rgb(170, 90, 240)),
+                egui::StrokeKind::Inside,
+            );
+        }
         // L'usure : une barre qui passe du vert au rouge.
         if let Some(durability) = self.content.items.get(stack.item).durability
-            && stack.damage > 0
+            && crate::enchanting::wear(stack.damage) > 0
         {
-            let left = 1.0 - stack.damage as f32 / durability as f32;
+            let left = 1.0 - crate::enchanting::wear(stack.damage) as f32 / durability as f32;
             let bar = egui::Rect::from_min_size(
                 rect.left_bottom() + egui::vec2(6.0, -7.0),
                 egui::vec2(SLOT_SIZE - 12.0, 3.0),
@@ -418,6 +437,25 @@ impl VoxelGame {
                     let mut fill = rect.shrink(1.0);
                     fill.set_width(fill.width() * progress.clamp(0.0, 1.0));
                     ui.painter().rect_filled(fill, 1.0, Color32::from_gray(230));
+                });
+        }
+        // Les potions en cours, en haut à droite, avec le temps restant.
+        if !self.effects.list().is_empty() {
+            egui::Area::new(egui::Id::unique("effects"))
+                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
+                .show(ctx, |ui| {
+                    for active in self.effects.list() {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} {}:{:02}",
+                                active.effect.name(),
+                                active.left as u32 / 60,
+                                active.left as u32 % 60
+                            ))
+                            .color(Color32::from_rgb(200, 170, 255))
+                            .size(15.0),
+                        );
+                    }
                 });
         }
         // Un coup reçu : l'écran rougit un instant.
@@ -646,8 +684,10 @@ impl VoxelGame {
             Screen::Inventory => "Inventaire",
             Screen::Workbench => "Établi",
             Screen::Furnace(_) => "Four",
+            Screen::Brewing(_) => "Alambic",
             Screen::Chest(_) => "Coffre",
             Screen::Trade(_) => "Échange",
+            Screen::Enchant => "Table d'enchantement",
         };
         egui::Window::new(title)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -20.0))
@@ -687,8 +727,10 @@ impl VoxelGame {
                         });
                     }
                     Screen::Furnace(pos) => self.furnace_panel(ui, pos),
+                    Screen::Brewing(pos) => self.brewing_panel(ui, pos),
                     Screen::Chest(pos) => self.chest_panel(ui, pos),
                     Screen::Trade(mob) => self.trade_panel(ui, mob),
+                    Screen::Enchant => self.enchant_panel(ui),
                 }
                 ui.separator();
                 self.player_slots(ui);
@@ -760,6 +802,70 @@ impl VoxelGame {
             });
         }
         true
+    }
+
+    /// La table d'enchantement : trois propositions pour l'objet qu'on tient en main.
+    fn enchant_panel(&mut self, ui: &mut egui::Ui) {
+        use crate::enchanting::{enchantment_of, label, offers, wear, with_enchantment};
+        let Some(stack) = self.inventory.selected_stack() else {
+            ui.label("Tiens un outil ou une armure dans la barre d'objets, puis reviens.");
+            return;
+        };
+        let items = self.content.items.clone();
+        let def = items.get(stack.item);
+        ui.heading(&def.name);
+        if let Some((kind, level)) = enchantment_of(stack.damage) {
+            ui.label(format!("Déjà enchanté : {}", label(kind, level)));
+            return;
+        }
+        let Some(list) = offers(def, stack.damage, self.enchant_seed) else {
+            ui.label("Cet objet ne peut pas être enchanté.");
+            return;
+        };
+        let gem = items.id("core:sapphire");
+        let have_gems = gem.map_or(0, |g| self.inventory.count(g));
+        let level = self.experience.level().0;
+        ui.label(format!(
+            "Niveau {level} — {have_gems} saphir(s). Usure {}.",
+            wear(stack.damage)
+        ));
+        let mut chosen = None;
+        for offer in list {
+            let affordable = level >= offer.levels && have_gems >= offer.gems;
+            ui.horizontal(|ui| {
+                let text = format!(
+                    "{} — {} niveau(x) + {} saphir(s)",
+                    label(offer.kind, offer.level),
+                    offer.levels,
+                    offer.gems
+                );
+                if ui
+                    .add_enabled(affordable, egui::Button::new(text))
+                    .clicked()
+                {
+                    chosen = Some(offer);
+                }
+            });
+        }
+        if let Some(offer) = chosen
+            && let Some(gem) = gem
+            && self.experience.spend_levels(offer.levels)
+            && self.inventory.remove(gem, offer.gems)
+        {
+            let selected = self.inventory.selected;
+            if let Some(held) = self.inventory.slots[selected].as_mut() {
+                held.damage = with_enchantment(held.damage, offer.kind, offer.level);
+            }
+            // La table propose autre chose la prochaine fois.
+            self.enchant_seed = self
+                .enchant_seed
+                .wrapping_mul(1664525)
+                .wrapping_add(1013904223);
+            self.toast(&label(offer.kind, offer.level));
+            if let Some(audio) = &mut self.audio {
+                audio.play("core:enchant");
+            }
+        }
     }
 
     /// Les échanges d'un habitant : une ligne par échange, un bouton pour le faire.
@@ -883,6 +989,49 @@ impl VoxelGame {
         });
         if changed {
             // Le four dort peut-être : on le réveille au prochain tick.
+            self.mods
+                .machines
+                .schedule(engine_voxel::GridPos::world(pos), 1);
+        }
+    }
+
+    /// L'alambic : la fiole d'eau, l'ingrédient, l'avancement et la potion obtenue.
+    fn brewing_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
+        let (done, total) = self
+            .streamer()
+            .block_entity(pos)
+            .map(engine_voxel::brew_progress)
+            .unwrap_or((0, 0));
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.label("Fiole d'eau");
+                changed |= self.container_slot(ui, pos, engine_voxel::BREW_INPUT);
+            });
+            ui.vertical(|ui| {
+                ui.label("Ingrédient");
+                changed |= self.container_slot(ui, pos, engine_voxel::BREW_REAGENT);
+            });
+            ui.vertical(|ui| {
+                ui.add_space(SLOT_SIZE / 2.0);
+                let progress = if total > 0 {
+                    done as f32 / total as f32
+                } else {
+                    0.0
+                };
+                ui.add(
+                    egui::ProgressBar::new(progress)
+                        .desired_width(90.0)
+                        .fill(Color32::from_rgb(120, 80, 200)),
+                );
+            });
+            ui.vertical(|ui| {
+                ui.label("Potion");
+                changed |= self.container_slot(ui, pos, engine_voxel::BREW_OUTPUT);
+            });
+        });
+        ui.label("Pomme : soin. Spores : régénération. Carotte : vitesse. Poussière d'ombre : force. Cinabre : résistance au feu.");
+        if changed {
             self.mods
                 .machines
                 .schedule(engine_voxel::GridPos::world(pos), 1);

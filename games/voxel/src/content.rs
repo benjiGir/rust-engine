@@ -8,13 +8,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use engine_voxel::{BlockRegistry, ItemRegistry, LootTables, Recipes, Smelting};
+use engine_voxel::{BlockRegistry, Brewing, ItemRegistry, LootTables, Recipes, Smelting};
 
 #[derive(Clone)]
 pub struct Content {
     pub items: Arc<ItemRegistry>,
     pub recipes: Arc<Recipes>,
     pub smelting: Arc<Smelting>,
+    pub brewing: Arc<Brewing>,
     pub loot: Arc<LootTables>,
 }
 
@@ -49,6 +50,10 @@ impl Content {
         for (ns, text, origin) in sources(assets, mods, "smelting.ron")? {
             smelting.add_source(&ns, &text, &origin, &items)?;
         }
+        let mut brewing = Brewing::default();
+        for (ns, text, origin) in sources(assets, mods, "brewing.ron")? {
+            brewing.add_source(&ns, &text, &origin, &items)?;
+        }
         let mut loot = LootTables::default();
         for (ns, text, origin) in sources(assets, mods, "loot.ron")? {
             loot.add_source(&ns, &text, &origin, blocks, &items)?;
@@ -63,6 +68,7 @@ impl Content {
             items: Arc::new(items),
             recipes: Arc::new(recipes),
             smelting: Arc::new(smelting),
+            brewing: Arc::new(brewing),
             loot: Arc::new(loot),
         })
     }

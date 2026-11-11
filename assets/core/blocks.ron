@@ -718,6 +718,21 @@
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 1.0,
     ),
+    // La table d'enchantement (phase O10) : clic droit pour enchanter l'objet en main.
+    (
+        id: "core:enchanting_table", name: "Table d'enchantement", color: (0.35, 0.18, 0.5),
+        textures: (top: "enchanting_table_top", side: "enchanting_table_side", bottom: "oak_planks"),
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 3.0, tool: Pickaxe, tier: 1,
+    ),
+    // L'alambic (phase O10) : une fiole d'eau et un ingrédient donnent une potion.
+    (
+        id: "core:brewing_stand", name: "Alambic", color: (0.6, 0.5, 0.35),
+        textures: (top: "brewing_stand_top", side: "brewing_stand_side", bottom: "brewing_stand_top"),
+        behavior: "core:brewing_stand",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 2.0, tool: Pickaxe, tier: 1,
+    ),
     // ----- Les fluides -----
     // Ce que devient la lave au contact de l'eau.
     (

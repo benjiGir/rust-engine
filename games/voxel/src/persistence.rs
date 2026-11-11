@@ -94,6 +94,7 @@ impl VoxelGame {
             mods: loaded_mods(&self.registry),
             inventory: Vec::new(),
             items: Some(self.inventory.to_save(&self.content.items)),
+            difficulty: self.difficulty,
         }
     }
 

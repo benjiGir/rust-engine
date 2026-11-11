@@ -27,6 +27,8 @@ pub enum TitlePage {
     NewWorld {
         name: String,
         seed: String,
+        /// 0 paisible, 1 normale, 2 difficile.
+        difficulty: u8,
         error: Option<String>,
     },
     Options,
@@ -193,6 +195,7 @@ impl VoxelGame {
                     self.mode = Mode::Title(TitlePage::NewWorld {
                         name: "Nouveau monde".into(),
                         seed: String::new(),
+                        difficulty: 1,
                         error: None,
                     });
                 }
@@ -250,6 +253,7 @@ impl VoxelGame {
                                                     world: Some(world.dir.clone()),
                                                     seed: None,
                                                     title: false,
+                                                    difficulty: None,
                                                 }));
                                             }
                                         }
@@ -274,6 +278,7 @@ impl VoxelGame {
             TitlePage::NewWorld {
                 mut name,
                 mut seed,
+                mut difficulty,
                 error,
             } => {
                 let mut create = false;
@@ -283,6 +288,17 @@ impl VoxelGame {
                     ui.add(egui::TextEdit::singleline(&mut name).desired_width(260.0));
                     ui.label("Graine (vide : au hasard ; un nombre ou un mot)");
                     ui.add(egui::TextEdit::singleline(&mut seed).desired_width(260.0));
+                    ui.label("Difficulté");
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut difficulty, 0, "Paisible");
+                        ui.selectable_value(&mut difficulty, 1, "Normale");
+                        ui.selectable_value(&mut difficulty, 2, "Difficile");
+                    });
+                    ui.label(match difficulty {
+                        0 => "Aucune créature hostile.",
+                        2 => "Les créatures frappent plus fort.",
+                        _ => "Le jeu tel qu'il est prévu.",
+                    });
                     if let Some(error) = &error {
                         ui.label(RichText::new(error).color(Color32::LIGHT_RED));
                     }
@@ -293,6 +309,7 @@ impl VoxelGame {
                 let mut page = TitlePage::NewWorld {
                     name: name.clone(),
                     seed: seed.clone(),
+                    difficulty,
                     error,
                 };
                 if create {
@@ -302,12 +319,14 @@ impl VoxelGame {
                         page = TitlePage::NewWorld {
                             name,
                             seed,
+                            difficulty,
                             error: Some("Donne un nom au monde.".into()),
                         };
                     } else if dir.exists() {
                         page = TitlePage::NewWorld {
                             name,
                             seed,
+                            difficulty,
                             error: Some(format!("« {folder} » existe déjà.")),
                         };
                     } else {
@@ -315,6 +334,7 @@ impl VoxelGame {
                             world: Some(dir),
                             seed: Some(parse_seed(&seed)),
                             title: false,
+                            difficulty: Some(difficulty),
                         }));
                     }
                 }

@@ -18,6 +18,7 @@ use crate::trees::Rng64;
 
 const BUILTIN_RECIPES: &str = include_str!("../../../assets/core/recipes.ron");
 const BUILTIN_SMELTING: &str = include_str!("../../../assets/core/smelting.ron");
+const BUILTIN_BREWING: &str = include_str!("../../../assets/core/brewing.ron");
 const BUILTIN_LOOT: &str = include_str!("../../../assets/core/loot.ron");
 
 /// Ce qu'accepte une case de recette : un objet précis, ou n'importe quel membre d'un groupe.
@@ -402,6 +403,82 @@ impl Smelting {
     }
 
     pub fn recipes(&self) -> &[SmeltingRecipe] {
+        &self.recipes
+    }
+}
+
+/// Une recette d'alambic : `input` + `reagent` donnent `output`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrewRecipe {
+    pub input: ItemId,
+    pub reagent: ItemId,
+    pub output: ItemId,
+    /// En ticks de machines (20 par seconde).
+    pub ticks: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrewEntry {
+    input: String,
+    reagent: String,
+    output: String,
+    time: f32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrewFile {
+    recipes: Vec<BrewEntry>,
+}
+
+/// Les recettes de l'alambic.
+#[derive(Debug, Clone, Default)]
+pub struct Brewing {
+    recipes: Vec<BrewRecipe>,
+}
+
+impl Brewing {
+    pub fn builtin(items: &ItemRegistry) -> Result<Self> {
+        let mut brewing = Self::default();
+        brewing.add_source("core", BUILTIN_BREWING, "brewing.ron intégré", items)?;
+        Ok(brewing)
+    }
+
+    pub fn add_source(
+        &mut self,
+        namespace: &str,
+        source: &str,
+        origin: &str,
+        items: &ItemRegistry,
+    ) -> Result<()> {
+        let file: BrewFile =
+            ron::from_str(source).with_context(|| format!("{origin} : RON invalide"))?;
+        for r in file.recipes {
+            let id = |name: &str| {
+                let key = qualify(name, namespace);
+                items
+                    .id(&key)
+                    .with_context(|| format!("{origin} : objet inconnu « {key} »"))
+            };
+            self.recipes.push(BrewRecipe {
+                input: id(&r.input)?,
+                reagent: id(&r.reagent)?,
+                output: id(&r.output)?,
+                ticks: (r.time * 20.0).round().max(1.0) as u32,
+            });
+        }
+        Ok(())
+    }
+
+    /// La recette de ces deux objets.
+    pub fn recipe(&self, input: ItemId, reagent: ItemId) -> Option<&BrewRecipe> {
+        self.recipes
+            .iter()
+            .find(|r| r.input == input && r.reagent == reagent)
+    }
+
+    pub fn recipes(&self) -> &[BrewRecipe] {
         &self.recipes
     }
 }

@@ -16,7 +16,7 @@ use std::sync::Arc;
 use crate::block::BlockId;
 use crate::capabilities::{Inventory, ItemStack};
 use crate::chunk::BlockEntity;
-use crate::crafting::Smelting;
+use crate::crafting::{Brewing, Smelting};
 use crate::grid::GridPos;
 use crate::items::ItemRegistry;
 use crate::machines::{BlockBehavior, MachineContext, Machines};
@@ -26,6 +26,9 @@ pub const CHEST_SLOTS: usize = 27;
 pub const FURNACE_INPUT: usize = 0;
 pub const FURNACE_FUEL: usize = 1;
 pub const FURNACE_OUTPUT: usize = 2;
+pub const BREW_INPUT: usize = 0;
+pub const BREW_REAGENT: usize = 1;
+pub const BREW_OUTPUT: usize = 2;
 
 /// L'état d'un four, rangé dans les octets libres de son entité.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -167,6 +170,112 @@ impl Furnace {
     }
 }
 
+/// L'alambic : une fiole d'eau et un ingrédient donnent, après un moment, une potion. La
+/// préparation en cours (ticks écoulés, ticks nécessaires) est dans les octets libres.
+pub struct BrewingStand {
+    items: Arc<ItemRegistry>,
+    brewing: Arc<Brewing>,
+}
+
+/// L'avancement d'une préparation : (écoulé, total) en ticks.
+pub fn brew_progress(entity: &BlockEntity) -> (u16, u16) {
+    let n = |i: usize| {
+        entity
+            .data
+            .get(i * 2..i * 2 + 2)
+            .map_or(0, |b| u16::from_le_bytes([b[0], b[1]]))
+    };
+    (n(0), n(1))
+}
+
+impl BrewingStand {
+    pub fn new(items: Arc<ItemRegistry>, brewing: Arc<Brewing>) -> Self {
+        Self { items, brewing }
+    }
+
+    /// Un tick ; renvoie `true` s'il doit continuer au tick suivant.
+    pub fn step(&self, entity: &mut BlockEntity) -> bool {
+        let Some(inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut()) else {
+            return false;
+        };
+        if inventory.slots.len() < 3 {
+            inventory.slots.resize(3, None);
+        }
+        let item = |slot: &Option<ItemStack>| slot.as_ref().and_then(|s| self.items.id(&s.item));
+        let recipe = item(&inventory.slots[BREW_INPUT])
+            .zip(item(&inventory.slots[BREW_REAGENT]))
+            .and_then(|(i, r)| self.brewing.recipe(i, r))
+            .cloned();
+        let room = |r: &crate::crafting::BrewRecipe, out: &Option<ItemStack>| match out {
+            None => true,
+            Some(o) => {
+                self.items.id(&o.item) == Some(r.output)
+                    && o.count < self.items.get(r.output).max_stack
+            }
+        };
+        let (mut done, _) = brew_progress(entity);
+        let Some(inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut()) else {
+            return false;
+        };
+        let total;
+        let active = match recipe {
+            Some(r) if room(&r, &inventory.slots[BREW_OUTPUT]) => {
+                let ticks = r.ticks.min(u16::MAX as u32) as u16;
+                done += 1;
+                if done >= ticks {
+                    done = 0;
+                    total = 0;
+                    take_one(&mut inventory.slots[BREW_INPUT]);
+                    take_one(&mut inventory.slots[BREW_REAGENT]);
+                    match &mut inventory.slots[BREW_OUTPUT] {
+                        Some(stack) => stack.count += 1,
+                        slot => {
+                            *slot = Some(ItemStack {
+                                item: self.items.get(r.output).key.clone(),
+                                count: 1,
+                                damage: 0,
+                            })
+                        }
+                    }
+                } else {
+                    total = ticks;
+                }
+                true
+            }
+            _ => {
+                done = 0;
+                total = 0;
+                false
+            }
+        };
+        entity.data = [done, total].iter().flat_map(|v| v.to_le_bytes()).collect();
+        active
+    }
+}
+
+impl BlockBehavior for BrewingStand {
+    fn placed(&self, ctx: &mut MachineContext, positions: &[GridPos]) {
+        for &at in positions {
+            ensure_inventory(ctx, at, 3);
+            ctx.schedule(at, 1);
+        }
+    }
+
+    fn neighbor_changed(&self, ctx: &mut MachineContext, positions: &[GridPos]) {
+        for &at in positions {
+            ctx.schedule(at, 1);
+        }
+    }
+
+    fn scheduled_tick(&self, ctx: &mut MachineContext, positions: &[GridPos]) {
+        for &at in positions {
+            if ctx.grids.write(at, |e| self.step(e)) == Some(true) {
+                ctx.schedule(at, 1);
+            }
+        }
+    }
+}
+
 fn take_one(slot: &mut Option<ItemStack>) {
     if let Some(stack) = slot {
         stack.count -= 1;
@@ -199,13 +308,16 @@ pub fn register(
     blocks: &BlockRegistry,
     items: Arc<ItemRegistry>,
     smelting: Arc<Smelting>,
+    brewing: Arc<Brewing>,
 ) {
+    let stand = std::rc::Rc::new(BrewingStand::new(items.clone(), brewing));
     let furnace = std::rc::Rc::new(Furnace::new(items, smelting));
     let chest = std::rc::Rc::new(Chest);
     for (id, def) in blocks.iter() {
         match def.behavior.as_deref() {
             Some("core:furnace") => machines.register(id, furnace.clone()),
             Some("core:chest") => machines.register(id, chest.clone()),
+            Some("core:brewing_stand") => machines.register(id, stand.clone()),
             _ => {}
         }
     }
@@ -215,7 +327,7 @@ pub fn register(
 pub fn container_slots(blocks: &BlockRegistry, block: BlockId) -> Option<usize> {
     match blocks.def(block).behavior.as_deref() {
         Some("core:chest") => Some(CHEST_SLOTS),
-        Some("core:furnace") => Some(3),
+        Some("core:furnace" | "core:brewing_stand") => Some(3),
         _ => None,
     }
 }
@@ -279,5 +391,68 @@ mod tests {
         assert!(!furnace.step(&mut entity));
         let inv = entity.caps.as_ref().unwrap().inventory.as_ref().unwrap();
         assert_eq!(inv.slots[FURNACE_FUEL].as_ref().unwrap().count, 4);
+    }
+
+    fn stand() -> BrewingStand {
+        let blocks = BlockRegistry::builtin();
+        let items = Arc::new(ItemRegistry::builtin(&blocks).unwrap());
+        let brewing = Arc::new(Brewing::builtin(&items).unwrap());
+        BrewingStand::new(items, brewing)
+    }
+
+    fn stocked(input: Option<ItemStack>, reagent: Option<ItemStack>) -> BlockEntity {
+        let mut entity = BlockEntity::default();
+        let mut inventory = Inventory::new(3);
+        inventory.slots[BREW_INPUT] = input;
+        inventory.slots[BREW_REAGENT] = reagent;
+        entity.caps_mut().inventory = Some(inventory);
+        entity
+    }
+
+    #[test]
+    fn a_brewing_stand_turns_water_and_an_apple_into_a_potion() {
+        let stand = stand();
+        let mut entity = stocked(stack("core:water_flask", 2), stack("core:apple", 1));
+        let mut ticks = 0;
+        while stand.step(&mut entity) {
+            ticks += 1;
+            assert!(ticks < 10_000, "l'alambic ne s'arrête pas");
+            if ticks == 100 {
+                let (done, total) = brew_progress(&entity);
+                assert_eq!((done, total), (100, 300), "avancement lisible");
+            }
+        }
+        assert_eq!(ticks, 300, "15 secondes");
+        let inv = entity.caps.as_ref().unwrap().inventory.as_ref().unwrap();
+        assert_eq!(
+            inv.slots[BREW_OUTPUT].as_ref().unwrap().item,
+            "core:potion_healing"
+        );
+        assert_eq!(
+            inv.slots[BREW_INPUT].as_ref().unwrap().count,
+            1,
+            "une fiole reste"
+        );
+        assert!(inv.slots[BREW_REAGENT].is_none(), "la pomme est consommée");
+    }
+
+    #[test]
+    fn nothing_brews_without_a_recipe_or_with_a_full_output() {
+        let stand = stand();
+        // Une pierre ne donne rien.
+        let mut entity = stocked(stack("core:water_flask", 1), stack("core:stone", 1));
+        assert!(!stand.step(&mut entity));
+        assert_eq!(brew_progress(&entity), (0, 0));
+        // La sortie contient autre chose : on attend qu'elle se libère.
+        let mut entity = stocked(stack("core:water_flask", 1), stack("core:apple", 1));
+        entity
+            .caps
+            .as_mut()
+            .unwrap()
+            .inventory
+            .as_mut()
+            .unwrap()
+            .slots[BREW_OUTPUT] = stack("core:potion_speed", 1);
+        assert!(!stand.step(&mut entity));
     }
 }

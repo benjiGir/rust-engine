@@ -49,10 +49,14 @@ pub use capabilities::{
 pub use chunk::{BlockEntity, CHUNK_SIZE, Chunk, DEFAULT_LIGHT};
 pub use circuits::{FACINGS, PUSH_LIMIT, facing_of, placement_state};
 pub use containers::{
-    CHEST_SLOTS, Chest, FURNACE_FUEL, FURNACE_INPUT, FURNACE_OUTPUT, Furnace, FurnaceState,
-    container_slots, register as register_containers,
+    BREW_INPUT, BREW_OUTPUT, BREW_REAGENT, CHEST_SLOTS, Chest, FURNACE_FUEL, FURNACE_INPUT,
+    FURNACE_OUTPUT, Furnace, FurnaceState, brew_progress, container_slots,
+    register as register_containers,
 };
-pub use crafting::{Ingredient, LootEntry, LootTables, Recipe, Recipes, Smelting, SmeltingRecipe};
+pub use crafting::{
+    BrewRecipe, Brewing, Ingredient, LootEntry, LootTables, Recipe, Recipes, Smelting,
+    SmeltingRecipe,
+};
 pub use farming::{
     FarmBlocks, IRRIGATION_REACH, fertilized, is_farmland, is_irrigated, is_ripe, next_stage,
     tilled,

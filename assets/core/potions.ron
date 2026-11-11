@@ -1,0 +1,16 @@
+// Les potions (phase O10) : ce que fait chaque potion quand on la boit.
+//
+// - effect : Healing (soin immédiat de `power` points de vie), Regeneration (`power` points de
+//   vie toutes les 2 s), Speed (marche 30 % plus vite), Strength (+3 dégâts), FireResistance
+//   (insensible au feu et à la lave) ;
+// - seconds : la durée des effets qui durent (ignorée pour Healing) ;
+// - la fiole vide revient dans l'inventaire.
+(
+    potions: {
+        "core:potion_healing": (effect: Healing, seconds: 0.0, power: 8.0),
+        "core:potion_regeneration": (effect: Regeneration, seconds: 30.0, power: 1.0),
+        "core:potion_speed": (effect: Speed, seconds: 90.0, power: 0.3),
+        "core:potion_strength": (effect: Strength, seconds: 90.0, power: 3.0),
+        "core:potion_fire_resistance": (effect: FireResistance, seconds: 120.0, power: 1.0),
+    },
+)
