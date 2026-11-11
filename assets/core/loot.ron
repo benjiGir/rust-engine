@@ -58,6 +58,8 @@
     "piston_on": [(item: "piston", count: (1, 1))],
     "sticky_piston_on": [(item: "sticky_piston", count: (1, 1))],
     "piston_head": [],
+    "power_lamp_on": [(item: "power_lamp", count: (1, 1))],
+    "fan_on": [(item: "fan", count: (1, 1))],
     "dead_bush": [(item: "stick", count: (0, 2))],
     "vine": [(item: "vine", count: (1, 1), tool: Shears)],
 }

@@ -243,6 +243,175 @@ fn flask(liquid: Option<[f32; 3]>) -> Image {
     image
 }
 
+/// Les blocs des réseaux et leurs machines (phase 9c) : un fond de métal et un motif.
+fn tech(kind: &str, on: bool) -> Image {
+    let steel = [0.5, 0.52, 0.56];
+    let mut image = Image::filled(steel).noise(steel, 0.06, 70 + kind.len() as u64);
+    let edge = |image: &mut Image, c: [f32; 3]| {
+        for k in 0..SIZE {
+            for e in [0, SIZE - 1] {
+                image.set(k, e, c);
+                image.set(e, k, c);
+            }
+        }
+    };
+    match kind {
+        "cable" => {
+            image = Image::filled([0.25, 0.25, 0.28]).noise([0.25, 0.25, 0.28], 0.05, 71);
+            for y in 6..10 {
+                for x in 0..SIZE {
+                    image.set(x, y, [0.8, 0.5, 0.25]);
+                }
+            }
+            for x in (0..SIZE).step_by(4) {
+                for y in 5..11 {
+                    image.set(x, y, [0.15, 0.15, 0.17]);
+                }
+            }
+        }
+        "pipe" => {
+            image = Image::filled([0.45, 0.5, 0.55]).noise([0.45, 0.5, 0.55], 0.05, 72);
+            for x in (2..SIZE).step_by(5) {
+                for y in 0..SIZE {
+                    image.set(x, y, [0.25, 0.45, 0.8]);
+                }
+            }
+        }
+        "shaft" => {
+            image = Image::filled([0.55, 0.4, 0.25]).noise([0.55, 0.4, 0.25], 0.08, 73);
+            for x in (1..SIZE).step_by(5) {
+                for y in 0..SIZE {
+                    image.set(x, y, [0.45, 0.45, 0.5]);
+                }
+            }
+        }
+        "solar_panel" => {
+            let blue = [0.12, 0.2, 0.45];
+            image = Image::filled(blue).noise(blue, 0.05, 74);
+            for k in (0..SIZE).step_by(4) {
+                for j in 0..SIZE {
+                    image.set(k, j, [0.55, 0.6, 0.7]);
+                    image.set(j, k, [0.55, 0.6, 0.7]);
+                }
+            }
+        }
+        "battery" => {
+            edge(&mut image, [0.3, 0.3, 0.33]);
+            for (i, y) in (3..13).step_by(3).enumerate() {
+                let lit = (i as u32) < 3;
+                for x in 3..13 {
+                    image.set(
+                        x,
+                        y,
+                        if lit {
+                            [0.5, 0.9, 0.3]
+                        } else {
+                            [0.25, 0.3, 0.2]
+                        },
+                    );
+                    image.set(
+                        x,
+                        y + 1,
+                        if lit {
+                            [0.5, 0.9, 0.3]
+                        } else {
+                            [0.25, 0.3, 0.2]
+                        },
+                    );
+                }
+            }
+        }
+        "power_lamp" => {
+            edge(&mut image, [0.3, 0.3, 0.33]);
+            let glow = if on {
+                [1.0, 0.95, 0.6]
+            } else {
+                [0.35, 0.3, 0.2]
+            };
+            for y in 3..13 {
+                for x in 3..13 {
+                    image.set(x, y, glow);
+                }
+            }
+            if on {
+                image.set(6, 6, [1.0, 1.0, 0.95]);
+            }
+        }
+        "pump" | "filler" => {
+            edge(&mut image, [0.3, 0.32, 0.36]);
+            for y in 4..12 {
+                for x in 4..12 {
+                    image.set(x, y, [0.2, 0.4, 0.75]);
+                }
+            }
+            // La buse : en bas pour la pompe, en haut pour le remplisseur.
+            let rows: [usize; 3] = if kind == "pump" {
+                [12, 13, 14]
+            } else {
+                [1, 2, 3]
+            };
+            for y in rows {
+                for x in 6..10 {
+                    image.set(x, y, [0.2, 0.2, 0.22]);
+                }
+            }
+        }
+        "tank" => {
+            edge(&mut image, [0.3, 0.32, 0.36]);
+            for y in 3..13 {
+                for x in 3..13 {
+                    let water = y >= 7;
+                    image.set(
+                        x,
+                        y,
+                        if water {
+                            [0.2, 0.45, 0.85]
+                        } else {
+                            [0.7, 0.85, 0.95]
+                        },
+                    );
+                }
+            }
+        }
+        "motor" => {
+            edge(&mut image, [0.3, 0.3, 0.33]);
+            for y in 3..13 {
+                for x in 3..13 {
+                    let coil = (x + y) % 3 == 0;
+                    image.set(
+                        x,
+                        y,
+                        if coil {
+                            [0.85, 0.5, 0.25]
+                        } else {
+                            [0.5, 0.3, 0.2]
+                        },
+                    );
+                }
+            }
+            image.set(8, 8, [0.9, 0.9, 0.95]);
+        }
+        "fan" => {
+            edge(&mut image, [0.3, 0.3, 0.33]);
+            let (a, b): ([f32; 3], [f32; 3]) = if on {
+                ([0.85, 0.9, 0.95], [0.65, 0.7, 0.8])
+            } else {
+                ([0.4, 0.42, 0.46], [0.3, 0.32, 0.36])
+            };
+            for k in 2..14 {
+                // Quatre pales en croix ; en marche, elles sont floues (deux tons).
+                image.set(k, 8, if k % 2 == 0 { a } else { b });
+                image.set(8, k, if k % 2 == 0 { a } else { b });
+                image.set(k, k, b);
+                image.set(k, 15 - k, b);
+            }
+            image.set(8, 8, [0.9, 0.9, 0.2]);
+        }
+        _ => {}
+    }
+    image
+}
+
 /// Un câble de signal : un trait en croix qui relie les bords de la case.
 fn wire(on: bool) -> Image {
     let color = if on {
@@ -1880,6 +2049,19 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("enchanting_table_side.png"), enchanting_side()),
         (core.join("brewing_stand_top.png"), brewing_top()),
         (core.join("brewing_stand_side.png"), brewing_side()),
+        (core.join("cable.png"), tech("cable", false)),
+        (core.join("pipe.png"), tech("pipe", false)),
+        (core.join("shaft.png"), tech("shaft", false)),
+        (core.join("solar_panel.png"), tech("solar_panel", false)),
+        (core.join("battery.png"), tech("battery", false)),
+        (core.join("power_lamp.png"), tech("power_lamp", false)),
+        (core.join("power_lamp_on.png"), tech("power_lamp", true)),
+        (core.join("pump.png"), tech("pump", false)),
+        (core.join("tank.png"), tech("tank", false)),
+        (core.join("filler.png"), tech("filler", false)),
+        (core.join("motor.png"), tech("motor", false)),
+        (core.join("fan.png"), tech("fan", false)),
+        (core.join("fan_on.png"), tech("fan", true)),
         (core.join("wire.png"), wire(false)),
         (core.join("wire_on.png"), wire(true)),
         (core.join("lever.png"), lever(false)),

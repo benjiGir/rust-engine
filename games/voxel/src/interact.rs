@@ -265,4 +265,40 @@ impl VoxelGame {
         }
         true
     }
+
+    /// Ce que contient le bloc visé (énergie, fluides, rotation), une ligne par capacité : de
+    /// quoi voir un réseau fonctionner sans outil.
+    pub(crate) fn capability_lines(&self) -> Vec<String> {
+        let Some(hit) = self.target else {
+            return Vec::new();
+        };
+        let streamer = self.streamer();
+        let Some(caps) = streamer
+            .block_entity(hit.block_pos)
+            .and_then(|e| e.caps.as_deref())
+        else {
+            return Vec::new();
+        };
+        let mut lines = Vec::new();
+        if let Some(e) = &caps.energy {
+            lines.push(format!("Énergie : {} / {}", e.amount, e.capacity));
+        }
+        for tank in &caps.tanks {
+            let name = tank
+                .fluid
+                .as_deref()
+                .map_or("vide", |f| f.rsplit(':').next().unwrap_or(f));
+            lines.push(format!(
+                "Fluide ({name}) : {} / {} mB",
+                tank.amount, tank.capacity
+            ));
+        }
+        if let Some(k) = &caps.kinetic {
+            lines.push(format!(
+                "Rotation : {:.0} tr/min (contrainte {:.0} fournie, {:.0} demandée)",
+                k.speed, k.stress_capacity, k.stress_impact
+            ));
+        }
+        lines
+    }
 }

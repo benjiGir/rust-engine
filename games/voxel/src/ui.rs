@@ -439,6 +439,25 @@ impl VoxelGame {
                     ui.painter().rect_filled(fill, 1.0, Color32::from_gray(230));
                 });
         }
+        // Ce que contient le bloc visé (réseaux : énergie, fluides, rotation).
+        let lines = self.capability_lines();
+        if !lines.is_empty() {
+            egui::Area::new(egui::Id::unique("capabilities"))
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 60.0))
+                .show(ctx, |ui| {
+                    egui::Frame::new()
+                        .fill(Color32::from_black_alpha(150))
+                        .corner_radius(4.0)
+                        .inner_margin(egui::Margin::symmetric(8, 4))
+                        .show(ui, |ui| {
+                            for line in &lines {
+                                ui.label(
+                                    egui::RichText::new(line).size(14.0).color(Color32::WHITE),
+                                );
+                            }
+                        });
+                });
+        }
         // Les potions en cours, en haut à droite, avec le temps restant.
         if !self.effects.list().is_empty() {
             egui::Area::new(egui::Id::unique("effects"))

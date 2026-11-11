@@ -733,6 +733,86 @@
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 2.0, tool: Pickaxe, tier: 1,
     ),
+    // Les réseaux (phase 9c) : voir engine_voxel/src/networks.rs et tech.rs. Un câble (énergie), un
+    // tuyau (fluides) et un arbre (rotation) relient les machines posées contre eux.
+    (
+        id: "core:cable", name: "Câble", color: (0.6, 0.4, 0.25), texture: "cable",
+        behavior: "core:cable",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.0, tool: Pickaxe,
+    ),
+    (
+        id: "core:pipe", name: "Tuyau", color: (0.5, 0.55, 0.6), texture: "pipe",
+        behavior: "core:pipe",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.0, tool: Pickaxe,
+    ),
+    (
+        id: "core:shaft", name: "Arbre de transmission", color: (0.5, 0.38, 0.24), texture: "shaft",
+        behavior: "core:shaft",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.0, tool: Pickaxe,
+    ),
+    (
+        id: "core:solar_panel", name: "Panneau solaire", color: (0.2, 0.3, 0.6), texture: "solar_panel",
+        behavior: "core:solar_panel",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.5, tool: Pickaxe,
+    ),
+    (
+        id: "core:battery", name: "Batterie", color: (0.5, 0.6, 0.3), texture: "battery",
+        behavior: "core:battery",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.5, tool: Pickaxe,
+    ),
+    (
+        id: "core:power_lamp", name: "Lampe électrique", color: (0.45, 0.35, 0.2), texture: "power_lamp",
+        behavior: "core:power_lamp",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 0.5, tool: Pickaxe,
+    ),
+    (
+        id: "core:power_lamp_on", name: "Lampe électrique (allumée)", color: (1.0, 0.9, 0.6), texture: "power_lamp_on", placeable: false, light_emission: 15,
+        behavior: "core:power_lamp",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 0.5, tool: Pickaxe,
+    ),
+    (
+        id: "core:pump", name: "Pompe", color: (0.4, 0.5, 0.7), texture: "pump",
+        behavior: "core:pump",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.5, tool: Pickaxe,
+    ),
+    (
+        id: "core:tank", name: "Réservoir", color: (0.45, 0.55, 0.7), texture: "tank",
+        behavior: "core:tank",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.5, tool: Pickaxe,
+    ),
+    (
+        id: "core:filler", name: "Remplisseur", color: (0.35, 0.5, 0.65), texture: "filler",
+        behavior: "core:filler",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.5, tool: Pickaxe,
+    ),
+    (
+        id: "core:motor", name: "Moteur électrique", color: (0.6, 0.4, 0.3), texture: "motor",
+        behavior: "core:motor",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.5, tool: Pickaxe,
+    ),
+    (
+        id: "core:fan", name: "Ventilateur", color: (0.55, 0.55, 0.6), texture: "fan",
+        behavior: "core:fan",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.5, tool: Pickaxe,
+    ),
+    (
+        id: "core:fan_on", name: "Ventilateur (en marche)", color: (0.65, 0.65, 0.7), texture: "fan_on", placeable: false,
+        behavior: "core:fan",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.5, tool: Pickaxe,
+    ),
     // ----- Les fluides -----
     // Ce que devient la lave au contact de l'eau.
     (

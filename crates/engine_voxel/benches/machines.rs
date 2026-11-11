@@ -5,9 +5,12 @@
 //! Le budget visé : moins de 10 ms par tick pour 50 000 machines.
 //!
 //! Deuxième scénario, « câbles et tuyaux » : 50 000 blocs passifs avec des capacités
-//! (25 000 stocks d'énergie, 25 000 réservoirs d'eau). Ils ne travaillent pas (ce sera le
-//! rôle des réseaux, phase 9c) : on mesure ce que coûte leur **stockage** dans les chunks,
-//! en mémoire et au moment de la sauvegarde.
+//! (25 000 stocks d'énergie, 25 000 réservoirs d'eau). On mesure ce que coûte leur
+//! **stockage** dans les chunks, en mémoire et au moment de la sauvegarde.
+//!
+//! Troisième scénario, « réseaux » (phase 9c) : un réseau de N câbles, des batteries et des
+//! lampes ; le coût d'un tick de réseau en régime établi, puis la reconstruction après avoir
+//! cassé un câble.
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::cell::RefCell;
@@ -167,5 +170,109 @@ fn conduits(c: &mut Criterion) {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-criterion_group!(benches, bench, conduits);
+/// Un réseau de `n` câbles (des rangées reliées par une colonne), une batterie chargée et une
+/// lampe électrique tous les 20 câbles.
+fn grid_network(n: usize) -> (RefCell<ChunkStreamer>, Machines, Vec<IVec3>) {
+    let streamer = loaded_world();
+    let registry = streamer.world().registry().clone();
+    let (cable, battery, lamp) = (
+        registry.id("core:cable").unwrap(),
+        registry.id("core:battery").unwrap(),
+        registry.id("core:power_lamp").unwrap(),
+    );
+    let mut machines = Machines::with_natives(&registry);
+    let mut actions = Vec::new();
+    let streamer = RefCell::new(streamer);
+    let mut cables = Vec::new();
+    // Des étages de 40 rangées de 100 câbles, tous les 2 blocs, reliés par une colonne.
+    let per_layer = 100 * 40;
+    let y = 100;
+    for i in 0..n {
+        let (layer, row, x) = (i / per_layer, (i % per_layer) / 100, (i % 100) as i32);
+        let pos = IVec3::new(x - 50, y + layer as i32 * 2, row as i32 * 2 - 40);
+        assert!(
+            streamer.borrow_mut().set_block_raw(pos, cable),
+            "hors du monde chargé"
+        );
+        machines.block_changed(&streamer, pos, &mut actions);
+        cables.push(pos);
+        // Une colonne à x = -50 relie les rangées, puis les étages.
+        let link = if x == 0 && row > 0 {
+            Some(pos - IVec3::Z)
+        } else if x == 0 && row == 0 && layer > 0 {
+            Some(pos - IVec3::Y)
+        } else {
+            None
+        };
+        if let Some(link) = link {
+            streamer.borrow_mut().set_block_raw(link, cable);
+            machines.block_changed(&streamer, link, &mut actions);
+        }
+        if i % 250 == 5 {
+            let up = pos + IVec3::Y;
+            streamer.borrow_mut().set_block_raw(up, lamp);
+            machines.block_changed(&streamer, up, &mut actions);
+        }
+    }
+    let source = IVec3::new(-51, y, -40);
+    streamer.borrow_mut().set_block_raw(source, battery);
+    machines.block_changed(&streamer, source, &mut actions);
+    streamer.borrow_mut().set_block_entity(
+        source,
+        Some(BlockEntity {
+            caps: Some(Box::new(Capabilities {
+                energy: Some(EnergyStorage {
+                    amount: 90_000,
+                    ..EnergyStorage::new(100_000, 2_000)
+                }),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }),
+    );
+    (streamer, machines, cables)
+}
+
+fn networks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("réseaux");
+    group.sample_size(20);
+    for n in [1_000, 10_000, 50_000] {
+        let (streamer, mut machines, cables) = grid_network(n);
+        let mut actions = Vec::new();
+        // Le premier tick construit le réseau.
+        let start = std::time::Instant::now();
+        machines.run_tick(&streamer, &mut actions);
+        eprintln!(
+            "{n} câbles : construction du réseau en {:.1} ms ({:?})",
+            start.elapsed().as_secs_f64() * 1000.0,
+            machines.networks().stats()
+        );
+        group.bench_function(BenchmarkId::new("tick", n), |b| {
+            b.iter(|| machines.run_tick(&streamer, &mut actions))
+        });
+        // Casser un câble au milieu : reconstruction des deux morceaux, puis le remettre.
+        let middle = cables[n / 2];
+        let cable = streamer
+            .borrow()
+            .world()
+            .registry()
+            .id("core:cable")
+            .unwrap();
+        group.bench_function(BenchmarkId::new("casser et remettre un câble", n), |b| {
+            b.iter(|| {
+                streamer
+                    .borrow_mut()
+                    .set_block_raw(middle, engine_voxel::BlockId::AIR);
+                machines.block_changed(&streamer, middle, &mut actions);
+                machines.run_tick(&streamer, &mut actions);
+                streamer.borrow_mut().set_block_raw(middle, cable);
+                machines.block_changed(&streamer, middle, &mut actions);
+                machines.run_tick(&streamer, &mut actions);
+            })
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, bench, conduits, networks);
 criterion_main!(benches);

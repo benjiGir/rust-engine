@@ -102,7 +102,7 @@ pub fn power_toward(grid: &(impl BlockAccess + ?Sized), from: IVec3, to: IVec3) 
 }
 
 /// Change le bloc en `at` en gardant son état actif (modifié par `change`).
-fn restyle(
+pub(crate) fn restyle(
     ctx: &mut MachineContext,
     at: GridPos,
     block: BlockId,

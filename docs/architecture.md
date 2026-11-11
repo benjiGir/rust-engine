@@ -57,7 +57,7 @@ référence le fluide qu'il représente dans le monde (`core:water` → `fluid: 
 
 ## Plan cible
 
-### Réseaux (phase 9c) : câbles, tuyaux, arbres de transmission
+### Réseaux (phase 9c, fait : `networks.rs`, `tech.rs`) : câbles, tuyaux, arbres de transmission
 
 Simuler chaque câble séparément (chacun passe son énergie au voisin) est lent et instable :
 l'énergie met N ticks à traverser N câbles, et oscille. Mekanism et Create regroupent plutôt les
@@ -77,6 +77,36 @@ conduits en **réseaux** :
 4. **Parallélisme** : les réseaux sont indépendants entre eux. Leur simulation se répartit
    sur les cœurs (rayon), chacun ne touchant que ses propres données ; les écritures dans les
    machines sont appliquées ensuite, sur le thread principal.
+
+**Ce qui est fait.** Un bloc dont le comportement est `core:cable` (énergie), `core:pipe`
+(fluides et gaz) ou `core:shaft` (rotation) est un conduit ; un mod l'utilise dans son propre
+`blocks.ron`. Les machines se branchent en ayant une capacité (`EnergyStorage`, `FluidTank`,
+`Kinetic`) dont les `sides` incluent la face tournée vers le conduit. Leur rôle (`Io::In`,
+`Out` ou `Both`) est rangé dans deux bits libres des `Sides` : aucun format de sauvegarde n'a
+changé.
+
+- Le recalcul est incrémental : poser, casser ou changer un voisin marque le réseau « sale »,
+  reconstruit au tick suivant par un parcours en largeur (fusion et coupure comprises).
+- Le bilan d'énergie et de fluide est un seul passage par réseau : producteurs vers
+  consommateurs (au prorata), surplus vers les tampons, tampons vers les consommateurs en
+  manque, puis équilibrage des tampons. Pas de latence : 3 câbles ou 300, même tick.
+- La rotation : la vitesse de la source la plus rapide, partagée si la contrainte demandée
+  ne dépasse pas la contrainte fournie ; sinon (ou si deux sources tournent en sens
+  contraire) le réseau est bloqué et tout s'arrête.
+- Machines de base (`tech.rs`) : panneau solaire, batterie, lampe électrique, pompe, réservoir,
+  remplisseur, moteur électrique, ventilateur.
+
+Mesures (`cargo bench -p engine_voxel --bench machines -- réseaux`, Mac, release) :
+
+| Réseau | Construction | Tick (régime établi) | Casser un câble au milieu, puis le remettre |
+|---|---|---|---|
+| 1 000 câbles | 0,2 ms | 0,5 µs | 0,22 ms |
+| 10 000 câbles | 1,8 ms | 1,7 µs | 2,8 ms |
+| 50 000 câbles | 9,7 ms | 6,9 µs | 15 ms |
+
+Pas encore fait : les engrenages (rapports de vitesse entre deux arbres) et la répartition des
+réseaux sur plusieurs cœurs (ils sont indépendants : c'est possible, mais un tick coûte déjà
+quelques microsecondes).
 
 ### Fluides dans le monde (fait : `fluid_sim.rs`)
 

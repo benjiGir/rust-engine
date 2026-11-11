@@ -159,6 +159,10 @@ pub enum Command {
     Inventory,
     Mode(MoveMode),
     Time(f32),
+    /// Les capacités d'un bloc actif (énergie, fluides, rotation).
+    Inspect(IVec3),
+    /// Le bilan des réseaux de câbles, de tuyaux et d'arbres.
+    Networks,
     /// Les structures à moins de ce nombre de blocs du joueur.
     Structures(i32),
     /// Le temps qu'il fait : `weather clear|rain|storm`.
@@ -336,6 +340,11 @@ pub fn parse(line: &str) -> Result<Command> {
             count(&[1])?;
             Command::Time(number(0)?.rem_euclid(1.0))
         }
+        "inspect" => {
+            count(&[3])?;
+            Command::Inspect(block_pos(0)?)
+        }
+        "networks" => Command::Networks,
         "structures" => {
             count(&[0, 1])?;
             let radius = if args.is_empty() { 600.0 } else { number(0)? };
@@ -636,6 +645,57 @@ impl VoxelGame {
             Command::Time(time) => {
                 self.day.time = time;
                 Ok(self.state_json())
+            }
+            Command::Inspect(pos) => {
+                let streamer = self.streamer();
+                let block = json_str(&self.registry.def(streamer.world().block(pos)).key);
+                let Some(caps) = streamer
+                    .block_entity(pos)
+                    .and_then(|e| e.caps.as_deref().map(|c| (e.power, c)))
+                else {
+                    return Ok(format!(
+                        "{{\"ok\":true,\"block\":{block},\"capabilities\":null}}"
+                    ));
+                };
+                let (power, caps) = caps;
+                let energy = caps.energy.as_ref().map_or("null".to_string(), |e| {
+                    format!(
+                        "{{\"amount\":{},\"capacity\":{},\"role\":\"{:?}\"}}",
+                        e.amount,
+                        e.capacity,
+                        e.sides.io()
+                    )
+                });
+                let tanks: Vec<String> = caps
+                    .tanks
+                    .iter()
+                    .map(|t| {
+                        format!(
+                            "{{\"fluid\":{},\"amount\":{},\"capacity\":{},\"role\":\"{:?}\"}}",
+                            t.fluid.as_deref().map_or("null".to_string(), json_str),
+                            t.amount,
+                            t.capacity,
+                            t.sides.io()
+                        )
+                    })
+                    .collect();
+                let kinetic = caps.kinetic.as_ref().map_or("null".to_string(), |k| {
+                    format!(
+                        "{{\"speed\":{},\"capacity\":{},\"impact\":{}}}",
+                        k.speed, k.stress_capacity, k.stress_impact
+                    )
+                });
+                Ok(format!(
+                    "{{\"ok\":true,\"block\":{block},\"power\":{power},\"energy\":{energy},\"tanks\":[{}],\"kinetic\":{kinetic}}}",
+                    tanks.join(",")
+                ))
+            }
+            Command::Networks => {
+                let stats = self.mods.machines.networks().stats();
+                Ok(format!(
+                    "{{\"ok\":true,\"networks\":{},\"conduits\":{},\"endpoints\":{},\"rebuilt\":{}}}",
+                    stats.networks, stats.conduits, stats.endpoints, stats.rebuilt
+                ))
             }
             Command::Structures(radius) => {
                 let feet = player::body(&self.ecs, self.player).position;
@@ -989,6 +1049,11 @@ mod tests {
             })
         );
         assert_eq!(parse("time 1.25").unwrap(), Command::Time(0.25));
+        assert_eq!(
+            parse("inspect 1 2 3").unwrap(),
+            Command::Inspect(IVec3::new(1, 2, 3))
+        );
+        assert_eq!(parse("networks").unwrap(), Command::Networks);
         assert_eq!(
             parse("weather storm").unwrap(),
             Command::Weather(crate::weather::Sky::Storm)

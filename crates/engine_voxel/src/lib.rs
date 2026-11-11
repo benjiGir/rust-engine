@@ -29,6 +29,7 @@ mod items;
 mod light;
 mod machines;
 mod mesh;
+mod networks;
 mod pathfind;
 mod physics;
 mod plants;
@@ -36,6 +37,7 @@ mod raycast;
 mod registry;
 mod save;
 mod streaming;
+mod tech;
 mod trees;
 mod visibility;
 mod world;
@@ -44,7 +46,8 @@ pub use biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry, OreDef, Relief};
 pub use block::BlockId;
 pub use block_rules::{Settled, is_supported, settle};
 pub use capabilities::{
-    Capabilities, EnergyStorage, Face, FluidTank, Inventory, ItemStack, Kinetic, MAX_STACK, Sides,
+    Capabilities, EnergyStorage, Face, FluidTank, Inventory, Io, ItemStack, Kinetic, MAX_STACK,
+    Sides,
 };
 pub use chunk::{BlockEntity, CHUNK_SIZE, Chunk, DEFAULT_LIGHT};
 pub use circuits::{FACINGS, PUSH_LIMIT, facing_of, placement_state};
@@ -81,6 +84,9 @@ pub use machines::{
 pub use mesh::{
     ChunkMesh, FLAG_CUTOUT, FLAG_FILLED, FLAG_SWAY, MeshVertex, Mesher, Neighbourhood,
     TEXTURE_MASK, mesh_culled, mesh_greedy,
+};
+pub use networks::{
+    ENERGY_RATE, Endpoint, FLUID_RATE, Network, NetworkKind, NetworkStats, Networks,
 };
 pub use pathfind::{Path, PathRules, find_path};
 pub use physics::{PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};

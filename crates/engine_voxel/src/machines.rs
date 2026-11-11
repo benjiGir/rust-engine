@@ -116,6 +116,8 @@ pub struct Scheduler {
     neighbors: Vec<GridPos>,
     /// L'état du générateur pseudo-aléatoire des ticks aléatoires et des comportements.
     random_state: u64,
+    /// Les conduits dont le réseau est à reconstruire (voir `networks.rs`).
+    network_dirty: Vec<GridPos>,
 }
 
 impl Scheduler {
@@ -209,6 +211,11 @@ impl MachineContext<'_> {
         self.scheduler.schedule(at, delay);
     }
 
+    /// Un conduit vient d'apparaître ou son voisinage a changé : son réseau sera reconstruit.
+    pub fn mark_network_dirty(&mut self, at: GridPos) {
+        self.scheduler.network_dirty.push(at);
+    }
+
     /// Prévient les voisins actifs de `at` qu'ils ont peut-être quelque chose à faire
     /// (au prochain tick). À appeler quand un bloc ou sa puissance change.
     pub fn notify_neighbors(&mut self, at: GridPos) {
@@ -272,6 +279,8 @@ pub struct Machines {
     /// consulte pour chaque bloc tiré au sort, il faut que ce soit instantané).
     random_blocks: Vec<bool>,
     scheduler: Scheduler,
+    /// Les réseaux de câbles, de tuyaux et d'arbres.
+    networks: crate::networks::Networks,
 }
 
 impl Machines {
@@ -289,12 +298,23 @@ impl Machines {
         let leaves: Rc<dyn BlockBehavior> = Rc::new(plants::Leaves::new(registry));
         let sapling: Option<Rc<dyn BlockBehavior>> =
             plants::Sapling::new(registry).map(|s| Rc::new(s) as _);
+        machines.networks = crate::networks::Networks::new(registry);
         let circuits = crate::circuits::natives(registry);
+        let conduit: Rc<dyn BlockBehavior> = Rc::new(crate::networks::Conduit);
+        let tech = crate::tech::natives(registry);
         let farmland: Option<Rc<dyn BlockBehavior>> =
             crate::farming::Farmland::new(registry).map(|f| Rc::new(f) as _);
         let crop: Rc<dyn BlockBehavior> = Rc::new(crate::farming::Crop);
         for (id, def) in registry.iter() {
             match def.behavior.as_deref() {
+                Some("core:cable" | "core:pipe" | "core:shaft") => {
+                    machines.register(id, conduit.clone())
+                }
+                Some(name) if tech.iter().any(|(n, _)| *n == name) => {
+                    if let Some((_, behavior)) = tech.iter().find(|(n, _)| *n == name) {
+                        machines.register(id, behavior.clone());
+                    }
+                }
                 Some(name) if circuits.iter().any(|(n, _)| *n == name) => {
                     if let Some((_, behavior)) = circuits.iter().find(|(n, _)| *n == name) {
                         machines.register(id, behavior.clone());
@@ -429,6 +449,11 @@ impl Machines {
         };
         let mut ctx = self.context(grids, actions);
         behavior.used(&mut ctx, at)
+    }
+
+    /// Les réseaux de conduits (pour les mesures, l'inspecteur et les tests).
+    pub fn networks(&self) -> &crate::networks::Networks {
+        &self.networks
     }
 
     pub fn has_behavior(&self, block: BlockId) -> bool {
@@ -579,6 +604,19 @@ impl Machines {
         for (behavior, list) in self.group(grids, neighbors.into_iter()) {
             let mut ctx = self.context(grids, actions);
             behavior.neighbor_changed(&mut ctx, &list);
+        }
+
+        // 3. Les réseaux : reconstruire ceux qui ont changé, puis un bilan par réseau. Les
+        //    machines dont le contenu a bougé sont réveillées au tick suivant.
+        let dirty = std::mem::take(&mut self.scheduler.network_dirty);
+        if !dirty.is_empty() || !self.networks.is_empty() {
+            let _span = engine_trace::span("réseaux");
+            self.networks.rebuild(grids, &dirty);
+            for at in self.networks.tick(grids) {
+                if self.active_blocks.contains(&grids.block(at)) {
+                    self.scheduler.schedule(at, 1);
+                }
+            }
         }
 
         TickReport {

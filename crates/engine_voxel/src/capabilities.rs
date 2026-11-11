@@ -46,7 +46,21 @@ impl Face {
     }
 }
 
-/// Un ensemble de faces, en 6 bits : bit `i` = [`Face`] numéro `i`.
+/// Le rôle d'un conteneur dans un réseau (câbles, tuyaux) : il reçoit seulement, il fournit
+/// seulement, ou les deux (une batterie, un réservoir).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Io {
+    #[default]
+    Both,
+    /// Un consommateur : il reçoit, il ne rend rien (une lampe, un remplisseur).
+    In,
+    /// Un producteur : il fournit, il ne reçoit rien (un panneau solaire, une pompe).
+    Out,
+}
+
+/// Un ensemble de faces, en 6 bits : bit `i` = [`Face`] numéro `i`. Les deux bits restants
+/// codent le rôle ([`Io`]) : les ranger ici évite d'ajouter un champ aux conteneurs, donc de
+/// changer le format des sauvegardes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Sides(pub u8);
 
@@ -56,6 +70,30 @@ impl Sides {
 
     pub fn contains(self, face: Face) -> bool {
         self.0 & (1 << face as u8) != 0
+    }
+
+    const INPUT_ONLY: u8 = 1 << 6;
+    const OUTPUT_ONLY: u8 = 1 << 7;
+
+    /// Le rôle dans un réseau.
+    pub fn io(self) -> Io {
+        if self.0 & Self::INPUT_ONLY != 0 {
+            Io::In
+        } else if self.0 & Self::OUTPUT_ONLY != 0 {
+            Io::Out
+        } else {
+            Io::Both
+        }
+    }
+
+    /// Les mêmes faces, avec ce rôle.
+    pub fn with_io(self, io: Io) -> Self {
+        let faces = self.0 & 0b11_1111;
+        Sides(match io {
+            Io::Both => faces,
+            Io::In => faces | Self::INPUT_ONLY,
+            Io::Out => faces | Self::OUTPUT_ONLY,
+        })
     }
 
     /// `None` veut dire « de l'intérieur » (le bloc lui-même ou le jeu) : toujours permis.
@@ -384,6 +422,20 @@ mod tests {
         let taken = chest.extract(None, None, 70, false).unwrap();
         assert_eq!((taken.item.as_str(), taken.count), ("core:stone", 70));
         assert_eq!(chest.count("core:stone"), 58);
+    }
+
+    #[test]
+    fn the_role_rides_in_the_spare_bits_of_the_sides() {
+        let sides = Sides(1 << Face::PosY as u8).with_io(Io::Out);
+        assert_eq!(sides.io(), Io::Out);
+        assert!(sides.contains(Face::PosY) && !sides.contains(Face::NegY));
+        // Le rôle ne change pas les faces autorisées : un stockage `Out` accepte les mêmes
+        // échanges directs qu'avant.
+        let mut battery = EnergyStorage::new(100, 100);
+        battery.sides = Sides::ALL.with_io(Io::In);
+        assert_eq!(battery.insert(Some(Face::NegX), 10, false), 10);
+        assert_eq!(Sides::ALL.io(), Io::Both);
+        assert_eq!(Sides::ALL.with_io(Io::In).with_io(Io::Both), Sides::ALL);
     }
 
     #[test]
