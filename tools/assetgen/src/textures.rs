@@ -113,6 +113,22 @@ fn dirt() -> Image {
         .speckles([0.58, 0.45, 0.32], 0.05, 6)
 }
 
+/// Le dessus de la terre labourée : des sillons, plus sombres quand elle est humide.
+fn farmland(wet: bool) -> Image {
+    let base = if wet {
+        [0.27, 0.18, 0.12]
+    } else {
+        [0.45, 0.32, 0.21]
+    };
+    let mut image = Image::filled(base).noise(base, 0.08, if wet { 41 } else { 40 });
+    for y in (1..SIZE).step_by(4) {
+        for x in 0..SIZE {
+            image.set(x, y, scale(base, 0.7));
+        }
+    }
+    image
+}
+
 /// Le côté de l'herbe : de la terre, avec une bordure d'herbe irrégulière en haut.
 fn grass_side() -> Image {
     let mut image = dirt();
@@ -488,6 +504,42 @@ fn sapling(stem: [f32; 3], leaf: [f32; 3]) -> Image {
     }
     for (x, y) in [(6, 3), (8, 3), (5, 5), (9, 5), (3, 8), (11, 8)] {
         image.plot(x, y, scale(leaf, 0.8));
+    }
+    image
+}
+
+/// Une culture à un stade (0..=3) : des tiges qui montent, puis l'épi ou le fane de carotte.
+fn crop(kind: &str, stage: usize) -> Image {
+    let mut image = Image::transparent();
+    let height = 4 + stage as i32 * 3;
+    let ripe = stage == 3;
+    for (i, x) in (2..15).step_by(3).enumerate() {
+        let h = height + (i as i32 % 2);
+        for k in 0..h {
+            let green = if kind == "wheat" && ripe {
+                [0.82, 0.68, 0.25]
+            } else {
+                [0.3 + 0.03 * stage as f32, 0.62, 0.2]
+            };
+            image.plot(x, 15 - k, scale(green, 0.85 + 0.05 * (k % 3) as f32));
+            if kind == "carrot" && stage > 0 && k % 3 == 2 {
+                image.plot(x - 1, 15 - k, green);
+                image.plot(x + 1, 15 - k, green);
+            }
+        }
+        if kind == "wheat" && stage >= 2 {
+            let ear = if ripe {
+                [0.92, 0.78, 0.3]
+            } else {
+                [0.6, 0.7, 0.25]
+            };
+            image.plot(x, 15 - h, ear);
+            image.plot(x, 14 - h, ear);
+            image.plot(x - 1, 14 - h, scale(ear, 0.85));
+        }
+        if kind == "carrot" && ripe {
+            image.plot(x, 15, [0.95, 0.5, 0.1]);
+        }
     }
     image
 }
@@ -1468,6 +1520,16 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("lily_pad.png"), lily_pad()),
         (core.join("cactus_side.png"), cactus_side()),
         (core.join("cactus_top.png"), cactus_top()),
+        (core.join("wheat_0.png"), crop("wheat", 0)),
+        (core.join("wheat_1.png"), crop("wheat", 1)),
+        (core.join("wheat_2.png"), crop("wheat", 2)),
+        (core.join("wheat_3.png"), crop("wheat", 3)),
+        (core.join("carrot_0.png"), crop("carrot", 0)),
+        (core.join("carrot_1.png"), crop("carrot", 1)),
+        (core.join("carrot_2.png"), crop("carrot", 2)),
+        (core.join("carrot_3.png"), crop("carrot", 3)),
+        (core.join("farmland_dry.png"), farmland(false)),
+        (core.join("farmland_wet.png"), farmland(true)),
         (core.join("cobblestone.png"), cobblestone()),
         (core.join("volcanic_rock.png"), volcanic_rock()),
         (core.join("workbench_top.png"), workbench_top()),
@@ -1541,5 +1603,9 @@ fn item_icons(dir: &Path) -> Vec<(PathBuf, Image)> {
     add("shadow_dust", material("dust", [0.3, 0.22, 0.42]));
     add("spores", material("seeds", [0.78, 0.82, 0.35]));
     add("apple", apple());
+    add("wheat", material("seeds", [0.88, 0.74, 0.3]));
+    add("bread", chop([0.75, 0.5, 0.22], [0.92, 0.75, 0.45]));
+    add("carrot", material("dust", [0.95, 0.5, 0.1]));
+    add("fertilizer", material("dust", [0.5, 0.4, 0.25]));
     out
 }

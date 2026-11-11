@@ -847,6 +847,8 @@ impl VoxelGame {
             if ctx.input.mouse_pressed(MouseButton::Right)
                 && !bed.is_some_and(|pos| self.use_bed(pos))
                 && !self.open_container()
+                && !self.use_hoe()
+                && !self.use_fertilizer()
             {
                 self.place_at_target();
             }
@@ -1446,6 +1448,63 @@ impl VoxelGame {
     }
 
     /// Pose le bloc de la case choisie contre la face visée. Renvoie sa position si c'est fait.
+    /// L'engrais en main, clic droit sur une culture : elle avance de deux stades.
+    fn use_fertilizer(&mut self) -> bool {
+        let Some(item) = self.inventory.selected_item() else {
+            return false;
+        };
+        if self.content.items.get(item).key != "core:fertilizer" {
+            return false;
+        }
+        let Some(hit) = self.target else {
+            return false;
+        };
+        let block = self.streamer().world().block(hit.block_pos);
+        let Some(next) = engine_voxel::fertilized(&self.registry, block) else {
+            return false;
+        };
+        if !self.edit(hit.block_pos, next) {
+            return false;
+        }
+        self.inventory.consume_selected();
+        self.hand.punch();
+        if let Some(audio) = &mut self.audio {
+            audio.play("core:place_soft");
+        }
+        true
+    }
+
+    /// Une houe en main, clic droit sur de l'herbe ou de la terre dégagée : on laboure.
+    /// Renvoie `true` si le sol a été labouré.
+    fn use_hoe(&mut self) -> bool {
+        if !self
+            .held_tool()
+            .is_some_and(|t| t.kind == engine_voxel::ToolKind::Hoe)
+        {
+            return false;
+        }
+        let Some(hit) = self.target else {
+            return false;
+        };
+        // On ne laboure que par le dessus du bloc.
+        if hit.normal != IVec3::Y {
+            return false;
+        }
+        let farmland = engine_voxel::tilled(self.streamer().world(), &self.registry, hit.block_pos);
+        let Some(farmland) = farmland else {
+            return false;
+        };
+        if !self.edit(hit.block_pos, farmland) {
+            return false;
+        }
+        self.inventory.wear_selected(&self.content.items);
+        self.hand.punch();
+        if let Some(audio) = &mut self.audio {
+            audio.play("core:place_soft");
+        }
+        true
+    }
+
     fn place_at_target(&mut self) -> Option<IVec3> {
         let item = self.inventory.selected_item()?;
         if self.content.items.get(item).key.ends_with("bucket") {
@@ -1453,7 +1512,11 @@ impl VoxelGame {
             return None;
         }
         let hit = self.target?;
-        let block = self.content.items.get(item).block?;
+        let def = self.content.items.get(item);
+        // Une graine plante son premier stade ; sinon l'objet pose son bloc.
+        let block = def
+            .block
+            .or_else(|| def.plants.as_deref().and_then(|key| self.registry.id(key)))?;
         let pos = hit.block_pos + hit.normal;
         // Normale nulle : le rayon part de l'intérieur d'un bloc, pas de face où poser.
         // On peut poser dans l'air ou à la place d'un liquide (l'eau).

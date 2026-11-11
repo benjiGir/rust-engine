@@ -19,6 +19,7 @@ mod capabilities;
 mod chunk;
 mod containers;
 mod crafting;
+mod farming;
 mod fluid_sim;
 mod fluids;
 mod generator;
@@ -50,6 +51,10 @@ pub use containers::{
     container_slots, register as register_containers,
 };
 pub use crafting::{Ingredient, LootEntry, LootTables, Recipe, Recipes, Smelting, SmeltingRecipe};
+pub use farming::{
+    FarmBlocks, IRRIGATION_REACH, fertilized, is_farmland, is_irrigated, is_ripe, next_stage,
+    tilled,
+};
 pub use fluid_sim::{FULL as FLUID_FULL, FluidKind, FluidReport, FluidSim};
 pub use fluids::{FluidDef, FluidRegistry};
 pub use generator::{

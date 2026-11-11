@@ -57,6 +57,7 @@ pub fn is_supported(
         Support::Floor => solid(pos - IVec3::Y),
         Support::Any => NEIGHBOURS.iter().any(|&o| solid(pos + o)),
         Support::Water => registry.def(world.block(pos - IVec3::Y)).liquid,
+        Support::Farmland => crate::farming::is_farmland(registry, world.block(pos - IVec3::Y)),
     }
 }
 

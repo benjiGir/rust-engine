@@ -36,13 +36,13 @@ crates/mod_sdk          # le kit pour écrire le script d'un mod en Rust (compil
 tools/xtask             # tâches du projet : cargo xtask build-mods, check-arch, hooks, bench, ctl
 docs/                   # modding.md (écrire un mod), architecture.md (réseaux, fluides, structures mobiles)
 games/voxel             # le jeu (E : inventaire et artisanat, clic droit : établi/four/coffre, F3 : inspecteur,
-                        # F : vol, T : temps, F1/F2 : rendu, F4 : bras, F6 : culling des grottes) ; clic gauche maintenu : miner
+                        # F : vol, T : temps, F1/F2 : rendu, F4 : bras, houe : clic droit laboure, graines : se plantent sur la terre labourée, engrais : accélère la pousse, blé/carotte : élevage, F6 : culling des grottes) ; clic gauche maintenu : miner
 assets/core/            # blocks.ron (les blocs de base), biomes.ron (15 biomes), ores.ron (minerais par profondeur),
                         # fluids.ron, items.ron (objets, outils, armures), recipes.ron, smelting.ron, loot.ron,
                         # textures/ et items/ (PNG 16×16), sounds/ (WAV)
 tools/assetgen          # génère les textures et les sons : cargo run -p assetgen
 saves/                  # les mondes sauvegardés (ignoré par git)
-assets/core/entities.ron # les créatures (taille, vie, vitesse, boîtes qui les dessinent)
+assets/core/entities.ron # les créatures (taille, vie, vitesse, boîtes qui les dessinent, aliment de reproduction)
 mods/                   # un dossier par mod : mod.ron, blocks.ron, fluids.ron, entities.ron, textures/, sounds/,
                         # script/ (sources) et son .wasm (ex. mods/example : casseur de blocs, rubis)
 games/                  # à venir : railway (city builder)

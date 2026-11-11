@@ -112,6 +112,8 @@ pub struct ItemDef {
     pub durability: Option<u32>,
     /// Le bloc posé par cet objet.
     pub block: Option<BlockId>,
+    /// La clé du bloc planté en posant cet objet sur de la terre labourée (une graine).
+    pub plants: Option<String>,
     pub tool: Option<ToolDef>,
     pub armor: Option<ArmorDef>,
     /// Un aliment : ce qu'il nourrit.
@@ -133,6 +135,8 @@ struct ItemEntry {
     max_stack: Option<u32>,
     #[serde(default)]
     durability: Option<u32>,
+    #[serde(default)]
+    plants: Option<String>,
     #[serde(default)]
     tool: Option<ToolDef>,
     #[serde(default)]
@@ -214,6 +218,7 @@ impl ItemRegistry {
                 max_stack: 64,
                 durability: None,
                 block: Some(id),
+                plants: None,
                 tool: None,
                 armor: None,
                 food: None,
@@ -260,6 +265,7 @@ impl ItemRegistry {
                 max_stack: e.max_stack.unwrap_or(if stackable { 64 } else { 1 }),
                 durability: e.durability,
                 block: None,
+                plants: e.plants,
                 tool: e.tool,
                 armor: e.armor,
                 food: e.food,

@@ -11,6 +11,7 @@
         (pattern: ["#", "#"], key: {"#": "#planks"}, result: ("stick", 4)),
         (pattern: ["##", "##"], key: {"#": "#planks"}, result: ("workbench", 1)),
         (pattern: ["###", "# #", "###"], key: {"#": "#stones"}, result: ("furnace", 1)),
+        (pattern: ["www"], key: {"w": "wheat"}, result: ("bread", 1)),
         (pattern: ["###", "# #", "###"], key: {"#": "#planks"}, result: ("chest", 1)),
         (pattern: ["LLL", "PPP"], key: {"L": "#leaves", "P": "#planks"}, result: ("bed", 1)),
         (pattern: ["c", "s"], key: {"c": "#coals", "s": "stick"}, result: ("torch", 4)),
@@ -72,6 +73,7 @@
         (ingredients: ["spruce_log"], result: ("spruce_planks", 4)),
         (ingredients: ["acacia_log"], result: ("acacia_planks", 4)),
         (ingredients: ["jungle_log"], result: ("jungle_planks", 4)),
+        (ingredients: ["spores", "seeds", "dirt"], result: ("fertilizer", 2)),
         (ingredients: ["flint", "iron_ingot"], result: ("torch", 8)),
     ],
 )

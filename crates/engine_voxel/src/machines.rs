@@ -285,8 +285,17 @@ impl Machines {
         let leaves: Rc<dyn BlockBehavior> = Rc::new(plants::Leaves::new(registry));
         let sapling: Option<Rc<dyn BlockBehavior>> =
             plants::Sapling::new(registry).map(|s| Rc::new(s) as _);
+        let farmland: Option<Rc<dyn BlockBehavior>> =
+            crate::farming::Farmland::new(registry).map(|f| Rc::new(f) as _);
+        let crop: Rc<dyn BlockBehavior> = Rc::new(crate::farming::Crop);
         for (id, def) in registry.iter() {
             match def.behavior.as_deref() {
+                Some("core:crop") => machines.register_random(id, crop.clone()),
+                Some("core:farmland") => {
+                    if let Some(farmland) = &farmland {
+                        machines.register_random(id, farmland.clone());
+                    }
+                }
                 Some("core:clock") => machines.register(id, clock.clone()),
                 Some("core:lamp") => machines.register(id, lamp.clone()),
                 Some("core:grass") => {

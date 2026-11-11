@@ -146,6 +146,8 @@ pub enum Support {
     Any,
     /// De l'eau dessous (le nénuphar).
     Water,
+    /// De la terre labourée dessous (les cultures).
+    Farmland,
 }
 
 /// Les textures d'un bloc dans un fichier : une par face (dessus, côtés, dessous).

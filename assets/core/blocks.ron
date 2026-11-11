@@ -30,6 +30,7 @@
 // - xp ((0, 0)) : l'expérience gagnée en le cassant avec le bon outil (min, max) ;
 // - support : Floor (un bloc plein dessous), Any (un bloc plein à côté), Water (de l'eau
 //   dessous) : sans support, le bloc tombe et lâche son objet ;
+// - support : Farmland (de la terre labourée dessous : les cultures) ;
 // - gravity (false) : tombe s'il n'y a rien dessous (sable, gravier).
 // Ce que lâche un bloc cassé est dans `loot.ron`.
 // Un nom sans espace de noms désigne un fichier de ce dossier ; `autre:nom` celui d'un autre.
@@ -455,6 +456,79 @@
         behavior: "core:chest",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 2.0, tool: Axe,
+    ),
+    // La terre labourée (phase O6) : la houe la crée ; l'eau à 4 blocs la garde humide.
+    (
+        id: "core:farmland", name: "Terre labourée", color: (0.4, 0.28, 0.18),
+        textures: (top: "farmland_dry", side: "dirt", bottom: "dirt"),
+        behavior: "core:farmland", placeable: false,
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.6, tool: Shovel,
+    ),
+    (
+        id: "core:farmland_wet", name: "Terre labourée humide", color: (0.3, 0.2, 0.13),
+        textures: (top: "farmland_wet", side: "dirt", bottom: "dirt"),
+        behavior: "core:farmland", placeable: false,
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.6, tool: Shovel,
+    ),
+    // Les cultures (phase O6) : un bloc par stade, le dernier est mûr. Elles se plantent avec
+    // une graine (`plants` dans items.ron) sur de la terre labourée.
+    (
+        id: "core:wheat_0", name: "Blé (stade 0)", color: (0.45, 0.60, 0.20), texture: "wheat_0", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:wheat_1", name: "Blé (stade 1)", color: (0.60, 0.57, 0.20), texture: "wheat_1", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:wheat_2", name: "Blé (stade 2)", color: (0.75, 0.54, 0.20), texture: "wheat_2", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:wheat_3", name: "Blé (stade 3)", color: (0.90, 0.51, 0.20), texture: "wheat_3", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:carrot_0", name: "Carotte (stade 0)", color: (0.30, 0.58, 0.20), texture: "carrot_0", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:carrot_1", name: "Carotte (stade 1)", color: (0.30, 0.58, 0.20), texture: "carrot_1", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:carrot_2", name: "Carotte (stade 2)", color: (0.30, 0.58, 0.20), texture: "carrot_2", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:carrot_3", name: "Carotte (stade 3)", color: (0.30, 0.58, 0.20), texture: "carrot_3", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
     ),
     // ----- Les fluides -----
     // Ce que devient la lave au contact de l'eau.
