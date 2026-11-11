@@ -37,6 +37,7 @@
 mod assets;
 mod audio;
 mod bench;
+mod breeding;
 mod components;
 mod content;
 mod control;
@@ -487,6 +488,7 @@ impl VoxelGame {
                 spawning::spawn,
             )
             .add(Stage::FixedUpdate, "créatures : soleil", spawning::dissolve)
+            .add(Stage::FixedUpdate, "créatures : élevage", breeding::update)
             .add(Stage::FixedUpdate, "créatures : IA", mobs::wander)
             .add(Stage::FixedUpdate, "physique", mobs::physics)
             .add(
@@ -847,6 +849,7 @@ impl VoxelGame {
             if ctx.input.mouse_pressed(MouseButton::Right)
                 && !bed.is_some_and(|pos| self.use_bed(pos))
                 && !self.open_container()
+                && !self.feed_mob()
                 && !self.use_hoe()
                 && !self.use_fertilizer()
             {
@@ -1448,6 +1451,32 @@ impl VoxelGame {
     }
 
     /// Pose le bloc de la case choisie contre la face visée. Renvoie sa position si c'est fait.
+    /// Un aliment en main, clic droit sur un animal qui l'aime : il entre en rut.
+    fn feed_mob(&mut self) -> bool {
+        let Some(item) = self.inventory.selected_item() else {
+            return false;
+        };
+        let block_distance = self.target.map_or(REACH, |hit| hit.distance);
+        let Some((mob, _)) = mobs::hit_mob(
+            &self.ecs,
+            self.camera.position,
+            self.camera.forward(),
+            block_distance,
+        ) else {
+            return false;
+        };
+        let key = self.content.items.get(item).key.clone();
+        if !breeding::feed(&mut self.ecs, mob, &key) {
+            return false;
+        }
+        self.inventory.consume_selected();
+        self.hand.punch();
+        if let Some(audio) = &mut self.audio {
+            audio.play("core:place_soft");
+        }
+        true
+    }
+
     /// L'engrais en main, clic droit sur une culture : elle avance de deux stades.
     fn use_fertilizer(&mut self) -> bool {
         let Some(item) = self.inventory.selected_item() else {

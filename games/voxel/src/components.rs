@@ -96,3 +96,21 @@ pub struct Impulse(pub Vec3);
 pub struct Hurt {
     pub timer: f32,
 }
+
+/// En rut : l'animal cherche un partenaire du même type, pendant `timer` secondes.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Love {
+    pub timer: f32,
+}
+
+/// Après une naissance, le parent ne se reproduit plus pendant `timer` secondes.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct BreedCooldown {
+    pub timer: f32,
+}
+
+/// Un petit : plus petit, il grandit en `age_left` secondes et ne se reproduit pas.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Baby {
+    pub age_left: f32,
+}

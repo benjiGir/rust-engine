@@ -72,6 +72,8 @@ struct MobFileEntry {
     dissolves: Option<bool>,
     #[serde(default)]
     ranged: Option<crate::projectiles::RangedDef>,
+    #[serde(default)]
+    breeds: Option<crate::breeding::BreedingDef>,
 }
 
 /// Ce que lâche une créature à sa mort : un objet, un nombre (min, max), une chance.
@@ -108,6 +110,8 @@ pub struct MobDef {
     pub xp: (u32, u32),
     /// Une attaque à distance (voir `projectiles.rs`).
     pub ranged: Option<crate::projectiles::RangedDef>,
+    /// Comment elle se reproduit (voir `breeding.rs`) ; `None` : elle ne le fait pas.
+    pub breeds: Option<crate::breeding::BreedingDef>,
 }
 
 /// Toutes les créatures connues. Leur numéro (`Mob::kind`) est leur place dans la liste.
@@ -200,6 +204,7 @@ impl MobRegistry {
                 drops: entry.drops,
                 xp: entry.xp,
                 ranged: entry.ranged,
+                breeds: entry.breeds,
             });
         }
         Ok(())
@@ -684,10 +689,15 @@ pub fn instances(world: &World, alpha: f32) -> Vec<CubeInstance> {
                 .world()
                 .light((position + Vec3::Y * 0.5).floor().as_ivec3());
             let hurt = world.has::<Hurt>(entity);
+            let scale = if world.has::<crate::components::Baby>(entity) {
+                crate::breeding::BABY_SCALE
+            } else {
+                1.0
+            };
             let (c, s) = (transform.yaw.cos(), transform.yaw.sin());
             for part in &def.parts {
                 let (ox, oy, oz) = part.offset;
-                let offset = Vec3::new(ox * c - oz * s, oy, ox * s + oz * c);
+                let offset = Vec3::new(ox * c - oz * s, oy, ox * s + oz * c) * scale;
                 let mut color = Vec3::new(part.color.0, part.color.1, part.color.2);
                 if hurt {
                     color = color.lerp(Vec3::new(1.0, 0.1, 0.1), 0.6);
@@ -695,7 +705,7 @@ pub fn instances(world: &World, alpha: f32) -> Vec<CubeInstance> {
                 out.push(
                     CubeInstance::new(
                         position + offset,
-                        Vec3::new(part.size.0, part.size.1, part.size.2),
+                        Vec3::new(part.size.0, part.size.1, part.size.2) * scale,
                         color,
                     )
                     .with_yaw(transform.yaw)
@@ -716,7 +726,7 @@ pub fn census(world: &World) -> HashMap<u32, usize> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use engine_ecs::{EventReader, Events};
     use engine_voxel::{StreamingConfig, TerrainGenerator};
@@ -768,7 +778,7 @@ mod tests {
     }
 
     /// Un petit monde ECS avec un terrain chargé autour de l'origine.
-    fn sim() -> World {
+    pub(crate) fn sim() -> World {
         let blocks = blocks();
         let mut streamer = ChunkStreamer::new(
             TerrainGenerator::with_registry(5, blocks.clone()).unwrap(),
