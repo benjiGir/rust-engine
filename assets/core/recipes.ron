@@ -74,6 +74,7 @@
         (ingredients: ["acacia_log"], result: ("acacia_planks", 4)),
         (ingredients: ["jungle_log"], result: ("jungle_planks", 4)),
         (ingredients: ["spores", "seeds", "dirt"], result: ("fertilizer", 2)),
+        (ingredients: ["melon_slice"], result: ("melon_seeds", 1)),
         (ingredients: ["flint", "iron_ingot"], result: ("torch", 8)),
     ],
 )

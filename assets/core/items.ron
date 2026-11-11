@@ -29,6 +29,14 @@
         (id: "core:wheat", name: "Blé", category: Material, color: (0.85, 0.72, 0.3), icon: "wheat"),
         (id: "core:bread", name: "Pain", category: Food, color: (0.75, 0.52, 0.25), icon: "bread", food: (nutrition: 5.0, saturation: 6.0)),
         (id: "core:carrot", name: "Carotte", category: Food, color: (0.95, 0.5, 0.1), icon: "carrot", plants: "core:carrot_0", food: (nutrition: 3.0, saturation: 3.6)),
+        (id: "core:potato", name: "Pomme de terre", category: Material, color: (0.7, 0.55, 0.32), icon: "potato", plants: "core:potato_0"),
+        (id: "core:baked_potato", name: "Pomme de terre cuite", category: Food, color: (0.82, 0.62, 0.3), icon: "baked_potato", food: (nutrition: 5.0, saturation: 6.0)),
+        (id: "core:cabbage", name: "Chou", category: Food, color: (0.45, 0.72, 0.38), icon: "cabbage", plants: "core:cabbage_0", food: (nutrition: 2.0, saturation: 2.4)),
+        (id: "core:melon_slice", name: "Tranche de pastèque", category: Food, color: (0.9, 0.25, 0.3), icon: "melon_slice", food: (nutrition: 2.0, saturation: 1.2)),
+        (id: "core:melon_seeds", name: "Graines de pastèque", category: Material, color: (0.25, 0.3, 0.15), icon: "melon_seeds", plants: "core:melon_0"),
+        // Les fruits des arbres : ils tombent des feuilles (voir loot.ron).
+        (id: "core:pear", name: "Poire", category: Food, color: (0.72, 0.8, 0.25), icon: "pear", food: (nutrition: 4.0, saturation: 2.4)),
+        (id: "core:nut", name: "Noix", category: Food, color: (0.5, 0.36, 0.2), icon: "nut", food: (nutrition: 2.0, saturation: 3.0)),
         (id: "core:fertilizer", name: "Engrais", category: Material, color: (0.5, 0.4, 0.25), icon: "fertilizer"),
         (id: "core:flint", name: "Silex", category: Material, color: (0.25, 0.25, 0.27), icon: "flint"),
         // Le butin des créatures (phase O5).

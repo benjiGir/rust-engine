@@ -320,4 +320,21 @@ mod tests {
         assert_eq!(fertilized(&registry, ids[2]), Some(ids[3]));
         assert_eq!(fertilized(&registry, ids[3]), None);
     }
+
+    #[test]
+    fn every_crop_has_four_stages_ending_ripe() {
+        let s = world();
+        let registry = s.borrow().world().registry().clone();
+        for crop in ["wheat", "carrot", "potato", "cabbage", "melon"] {
+            let first = id(&s, &format!("core:{crop}_0"));
+            let mut block = first;
+            let mut stages = 1;
+            while let Some(next) = next_stage(&registry, block) {
+                block = next;
+                stages += 1;
+            }
+            assert_eq!(stages, 4, "{crop}");
+            assert!(is_ripe(&registry, block), "{crop}");
+        }
+    }
 }

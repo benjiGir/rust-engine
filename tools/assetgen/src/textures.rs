@@ -544,6 +544,78 @@ fn crop(kind: &str, stage: usize) -> Image {
     image
 }
 
+/// Une pomme de terre, un chou ou une pastèque à un stade (0..=3).
+fn ground_crop(kind: &str, stage: usize) -> Image {
+    let mut image = Image::transparent();
+    let leaf = |k: f32| match kind {
+        "cabbage" => [0.4 * k, 0.68 * k, 0.32 * k],
+        "melon" => [0.22 * k, 0.55 * k, 0.2 * k],
+        _ => [0.28 * k, 0.55 * k, 0.2 * k],
+    };
+    match kind {
+        // Un chou : une rosette de feuilles qui s'élargit et se referme en pomme.
+        "cabbage" => {
+            let r = 2 + stage as i32 * 2;
+            for dy in 0..=r {
+                for dx in -r..=r {
+                    if dx * dx + dy * dy * 2 <= r * r + 2 {
+                        let shade = 0.8 + 0.1 * ((dx + dy).rem_euclid(3)) as f32;
+                        let c = if stage == 3 && dy > r / 2 {
+                            [0.6 * shade, 0.82 * shade, 0.5 * shade]
+                        } else {
+                            leaf(shade)
+                        };
+                        image.plot(8 + dx, 15 - dy, c);
+                    }
+                }
+            }
+        }
+        // Une pastèque : une liane qui rampe, puis un gros fruit rayé.
+        "melon" => {
+            let len = 4 + stage as i32 * 3;
+            for x in 0..len {
+                image.plot(2 + x, 15 - (x % 3 == 1) as i32, leaf(0.9));
+                if x % 3 == 0 {
+                    image.plot(2 + x, 13, leaf(1.1));
+                    image.plot(3 + x, 12, leaf(1.0));
+                }
+            }
+            if stage == 3 {
+                for dy in 0..6 {
+                    for dx in 0..9 {
+                        let stripe = dx % 3 == 1;
+                        image.plot(
+                            4 + dx,
+                            15 - dy,
+                            if stripe {
+                                [0.12, 0.38, 0.14]
+                            } else {
+                                [0.25, 0.62, 0.25]
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        // Une pomme de terre : un buisson de feuilles, avec des fleurs blanches à maturité.
+        _ => {
+            let h = 3 + stage as i32 * 2;
+            for x in (3..14).step_by(2) {
+                for k in 0..h + x % 3 {
+                    image.plot(x, 15 - k, leaf(0.8 + 0.08 * (k % 3) as f32));
+                    if k > 1 && k % 2 == 0 {
+                        image.plot(x - 1, 15 - k, leaf(1.0));
+                    }
+                }
+                if stage == 3 {
+                    image.plot(x, 15 - h - 1, [0.95, 0.95, 0.9]);
+                }
+            }
+        }
+    }
+    image
+}
+
 /// Des herbes : des brins de hauteurs variées.
 fn tall_grass(color: [f32; 3], seed: u64) -> Image {
     let mut image = Image::transparent();
@@ -1528,6 +1600,18 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("carrot_1.png"), crop("carrot", 1)),
         (core.join("carrot_2.png"), crop("carrot", 2)),
         (core.join("carrot_3.png"), crop("carrot", 3)),
+        (core.join("potato_0.png"), ground_crop("potato", 0)),
+        (core.join("potato_1.png"), ground_crop("potato", 1)),
+        (core.join("potato_2.png"), ground_crop("potato", 2)),
+        (core.join("potato_3.png"), ground_crop("potato", 3)),
+        (core.join("cabbage_0.png"), ground_crop("cabbage", 0)),
+        (core.join("cabbage_1.png"), ground_crop("cabbage", 1)),
+        (core.join("cabbage_2.png"), ground_crop("cabbage", 2)),
+        (core.join("cabbage_3.png"), ground_crop("cabbage", 3)),
+        (core.join("melon_0.png"), ground_crop("melon", 0)),
+        (core.join("melon_1.png"), ground_crop("melon", 1)),
+        (core.join("melon_2.png"), ground_crop("melon", 2)),
+        (core.join("melon_3.png"), ground_crop("melon", 3)),
         (core.join("farmland_dry.png"), farmland(false)),
         (core.join("farmland_wet.png"), farmland(true)),
         (core.join("cobblestone.png"), cobblestone()),
@@ -1606,6 +1690,13 @@ fn item_icons(dir: &Path) -> Vec<(PathBuf, Image)> {
     add("wheat", material("seeds", [0.88, 0.74, 0.3]));
     add("bread", chop([0.75, 0.5, 0.22], [0.92, 0.75, 0.45]));
     add("carrot", material("dust", [0.95, 0.5, 0.1]));
+    add("potato", material("raw", [0.72, 0.56, 0.32]));
+    add("baked_potato", material("raw", [0.85, 0.62, 0.25]));
+    add("cabbage", material("gem", [0.45, 0.75, 0.38]));
+    add("melon_slice", material("gem", [0.9, 0.25, 0.3]));
+    add("melon_seeds", material("seeds", [0.2, 0.22, 0.12]));
+    add("pear", material("gem", [0.72, 0.82, 0.25]));
+    add("nut", material("raw", [0.5, 0.36, 0.2]));
     add("fertilizer", material("dust", [0.5, 0.4, 0.25]));
     out
 }
