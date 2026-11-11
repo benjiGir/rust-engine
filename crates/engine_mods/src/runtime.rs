@@ -242,6 +242,9 @@ impl ScriptHost {
         let on_machines = instance
             .get_typed_func::<(i32, i32, i32), ()>(&mut store, "on_machines")
             .ok();
+        let on_use = instance
+            .get_typed_func::<(i32, i32, i32, i32), i32>(&mut store, "on_use")
+            .ok();
         let mut script = ScriptMod {
             id: mod_id.to_string(),
             store,
@@ -250,6 +253,7 @@ impl ScriptHost {
             alloc,
             on_event,
             on_machines,
+            on_use,
             disabled: None,
         };
         if let Ok(init) = script
@@ -271,6 +275,7 @@ pub struct ScriptMod {
     alloc: TypedFunc<i32, i32>,
     on_event: Option<TypedFunc<(i32, i32, i32), ()>>,
     on_machines: Option<TypedFunc<(i32, i32, i32), ()>>,
+    on_use: Option<TypedFunc<(i32, i32, i32, i32), i32>>,
     /// La raison de sa désactivation, s'il a planté.
     disabled: Option<String>,
 }
@@ -350,6 +355,23 @@ impl ScriptMod {
         self.guarded(|store| on_event.call(store, (kind, ptr, payload.len() as i32)))
     }
 
+    /// Le joueur fait un clic droit sur une machine du mod. Renvoie si le script a pris le
+    /// clic en compte (sinon le jeu continue : poser un bloc contre elle, par exemple).
+    pub fn used(&mut self, at: GridPos) -> Result<(bool, Requests)> {
+        let Some(on_use) = self.on_use.clone() else {
+            return Ok((false, Requests::default()));
+        };
+        if self.disabled.is_some() {
+            return Ok((false, Requests::default()));
+        }
+        let mut handled = 0;
+        let requests = self.guarded(|store| {
+            handled = on_use.call(store, (at.grid.0 as i32, at.pos.x, at.pos.y, at.pos.z))?;
+            Ok(())
+        })?;
+        Ok((handled != 0, requests))
+    }
+
     /// Réveille les machines du mod : **toutes en un seul appel** (grille, x, y, z à la suite).
     pub fn machines(&mut self, kind: i32, positions: &[GridPos]) -> Result<Requests> {
         let Some(on_machines) = self.on_machines.clone() else {
@@ -400,6 +422,15 @@ impl BlockBehavior for ScriptBehavior {
     }
     fn scheduled_tick(&self, ctx: &mut MachineContext, positions: &[GridPos]) {
         self.run(ctx, abi::MACHINES_TICK, positions);
+    }
+    fn used(&self, ctx: &mut MachineContext, at: GridPos) -> bool {
+        match self.script.borrow_mut().used(at) {
+            Ok((handled, requests)) => {
+                requests.apply(ctx);
+                handled
+            }
+            Err(_) => false,
+        }
     }
 }
 

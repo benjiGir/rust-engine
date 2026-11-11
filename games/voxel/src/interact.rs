@@ -171,11 +171,14 @@ impl VoxelGame {
             return false;
         };
         let block = self.streamer().world().block(hit.block_pos);
-        let circuit = matches!(
-            self.registry.def(block).behavior.as_deref(),
-            Some("core:lever" | "core:button" | "core:repeater")
-        );
-        if !circuit {
+        // Les circuits du jeu, et les machines des mods (leur script décide s'il prend le clic).
+        let behavior = self.registry.def(block).behavior.as_deref();
+        let clickable = match behavior {
+            Some("core:lever" | "core:button" | "core:repeater") => true,
+            Some(b) => !b.starts_with("core:"),
+            None => false,
+        };
+        if !clickable {
             return false;
         }
         let (used, actions) = self.mods.use_block(hit.block_pos);

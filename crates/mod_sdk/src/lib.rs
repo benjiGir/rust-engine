@@ -196,6 +196,11 @@ pub trait Mod {
     /// Les machines du mod à réveiller, **toutes en un seul appel** : passer d'un monde à
     /// l'autre coûte cher, donc le jeu regroupe.
     fn machines(&mut self, _call: MachineCall, _positions: &[Pos]) {}
+    /// Le joueur fait un clic droit sur une machine du mod. Renvoyer `true` prend le clic en
+    /// compte (le jeu ne tente plus de poser un bloc) ; `false` le laisse passer.
+    fn used(&mut self, _pos: Pos) -> bool {
+        false
+    }
 }
 
 // ----- La mécanique d'export (utilisée par `export_mod!`) -----
@@ -297,7 +302,7 @@ pub mod __private {
 }
 
 /// Exporte un type qui implémente [`Mod`] (et `Default`) : génère les fonctions que le
-/// jeu appelle (`mod_init`, `on_event`, `on_machines`, `sdk_alloc`).
+/// jeu appelle (`mod_init`, `on_event`, `on_machines`, `on_use`, `sdk_alloc`).
 #[macro_export]
 macro_rules! export_mod {
     ($t:ty) => {
@@ -320,6 +325,12 @@ macro_rules! export_mod {
             if let Some(event) = $crate::__private::event(kind, len) {
                 __MOD.with_borrow_mut(|m| $crate::Mod::event(m, event));
             }
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn on_use(grid: i32, x: i32, y: i32, z: i32) -> i32 {
+            let pos = $crate::Pos::in_grid($crate::Grid(grid as u32), x, y, z);
+            __MOD.with_borrow_mut(|m| $crate::Mod::used(m, pos)) as i32
         }
 
         #[unsafe(no_mangle)]

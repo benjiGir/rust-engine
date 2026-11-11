@@ -172,6 +172,13 @@ installée par `rust-toolchain.toml`) et copie le `.wasm` là où `mod.ron` l'at
 le nouveau code prend le relais sans redémarrer. Un script invalide est refusé et l'ancien reste
 en place.
 
+### Le clic droit
+
+`Mod::used(pos) -> bool` est appelé quand le joueur fait un clic droit sur une **machine du mod**
+(un bloc dont le `behavior` est à lui). Renvoyer `true` prend le clic en compte (le jeu ne pose
+pas de bloc contre elle) ; `false` le laisse passer. C'est là qu'une machine ouvre son menu, change
+de mode ou donne un objet.
+
 ### Les événements
 
 `mod_sdk::subscribe(EventKind::...)` dans `init`, puis `Mod::event` les reçoit :
@@ -294,6 +301,7 @@ mémoire.
 | `mod_init()` | facultatif, appelé au chargement |
 | `on_event(type: i32, ptr: i32, taille: i32)` | facultatif |
 | `on_machines(type: i32, ptr: i32, nombre: i32)` | facultatif ; type 0 posées, 1 chargées, 2 voisin, 3 tick |
+| `on_use(g: i32, x: i32, y: i32, z: i32) -> i32` | facultatif ; clic droit du joueur sur une machine du mod ; renvoie 1 si le clic est pris en compte |
 
 **Données** (petit-boutistes) : les positions de `on_machines` sont `nombre` fois
 `grille, x, y, z` (i32) ; celles de chaque événement sont dans le tableau des événements

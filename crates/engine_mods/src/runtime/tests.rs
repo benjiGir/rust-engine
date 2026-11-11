@@ -548,3 +548,26 @@ fn a_script_finds_items_and_machine_recipes() {
         ]
     );
 }
+
+#[test]
+fn a_right_click_reaches_the_script_which_may_take_it() {
+    let s = loaded_streamer();
+    // `on_use` prend le clic (renvoie 1) seulement si x vaut 3, et donne alors un objet.
+    let wat = module(
+        r#"
+        (func (export "on_use") (param $g i32) (param $x i32) (param $y i32) (param $z i32) (result i32)
+            (if (result i32) (i32.eq (local.get $x) (i32.const 3))
+                (then (call $give_item (i32.const 1) (i32.const 5)) (i32.const 1))
+                (else (i32.const 0))))
+        "#,
+    );
+    let mut script = load(&wat, &s).unwrap();
+    let (handled, requests) = script.used(GridPos::world(IVec3::new(3, 0, 0))).unwrap();
+    assert!(handled);
+    assert_eq!(requests.actions.len(), 1);
+    let (handled, requests) = script.used(GridPos::world(IVec3::new(4, 0, 0))).unwrap();
+    assert!(!handled && requests.actions.is_empty());
+    // Un mod sans `on_use` ne prend rien.
+    let mut plain = load(&module(""), &s).unwrap();
+    assert!(!plain.used(GridPos::world(IVec3::ZERO)).unwrap().0);
+}
