@@ -1,0 +1,7 @@
+// Les objets qui ne sont pas des blocs : ce que fabrique la presse.
+(
+    items: [
+        (id: "mecanique:iron_plate", name: "Plaque de fer", category: Material, color: (0.8, 0.8, 0.85), icon: "iron_plate"),
+        (id: "mecanique:copper_plate", name: "Plaque de cuivre", category: Material, color: (0.85, 0.5, 0.3), icon: "copper_plate"),
+    ],
+)

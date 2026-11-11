@@ -63,7 +63,7 @@ pub const FLUID_RATE: u64 = 500;
 const BALANCE_EPSILON: f64 = 0.02;
 
 /// Ce qu'un réseau transporte.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize)]
 pub enum NetworkKind {
     Energy,
     Fluid,
@@ -147,7 +147,11 @@ impl Networks {
     pub fn new(registry: &BlockRegistry) -> Self {
         let mut kinds: Vec<Option<NetworkKind>> = Vec::new();
         for (id, def) in registry.iter() {
-            let kind = def.behavior.as_deref().and_then(NetworkKind::of_behavior);
+            // Un bloc de mod se déclare conduit dans `blocks.ron` (`conduit: Kinetic`) ; ceux du jeu
+            // de base le sont par leur comportement natif.
+            let kind = def
+                .conduit
+                .or_else(|| def.behavior.as_deref().and_then(NetworkKind::of_behavior));
             let i = id.0 as usize;
             if kinds.len() <= i {
                 kinds.resize(i + 1, None);

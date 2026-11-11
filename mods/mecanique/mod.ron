@@ -1,0 +1,13 @@
+// Mécanique : arbres, engrenages, manivelle et presse. Un mod de référence, écrit
+// uniquement avec l'API publique des mods (voir docs/modding.md) : il montre blocs en boîtes
+// avec états, conduits de rotation, machine à inventaire et recettes, menu, page d'options.
+(
+    id: "mecanique",
+    name: "Mécanique",
+    version: "0.1.0",
+    authors: ["benji"],
+    description: "Arbres de transmission, engrenages, manivelle et presse à plaques.",
+    dependencies: [(id: "core", version: "^0.1")],
+    script: "mecanique.wasm",
+    options: true,
+)

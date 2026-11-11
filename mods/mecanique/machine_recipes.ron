@@ -1,0 +1,10 @@
+// Les recettes de la presse (type `mecanique:press`) : `time` en secondes à pleine vitesse.
+(
+    machines: {
+        "press": [
+            (inputs: [("core:iron_ingot", 1)], outputs: [("mecanique:iron_plate", 1)], time: 2.0),
+            (inputs: [("core:copper_ingot", 1)], outputs: [("mecanique:copper_plate", 1)], time: 2.0),
+            (inputs: [("core:cobblestone", 1)], outputs: [("core:gravel", 1)], time: 3.0),
+        ],
+    },
+)

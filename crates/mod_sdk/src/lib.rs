@@ -37,8 +37,8 @@ pub use host::{
     close_menu, data, energy_extract, energy_insert, energy_stored, find_recipe, fluid_amount,
     fluid_drain, fluid_fill, get_block, give_item, give_stack, item_count, item_extract, item_id,
     item_insert, kinetic_speed, log, power, random, received_power, schedule_tick, set_block,
-    set_data, set_kinetic, set_power, set_setting, setting, setting_bool, setting_f32, setting_i32,
-    show_menu, show_options, spawn_entity, subscribe,
+    set_data, set_kinetic, set_power, set_setting, set_slot, setting, setting_bool, setting_f32,
+    setting_i32, show_menu, show_options, slot, spawn_entity, subscribe,
 };
 
 /// Une grille de blocs : le monde (`Grid::WORLD`), ou une structure mobile (plus tard).

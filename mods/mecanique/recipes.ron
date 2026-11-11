@@ -1,0 +1,11 @@
+// L'artisanat de Mécanique. Un nom sans « : » est celui du mod (`gear` = `mecanique:gear`) ;
+// les objets du jeu de base s'écrivent en entier (`core:stick`), les groupes avec `#`.
+(
+    shaped: [
+        (pattern: ["s", "s", "s"], key: {"s": "core:stick"}, result: ("shaft", 3)),
+        (pattern: [" p ", "pip", " p "], key: {"p": "#planks", "i": "core:iron_ingot"}, result: ("gear", 1)),
+        (pattern: ["s", "#"], key: {"s": "core:stick", "#": "core:cobblestone"}, result: ("crank", 1)),
+        (pattern: ["###", "#g#", "###"], key: {"#": "core:cobblestone", "g": "gear"}, result: ("press", 1)),
+    ],
+    shapeless: [],
+)

@@ -140,6 +140,10 @@ unsafe extern "C" {
         count: i32,
         simulate: i32,
     ) -> i32;
+    /// Lit une case de l'inventaire du bloc : écrit `objet*nombre` (au plus `cap` octets) et renvoie la taille ; −1 si la case est vide ou n'existe pas.
+    pub fn slot_get(g: i32, x: i32, y: i32, z: i32, slot: i32, ptr: i32, cap: i32) -> i32;
+    /// Remplace une case de l'inventaire par `objet*nombre` (texte vide : la vider). 1 si c'est fait.
+    pub fn slot_set(g: i32, x: i32, y: i32, z: i32, slot: i32, ptr: i32, len: i32) -> i32;
     /// La vitesse de rotation (tr/min, signée).
     pub fn kinetic_speed(g: i32, x: i32, y: i32, z: i32) -> f32;
     /// Règle la vitesse, la capacité et la consommation de contrainte. 1 si c'est fait.
@@ -321,6 +325,14 @@ mod inert {
         _: i32,
         _: i32,
     ) -> i32 {
+        0
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn slot_get(_: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32) -> i32 {
+        -1
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn slot_set(_: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32) -> i32 {
         0
     }
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]

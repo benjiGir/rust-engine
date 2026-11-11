@@ -327,6 +327,11 @@ impl Machines {
             crate::farming::Farmland::new(registry).map(|f| Rc::new(f) as _);
         let crop: Rc<dyn BlockBehavior> = Rc::new(crate::farming::Crop);
         for (id, def) in registry.iter() {
+            // Un conduit déclaré par un mod (`conduit: Kinetic`) : le même comportement.
+            if def.conduit.is_some() {
+                machines.register(id, conduit.clone());
+                continue;
+            }
             match def.behavior.as_deref() {
                 Some("core:cable" | "core:pipe" | "core:shaft") => {
                     machines.register(id, conduit.clone())

@@ -523,6 +523,75 @@ fn define_capabilities(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
     )?;
     linker.func_wrap(
         "voxel",
+        "slot_get",
+        |mut caller: Caller<'_, HostState>,
+         g: i32,
+         x: i32,
+         y: i32,
+         z: i32,
+         slot: i32,
+         ptr: i32,
+         cap: i32|
+         -> HostResult<i32> {
+            let text = read(caller.data(), at(g, x, y, z), |e| {
+                let stack = e
+                    .caps
+                    .as_ref()?
+                    .inventory
+                    .as_ref()?
+                    .slots
+                    .get(usize::try_from(slot).ok()?)?
+                    .as_ref()?;
+                Some(format!("{}*{}", stack.item, stack.count))
+            })
+            .flatten();
+            let Some(text) = text else { return Ok(-1) };
+            let n = text.len().min(cap.max(0) as usize);
+            write_guest(&mut caller, ptr, &text.as_bytes()[..n])?;
+            Ok(text.len() as i32)
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "slot_set",
+        |mut caller: Caller<'_, HostState>,
+         g: i32,
+         x: i32,
+         y: i32,
+         z: i32,
+         slot: i32,
+         ptr: i32,
+         len: i32|
+         -> HostResult<i32> {
+            let text = read_string(&mut caller, ptr, len)?;
+            let state = caller.data();
+            let new = if text.trim().is_empty() {
+                None
+            } else {
+                // Un objet inconnu est refusé : la case ne doit pas contenir de fantôme.
+                match parse_stacks(state, &text).as_slice() {
+                    [(item, count)] if *count > 0 => Some(engine_voxel::ItemStack {
+                        item: state.content.items.get(*item).key.clone(),
+                        count: (*count).min(engine_voxel::MAX_STACK),
+                        damage: 0,
+                    }),
+                    _ => return Ok(0),
+                }
+            };
+            let Ok(index) = usize::try_from(slot) else {
+                return Ok(0);
+            };
+            let done = write(state, at(g, x, y, z), |e| {
+                let target = e.caps.as_mut()?.inventory.as_mut()?.slots.get_mut(index)?;
+                *target = new;
+                Some(())
+            })
+            .flatten();
+            Ok(done.is_some() as i32)
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
         "item_insert",
         |mut caller: Caller<'_, HostState>,
          g: i32,

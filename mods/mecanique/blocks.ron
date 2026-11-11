@@ -1,0 +1,32 @@
+// Les blocs de Mécanique. Les arbres et engrenages sont des **conduits** de rotation : le jeu
+// relie ceux qui se touchent en un réseau (`conduit: Kinetic`). Leurs formes sont des boîtes,
+// et `states: [Axis]` leur donne les trois orientations (posés selon la face visée).
+[
+    (
+        id: "mecanique:shaft", name: "Arbre de transmission", color: (0.55, 0.4, 0.22), texture: "shaft",
+        boxes: [(from: (6, 0, 6), to: (10, 16, 10))], states: [Axis], conduit: Kinetic,
+        hardness: 1.0, tool: Axe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
+    (
+        id: "mecanique:gear", name: "Engrenage", color: (0.6, 0.6, 0.65), texture: "gear",
+        boxes: [(from: (6, 0, 6), to: (10, 16, 10)), (from: (1, 6, 1), to: (15, 10, 15))],
+        states: [Axis], conduit: Kinetic,
+        hardness: 1.5, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
+    // Une source : un clic droit la fait tourner quelques secondes.
+    (
+        id: "mecanique:crank", name: "Manivelle", color: (0.35, 0.35, 0.37), texture: "crank",
+        boxes: [(from: (2, 0, 2), to: (14, 6, 14)), (from: (7, 6, 7), to: (9, 14, 9)), (from: (4, 12, 7), to: (12, 14, 9))],
+        behavior: "crank", hardness: 1.5, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
+    // Une machine : elle consomme de la rotation pour transformer ce qu'on met dedans.
+    (
+        id: "mecanique:press", name: "Presse", color: (0.45, 0.45, 0.5), texture: "press",
+        boxes: [(from: (0, 0, 0), to: (16, 6, 16)), (from: (2, 6, 2), to: (14, 16, 14))],
+        behavior: "press", hardness: 2.0, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
+]

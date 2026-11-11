@@ -98,6 +98,9 @@ pub struct BlockDef {
     /// Les états du bloc (orientation, moitié...), dans l'ordre déclaré. Chaque combinaison
     /// est un bloc du registre : voir [`BlockRegistry::variant`]. Vide si le bloc n'en a pas.
     pub states: Vec<StateKind>,
+    /// Ce bloc est un conduit d'un réseau (câble, tuyau, arbre) : il relie ses voisins de la
+    /// même sorte, et le jeu répartit énergie, fluide ou rotation entre les machines branchées.
+    pub conduit: Option<crate::networks::NetworkKind>,
     /// Pour une variante : le bloc de base (celui qu'on pose depuis la barre, et qui lâche
     /// son objet). `None` pour un bloc ordinaire ou la base elle-même.
     pub base: Option<BlockId>,
@@ -322,6 +325,9 @@ struct BlockFileEntry {
     /// Les états : une variante du bloc par combinaison (voir [`StateKind`]).
     #[serde(default)]
     states: Vec<StateKind>,
+    /// `conduit: Kinetic` (ou `Energy`, `Fluid`) : le bloc est un conduit de réseau.
+    #[serde(default)]
+    conduit: Option<crate::networks::NetworkKind>,
 }
 
 /// Une boîte dans un fichier, en seizièmes de bloc (0 à 16).
@@ -387,6 +393,7 @@ impl BlockRegistry {
             xp: (0, 0),
             boxes: Vec::new(),
             states: Vec::new(),
+            conduit: None,
             base: None,
             variants: Vec::new(),
             state_values: Vec::new(),
@@ -529,6 +536,12 @@ impl BlockRegistry {
             if !(0.0..=1.0).contains(&entry.alpha) {
                 bail!("{origin} : « {} » : alpha va de 0 à 1", entry.id);
             }
+            if entry.conduit.is_some() && entry.behavior.is_some() {
+                bail!(
+                    "{origin} : « {} » : un conduit n'a pas de comportement (une machine branchée au réseau est une extrémité, pas un conduit)",
+                    entry.id
+                );
+            }
             let boxes = parse_boxes(&entry, origin)?;
             let model = !boxes.is_empty();
             // Par défaut, un bloc transparent laisse passer la lumière, un opaque l'arrête.
@@ -575,6 +588,7 @@ impl BlockRegistry {
                 xp: entry.xp,
                 boxes: boxes.clone(),
                 states: entry.states.clone(),
+                conduit: entry.conduit,
                 base: None,
                 variants: Vec::new(),
                 state_values: vec![0; entry.states.len()],
@@ -1229,5 +1243,36 @@ pub(crate) mod tests {
         );
         assert!(bad(r#"[(id: "test:a", name: "A", color: (1,1,1), boxes: [(from: (0,0,0), to: (8,8,8))], states: [Facing6, Facing6, Half])]"#).contains("variantes"));
         let _ = &mut r;
+    }
+
+    #[test]
+    fn a_block_can_declare_itself_a_conduit_but_not_with_a_behavior() {
+        let mut r = BlockRegistry::empty();
+        r.add_source(
+            "test",
+            r#"[(id: "test:rod", name: "Tige", color: (1,1,1), boxes: [(from: (6,0,6), to: (10,16,10))],
+                states: [Axis], conduit: Kinetic)]"#,
+            "test",
+        )
+        .unwrap();
+        let rod = r.id("test:rod").unwrap();
+        let along_x = r.id("test:rod[axis=x]").unwrap();
+        // Les variantes sont aussi des conduits.
+        for id in [rod, along_x] {
+            assert_eq!(
+                r.def(id).conduit,
+                Some(crate::networks::NetworkKind::Kinetic)
+            );
+        }
+        let machines = crate::machines::Machines::with_natives(&r);
+        assert!(machines.has_behavior(rod) && machines.has_behavior(along_x));
+        let err = BlockRegistry::empty()
+            .add_source(
+                "test",
+                r#"[(id: "test:bad", name: "B", color: (1,1,1), conduit: Energy, behavior: "x")]"#,
+                "test",
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("conduit"), "{err}");
     }
 }

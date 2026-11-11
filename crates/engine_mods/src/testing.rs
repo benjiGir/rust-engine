@@ -19,8 +19,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
 use engine_voxel::{
-    BlockId, BlockRegistry, ChunkStreamer, GridPos, ItemRegistry, MachineRecipes, StreamingConfig,
-    TerrainGenerator,
+    BlockAccess, BlockId, BlockRegistry, ChunkStreamer, GridPos, ItemRegistry, MachineRecipes,
+    StreamingConfig, TerrainGenerator,
 };
 use glam::{IVec3, Vec3};
 
@@ -157,6 +157,62 @@ impl Harness {
     /// Une action du joueur dans le menu de la machine en `pos` (voir `menu::UI_*`).
     pub fn ui(&mut self, pos: IVec3, kind: i32, id: i32, value: i32) -> Result<Requests> {
         self.script.ui_event(kind, GridPos::world(pos), id, value)
+    }
+
+    /// Met `count` objets `item` dans la case `slot` de l'inventaire du bloc (le crée au besoin).
+    pub fn put(&mut self, pos: IVec3, slot: usize, item: &str, count: u32) {
+        let mut streamer = self.streamer.borrow_mut();
+        let entity = streamer
+            .ensure_block_entity(pos)
+            .expect("bloc hors du monde de test");
+        let caps = entity.caps_mut();
+        let inventory = caps
+            .inventory
+            .get_or_insert_with(|| engine_voxel::Inventory::new(slot + 1));
+        if inventory.slots.len() <= slot {
+            inventory.slots.resize(slot + 1, None);
+        }
+        inventory.slots[slot] = Some(engine_voxel::ItemStack {
+            item: item.to_string(),
+            count,
+            damage: 0,
+        });
+    }
+
+    /// Le contenu d'une case de l'inventaire du bloc : (objet, nombre).
+    pub fn slot_of(&self, pos: IVec3, slot: usize) -> Option<(String, u32)> {
+        let streamer = self.streamer.borrow();
+        let stack = streamer
+            .block_entity(pos)?
+            .caps
+            .as_ref()?
+            .inventory
+            .as_ref()?
+            .slots
+            .get(slot)?
+            .as_ref()?;
+        Some((stack.item.clone(), stack.count))
+    }
+
+    /// Impose la vitesse de rotation du bloc, comme le ferait un réseau qui lui en donne.
+    pub fn set_speed(&mut self, pos: IVec3, speed: f32) {
+        let mut streamer = self.streamer.borrow_mut();
+        if let Some(k) = streamer
+            .block_entity_mut(pos)
+            .and_then(|e| e.caps.as_mut())
+            .and_then(|c| c.kinetic.as_mut())
+        {
+            k.speed = speed;
+        }
+    }
+
+    /// La vitesse de rotation actuelle du bloc.
+    pub fn speed_of(&self, pos: IVec3) -> f32 {
+        let streamer = self.streamer.borrow();
+        streamer
+            .block_entity(pos)
+            .and_then(|e| e.caps.as_ref()?.kinetic.as_ref().map(|k| k.speed))
+            .unwrap_or(0.0)
     }
 
     /// Un tick de machines : le budget de temps du mod est rendu.

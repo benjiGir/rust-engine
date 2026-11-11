@@ -109,6 +109,12 @@ choisie à la pose, et une variante cassée lâche l'objet (et le butin) de sa b
 besoin d'un bloc précis le retrouve par son identifiant complet (`block_id("example:ruby_stairs[facing=east,half=top]")`),
 et `block_base(bloc)` ramène une variante à sa base (par exemple dans l'événement `BlockPlaced`).
 
+**Conduits** : `conduit: Kinetic` (ou `Energy`, `Fluid`) fait d'un bloc un conduit de réseau : le jeu
+relie ceux qui se touchent et répartit rotation, énergie ou fluide entre les machines branchées
+(celles qui ont la capacité correspondante, par leurs faces ouvertes). Un conduit n'a pas de
+`behavior` ; ses variantes sont des conduits aussi. Un arbre de transmission est donc une simple
+ligne de `blocks.ron` : `boxes` pour sa forme, `states: [Axis]` pour ses orientations, `conduit: Kinetic`.
+
 À savoir : un bloc à boîtes est « transparent » pour ses voisins (ils gardent leurs faces) ; sa
 lumière est arrêtée par défaut s'il est `solid`, et passe sinon (`light_opacity` pour régler).
 Les créatures le traitent encore comme un cube plein.
@@ -469,6 +475,8 @@ test vérifie que le jeu définit exactement ces fonctions.
 | `item_count(g: i32, x: i32, y: i32, z: i32, ptr: i32, len: i32) -> i32` | Le nombre de cet objet dans l'inventaire du bloc. |
 | `item_insert(g: i32, x: i32, y: i32, z: i32, face: i32, ptr: i32, len: i32, count: i32, simulate: i32) -> i32` | Range des objets par cette face ; renvoie le nombre accepté. |
 | `item_extract(g: i32, x: i32, y: i32, z: i32, face: i32, ptr: i32, len: i32, count: i32, simulate: i32) -> i32` | Sort des objets par cette face ; renvoie le nombre retiré. |
+| `slot_get(g: i32, x: i32, y: i32, z: i32, slot: i32, ptr: i32, cap: i32) -> i32` | Lit une case de l'inventaire du bloc : écrit `objet*nombre` (au plus `cap` octets) et renvoie la taille ; −1 si la case est vide ou n'existe pas. |
+| `slot_set(g: i32, x: i32, y: i32, z: i32, slot: i32, ptr: i32, len: i32) -> i32` | Remplace une case de l'inventaire par `objet*nombre` (texte vide : la vider). 1 si c'est fait. |
 | `kinetic_speed(g: i32, x: i32, y: i32, z: i32) -> f32` | La vitesse de rotation (tr/min, signée). |
 | `set_kinetic(g: i32, x: i32, y: i32, z: i32, speed: f32, capacity: f32, impact: f32) -> i32` | Règle la vitesse, la capacité et la consommation de contrainte. 1 si c'est fait. |
 
@@ -496,6 +504,22 @@ test vérifie que le jeu définit exactement ces fonctions.
 | `recipe_find(kind_ptr: i32, kind_len: i32, in_ptr: i32, in_len: i32, out_ptr: i32, out_cap: i32) -> i32` | Cherche une recette du type donné (`example:press`) faisable avec les objets `cle*nombre,cle*nombre` de l'entrée. Écrit `ticks;énergie;entrées;sorties` (même format) dans la sortie ; renvoie sa taille, −1 sans recette. |
 
 <!-- /hooks:imports -->
+
+## Un mod de référence : Mécanique
+
+`mods/mecanique` est écrit **uniquement avec l'API publique** : c'est le test grandeur nature de ce
+document. Il contient :
+- des **arbres de transmission et des engrenages** (blocs en boîtes, orientables, `conduit: Kinetic`),
+  sans une ligne de script ;
+- une **manivelle** (source de rotation : clic droit, vitesse et durée réglables dans sa page
+  d'options) ;
+- une **presse** (machine à deux cases, branchée au réseau, avec son menu : cases, progression,
+  vitesse), qui transforme lingots et pavés en plaques et graviers selon `machine_recipes.ron` ;
+- des objets (`items.ron`), des recettes d'artisanat (`recipes.ron`) et ses tests sans fenêtre
+  (`cargo xtask test-mod mecanique`).
+
+Ce qu'il a fallu ajouter à l'API pour l'écrire : les conduits de mods (`conduit:`), et la lecture et
+l'écriture d'une case d'inventaire (`slot`, `set_slot`).
 
 ## Les coûts mesurés
 

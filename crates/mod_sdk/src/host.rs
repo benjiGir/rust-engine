@@ -495,3 +495,53 @@ pub fn setting_i32(key: &str, default: i32) -> i32 {
 pub fn setting_bool(key: &str, default: bool) -> bool {
     setting(key).and_then(|v| v.parse().ok()).unwrap_or(default)
 }
+
+/// Ce que contient une case de l'inventaire du bloc : (identifiant d'objet, nombre), ou `None`
+/// si elle est vide ou n'existe pas.
+pub fn slot(pos: Pos, slot: usize) -> Option<(String, u32)> {
+    let mut buffer = vec![0u8; 64];
+    loop {
+        let (ptr, cap) = (buffer.as_mut_ptr() as usize as i32, buffer.len() as i32);
+        // SAFETY: l'hôte écrit au plus `cap` octets à `ptr`, qui pointent dans `buffer`.
+        let len = unsafe {
+            ffi::slot_get(
+                pos.grid.0 as i32,
+                pos.x,
+                pos.y,
+                pos.z,
+                slot as i32,
+                ptr,
+                cap,
+            )
+        };
+        if len < 0 {
+            return None;
+        }
+        if len as usize > buffer.len() {
+            buffer = vec![0u8; len as usize];
+            continue;
+        }
+        let text = String::from_utf8_lossy(&buffer[..len as usize]).into_owned();
+        let (item, count) = text.rsplit_once('*')?;
+        return Some((item.to_string(), count.parse().ok()?));
+    }
+}
+
+/// Remplace une case de l'inventaire du bloc (`None` : la vider). `false` si la case n'existe
+/// pas ou si l'objet est inconnu.
+pub fn set_slot(pos: Pos, slot: usize, stack: Option<(&str, u32)>) -> bool {
+    let text = stack.map_or_else(String::new, |(item, count)| format!("{item}*{count}"));
+    let (ptr, len) = addr(text.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `text`.
+    unsafe {
+        ffi::slot_set(
+            pos.grid.0 as i32,
+            pos.x,
+            pos.y,
+            pos.z,
+            slot as i32,
+            ptr,
+            len,
+        ) != 0
+    }
+}
