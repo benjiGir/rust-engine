@@ -10,6 +10,6 @@ pub use manifest::{
     CORE, Dependency, ModInfo, ModManifest, core_mod, discover, load_order, read_manifest,
 };
 pub use runtime::{
-    FUEL_PER_CALL, MEMORY_LIMIT, ModEvent, ModRuntime, Requests, ScriptBehavior, ScriptHost,
-    ScriptMod, abi,
+    FUEL_PER_CALL, MEMORY_LIMIT, ModContent, ModEvent, ModRuntime, Requests, ScriptBehavior,
+    ScriptHost, ScriptMod, abi,
 };

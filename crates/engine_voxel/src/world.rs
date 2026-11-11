@@ -7,7 +7,7 @@
 use rustc_hash::FxHashMap as HashMap;
 use std::sync::Arc;
 
-use glam::IVec3;
+use glam::{IVec3, Vec3};
 
 use crate::biome::BiomeRegistry;
 use crate::block::BlockId;
@@ -109,6 +109,23 @@ impl World {
     /// Vrai si le bloc à cette position arrête le joueur.
     pub fn is_solid(&self, pos: IVec3) -> bool {
         self.registry.is_solid(self.block(pos))
+    }
+
+    /// Les boîtes du bloc à cette position (vide : un cube plein).
+    pub fn block_boxes(&self, pos: IVec3) -> &[crate::registry::BlockBox] {
+        &self.registry.def(self.block(pos)).boxes
+    }
+
+    /// La plus petite boîte (coin min, coin max, en coordonnées monde) qui contient le bloc.
+    pub fn block_bounds(&self, pos: IVec3) -> (Vec3, Vec3) {
+        let origin = pos.as_vec3();
+        let boxes = self.block_boxes(pos);
+        if boxes.is_empty() {
+            return (origin, origin + Vec3::ONE);
+        }
+        let min = boxes.iter().fold(Vec3::MAX, |m, b| m.min(b.min));
+        let max = boxes.iter().fold(Vec3::MIN, |m, b| m.max(b.max));
+        (origin + min, origin + max)
     }
 
     /// Vrai si le joueur peut viser le bloc à cette position.

@@ -35,6 +35,13 @@ pub fn block_id(key: &str) -> Option<Block> {
     (id >= 0).then_some(Block(id as u16))
 }
 
+/// Le bloc de base d'un bloc à états (voir `docs/modding.md`) : un escalier orienté vers l'est
+/// donne l'escalier de base. Un bloc ordinaire se renvoie lui-même.
+pub fn block_base(block: Block) -> Block {
+    // SAFETY: des entiers seulement.
+    Block(unsafe { ffi::block_base(block.0 as i32) } as u16)
+}
+
 pub fn get_block(pos: Pos) -> Block {
     // SAFETY: des entiers seulement.
     Block(unsafe { ffi::get_block(pos.grid.0 as i32, pos.x, pos.y, pos.z) } as u16)
@@ -347,5 +354,80 @@ pub fn set_kinetic(pos: Pos, speed: f32, stress_capacity: f32, stress_impact: f3
             stress_capacity,
             stress_impact,
         ) != 0
+    }
+}
+
+/// Un objet (bloc ou non) : son numéro, attribué au chargement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub struct Item(pub u16);
+
+/// Le numéro d'un objet à partir de son identifiant (`"example:ruby"`), s'il existe.
+pub fn item_id(key: &str) -> Option<Item> {
+    let (ptr, len) = addr(key.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `key`.
+    let id = unsafe { ffi::item_id(ptr, len) };
+    (id >= 0).then_some(Item(id as u16))
+}
+
+/// Donne `count` objets au joueur (contrairement à [`give_item`], l'objet n'a pas besoin
+/// d'être un bloc).
+pub fn give_stack(item: Item, count: u32) {
+    // SAFETY: des entiers seulement.
+    unsafe { ffi::give_stack(item.0 as i32, count.min(i32::MAX as u32) as i32) }
+}
+
+/// Une recette de machine trouvée par [`find_recipe`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Recipe {
+    /// Durée, en ticks (20 par seconde).
+    pub ticks: u32,
+    /// Énergie totale consommée.
+    pub energy: u64,
+    /// Ce que la recette consomme : (identifiant d'objet, nombre).
+    pub inputs: Vec<(String, u32)>,
+    /// Ce qu'elle produit.
+    pub outputs: Vec<(String, u32)>,
+}
+
+fn parse_stacks(text: &str) -> Vec<(String, u32)> {
+    text.split(',')
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| {
+            let (key, n) = part.split_once('*')?;
+            Some((key.to_string(), n.parse().ok()?))
+        })
+        .collect()
+}
+
+/// Cherche une recette du type `kind` (`"example:press"`, déclarée dans le
+/// `machine_recipes.ron` d'un mod) faisable avec ces objets (identifiant, nombre).
+pub fn find_recipe(kind: &str, available: &[(&str, u32)]) -> Option<Recipe> {
+    let input = available
+        .iter()
+        .map(|(key, n)| format!("{key}*{n}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let (kind_ptr, kind_len) = addr(kind.as_bytes());
+    let (in_ptr, in_len) = addr(input.as_bytes());
+    let mut buffer = vec![0u8; 256];
+    loop {
+        let (out_ptr, cap) = (buffer.as_mut_ptr() as usize as i32, buffer.len() as i32);
+        // SAFETY: l'hôte lit dans `kind` et `input`, et écrit au plus `cap` octets dans `buffer`.
+        let len = unsafe { ffi::recipe_find(kind_ptr, kind_len, in_ptr, in_len, out_ptr, cap) };
+        if len < 0 {
+            return None;
+        }
+        if len as usize > buffer.len() {
+            buffer = vec![0u8; len as usize];
+            continue;
+        }
+        let text = String::from_utf8_lossy(&buffer[..len as usize]).into_owned();
+        let mut parts = text.splitn(4, ';');
+        return Some(Recipe {
+            ticks: parts.next()?.parse().ok()?,
+            energy: parts.next()?.parse().ok()?,
+            inputs: parse_stacks(parts.next()?),
+            outputs: parse_stacks(parts.next()?),
+        });
     }
 }

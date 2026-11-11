@@ -236,19 +236,36 @@ impl PlayerBody {
                     if !world.is_solid(block) {
                         continue;
                     }
-                    let face = if distance > 0.0 {
-                        block[axis] as f32
-                    } else {
-                        block[axis] as f32 + 1.0
-                    };
-                    // `Option::map_or` : la première face trouvée, ou la plus proche des deux.
-                    wall = Some(wall.map_or(face, |w| {
-                        if distance > 0.0 {
-                            w.min(face)
+                    // Un bloc à boîtes (dalle, escalier) ne bloque que là où il est : on cherche la
+                    // face de chaque boîte que la nôtre chevauche.
+                    let boxes = world.block_boxes(block);
+                    let mut faces = [f32::NAN; 1];
+                    let mut hit_faces = Vec::new();
+                    if boxes.is_empty() {
+                        faces[0] = if distance > 0.0 {
+                            block[axis] as f32
                         } else {
-                            w.max(face)
+                            block[axis] as f32 + 1.0
+                        };
+                    } else {
+                        let origin = block.as_vec3();
+                        for b in boxes {
+                            let (lo, hi) = (origin + b.min, origin + b.max);
+                            if min.cmplt(hi).all() && max.cmpgt(lo).all() {
+                                hit_faces.push(if distance > 0.0 { lo[axis] } else { hi[axis] });
+                            }
                         }
-                    }));
+                    }
+                    for face in faces.into_iter().filter(|f| !f.is_nan()).chain(hit_faces) {
+                        // `Option::map_or` : la première face trouvée, ou la plus proche.
+                        wall = Some(wall.map_or(face, |w| {
+                            if distance > 0.0 {
+                                w.min(face)
+                            } else {
+                                w.max(face)
+                            }
+                        }));
+                    }
                 }
             }
         }
@@ -497,5 +514,32 @@ mod tests {
             body.position.x - 0.5
         };
         assert!(speed("core:lava") < speed("core:water") * 0.6);
+    }
+
+    #[test]
+    fn a_body_lands_on_a_slab_at_half_height_and_walks_under_a_top_slab() {
+        let registry = std::sync::Arc::new(crate::registry::tests::with_shapes());
+        let bottom = registry.id("test:slab").unwrap();
+        let top = registry.id("test:slab[half=top]").unwrap();
+        let mut world = World::with_registry(registry);
+        for x in -8..8 {
+            for z in -8..8 {
+                world.set_block(IVec3::new(x, 0, z), stone());
+            }
+        }
+        world.set_block(IVec3::new(0, 1, 0), bottom);
+        let mut body = PlayerBody::new(Vec3::new(0.5, 10.0, 0.5));
+        run(&mut body, &world, Vec3::ZERO, false, 120);
+        assert!(body.on_ground);
+        assert!(
+            (body.position.y - 1.5).abs() < 0.01,
+            "y = {}",
+            body.position.y
+        );
+        // Une dalle haute à y = 3 : à 1.8 de haut, on passe dessous (sol à 1, plafond à 3.5).
+        world.set_block(IVec3::new(4, 3, 0), top);
+        let mut walker = PlayerBody::new(Vec3::new(2.5, 1.0, 0.5));
+        run(&mut walker, &world, Vec3::new(1.0, 0.0, 0.0), false, 240);
+        assert!(walker.position.x > 5.0, "x = {}", walker.position.x);
     }
 }

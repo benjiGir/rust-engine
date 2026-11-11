@@ -98,6 +98,7 @@ pub(super) fn define_host_functions(linker: &mut Linker<HostState>) -> wasmtime:
     define_basics(linker)?;
     define_blocks(linker)?;
     define_capabilities(linker)?;
+    define_content(linker)?;
     Ok(())
 }
 
@@ -178,6 +179,16 @@ fn define_blocks(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
         |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> HostResult<i32> {
             let key = read_string(&mut caller, ptr, len)?;
             Ok(caller.data().registry.id(&key).map_or(-1, |id| id.0 as i32))
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "block_base",
+        |caller: Caller<'_, HostState>, id: i32| -> i32 {
+            if id < 0 || id as usize >= caller.data().registry.len() {
+                return 0;
+            }
+            caller.data().registry.base(BlockId(id as u16)).0 as i32
         },
     )?;
     linker.func_wrap(
@@ -591,6 +602,89 @@ fn define_capabilities(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
             })
             .flatten()
             .is_some() as i32
+        },
+    )?;
+    Ok(())
+}
+
+/// Un texte de la forme `core:iron_ingot*2,example:ruby*1` : des (objet, nombre).
+fn parse_stacks(state: &HostState, text: &str) -> Vec<(engine_voxel::ItemId, u32)> {
+    text.split(',')
+        .filter_map(|part| {
+            let (key, n) = part.split_once('*').unwrap_or((part, "1"));
+            Some((state.content.items.id(key.trim())?, n.trim().parse().ok()?))
+        })
+        .collect()
+}
+
+fn define_content(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        "voxel",
+        "item_id",
+        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> HostResult<i32> {
+            let key = read_string(&mut caller, ptr, len)?;
+            Ok(caller
+                .data()
+                .content
+                .items
+                .id(&key)
+                .map_or(-1, |id| id.0 as i32))
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "give_stack",
+        |mut caller: Caller<'_, HostState>, id: i32, count: i32| {
+            let state = caller.data_mut();
+            if id >= 0 && (id as usize) < state.content.items.len() && count > 0 {
+                state.requests.actions.push(MachineAction::GiveStack {
+                    item: engine_voxel::ItemId(id as u16),
+                    count: count as u32,
+                });
+            }
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "recipe_find",
+        |mut caller: Caller<'_, HostState>,
+         kind_ptr: i32,
+         kind_len: i32,
+         in_ptr: i32,
+         in_len: i32,
+         out_ptr: i32,
+         out_cap: i32|
+         -> HostResult<i32> {
+            let kind = read_string(&mut caller, kind_ptr, kind_len)?;
+            let inputs = read_string(&mut caller, in_ptr, in_len)?;
+            let state = caller.data();
+            let available = parse_stacks(state, &inputs);
+            let Some(recipe) = state.content.machine_recipes.find(&kind, &available) else {
+                return Ok(-1);
+            };
+            let join = |stacks: Vec<String>| stacks.join(",");
+            let needs = join(
+                recipe
+                    .inputs
+                    .iter()
+                    .filter_map(|(ing, n)| {
+                        // L'objet réellement présent qui satisfait l'ingrédient.
+                        let item = available.iter().find(|(i, _)| ing.matches(*i))?.0;
+                        Some(format!("{}*{n}", state.content.items.get(item).key))
+                    })
+                    .collect(),
+            );
+            let outputs = join(
+                recipe
+                    .outputs
+                    .iter()
+                    .map(|(item, n)| format!("{}*{n}", state.content.items.get(*item).key))
+                    .collect(),
+            );
+            let text = format!("{};{};{needs};{outputs}", recipe.ticks, recipe.energy);
+            let n = text.len().min(out_cap.max(0) as usize);
+            write_guest(&mut caller, out_ptr, &text.as_bytes()[..n])?;
+            Ok(text.len() as i32)
         },
     )?;
     Ok(())

@@ -517,7 +517,15 @@ impl VoxelGame {
         // Le monde ECS : le streamer et les registres deviennent des ressources, que les
         // systèmes (physique, IA) lisent sans que le jeu ait à les leur passer.
         let world = Rc::new(RefCell::new(streamer));
-        let mut mods = modding::ModSystem::new(&mod_order, world.clone(), registry.clone());
+        let mut mods = modding::ModSystem::new(
+            &mod_order,
+            world.clone(),
+            registry.clone(),
+            engine_mods::ModContent {
+                items: content.items.clone(),
+                machine_recipes: content.machine_recipes.clone(),
+            },
+        );
         // Le coffre et le four : des machines natives qui ont besoin des objets et de la fonte.
         engine_voxel::register_containers(
             &mut mods.machines,
@@ -1098,8 +1106,8 @@ impl VoxelGame {
         let sky = self.weather.tint_sky(self.day.sky_color()).as_dvec3();
         self.renderer.clear_color = engine_render::wgpu_color(sky.x, sky.y, sky.z);
         self.renderer.outline = self.target.map(|hit| {
-            let min = hit.block_pos.as_vec3();
-            Aabb::new(min, min + Vec3::ONE)
+            let (min, max) = self.streamer().world().block_bounds(hit.block_pos);
+            Aabb::new(min, max)
         });
 
         // L'interface de cette image.
@@ -1645,6 +1653,12 @@ impl VoxelGame {
         let block = def
             .block
             .or_else(|| def.plants.as_deref().and_then(|key| self.registry.id(key)))?;
+        // Un bloc à états (escalier, dalle, tuyau...) se pose selon le regard et la face visée.
+        let forward = self.camera.forward();
+        let hit_y = (self.camera.position + forward * hit.distance).y - hit.block_pos.y as f32;
+        let block = self
+            .registry
+            .placement_variant(block, forward, hit.normal, hit_y);
         let pos = hit.block_pos + hit.normal;
         // Normale nulle : le rayon part de l'intérieur d'un bloc, pas de face où poser.
         // On peut poser dans l'air ou à la place d'un liquide (l'eau).
@@ -1869,6 +1883,12 @@ impl VoxelGame {
                     let Some(item) = self.content.items.of_block(block) else {
                         continue;
                     };
+                    let left = self.inventory.add(item, count, &self.content.items);
+                    if left > 0 {
+                        log::info!("inventaire plein : {left} objet(s) perdu(s)");
+                    }
+                }
+                MachineAction::GiveStack { item, count } => {
                     let left = self.inventory.add(item, count, &self.content.items);
                     if left > 0 {
                         log::info!("inventaire plein : {left} objet(s) perdu(s)");

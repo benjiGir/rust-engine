@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use engine_voxel::{BlockRegistry, Brewing, ItemRegistry, LootTables, Recipes, Smelting};
+use engine_voxel::{
+    BlockRegistry, Brewing, ItemRegistry, LootTables, MachineRecipes, Recipes, Smelting,
+};
 
 #[derive(Clone)]
 pub struct Content {
@@ -17,6 +19,7 @@ pub struct Content {
     pub smelting: Arc<Smelting>,
     pub brewing: Arc<Brewing>,
     pub loot: Arc<LootTables>,
+    pub machine_recipes: Arc<MachineRecipes>,
 }
 
 /// Les fichiers `name` de core puis des mods, avec leur espace de noms.
@@ -58,6 +61,10 @@ impl Content {
         for (ns, text, origin) in sources(assets, mods, "loot.ron")? {
             loot.add_source(&ns, &text, &origin, blocks, &items)?;
         }
+        let mut machine_recipes = MachineRecipes::default();
+        for (ns, text, origin) in sources(assets, mods, "machine_recipes.ron")? {
+            machine_recipes.add_source(&ns, &text, &origin, &items)?;
+        }
         log::info!(
             "{} objets, {} recettes, {} recettes de fonte",
             items.len(),
@@ -70,6 +77,7 @@ impl Content {
             smelting: Arc::new(smelting),
             brewing: Arc::new(brewing),
             loot: Arc::new(loot),
+            machine_recipes: Arc::new(machine_recipes),
         })
     }
 }

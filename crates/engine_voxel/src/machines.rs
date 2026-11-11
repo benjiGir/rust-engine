@@ -62,6 +62,11 @@ pub enum MachineAction {
         count: u32,
     },
     /// Faire apparaître une créature (identifiant texte, comme `core:pig`).
+    /// Donner des objets (pas forcément des blocs) au joueur.
+    GiveStack {
+        item: crate::items::ItemId,
+        count: u32,
+    },
     SpawnEntity {
         kind: String,
         position: Vec3,

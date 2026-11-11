@@ -26,8 +26,8 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use engine_voxel::{
-    BlockBehavior, BlockId, BlockRegistry, ChunkStreamer, GridPos, MachineAction, MachineContext,
-    Machines,
+    BlockBehavior, BlockId, BlockRegistry, ChunkStreamer, GridPos, ItemRegistry, MachineAction,
+    MachineContext, MachineRecipes, Machines,
 };
 use glam::{IVec3, Vec3};
 use wasmtime::{
@@ -152,11 +152,19 @@ impl Requests {
     }
 }
 
+/// Les objets et les recettes que les scripts peuvent consulter.
+#[derive(Clone, Default)]
+pub struct ModContent {
+    pub items: Arc<ItemRegistry>,
+    pub machine_recipes: Arc<MachineRecipes>,
+}
+
 /// Ce que voient les fonctions hôtes pendant un appel : le monde, et les demandes en cours.
 pub struct HostState {
     mod_id: String,
     streamer: Rc<RefCell<ChunkStreamer>>,
     registry: Arc<BlockRegistry>,
+    content: ModContent,
     requests: Requests,
     subscriptions: Vec<i32>,
     limits: StoreLimits,
@@ -167,6 +175,7 @@ pub struct HostState {
 pub struct ScriptHost {
     engine: Engine,
     linker: Linker<HostState>,
+    content: ModContent,
 }
 
 impl ScriptHost {
@@ -177,7 +186,16 @@ impl ScriptHost {
         let engine = Engine::new(&config)?;
         let mut linker = Linker::new(&engine);
         define_host_functions(&mut linker).map_err(anyhow::Error::from)?;
-        Ok(Self { engine, linker })
+        Ok(Self {
+            engine,
+            linker,
+            content: ModContent::default(),
+        })
+    }
+
+    /// Les objets et recettes que les scripts chargés ensuite pourront consulter.
+    pub fn set_content(&mut self, content: ModContent) {
+        self.content = content;
     }
 
     /// Charge un script : compile, instancie, puis appelle `mod_init`.
@@ -195,6 +213,7 @@ impl ScriptHost {
             mod_id: mod_id.to_string(),
             streamer,
             registry,
+            content: self.content.clone(),
             requests: Requests::default(),
             subscriptions: Vec::new(),
             // Le bac à sable mémoire : une seule mémoire, de taille bornée.

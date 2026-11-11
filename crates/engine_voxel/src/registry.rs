@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context as _, Result, bail};
+use glam::{IVec3, Vec3};
 use serde::Deserialize;
 
 use crate::block::BlockId;
@@ -91,8 +92,99 @@ pub struct BlockDef {
     pub gravity: bool,
     /// L'expérience gagnée en le cassant (min, max), s'il lâche son butin : les minerais.
     pub xp: (u32, u32),
+    /// Les boîtes de la forme `Shape::Model` (en blocs, de 0 à 1) : la forme dessinée, la
+    /// collision et la sélection. Vide pour un cube plein.
+    pub boxes: Vec<BlockBox>,
+    /// Les états du bloc (orientation, moitié...), dans l'ordre déclaré. Chaque combinaison
+    /// est un bloc du registre : voir [`BlockRegistry::variant`]. Vide si le bloc n'en a pas.
+    pub states: Vec<StateKind>,
+    /// Pour une variante : le bloc de base (celui qu'on pose depuis la barre, et qui lâche
+    /// son objet). `None` pour un bloc ordinaire ou la base elle-même.
+    pub base: Option<BlockId>,
+    /// Pour la base : toutes ses variantes dans l'ordre des combinaisons (elle-même en tête).
+    pub variants: Vec<BlockId>,
+    /// La valeur de chaque état de cette variante (un indice dans `StateKind::values`).
+    pub state_values: Vec<u8>,
     /// D'où vient la définition, pour les messages d'erreur.
     pub source: String,
+}
+
+/// Une boîte alignée sur les axes, en coordonnées de bloc (0 à 1 sur chaque axe).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BlockBox {
+    pub min: Vec3,
+    pub max: Vec3,
+}
+
+impl BlockBox {
+    pub const FULL: BlockBox = BlockBox {
+        min: Vec3::ZERO,
+        max: Vec3::ONE,
+    };
+
+    /// La même boîte après avoir déplacé ses deux coins avec `f` (en repère centré sur le bloc).
+    fn mapped(self, f: impl Fn(Vec3) -> Vec3) -> Self {
+        let center = Vec3::splat(0.5);
+        let a = f(self.min - center) + center;
+        let b = f(self.max - center) + center;
+        Self {
+            min: a.min(b),
+            max: a.max(b),
+        }
+    }
+}
+
+/// Un état de bloc : une façon dont un même bloc peut varier. Chaque état multiplie le
+/// nombre de variantes (le registre en fabrique une par combinaison). La forme écrite dans
+/// le fichier est celle de la **première valeur** (face avant au nord, moitié basse, axe Y) ;
+/// les autres valeurs en sont déduites par rotation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum StateKind {
+    /// Face avant vers le nord (-Z), l'est (+X), le sud (+Z) ou l'ouest (-X). Posé, l'avant
+    /// regarde le joueur.
+    Facing4,
+    /// Comme `Facing4`, plus le haut et le bas.
+    Facing6,
+    /// Moitié basse ou haute du bloc : dalles, escaliers. Posé sur le dessous d'un bloc, ou
+    /// sur la moitié haute d'une face, le bloc est en haut.
+    Half,
+    /// Le grand axe : Y (debout), X ou Z (couché). Posé, il suit la face visée.
+    Axis,
+}
+
+impl StateKind {
+    /// Le nom de l'état dans l'identifiant (`facing=east`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Facing4 | Self::Facing6 => "facing",
+            Self::Half => "half",
+            Self::Axis => "axis",
+        }
+    }
+
+    pub fn values(self) -> &'static [&'static str] {
+        match self {
+            Self::Facing4 => &["north", "east", "south", "west"],
+            Self::Facing6 => &["north", "east", "south", "west", "up", "down"],
+            Self::Half => &["bottom", "top"],
+            Self::Axis => &["y", "x", "z"],
+        }
+    }
+
+    /// Où va le point `c` (repère centré sur le bloc) quand l'état vaut `value`.
+    fn apply(self, value: u8, c: Vec3) -> Vec3 {
+        match (self, value) {
+            (Self::Facing4 | Self::Facing6, 1) => Vec3::new(-c.z, c.y, c.x),
+            (Self::Facing4 | Self::Facing6, 2) => Vec3::new(-c.x, c.y, -c.z),
+            (Self::Facing4 | Self::Facing6, 3) => Vec3::new(c.z, c.y, -c.x),
+            (Self::Facing6, 4) => Vec3::new(c.x, -c.z, c.y),
+            (Self::Facing6, 5) => Vec3::new(c.x, c.z, -c.y),
+            (Self::Half, 1) => Vec3::new(c.x, -c.y, c.z),
+            (Self::Axis, 1) => Vec3::new(c.y, c.x, c.z),
+            (Self::Axis, 2) => Vec3::new(c.x, c.z, c.y),
+            _ => c,
+        }
+    }
 }
 
 /// Les sons d'un bloc. `None` : silence.
@@ -119,6 +211,10 @@ pub enum Shape {
     Cross,
     /// Un panneau horizontal posé juste au-dessus du bas du bloc : un nénuphar.
     Flat,
+    /// Une ou plusieurs boîtes (`boxes` dans le fichier) : dalles, escaliers, barrières,
+    /// engrenages, tout ce qui n'est pas un cube plein. Sert aussi à la collision et à la
+    /// sélection.
+    Model,
 }
 
 /// La teinte qui dépend du biome (multipliée à la couleur de la texture).
@@ -220,7 +316,24 @@ struct BlockFileEntry {
     gravity: bool,
     #[serde(default)]
     xp: (u32, u32),
+    /// Les boîtes de la forme, en seizièmes de bloc : `(from: (0, 0, 0), to: (16, 8, 16))`.
+    #[serde(default)]
+    boxes: Vec<BoxEntry>,
+    /// Les états : une variante du bloc par combinaison (voir [`StateKind`]).
+    #[serde(default)]
+    states: Vec<StateKind>,
 }
+
+/// Une boîte dans un fichier, en seizièmes de bloc (0 à 16).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BoxEntry {
+    from: (f32, f32, f32),
+    to: (f32, f32, f32),
+}
+
+/// Au plus ce nombre de variantes par bloc (6 orientations × 2 moitiés = 12 d'ordinaire).
+const MAX_VARIANTS: usize = 64;
 
 fn one() -> f32 {
     1.0
@@ -272,6 +385,11 @@ impl BlockRegistry {
             support: Support::None,
             gravity: false,
             xp: (0, 0),
+            boxes: Vec::new(),
+            states: Vec::new(),
+            base: None,
+            variants: Vec::new(),
+            state_values: Vec::new(),
             source: "intégré".into(),
         };
         Self {
@@ -411,18 +529,24 @@ impl BlockRegistry {
             if !(0.0..=1.0).contains(&entry.alpha) {
                 bail!("{origin} : « {} » : alpha va de 0 à 1", entry.id);
             }
+            let boxes = parse_boxes(&entry, origin)?;
+            let model = !boxes.is_empty();
             // Par défaut, un bloc transparent laisse passer la lumière, un opaque l'arrête.
-            let light_opacity =
-                entry
-                    .light_opacity
-                    .unwrap_or(if entry.transparent { 0 } else { 15 });
-            self.by_key.insert(entry.id.clone(), id);
-            self.defs.push(BlockDef {
+            // Une forme à boîtes se juge sur `solid` : une dalle pleine arrête la lumière.
+            let light_opacity = entry.light_opacity.unwrap_or(if model {
+                if entry.solid { 15 } else { 0 }
+            } else if entry.transparent {
+                0
+            } else {
+                15
+            });
+            let def = BlockDef {
                 key: entry.id,
                 name: entry.name,
                 color: [r, g, b],
                 solid: entry.solid,
-                transparent: entry.transparent,
+                // Une forme à boîtes ne remplit pas son cube : les voisins gardent leurs faces.
+                transparent: entry.transparent || model,
                 selectable: entry.selectable,
                 placeable: entry.placeable,
                 alpha: entry.alpha,
@@ -434,7 +558,7 @@ impl BlockRegistry {
                 behavior: entry.behavior.as_ref().map(|b| qualify(b, namespace)),
                 fluid: entry.fluid.as_ref().map(|f| qualify(f, namespace)),
                 unbreakable: entry.unbreakable,
-                shape: entry.shape,
+                shape: if model { Shape::Model } else { entry.shape },
                 cutout: entry.cutout,
                 tint: entry.tint,
                 sway: entry.sway,
@@ -449,10 +573,169 @@ impl BlockRegistry {
                 support: entry.support,
                 gravity: entry.gravity,
                 xp: entry.xp,
+                boxes: boxes.clone(),
+                states: entry.states.clone(),
+                base: None,
+                variants: Vec::new(),
+                state_values: vec![0; entry.states.len()],
                 source: origin.to_string(),
-            });
+            };
+            self.by_key.insert(def.key.clone(), id);
+            self.defs.push(def);
+            self.add_variants(id)?;
         }
         Ok(())
+    }
+
+    /// Crée les variantes du bloc `base` qui vient d'être ajouté : une par combinaison de ses
+    /// états, à la suite. La première combinaison est la base elle-même.
+    fn add_variants(&mut self, base: BlockId) -> Result<()> {
+        let states = self.def(base).states.clone();
+        if states.is_empty() {
+            return Ok(());
+        }
+        let origin = self.def(base).source.clone();
+        let key = self.def(base).key.clone();
+        if self.def(base).boxes.is_empty() {
+            bail!("{origin} : « {key} » a des états mais pas de boîtes à faire tourner");
+        }
+        let count: usize = states.iter().map(|s| s.values().len()).product();
+        if count > MAX_VARIANTS {
+            bail!("{origin} : « {key} » aurait {count} variantes ({MAX_VARIANTS} au maximum)");
+        }
+        let template = self.def(base).clone();
+        let mut ids = vec![base];
+        for index in 0..count {
+            // Le premier état varie le plus vite.
+            let mut rest = index;
+            let values: Vec<u8> = states
+                .iter()
+                .map(|s| {
+                    let n = s.values().len();
+                    let v = rest % n;
+                    rest /= n;
+                    v as u8
+                })
+                .collect();
+            let suffix = format!(
+                "[{}]",
+                states
+                    .iter()
+                    .zip(&values)
+                    .map(|(s, &v)| format!("{}={}", s.name(), s.values()[v as usize]))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+            let full = format!("{key}{suffix}");
+            if index == 0 {
+                // La base est sa propre première variante, joignable aussi par son nom complet.
+                self.defs[base.0 as usize].state_values = values;
+                self.by_key.insert(full, base);
+                continue;
+            }
+            let id = u16::try_from(self.defs.len())
+                .map(BlockId)
+                .context("trop de blocs (65 535 au maximum)")?;
+            let mut def = template.clone();
+            def.key = full.clone();
+            def.placeable = false;
+            def.base = Some(base);
+            def.variants = Vec::new();
+            def.boxes = template
+                .boxes
+                .iter()
+                .map(|b| {
+                    b.mapped(|c| {
+                        states
+                            .iter()
+                            .zip(&values)
+                            .fold(c, |c, (s, &v)| s.apply(v, c))
+                    })
+                })
+                .collect();
+            def.state_values = values;
+            self.by_key.insert(full, id);
+            self.defs.push(def);
+            ids.push(id);
+        }
+        self.defs[base.0 as usize].variants = ids;
+        Ok(())
+    }
+
+    /// Le bloc de base d'une variante (le bloc lui-même s'il n'en est pas une).
+    #[inline]
+    pub fn base(&self, id: BlockId) -> BlockId {
+        self.def(id).base.unwrap_or(id)
+    }
+
+    /// La variante de `block` pour ces valeurs d'états (une par état, dans l'ordre déclaré).
+    /// Un bloc sans états, ou des valeurs invalides, donnent `block` tel quel.
+    pub fn variant(&self, block: BlockId, values: &[u8]) -> BlockId {
+        let base = self.def(self.base(block));
+        let mut index = 0;
+        let mut stride = 1;
+        for (state, &v) in base.states.iter().zip(values) {
+            let n = state.values().len();
+            if v as usize >= n {
+                return block;
+            }
+            index += v as usize * stride;
+            stride *= n;
+        }
+        base.variants.get(index).copied().unwrap_or(block)
+    }
+
+    /// La variante à poser quand le joueur regarde dans la direction `look` et vise la face de
+    /// normale `normal`, au point de hauteur `hit_y` (0 à 1) du bloc visé.
+    pub fn placement_variant(
+        &self,
+        block: BlockId,
+        look: Vec3,
+        normal: IVec3,
+        hit_y: f32,
+    ) -> BlockId {
+        let base = self.def(self.base(block));
+        if base.states.is_empty() {
+            return block;
+        }
+        // L'avant du bloc regarde le joueur : il va dans le sens opposé au regard.
+        let toward = -look;
+        let values: Vec<u8> = base
+            .states
+            .iter()
+            .map(|state| match state {
+                StateKind::Facing4 | StateKind::Facing6 => {
+                    let vertical = toward.y.abs() > toward.x.abs().max(toward.z.abs());
+                    if *state == StateKind::Facing6 && vertical {
+                        if toward.y > 0.0 { 4 } else { 5 }
+                    } else if toward.x.abs() > toward.z.abs() {
+                        if toward.x > 0.0 { 1 } else { 3 }
+                    } else if toward.z > 0.0 {
+                        2
+                    } else {
+                        0
+                    }
+                }
+                StateKind::Half => {
+                    let top = match normal.y {
+                        -1 => true,
+                        1 => false,
+                        _ => hit_y >= 0.5,
+                    };
+                    top as u8
+                }
+                StateKind::Axis => {
+                    if normal.x != 0 {
+                        1
+                    } else if normal.z != 0 {
+                        2
+                    } else {
+                        0
+                    }
+                }
+            })
+            .collect();
+        self.variant(block, &values)
     }
 
     /// La couche d'une texture (créée au premier usage). La couche 0 est réservée au blanc.
@@ -552,6 +835,28 @@ impl BlockRegistry {
     }
 }
 
+/// Les boîtes d'un fichier, converties de seizièmes en blocs et vérifiées.
+fn parse_boxes(entry: &BlockFileEntry, origin: &str) -> Result<Vec<BlockBox>> {
+    entry
+        .boxes
+        .iter()
+        .map(|b| {
+            let (from, to) = (Vec3::new(b.from.0, b.from.1, b.from.2), Vec3::new(b.to.0, b.to.1, b.to.2));
+            let inside = |v: Vec3| v.min_element() >= 0.0 && v.max_element() <= 16.0;
+            if !inside(from) || !inside(to) || from.cmpge(to).any() {
+                bail!(
+                    "{origin} : « {} » : une boîte va de 0 à 16 (seizièmes de bloc), avec `from` plus petit que `to`",
+                    entry.id
+                );
+            }
+            Ok(BlockBox {
+                min: from / 16.0,
+                max: to / 16.0,
+            })
+        })
+        .collect()
+}
+
 /// `stone` dans le fichier de `core` devient `core:stone` ; `other:stone` reste tel quel
 /// (un mod peut réutiliser la texture d'un autre).
 fn qualify(name: &str, namespace: &str) -> String {
@@ -608,7 +913,7 @@ pub(crate) mod test_blocks {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::path::PathBuf;
 
     use super::*;
@@ -811,5 +1116,118 @@ mod tests {
                 .add_source(CORE_NAMESPACE, source, "faute.ron")
                 .is_err()
         );
+    }
+
+    /// Un registre de base avec des dalles, des escaliers et des poteaux.
+    pub(crate) fn with_shapes() -> BlockRegistry {
+        let mut registry = (*BlockRegistry::builtin()).clone();
+        registry.add_source("test", SHAPES, "test").unwrap();
+        registry
+    }
+
+    pub(crate) const SHAPES: &str = r#"[
+    (id: "test:slab", name: "Dalle", color: (0.5, 0.5, 0.5), texture: "stone",
+     boxes: [(from: (0, 0, 0), to: (16, 8, 16))], states: [Half]),
+    (id: "test:stairs", name: "Escalier", color: (0.5, 0.5, 0.5),
+     boxes: [(from: (0, 0, 0), to: (16, 8, 16)), (from: (0, 8, 0), to: (16, 16, 8))],
+     states: [Facing4, Half]),
+    (id: "test:post", name: "Poteau", color: (0.5, 0.5, 0.5),
+     boxes: [(from: (6, 0, 6), to: (10, 16, 10))], states: [Axis]),
+]"#;
+
+    #[test]
+    fn a_block_with_boxes_is_a_model_that_does_not_fill_its_cube() {
+        let r = with_shapes();
+        let slab = r.def(r.id("test:slab").unwrap());
+        assert_eq!(slab.shape, Shape::Model);
+        assert_eq!(slab.boxes.len(), 1);
+        assert_eq!(slab.boxes[0].max, Vec3::new(1.0, 0.5, 1.0));
+        assert!(slab.transparent, "les voisins gardent leurs faces");
+        assert!(slab.solid);
+        assert_eq!(slab.light_opacity, 15, "une dalle pleine arrête la lumière");
+    }
+
+    #[test]
+    fn states_make_one_variant_per_combination() {
+        let r = with_shapes();
+        let stairs = r.id("test:stairs").unwrap();
+        assert_eq!(
+            r.def(stairs).variants.len(),
+            8,
+            "4 orientations x 2 moitiés"
+        );
+        // La base est sa première variante, et se retrouve par son nom complet.
+        assert_eq!(r.id("test:stairs[facing=north,half=bottom]"), Some(stairs));
+        let east_top = r.id("test:stairs[facing=east,half=top]").unwrap();
+        assert_eq!(r.base(east_top), stairs);
+        assert!(!r.def(east_top).placeable && r.def(stairs).placeable);
+        // `variant` suit l'ordre déclaré : facing (indice 1 = east), half (1 = top).
+        assert_eq!(r.variant(stairs, &[1, 1]), east_top);
+        assert_eq!(
+            r.variant(stairs, &[9, 0]),
+            stairs,
+            "valeur invalide : inchangé"
+        );
+    }
+
+    #[test]
+    fn variants_rotate_and_flip_their_boxes() {
+        let r = with_shapes();
+        let boxes = |key: &str| r.def(r.id(key).unwrap()).boxes.clone();
+        // Dalle en haut : la moitié haute.
+        let top = boxes("test:slab[half=top]");
+        assert_eq!((top[0].min.y, top[0].max.y), (0.5, 1.0));
+        // Escalier : la marche haute est au nord (z de 0 à 0.5) ; à l'est elle est à l'est.
+        let east = boxes("test:stairs[facing=east,half=bottom]");
+        assert_eq!((east[1].min.x, east[1].max.x), (0.5, 1.0));
+        let south = boxes("test:stairs[facing=south,half=bottom]");
+        assert_eq!((south[1].min.z, south[1].max.z), (0.5, 1.0));
+        // Poteau couché sur X : long sur X, mince sur Y.
+        let x = boxes("test:post[axis=x]");
+        assert_eq!((x[0].min.x, x[0].max.x), (0.0, 1.0));
+        assert!((x[0].max.y - x[0].min.y - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn placement_picks_the_variant_from_the_look_and_the_face() {
+        let r = with_shapes();
+        let stairs = r.id("test:stairs").unwrap();
+        let name = |id: BlockId| r.def(id).key.clone();
+        // Le joueur regarde vers -Z (le nord) : l'avant lui fait face, donc vers le sud.
+        let v = r.placement_variant(stairs, Vec3::NEG_Z, IVec3::Y, 0.0);
+        assert_eq!(name(v), "test:stairs[facing=south,half=bottom]");
+        // Visé sous un bloc : moitié haute. Sur le côté, selon la hauteur visée.
+        assert!(
+            name(r.placement_variant(stairs, Vec3::X, IVec3::NEG_Y, 0.0)).ends_with("half=top]")
+        );
+        assert!(name(r.placement_variant(stairs, Vec3::X, IVec3::X, 0.8)).ends_with("half=top]"));
+        assert!(
+            name(r.placement_variant(stairs, Vec3::X, IVec3::X, 0.2)).ends_with("half=bottom]")
+        );
+        // Le poteau suit la face visée.
+        let post = r.id("test:post").unwrap();
+        assert_eq!(
+            name(r.placement_variant(post, Vec3::X, IVec3::Z, 0.0)),
+            "test:post[axis=z]"
+        );
+    }
+
+    #[test]
+    fn bad_boxes_and_states_are_refused() {
+        let mut r = BlockRegistry::empty();
+        let bad = |src: &str| {
+            BlockRegistry::empty()
+                .add_source("test", src, "test")
+                .unwrap_err()
+                .to_string()
+        };
+        assert!(bad(r#"[(id: "test:a", name: "A", color: (1,1,1), boxes: [(from: (0,0,0), to: (17,8,16))])]"#).contains("0 à 16"));
+        assert!(bad(r#"[(id: "test:a", name: "A", color: (1,1,1), boxes: [(from: (8,0,0), to: (8,8,16))])]"#).contains("0 à 16"));
+        assert!(
+            bad(r#"[(id: "test:a", name: "A", color: (1,1,1), states: [Half])]"#)
+                .contains("pas de boîtes")
+        );
+        assert!(bad(r#"[(id: "test:a", name: "A", color: (1,1,1), boxes: [(from: (0,0,0), to: (8,8,8))], states: [Facing6, Facing6, Half])]"#).contains("variantes"));
+        let _ = &mut r;
     }
 }

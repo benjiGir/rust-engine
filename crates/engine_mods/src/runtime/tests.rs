@@ -374,6 +374,7 @@ fn host_matches_the_catalog() {
         mod_id: "test".into(),
         streamer,
         registry: BlockRegistry::builtin(),
+        content: Default::default(),
         requests: Requests::default(),
         subscriptions: Vec::new(),
         limits: wasmtime::StoreLimitsBuilder::new().build(),
@@ -474,4 +475,76 @@ fn event_numbers_match_the_catalog() {
         .map(|m| (m.name.clone(), m.id))
         .collect();
     assert_eq!(calls.len(), 4);
+}
+
+/// Un hôte qui connaît les objets du jeu et une recette `core:press` : 2 charbon → 1 charbon de bois.
+fn content_host(streamer: &Rc<RefCell<ChunkStreamer>>) -> ScriptHost {
+    let registry = streamer.borrow().world().registry().clone();
+    let items = engine_voxel::ItemRegistry::builtin(&registry).unwrap();
+    let mut recipes = engine_voxel::MachineRecipes::default();
+    recipes
+        .add_source(
+            "core",
+            r#"(machines: {"press": [(inputs: [("coal", 2)], outputs: [("charcoal", 1)], time: 1.0, energy: 40)]})"#,
+            "test",
+            &items,
+        )
+        .unwrap();
+    let mut host = ScriptHost::new().unwrap();
+    host.set_content(ModContent {
+        items: Arc::new(items),
+        machine_recipes: Arc::new(recipes),
+    });
+    host
+}
+
+#[test]
+fn a_script_finds_items_and_machine_recipes() {
+    let s = loaded_streamer();
+    // Les textes sont rangés en mémoire : « core:press » (0), « core:coal*2 » (16),
+    // « core:coal*1 » (32), « core:charcoal » (48). À chaque événement, le mod donne un
+    // charbon de bois, puis autant que la taille du texte de la recette trouvée (-1 si
+    // l'entrée est insuffisante : rien n'est donné).
+    let wat = r#"(module
+        (import "voxel" "subscribe" (func $subscribe (param i32)))
+        (import "voxel" "item_id" (func $item_id (param i32 i32) (result i32)))
+        (import "voxel" "give_stack" (func $give (param i32 i32)))
+        (import "voxel" "recipe_find" (func $find (param i32 i32 i32 i32 i32 i32) (result i32)))
+        (memory (export "memory") 1)
+        (data (i32.const 0) "core:press")
+        (data (i32.const 16) "core:coal*2")
+        (data (i32.const 32) "core:coal*1")
+        (data (i32.const 48) "core:charcoal")
+        (func (export "sdk_alloc") (param i32) (result i32) i32.const 1024)
+        (func (export "mod_init") (call $subscribe (i32.const 1)))
+        (func (export "on_event") (param i32 i32 i32)
+            (call $give (call $item_id (i32.const 48) (i32.const 13)) (i32.const 1))
+            (call $give (call $item_id (i32.const 48) (i32.const 13))
+                (call $find (i32.const 0) (i32.const 10) (i32.const 16) (i32.const 11) (i32.const 512) (i32.const 256)))
+            (call $give (call $item_id (i32.const 48) (i32.const 13))
+                (call $find (i32.const 0) (i32.const 10) (i32.const 32) (i32.const 11) (i32.const 512) (i32.const 256))))
+    )"#;
+    let registry = s.borrow().world().registry().clone();
+    let mut script = content_host(&s)
+        .load("recipes", wat.as_bytes(), s.clone(), registry)
+        .unwrap();
+    let requests = script.send_event(&broken()).unwrap();
+    let charcoal = engine_voxel::ItemRegistry::builtin(&BlockRegistry::builtin())
+        .unwrap()
+        .id("core:charcoal")
+        .unwrap();
+    // « 20;40;core:coal*2;core:charcoal*1 » : 33 octets.
+    assert_eq!(
+        requests.actions,
+        vec![
+            MachineAction::GiveStack {
+                item: charcoal,
+                count: 1
+            },
+            MachineAction::GiveStack {
+                item: charcoal,
+                count: 33
+            },
+        ]
+    );
 }

@@ -12,6 +12,8 @@ mods/example/
 ├── blocks.ron         # ses blocs (facultatif)
 ├── fluids.ron         # ses fluides (facultatif)
 ├── entities.ron       # ses créatures (facultatif)
+├── items.ron          # ses objets (facultatif)
+├── machine_recipes.ron # les recettes de ses machines (facultatif)
 ├── textures/          # PNG 16×16, nommés comme dans blocks.ron
 ├── sounds/            # WAV
 ├── script/            # les sources du script (une crate Rust)
@@ -53,6 +55,41 @@ Le jeu refuse de charger les mods, avec un message clair dans les logs, si :
 - des mods dépendent les uns des autres en cercle (« dépendances circulaires entre les mods : a, b »).
 
 Le jeu démarre alors sans les mods plutôt que de ne pas démarrer.
+
+## Les formes et les états de bloc
+
+Par défaut un bloc est un cube. Avec `boxes`, il devient une ou plusieurs **boîtes**, en
+seizièmes de bloc (0 à 16 sur chaque axe) : dalles, escaliers, barrières, poteaux, engrenages.
+La même forme sert au dessin, à la **collision** (le joueur marche sur la moitié d'une dalle
+et passe sous une dalle haute) et à la **sélection** (le rayon passe à côté d'une dalle).
+La texture est coupée, pas étirée : une dalle montre la moitié de sa texture.
+
+```ron
+(id: "example:ruby_stairs", name: "Escalier de rubis", color: (0.7, 0.05, 0.12), texture: "ruby",
+ boxes: [(from: (0, 0, 0), to: (16, 8, 16)), (from: (0, 8, 0), to: (16, 16, 8))],
+ states: [Facing4, Half]),
+```
+
+`states` fabrique **une variante par combinaison** (ici 4 × 2 = 8). Chaque variante est un bloc
+du registre, avec son identifiant complet (`example:ruby_stairs[facing=east,half=top]`) ; la base
+(`example:ruby_stairs`) est la première. La forme écrite est celle de la **première valeur** : le
+jeu en déduit les autres par rotation. Au plus 64 variantes par bloc.
+
+| État | Valeurs | À la pose |
+|---|---|---|
+| `Facing4` | `north` (-Z, la forme écrite), `east`, `south`, `west` | l'avant regarde le joueur |
+| `Facing6` | les quatre ci-dessus, `up`, `down` | idem, et vers le haut ou le bas si le joueur regarde fort dessus |
+| `Half` | `bottom` (la forme écrite), `top` | en haut si on vise le dessous d'un bloc, ou la moitié haute d'une face |
+| `Axis` | `y` (la forme écrite), `x`, `z` | l'axe de la face visée |
+
+Poser et casser : seule la base est dans la barre de blocs et l'inventaire ; la variante est
+choisie à la pose, et une variante cassée lâche l'objet (et le butin) de sa base. Un mod qui a
+besoin d'un bloc précis le retrouve par son identifiant complet (`block_id("example:ruby_stairs[facing=east,half=top]")`),
+et `block_base(bloc)` ramène une variante à sa base (par exemple dans l'événement `BlockPlaced`).
+
+À savoir : un bloc à boîtes est « transparent » pour ses voisins (ils gardent leurs faces) ; sa
+lumière est arrêtée par défaut s'il est `solid`, et passe sinon (`light_opacity` pour régler).
+Les créatures le traitent encore comme un cube plein.
 
 ## Les blocs actifs (« machines »)
 
@@ -179,6 +216,28 @@ ci-dessous). 10 000 machines en un appel coûtent bien moins que 10 000 appels.
 | `spawn_entity("core:pig", x, y, z)` | faire apparaître une créature |
 | `random()` | un nombre pseudo-aléatoire |
 
+### Objets et recettes de machine
+
+Un script peut donner au joueur n'importe quel **objet**, pas seulement un bloc :
+`item_id("example:ruby")` donne son numéro, `give_stack(objet, nombre)` le donne.
+
+Un mod déclare les recettes de ses machines dans `machine_recipes.ron`, par **type** de
+recette (un type est à lui, `press` devient `example:press` ; un autre mod peut y ajouter) :
+
+```ron
+(machines: {
+    "press": [
+        (inputs: [("core:iron_ingot", 2)], outputs: [("example:plate", 1)], time: 2.0, energy: 200),
+    ],
+})
+```
+
+La machine demande au jeu ce qu'elle peut fabriquer : `find_recipe("example:press",
+&[("core:iron_ingot", 5)])` renvoie la première recette faisable (`Recipe` : durée en ticks,
+énergie, entrées, sorties), ou `None`. Un ingrédient peut être un groupe (`#planks`).
+Le jeu ne retire rien tout seul : la machine consomme ses entrées (`item_extract`) et range ses
+sorties (`item_insert`) quand elle le décide.
+
 ### Les capacités : énergie, fluides, objets, rotation
 
 Les mods techniques s'échangent tous les mêmes choses. Le moteur fournit des conteneurs
@@ -265,6 +324,7 @@ test vérifie que le jeu définit exactement ces fonctions.
 | Fonction | Rôle |
 |---|---|
 | `block_id(ptr: i32, len: i32) -> i32` | Le numéro d'un bloc à partir de son identifiant (`core:stone`) ; −1 s'il n'existe pas. |
+| `block_base(id: i32) -> i32` | Le bloc de base d'un bloc à états : `example:stairs[facing=east]` donne `example:stairs`. Un bloc ordinaire se renvoie lui-même. |
 | `get_block(g: i32, x: i32, y: i32, z: i32) -> i32` | Le bloc à cette position (0 : de l'air, ou une grille inconnue). |
 | `set_block(g: i32, x: i32, y: i32, z: i32, id: i32) -> i32` | Pose un bloc ; les voisins sont prévenus. 1 si c'est fait. |
 | `get_power(g: i32, x: i32, y: i32, z: i32) -> i32` | La puissance émise par ce bloc (0 à 15). |
@@ -293,6 +353,14 @@ test vérifie que le jeu définit exactement ces fonctions.
 | `item_extract(g: i32, x: i32, y: i32, z: i32, face: i32, ptr: i32, len: i32, count: i32, simulate: i32) -> i32` | Sort des objets par cette face ; renvoie le nombre retiré. |
 | `kinetic_speed(g: i32, x: i32, y: i32, z: i32) -> f32` | La vitesse de rotation (tr/min, signée). |
 | `set_kinetic(g: i32, x: i32, y: i32, z: i32, speed: f32, capacity: f32, impact: f32) -> i32` | Règle la vitesse, la capacité et la consommation de contrainte. 1 si c'est fait. |
+
+*Objets et recettes*
+
+| Fonction | Rôle |
+|---|---|
+| `item_id(ptr: i32, len: i32) -> i32` | Le numéro d'un objet (bloc ou non) à partir de son identifiant (`example:ruby`) ; −1 s'il n'existe pas. |
+| `give_stack(id: i32, count: i32)` | Donne `count` objets de numéro `id` (voir `item_id`) au joueur. |
+| `recipe_find(kind_ptr: i32, kind_len: i32, in_ptr: i32, in_len: i32, out_ptr: i32, out_cap: i32) -> i32` | Cherche une recette du type donné (`example:press`) faisable avec les objets `cle*nombre,cle*nombre` de l'entrée. Écrit `ticks;énergie;entrées;sorties` (même format) dans la sortie ; renvoie sa taille, −1 sans recette. |
 
 <!-- /hooks:imports -->
 

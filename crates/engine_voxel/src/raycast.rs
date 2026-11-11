@@ -54,11 +54,29 @@ pub fn raycast(world: &World, origin: Vec3, dir: Vec3, max_distance: f32) -> Opt
     loop {
         // Seuls les blocs « sélectionnables » arrêtent le rayon (pas l'air, par exemple).
         if world.is_selectable(block) {
-            return Some(RayHit {
-                block_pos: block,
-                normal,
-                distance,
-            });
+            let boxes = world.block_boxes(block);
+            if boxes.is_empty() {
+                return Some(RayHit {
+                    block_pos: block,
+                    normal,
+                    distance,
+                });
+            }
+            // Un bloc à boîtes se vise sur ses boîtes : le rayon peut passer à côté.
+            let origin_cell = block.as_vec3();
+            let nearest = boxes
+                .iter()
+                .filter_map(|b| ray_box(origin, dir, origin_cell + b.min, origin_cell + b.max))
+                .min_by(|a, b| a.0.total_cmp(&b.0));
+            if let Some((t, face)) = nearest
+                && t <= max_distance
+            {
+                return Some(RayHit {
+                    block_pos: block,
+                    normal: face,
+                    distance: t,
+                });
+            }
         }
         // L'axe dont la prochaine frontière est la plus proche.
         let axis = if t_max.x < t_max.y {
@@ -78,6 +96,30 @@ pub fn raycast(world: &World, origin: Vec3, dir: Vec3, max_distance: f32) -> Opt
         normal = IVec3::ZERO;
         normal[axis] = -step[axis];
     }
+}
+
+/// Comme [`ray_aabb`], avec en plus la normale de la face d'entrée (zéro si le rayon part de
+/// l'intérieur de la boîte).
+fn ray_box(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<(f32, IVec3)> {
+    let t = ray_aabb(origin, dir, min, max)?;
+    if t <= 0.0 {
+        return Some((0.0, IVec3::ZERO));
+    }
+    // La face d'entrée est celle dont le plan est atteint en dernier (le point d'entrée).
+    let point = origin + dir * t;
+    let mut face = IVec3::ZERO;
+    let mut best = f32::INFINITY;
+    for axis in 0..3 {
+        for (plane, sign) in [(min[axis], -1), (max[axis], 1)] {
+            let gap = (point[axis] - plane).abs();
+            if gap < best {
+                best = gap;
+                face = IVec3::ZERO;
+                face[axis] = sign;
+            }
+        }
+    }
+    Some((t, face))
 }
 
 /// La distance à laquelle le rayon `origin + t · dir` entre dans la boîte `[min, max]`,
@@ -247,5 +289,28 @@ mod tests {
             (hit.block_pos, hit.normal, hit.distance),
             (IVec3::ZERO, IVec3::ZERO, 0.0)
         );
+    }
+
+    #[test]
+    fn a_ray_passes_over_a_slab_and_hits_it_on_its_boxes() {
+        let registry = std::sync::Arc::new(crate::registry::tests::with_shapes());
+        let slab = registry.id("test:slab").unwrap();
+        let mut world = World::with_registry(registry);
+        world.set_block(IVec3::new(0, 0, 3), slab);
+        world.set_block(IVec3::new(0, 0, 6), stone());
+        // À hauteur 0.75 le rayon passe au-dessus de la dalle (haute de 0.5) et touche la pierre.
+        let over = raycast(&world, Vec3::new(0.5, 0.75, 0.5), Vec3::Z, 20.0).unwrap();
+        assert_eq!(over.block_pos, IVec3::new(0, 0, 6));
+        // À hauteur 0.25 il la heurte, sur sa face avant.
+        let hit = raycast(&world, Vec3::new(0.5, 0.25, 0.5), Vec3::Z, 20.0).unwrap();
+        assert_eq!(
+            (hit.block_pos, hit.normal),
+            (IVec3::new(0, 0, 3), IVec3::NEG_Z)
+        );
+        assert!((hit.distance - 2.5).abs() < 1e-4);
+        // Du dessus, il touche le dessus de la dalle à 0.5 (pas à 1) : on pose dessus.
+        let top = raycast(&world, Vec3::new(0.5, 3.0, 3.5), Vec3::NEG_Y, 20.0).unwrap();
+        assert_eq!((top.block_pos, top.normal), (IVec3::new(0, 0, 3), IVec3::Y));
+        assert!((top.distance - 2.5).abs() < 1e-4);
     }
 }

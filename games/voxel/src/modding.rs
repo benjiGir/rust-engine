@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use engine_mods::{ModEvent, ModInfo, ModRuntime, ScriptHost};
+use engine_mods::{ModContent, ModEvent, ModInfo, ModRuntime, ScriptHost};
 use engine_voxel::{BlockRegistry, ChunkStreamer, Grids, MachineAction, Machines, TickReport};
 use glam::{IVec3, Vec3};
 
@@ -77,12 +77,17 @@ impl ModSystem {
         order: &[ModInfo],
         world: Rc<RefCell<ChunkStreamer>>,
         registry: Arc<BlockRegistry>,
+        content: ModContent,
     ) -> Self {
         let mut machines = Machines::with_natives(&registry);
         let mut runtime = ModRuntime::default();
         let host = ScriptHost::new()
             .map_err(|err| log::error!("WebAssembly indisponible, scripts désactivés : {err:#}"))
-            .ok();
+            .ok()
+            .map(|mut host| {
+                host.set_content(content);
+                host
+            });
         let scripts: Vec<(String, PathBuf)> = order
             .iter()
             .filter_map(|m| Some((m.id().to_string(), m.script_path()?)))

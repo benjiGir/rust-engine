@@ -729,6 +729,10 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                 let texture = def.face_textures[1] | (flags & !FLAG_SWAY);
                 // Les sommets du haut se balancent, ceux du bas restent plantés.
                 let sway_top = flags & FLAG_SWAY;
+                if def.shape == Shape::Model {
+                    model_boxes(hood, mesh, def, p, base, color, block_flags(def));
+                    continue;
+                }
                 let quads: Vec<([Vec3; 4], [f32; 3])> = match def.shape {
                     Shape::Cross => {
                         let n = std::f32::consts::FRAC_1_SQRT_2;
@@ -762,7 +766,7 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                         ],
                         [0.0, 1.0, 0.0],
                     )],
-                    Shape::Cube => Vec::new(),
+                    Shape::Cube | Shape::Model => Vec::new(),
                 };
                 for (corners, normal) in quads {
                     let start = mesh.vertices.len() as u32;
@@ -781,6 +785,70 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                         .extend([0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2].map(|i| start + i));
                 }
             }
+        }
+    }
+}
+
+/// Les boîtes d'un bloc `Shape::Model` : jusqu'à six faces par boîte. Une face posée contre
+/// le bord du bloc est omise si le voisin est opaque. Les textures sont coupées, pas
+/// étirées (le shader les déduit de la position) : une dalle montre la moitié de la texture.
+fn model_boxes(
+    hood: &Neighbourhood,
+    mesh: &mut ChunkMesh,
+    def: &BlockDef,
+    p: IVec3,
+    base: Vec3,
+    color: [f32; 4],
+    flags: u32,
+) {
+    let (_, own_sky, own_light) = hood.cell(p);
+    for b in &def.boxes {
+        for face in Face::ALL {
+            let a = face.axis;
+            let on_edge = if face.positive {
+                b.max[a] >= 1.0
+            } else {
+                b.min[a] <= 0.0
+            };
+            let (neighbour, sky, light) = hood.cell(p + face.normal());
+            if on_edge && !hood.registry.is_transparent(neighbour) {
+                continue;
+            }
+            // Le bloc plein est noir de l'intérieur : la lumière est celle de l'air à côté.
+            let vertex_light = [
+                sky.max(own_sky) as f32 / 15.0,
+                light.max(own_light) as f32 / 15.0,
+                1.0,
+            ];
+            let layer = match (a, face.positive) {
+                (1, true) => def.face_textures[0],
+                (1, false) => def.face_textures[2],
+                _ => def.face_textures[1],
+            };
+            let (u, v) = face.tangents();
+            let (u, v) = (u.as_vec3(), v.as_vec3());
+            let mut origin = b.min;
+            if face.positive {
+                origin[a] = b.max[a];
+            }
+            let du = u * (b.max - b.min).dot(u);
+            let dv = v * (b.max - b.min).dot(v);
+            let corners = if face.positive {
+                [origin, origin + du, origin + du + dv, origin + dv]
+            } else {
+                [origin, origin + dv, origin + du + dv, origin + du]
+            };
+            let start = mesh.vertices.len() as u32;
+            let normal = face.normal().as_vec3().to_array();
+            for corner in corners {
+                mesh.push_vertex(base + corner, normal, color, vertex_light, layer | flags);
+            }
+            let list = if def.alpha < 1.0 {
+                &mut mesh.translucent_indices
+            } else {
+                &mut mesh.indices
+            };
+            list.extend([0, 1, 2, 0, 2, 3].map(|i| start + i));
         }
     }
 }
@@ -1280,5 +1348,35 @@ mod tests {
             Some((Vec3::new(32.0, 0.0, 0.0), Vec3::new(33.0, 1.0, 1.0)))
         );
         assert_eq!(ChunkMesh::default().bounds(), None);
+    }
+
+    #[test]
+    fn a_slab_is_meshed_as_half_a_block_and_its_neighbours_keep_their_faces() {
+        let registry = std::sync::Arc::new(crate::registry::tests::with_shapes());
+        let slab = registry.id("test:slab").unwrap();
+        let mut world = World::with_registry(registry);
+        world.set_block(IVec3::new(5, 5, 5), slab);
+        let mesh = mesh_culled(&world, IVec3::ZERO);
+        assert_eq!(mesh.quad_count(), 6, "une boîte : six faces");
+        // Aire : dessus + dessous = 2, quatre côtés de 1 x 0.5 = 2.
+        assert!(
+            (surface(&mesh) - 4.0).abs() < 1e-3,
+            "aire {}",
+            surface(&mesh)
+        );
+        let top = mesh
+            .vertices
+            .iter()
+            .map(|v| mesh.world_position(v).y)
+            .fold(f32::MIN, f32::max);
+        assert!((top - 5.5).abs() < 1e-3, "haut à {top}");
+        // Un cube collé à la dalle garde sa face contre elle (la dalle ne la cache pas).
+        world.set_block(IVec3::new(6, 5, 5), stone());
+        let both = mesh_culled(&world, IVec3::ZERO);
+        assert_eq!(
+            both.quad_count(),
+            5 + 6,
+            "la dalle perd sa face contre le cube (5), le cube garde les siennes (6)"
+        );
     }
 }

@@ -407,6 +407,116 @@ impl Smelting {
     }
 }
 
+/// Une recette de machine de mod : des ingrédients, des résultats, un temps et une énergie.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MachineRecipe {
+    pub inputs: Vec<(Ingredient, u32)>,
+    pub outputs: Vec<(ItemId, u32)>,
+    /// En ticks de machines (20 par seconde).
+    pub ticks: u32,
+    /// L'énergie totale consommée (libre : comme les FE).
+    pub energy: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MachineEntry {
+    inputs: Vec<(String, u32)>,
+    outputs: Vec<(String, u32)>,
+    #[serde(default)]
+    time: f32,
+    #[serde(default)]
+    energy: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MachineFile {
+    /// Type de recette (`press` devient `mod:press`) → ses recettes.
+    machines: std::collections::BTreeMap<String, Vec<MachineEntry>>,
+}
+
+/// Les recettes des machines des mods (`machine_recipes.ron`), classées par type : un mod
+/// invente ses types (`example:press`) et un autre mod peut y ajouter des recettes.
+#[derive(Debug, Clone, Default)]
+pub struct MachineRecipes {
+    by_kind: HashMap<String, Vec<MachineRecipe>>,
+}
+
+impl MachineRecipes {
+    pub fn add_source(
+        &mut self,
+        namespace: &str,
+        source: &str,
+        origin: &str,
+        items: &ItemRegistry,
+    ) -> Result<()> {
+        let file: MachineFile =
+            ron::from_str(source).with_context(|| format!("{origin} : RON invalide"))?;
+        for (kind, entries) in file.machines {
+            let kind = qualify(&kind, namespace);
+            for e in entries {
+                if e.inputs.is_empty() || e.outputs.is_empty() {
+                    bail!("{origin} : une recette de « {kind} » n'a pas d'entrée ou de sortie");
+                }
+                let inputs = e
+                    .inputs
+                    .iter()
+                    .map(|(name, n)| Ok((Ingredient::parse(name, namespace, items)?, *n)))
+                    .collect::<Result<Vec<_>>>()
+                    .with_context(|| origin.to_string())?;
+                let outputs = e
+                    .outputs
+                    .iter()
+                    .map(|(name, n)| {
+                        let key = qualify(name, namespace);
+                        let id = items
+                            .id(&key)
+                            .with_context(|| format!("{origin} : objet inconnu « {key} »"))?;
+                        Ok((id, *n))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                self.by_kind
+                    .entry(kind.clone())
+                    .or_default()
+                    .push(MachineRecipe {
+                        inputs,
+                        outputs,
+                        ticks: (e.time * 20.0).round().max(0.0) as u32,
+                        energy: e.energy,
+                    });
+            }
+        }
+        Ok(())
+    }
+
+    /// La première recette de ce type que `available` (objet, nombre) permet de faire.
+    pub fn find(&self, kind: &str, available: &[(ItemId, u32)]) -> Option<&MachineRecipe> {
+        self.by_kind.get(kind)?.iter().find(|r| {
+            r.inputs.iter().all(|(ingredient, need)| {
+                let have: u32 = available
+                    .iter()
+                    .filter(|(item, _)| ingredient.matches(*item))
+                    .map(|(_, n)| n)
+                    .sum();
+                have >= *need
+            })
+        })
+    }
+
+    pub fn recipes(&self, kind: &str) -> &[MachineRecipe] {
+        self.by_kind.get(kind).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn len(&self) -> usize {
+        self.by_kind.values().map(Vec::len).sum()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_kind.is_empty()
+    }
+}
+
 /// Une recette d'alambic : `input` + `reagent` donnent `output`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrewRecipe {
@@ -563,6 +673,12 @@ impl LootTables {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
+            // Les variantes d'un bloc (orientations, moitiés) lâchent le même butin.
+            for (id, def) in blocks.iter() {
+                if def.base == Some(block) {
+                    self.tables.insert(id, entries.clone());
+                }
+            }
             self.tables.insert(block, entries);
         }
         Ok(())
@@ -698,6 +814,44 @@ mod tests {
             smelting.recipe(id(&items, "core:oak_log")).unwrap().output,
             id(&items, "core:charcoal")
         );
+    }
+
+    #[test]
+    fn machine_recipes_match_by_kind_and_quantity() {
+        let (_, items, _) = data();
+        let mut recipes = MachineRecipes::default();
+        recipes
+            .add_source(
+                "core",
+                r#"(machines: { "press": [
+                    (inputs: [("coal", 2)], outputs: [("charcoal", 1), ("stick", 3)], time: 1.5, energy: 100),
+                ] })"#,
+                "test",
+                &items,
+            )
+            .unwrap();
+        let coal = id(&items, "core:coal");
+        let r = recipes.find("core:press", &[(coal, 2)]).unwrap();
+        assert_eq!((r.ticks, r.energy), (30, 100));
+        assert_eq!(r.outputs.len(), 2);
+        assert!(
+            recipes.find("core:press", &[(coal, 1)]).is_none(),
+            "pas assez"
+        );
+        assert!(
+            recipes.find("core:mill", &[(coal, 2)]).is_none(),
+            "autre type"
+        );
+        // Un objet inconnu est refusé avec un message clair.
+        let err = MachineRecipes::default()
+            .add_source(
+                "core",
+                r#"(machines: {"p": [(inputs: [("nope", 1)], outputs: [("stick", 1)])]})"#,
+                "t",
+                &items,
+            )
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("core:nope"));
     }
 
     #[test]

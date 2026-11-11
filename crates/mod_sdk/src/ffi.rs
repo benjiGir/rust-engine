@@ -40,6 +40,8 @@ unsafe extern "C" {
     pub fn spawn_entity(ptr: i32, len: i32, x: f32, y: f32, z: f32);
     /// Le numéro d'un bloc à partir de son identifiant (`core:stone`) ; −1 s'il n'existe pas.
     pub fn block_id(ptr: i32, len: i32) -> i32;
+    /// Le bloc de base d'un bloc à états : `example:stairs[facing=east]` donne `example:stairs`. Un bloc ordinaire se renvoie lui-même.
+    pub fn block_base(id: i32) -> i32;
     /// Le bloc à cette position (0 : de l'air, ou une grille inconnue).
     pub fn get_block(g: i32, x: i32, y: i32, z: i32) -> i32;
     /// Pose un bloc ; les voisins sont prévenus. 1 si c'est fait.
@@ -150,6 +152,19 @@ unsafe extern "C" {
         capacity: f32,
         impact: f32,
     ) -> i32;
+    /// Le numéro d'un objet (bloc ou non) à partir de son identifiant (`example:ruby`) ; −1 s'il n'existe pas.
+    pub fn item_id(ptr: i32, len: i32) -> i32;
+    /// Donne `count` objets de numéro `id` (voir `item_id`) au joueur.
+    pub fn give_stack(id: i32, count: i32);
+    /// Cherche une recette du type donné (`example:press`) faisable avec les objets `cle*nombre,cle*nombre` de l'entrée. Écrit `ticks;énergie;entrées;sorties` (même format) dans la sortie ; renvoie sa taille, −1 sans recette.
+    pub fn recipe_find(
+        kind_ptr: i32,
+        kind_len: i32,
+        in_ptr: i32,
+        in_len: i32,
+        out_ptr: i32,
+        out_cap: i32,
+    ) -> i32;
 }
 
 /// Hors WebAssembly (compilation native du workspace, tests des mods) : des
@@ -171,6 +186,10 @@ mod inert {
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn block_id(_: i32, _: i32) -> i32 {
         -1
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn block_base(_: i32) -> i32 {
+        0
     }
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn get_block(_: i32, _: i32, _: i32, _: i32) -> i32 {
@@ -301,6 +320,16 @@ mod inert {
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn set_kinetic(_: i32, _: i32, _: i32, _: i32, _: f32, _: f32, _: f32) -> i32 {
         0
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn item_id(_: i32, _: i32) -> i32 {
+        -1
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn give_stack(_: i32, _: i32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn recipe_find(_: i32, _: i32, _: i32, _: i32, _: i32, _: i32) -> i32 {
+        -1
     }
 }
 

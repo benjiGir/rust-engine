@@ -60,8 +60,8 @@ pub use containers::{
     register as register_containers,
 };
 pub use crafting::{
-    BrewRecipe, Brewing, Ingredient, LootEntry, LootTables, Recipe, Recipes, Smelting,
-    SmeltingRecipe,
+    BrewRecipe, Brewing, Ingredient, LootEntry, LootTables, MachineRecipe, MachineRecipes, Recipe,
+    Recipes, Smelting, SmeltingRecipe,
 };
 pub use far::{
     CELLS as FAR_CELLS, FarConfig, FarEvent, FarMesh, FarStats, FarStreamer, FarTile, build_tile,
@@ -99,7 +99,9 @@ pub use pathfind::{Path, PathRules, find_path};
 pub use physics::{PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
 pub use plants::{Precipitation, precipitation_at};
 pub use raycast::{RayHit, ray_aabb, raycast};
-pub use registry::{BlockDef, BlockRegistry, BlockSounds, CORE_NAMESPACE, Shape, Support, Tint};
+pub use registry::{
+    BlockBox, BlockDef, BlockRegistry, BlockSounds, CORE_NAMESPACE, Shape, StateKind, Support, Tint,
+};
 pub use save::{
     ChunkToSave, FORMAT_VERSION, LoadedChunk, PlayerSave, REGION_SIZE, SaveReport, SaveStore,
     SavedInventory, SavedStack, UNKNOWN_BLOCK, UnknownBlocks, WorldMeta, write_atomic,
