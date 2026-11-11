@@ -63,7 +63,9 @@ mod spawning;
 mod stats;
 mod stress;
 mod survival;
+mod trading;
 mod ui;
+mod villagers;
 mod weather;
 
 use std::cell::{Ref, RefCell, RefMut};
@@ -189,6 +191,8 @@ struct VoxelGame {
     tour: Option<screenshots::Tour>,
     day: DayCycle,
     weather: weather::Weather,
+    villages: villagers::Villages,
+    trades: trading::TradeBook,
     /// Le brouillard par beau temps (début, fin) : la pluie le resserre.
     base_fog: (f32, f32),
     /// La sauvegarde (absente en mode démo, vol automatique ou captures, sauf si
@@ -319,6 +323,8 @@ impl VoxelGame {
             MobRegistry::load(&assets, &mod_dirs, &registry).context("chargement des créatures")?;
         let content = content::Content::load(&registry, &assets, &mod_dirs)
             .context("chargement des objets")?;
+        let trades =
+            trading::TradeBook::builtin(&content.items).context("chargement des échanges")?;
         log::info!("{} types de créatures", mob_registry.len());
 
         let (store, meta) = match &launch.world {
@@ -612,6 +618,8 @@ impl VoxelGame {
             tour,
             day: DayCycle::new(time, env_parse("VOXEL_DAY_LENGTH").unwrap_or(600.0)),
             weather: weather::Weather::new(seed),
+            villages: villagers::Villages::default(),
+            trades,
             base_fog: (view_distance * 0.6, view_distance * 0.95),
             store,
             last_autosave: Instant::now(),
@@ -783,6 +791,19 @@ impl VoxelGame {
             let streamer = self.world.borrow();
             self.weather.update(dt, streamer.world(), player_position)
         };
+        // Les habitants des villages proches.
+        {
+            let player_position = player::body(&self.ecs, self.player).position;
+            let shared = self.world.clone();
+            let streamer = shared.borrow();
+            self.villages.update(
+                dt,
+                &mut self.ecs,
+                streamer.generator(),
+                player_position,
+                &self.trades,
+            );
+        }
         if let Some(audio) = &mut self.audio {
             if thunder {
                 audio.play(audio::THUNDER);
@@ -867,6 +888,7 @@ impl VoxelGame {
                 && !bed.is_some_and(|pos| self.use_bed(pos))
                 && !self.open_container()
                 && !self.use_machine()
+                && !self.trade_with_villager()
                 && !self.feed_mob()
                 && !self.use_hoe()
                 && !self.use_fertilizer()
@@ -1443,7 +1465,7 @@ impl VoxelGame {
         }
     }
 
-    fn drop_stack(&mut self, pos: IVec3, stack: inventory::ItemStack) {
+    pub(crate) fn drop_stack(&mut self, pos: IVec3, stack: inventory::ItemStack) {
         let seed = self.next_random();
         drops::spawn(&mut self.ecs, stack, pos.as_vec3() + Vec3::splat(0.5), seed);
     }
@@ -1503,6 +1525,35 @@ impl VoxelGame {
             Vec3::splat(0.2),
             Vec3::new(1.0, 0.3, 0.1),
         ));
+    }
+
+    /// Un clic droit sur un habitant : l'écran d'échange.
+    fn trade_with_villager(&mut self) -> bool {
+        let block_distance = self.target.map_or(REACH, |hit| hit.distance);
+        let Some((mob, _)) = mobs::hit_mob(
+            &self.ecs,
+            self.camera.position,
+            self.camera.forward(),
+            block_distance,
+        ) else {
+            return false;
+        };
+        let key = self.mob_key(mob);
+        if !key.as_deref().is_some_and(|k| self.trades.trades(k)) {
+            return false;
+        }
+        self.ui.screen = ui::Screen::Trade(mob);
+        self.ui.inventory_open = true;
+        true
+    }
+
+    /// L'identifiant d'une créature (`core:farmer`).
+    pub(crate) fn mob_key(&self, mob: engine_ecs::Entity) -> Option<String> {
+        let kind = self.ecs.get::<components::Mob>(mob)?.kind;
+        self.ecs
+            .resource::<std::sync::Arc<MobRegistry>>()
+            .get(kind)
+            .map(|d| d.key.clone())
     }
 
     /// Un clic droit sur un levier, un bouton ou un répéteur.

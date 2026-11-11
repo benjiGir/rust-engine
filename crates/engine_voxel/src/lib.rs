@@ -60,7 +60,8 @@ pub use farming::{
 pub use fluid_sim::{FULL as FLUID_FULL, FluidKind, FluidReport, FluidSim};
 pub use fluids::{FluidDef, FluidRegistry};
 pub use generator::{
-    Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL, SEA_LEVEL, TerrainGenerator, TreeSite,
+    Blueprint, ChestLoot, ChestLootEntry, Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL, SEA_LEVEL,
+    Spot, StructureDef, StructureKind, StructureSet, StructureSite, TerrainGenerator, TreeSite,
     WORLD_HEIGHT_CHUNKS,
 };
 pub use grid::{BlockAccess, GridId, GridPos, Grids};

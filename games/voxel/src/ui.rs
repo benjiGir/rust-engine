@@ -76,6 +76,8 @@ pub enum Screen {
     Workbench,
     Furnace(IVec3),
     Chest(IVec3),
+    /// L'échange avec un habitant.
+    Trade(Entity),
 }
 
 impl GameUi {
@@ -645,6 +647,7 @@ impl VoxelGame {
             Screen::Workbench => "Établi",
             Screen::Furnace(_) => "Four",
             Screen::Chest(_) => "Coffre",
+            Screen::Trade(_) => "Échange",
         };
         egui::Window::new(title)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -20.0))
@@ -685,6 +688,7 @@ impl VoxelGame {
                     }
                     Screen::Furnace(pos) => self.furnace_panel(ui, pos),
                     Screen::Chest(pos) => self.chest_panel(ui, pos),
+                    Screen::Trade(mob) => self.trade_panel(ui, mob),
                 }
                 ui.separator();
                 self.player_slots(ui);
@@ -756,6 +760,72 @@ impl VoxelGame {
             });
         }
         true
+    }
+
+    /// Les échanges d'un habitant : une ligne par échange, un bouton pour le faire.
+    fn trade_panel(&mut self, ui: &mut egui::Ui, mob: Entity) {
+        let Some(key) = self.mob_key(mob) else {
+            // L'habitant a disparu (tué, ou trop loin) : on ferme.
+            self.close_screen();
+            self.ui.inventory_open = false;
+            return;
+        };
+        let name = {
+            let kind = self.ecs.get::<crate::components::Mob>(mob).map(|m| m.kind);
+            kind.and_then(|k| {
+                self.ecs
+                    .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+                    .get(k)
+                    .map(|d| d.name.clone())
+            })
+        };
+        ui.heading(name.unwrap_or_else(|| key.clone()));
+        let trades = self.trades.for_mob(&key).to_vec();
+        let uses = self
+            .ecs
+            .get::<crate::components::Trader>(mob)
+            .map(|t| t.uses.clone())
+            .unwrap_or_default();
+        let items = self.content.items.clone();
+        let label = |(item, count): (engine_voxel::ItemId, u32)| {
+            format!("{count} × {}", items.get(item).name)
+        };
+        let mut chosen = None;
+        for (i, trade) in trades.iter().enumerate() {
+            let left = uses.get(i).copied().unwrap_or(0);
+            let can = crate::trading::can_trade(&self.inventory, trade, left);
+            ui.horizontal(|ui| {
+                ui.label(format!("{}  →  {}", label(trade.give), label(trade.get)));
+                if ui.add_enabled(can, egui::Button::new("Échanger")).clicked() {
+                    chosen = Some(i);
+                }
+                ui.label(if left == 0 {
+                    "épuisé".to_string()
+                } else {
+                    format!("{left} restants")
+                });
+            });
+        }
+        if let Some(i) = chosen {
+            let left = uses.get(i).copied().unwrap_or(0);
+            if let Some(overflow) =
+                crate::trading::execute(&mut self.inventory, &items, &trades[i], left)
+            {
+                if let Some(mut trader) = self.ecs.get_mut::<crate::components::Trader>(mob) {
+                    trader.uses[i] = left - 1;
+                }
+                if overflow > 0 {
+                    let at = crate::player::body(&self.ecs, self.player)
+                        .position
+                        .floor()
+                        .as_ivec3();
+                    self.drop_stack(at, ItemStack::new(trades[i].get.0, overflow));
+                }
+                if let Some(audio) = &mut self.audio {
+                    audio.play("core:place_hard");
+                }
+            }
+        }
     }
 
     fn chest_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {

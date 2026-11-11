@@ -29,6 +29,8 @@ use crate::{FREEZING, LAVA_LEVEL};
 /// Emplacements tirés par colonne de chunks ; un emplacement devient un arbre avec la
 /// probabilité `densité / CANDIDATES`. La densité d'un biome reste donc sous 16.
 const CANDIDATES: u32 = 16;
+/// Les arbres s'arrêtent à cette distance (en blocs) du centre d'un village.
+const VILLAGE_CLEARING: i32 = 40;
 
 /// Un arbre à planter.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -53,6 +55,8 @@ impl TerrainGenerator {
         let mut rng = Rng64::new(hash3(self.seed, cx, 0, cz, 500));
         let size = CHUNK_SIZE as u32;
         let mut sites = Vec::new();
+        // Pas d'arbres dans un village : on les cherche une fois pour la colonne de chunks.
+        let villages = self.village_clearings(cx, cz);
         for _ in 0..CANDIDATES {
             // Tous les tirages d'abord, quoi qu'il arrive : la suite reste la même pour
             // chaque emplacement, que les précédents soient retenus ou non.
@@ -62,6 +66,11 @@ impl TerrainGenerator {
             let pick = rng.next_f32();
             let seed = rng.next_u64();
 
+            if villages.iter().any(|&(vx, vz)| {
+                (x - vx).abs() <= VILLAGE_CLEARING && (z - vz).abs() <= VILLAGE_CLEARING
+            }) {
+                continue;
+            }
             let column = self.column(x, z);
             let biome = self.biomes.get(column.biome);
             if biome.trees.is_empty() || accept >= biome.tree_density / CANDIDATES as f32 {

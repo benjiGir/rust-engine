@@ -404,6 +404,8 @@ pub fn wander(world: &mut World) {
                         .normalize_or_zero();
                     Some(cell_of(position + away * 8.0))
                 } else {
+                    // Un habitant reste près de chez lui : ses idées partent de sa maison.
+                    let home = world.get::<crate::components::Home>(entity).map(|h| h.0);
                     if wander.timer <= 0.0 {
                         // Une nouvelle idée : un point proche, ou rester sur place.
                         wander.timer = 3.0 + rng.next_f32() * 4.0;
@@ -412,10 +414,20 @@ pub fn wander(world: &mut World) {
                         } else {
                             let angle = rng.next_f32() * std::f32::consts::TAU;
                             let distance = 3.0 + rng.next_f32() * 5.0;
+                            let (center, distance) = match home {
+                                Some(h) => (h, distance.min(5.0)),
+                                None => (position, distance),
+                            };
                             Some(cell_of(
-                                position + Vec3::new(angle.cos(), 0.0, angle.sin()) * distance,
+                                center + Vec3::new(angle.cos(), 0.0, angle.sin()) * distance,
                             ))
                         };
+                    }
+                    // Trop loin de chez lui : il rentre.
+                    if let Some(h) = home
+                        && crate::spawning::horizontal_distance(h, position) > 10.0
+                    {
+                        follow.wander_goal = Some(cell_of(h));
                     }
                     follow.wander_goal
                 };
@@ -779,9 +791,14 @@ pub(crate) mod tests {
 
     /// Un petit monde ECS avec un terrain chargé autour de l'origine.
     pub(crate) fn sim() -> World {
+        sim_at(Vec3::new(5.0, 40.0, 5.0), 5)
+    }
+
+    /// Le même monde, chargé autour de `center`, avec cette graine.
+    pub(crate) fn sim_at(center: Vec3, seed: u32) -> World {
         let blocks = blocks();
         let mut streamer = ChunkStreamer::new(
-            TerrainGenerator::with_registry(5, blocks.clone()).unwrap(),
+            TerrainGenerator::with_registry(seed, blocks.clone()).unwrap(),
             StreamingConfig {
                 view_radius: 2,
                 ..StreamingConfig::default()
@@ -789,7 +806,7 @@ pub(crate) mod tests {
         );
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
         loop {
-            streamer.update(Vec3::new(5.0, 40.0, 5.0));
+            streamer.update(center);
             while streamer.next_event().is_some() {}
             if streamer.is_idle() {
                 break;

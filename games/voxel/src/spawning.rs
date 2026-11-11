@@ -142,10 +142,11 @@ fn census(world: &World, center: Vec3, registry: &MobRegistry) -> (usize, usize)
             if horizontal_distance(transform.position, center) > SIM_DISTANCE {
                 return;
             }
-            if registry.get(mob.kind).is_some_and(|d| d.hostile) {
-                counts.0 += 1;
-            } else {
-                counts.1 += 1;
+            match registry.get(mob.kind) {
+                Some(def) if def.hostile => counts.0 += 1,
+                // Un poids nul : un habitant, qui n'apparaît pas seul et ne compte pas.
+                Some(def) if def.spawn.weight == 0 => {}
+                _ => counts.1 += 1,
             }
         });
     counts

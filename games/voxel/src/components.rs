@@ -114,3 +114,13 @@ pub struct BreedCooldown {
 pub struct Baby {
     pub age_left: f32,
 }
+
+/// Une créature qui reste près de chez elle (les habitants d'un village).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Home(pub Vec3);
+
+/// Un marchand : combien de fois chacun de ses échanges est encore possible.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Trader {
+    pub uses: Vec<u32>,
+}

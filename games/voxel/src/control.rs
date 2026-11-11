@@ -159,6 +159,8 @@ pub enum Command {
     Inventory,
     Mode(MoveMode),
     Time(f32),
+    /// Les structures à moins de ce nombre de blocs du joueur.
+    Structures(i32),
     /// Le temps qu'il fait : `weather clear|rain|storm`.
     Weather(crate::weather::Sky),
     /// Le culling des grottes allumé ou non.
@@ -333,6 +335,11 @@ pub fn parse(line: &str) -> Result<Command> {
         "time" => {
             count(&[1])?;
             Command::Time(number(0)?.rem_euclid(1.0))
+        }
+        "structures" => {
+            count(&[0, 1])?;
+            let radius = if args.is_empty() { 600.0 } else { number(0)? };
+            Command::Structures(radius.clamp(16.0, 4000.0) as i32)
         }
         "weather" => {
             count(&[1])?;
@@ -629,6 +636,33 @@ impl VoxelGame {
             Command::Time(time) => {
                 self.day.time = time;
                 Ok(self.state_json())
+            }
+            Command::Structures(radius) => {
+                let feet = player::body(&self.ecs, self.player).position;
+                let streamer = self.streamer();
+                let generator = streamer.generator();
+                let list: Vec<String> = generator
+                    .structure_sites_near(feet.x.floor() as i32, feet.z.floor() as i32, radius)
+                    .iter()
+                    .map(|site| {
+                        let key = generator
+                            .structures()
+                            .and_then(|s| s.defs().get(site.def))
+                            .map_or("?", |d| d.key.as_str());
+                        let y = generator.column(site.x, site.z).height;
+                        format!(
+                            "{{\"kind\":{},\"pos\":[{},{},{}]}}",
+                            json_str(key),
+                            site.x,
+                            y,
+                            site.z
+                        )
+                    })
+                    .collect();
+                Ok(format!(
+                    "{{\"ok\":true,\"structures\":[{}]}}",
+                    list.join(",")
+                ))
             }
             Command::Weather(sky) => {
                 self.weather.set(sky);

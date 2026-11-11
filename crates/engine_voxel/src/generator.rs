@@ -175,6 +175,9 @@ pub struct TerrainGenerator {
     plant_blocks: PlantBlocks,
     /// `None` si un bloc d'arbre manque (un registre de test réduit) : pas d'arbres.
     tree_blocks: Option<TreeBlocks>,
+    /// Villages, ruines, donjons, mines (phase O9) ; `None` si un bloc manque.
+    structures: Option<StructureSet>,
+    structure_blocks: Option<StructureBlocks>,
 }
 
 impl TerrainGenerator {
@@ -211,8 +214,11 @@ impl TerrainGenerator {
             .filter(|(_, b)| b.kind == BiomeKind::Land)
             .map(|(id, _)| id)
             .collect();
+        let (structures, structure_blocks) = structures::load(&registry, &biomes);
         Ok(Self {
             seed,
+            structures,
+            structure_blocks,
             continentalness: fbm(0, 4, 1.0 / 1600.0),
             erosion: fbm(1, 3, 1.0 / 900.0),
             temperature: fbm(2, 2, 1.0 / 1100.0),
@@ -527,6 +533,13 @@ impl TerrainGenerator {
             .max()
             .unwrap_or(0)
             .max(SEA_LEVEL);
+        // Les structures qui touchent ce chunk : un toit peut dépasser du terrain.
+        let plans = self.structure_plans(chunk_pos);
+        let highest = if plans.is_empty() {
+            highest
+        } else {
+            highest + 40
+        };
         if origin.y > highest {
             return None; // Tout le chunk est au-dessus du sol et de la mer.
         }
@@ -576,6 +589,7 @@ impl TerrainGenerator {
         self.place_ores(&mut chunk, chunk_pos, &columns);
         self.place_plants(&mut chunk, chunk_pos, &columns);
         self.place_trees(&mut chunk, chunk_pos);
+        self.place_structures(&mut chunk, chunk_pos, &plans);
         // Les grottes ont pu tout vider.
         (!chunk.is_empty()).then_some(chunk)
     }
@@ -825,8 +839,14 @@ fn spline(x: f64, points: &[(f64, f64)]) -> f64 {
 }
 
 mod features;
+mod structures;
 #[cfg(test)]
 mod tests;
 
 use features::PlantBlocks;
 pub use features::TreeSite;
+use structures::StructureBlocks;
+pub use structures::{
+    Blueprint, ChestLoot, ChestLootEntry, Spot, StructureDef, StructureKind, StructureSet,
+    StructureSite,
+};

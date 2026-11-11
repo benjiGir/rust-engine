@@ -389,7 +389,6 @@ impl Inventory {
     }
 
     /// Le nombre total d'un objet.
-    #[cfg(test)]
     pub fn count(&self, item: ItemId) -> u32 {
         self.slots
             .iter()
@@ -397,6 +396,28 @@ impl Inventory {
             .filter(|s| s.item == item)
             .map(|s| s.count)
             .sum()
+    }
+
+    /// Retire `count` objets de la barre et de la réserve. `false` (et rien n'est retiré)
+    /// s'il n'y en a pas assez.
+    pub fn remove(&mut self, item: ItemId, count: u32) -> bool {
+        if self.count(item) < count {
+            return false;
+        }
+        let mut left = count;
+        for slot in self.slots.iter_mut() {
+            let Some(stack) = slot else { continue };
+            if stack.item != item || left == 0 {
+                continue;
+            }
+            let taken = stack.count.min(left);
+            stack.count -= taken;
+            left -= taken;
+            if stack.count == 0 {
+                *slot = None;
+            }
+        }
+        true
     }
 
     /// Les cases à prendre pour réunir les ingrédients d'une recette (une par ingrédient),
