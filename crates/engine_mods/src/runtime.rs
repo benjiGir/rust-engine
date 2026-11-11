@@ -38,6 +38,14 @@ use wasmtime::{
 /// Le carburant d'un appel : environ 50 millions d'instructions simples (quelques dizaines
 /// de millisecondes au plus). Au-delà, l'appel est interrompu.
 pub const FUEL_PER_CALL: u64 = 50_000_000;
+/// Le budget de temps d'un mod par tick de machines (20 par seconde) : des instructions
+/// WebAssembly, tous ses appels confondus (événements, machines, tick). Passé ce budget, ses
+/// événements du tick sont perdus et ses machines reportées d'un tick : un mod trop gourmand
+/// se ralentit lui-même, pas le jeu. Plus petit que [`FUEL_PER_CALL`], qui n'arrête que les
+/// boucles infinies.
+pub const TICK_BUDGET: u64 = 20_000_000;
+/// Un mod qui dépasse son budget pendant ce nombre de ticks de suite (5 secondes) est désactivé.
+pub const MAX_OVERRUN_TICKS: u32 = 100;
 /// La mémoire maximale d'un mod.
 pub const MEMORY_LIMIT: usize = 32 << 20;
 
@@ -272,6 +280,10 @@ impl ScriptHost {
             on_ui,
             on_options,
             disabled: None,
+            stats: ModStats::default(),
+            spent: 0,
+            consecutive_overruns: 0,
+            tick_budget: TICK_BUDGET,
         };
         if let Ok(init) = script
             ._instance
@@ -281,6 +293,19 @@ impl ScriptHost {
         }
         Ok(script)
     }
+}
+
+/// Ce qu'un mod a consommé (voir [`TICK_BUDGET`]), pour la mesure et le débogage.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModStats {
+    /// Instructions du dernier tick terminé, et le pire tick.
+    pub fuel_last_tick: u64,
+    pub fuel_peak_tick: u64,
+    /// Appels faits au script, et appels reportés ou perdus faute de budget.
+    pub calls: u64,
+    pub skipped_calls: u64,
+    /// Ticks où le budget a été dépassé.
+    pub overrun_ticks: u64,
 }
 
 /// Un mod chargé.
@@ -297,6 +322,11 @@ pub struct ScriptMod {
     on_options: Option<TypedFunc<(i32, i32, i32), ()>>,
     /// La raison de sa désactivation, s'il a planté.
     disabled: Option<String>,
+    stats: ModStats,
+    /// Instructions dépensées dans le tick en cours, et ticks de dépassement consécutifs.
+    spent: u64,
+    consecutive_overruns: u32,
+    tick_budget: u64,
 }
 
 impl ScriptMod {
@@ -328,6 +358,9 @@ impl ScriptMod {
         }
         self.store.set_fuel(FUEL_PER_CALL)?;
         let result = call(&mut self.store);
+        let used = FUEL_PER_CALL.saturating_sub(self.store.get_fuel().unwrap_or(0));
+        self.spent += used;
+        self.stats.calls += 1;
         let requests = std::mem::take(&mut self.store.data_mut().requests);
         match result {
             Ok(()) => Ok(requests),
@@ -360,6 +393,42 @@ impl ScriptMod {
         Ok(ptr)
     }
 
+    /// Le budget de ce tick est épuisé : les appels groupés du jeu attendent le suivant.
+    pub fn over_budget(&self) -> bool {
+        self.spent >= self.tick_budget
+    }
+
+    /// Change le budget par tick (les tests ; le jeu garde [`TICK_BUDGET`]).
+    pub fn set_tick_budget(&mut self, budget: u64) {
+        self.tick_budget = budget;
+    }
+
+    pub fn stats(&self) -> ModStats {
+        self.stats
+    }
+
+    /// Un nouveau tick de machines : le budget est rendu. Un mod qui dépasse son budget
+    /// [`MAX_OVERRUN_TICKS`] ticks de suite est désactivé.
+    pub fn begin_tick(&mut self) {
+        self.stats.fuel_last_tick = self.spent;
+        self.stats.fuel_peak_tick = self.stats.fuel_peak_tick.max(self.spent);
+        if self.spent >= self.tick_budget {
+            self.stats.overrun_ticks += 1;
+            self.consecutive_overruns += 1;
+            if self.consecutive_overruns >= MAX_OVERRUN_TICKS && self.disabled.is_none() {
+                let reason = format!(
+                    "dépasse son budget de temps ({} instructions par tick) depuis {} ticks",
+                    self.tick_budget, MAX_OVERRUN_TICKS
+                );
+                log::error!("mod « {} » désactivé — {reason}", self.id);
+                self.disabled = Some(reason);
+            }
+        } else {
+            self.consecutive_overruns = 0;
+        }
+        self.spent = 0;
+    }
+
     /// Transmet un événement, si le mod s'y est abonné.
     pub fn send_event(&mut self, event: &ModEvent) -> Result<Requests> {
         let kind = event.kind();
@@ -367,6 +436,10 @@ impl ScriptMod {
             return Ok(Requests::default());
         };
         if !self.subscribed(kind) || self.disabled.is_some() {
+            return Ok(Requests::default());
+        }
+        if self.over_budget() {
+            self.stats.skipped_calls += 1;
             return Ok(Requests::default());
         }
         let payload = event.payload();
@@ -435,6 +508,14 @@ impl ScriptMod {
         };
         if positions.is_empty() || self.disabled.is_some() {
             return Ok(Requests::default());
+        }
+        if self.over_budget() {
+            // Hors budget : les machines sont réveillées au tick suivant (par un tick programmé).
+            self.stats.skipped_calls += 1;
+            return Ok(Requests {
+                schedules: positions.iter().map(|&p| (p, 1)).collect(),
+                ..Requests::default()
+            });
         }
         let bytes: Vec<u8> = positions
             .iter()
@@ -542,6 +623,24 @@ impl ModRuntime {
 
     pub fn is_empty(&self) -> bool {
         self.scripts.is_empty()
+    }
+
+    /// Un nouveau tick de machines : chaque mod retrouve son budget de temps.
+    pub fn begin_tick(&self) {
+        for script in &self.scripts {
+            script.borrow_mut().begin_tick();
+        }
+    }
+
+    /// La consommation de chaque mod, pour la mesure.
+    pub fn stats(&self) -> Vec<(String, ModStats)> {
+        self.scripts
+            .iter()
+            .map(|s| {
+                let s = s.borrow();
+                (s.id().to_string(), s.stats())
+            })
+            .collect()
     }
 
     /// Les mods désactivés et pourquoi.

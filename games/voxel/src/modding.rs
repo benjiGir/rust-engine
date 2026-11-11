@@ -153,6 +153,8 @@ impl ModSystem {
             return (actions, None);
         }
         self.steps = 0;
+        // Un nouveau tick de machines : chaque mod retrouve son budget de temps.
+        self.runtime.begin_tick();
         let report = {
             let subs = self.subgrids.borrow();
             let grids = Grids::with_subgrids(&self.world, &subs);
@@ -257,6 +259,11 @@ impl ModSystem {
                 ),
             }
         }
+    }
+
+    /// La consommation de chaque script, pour `ctl mods`.
+    pub fn mod_stats(&self) -> Vec<(String, engine_mods::ModStats)> {
+        self.runtime.stats()
     }
 
     pub fn disabled(&self) -> Vec<(String, String)> {

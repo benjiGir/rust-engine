@@ -678,3 +678,81 @@ fn a_script_has_an_options_page_and_persistent_settings() {
     // Les réglages sont par mod : un autre mod ne voit pas « k ».
     assert_eq!(settings.borrow().get("autre", "k"), None);
 }
+
+/// Un mod qui, à chaque événement, brûle environ 2 millions d'instructions.
+fn burner() -> String {
+    r#"(module
+        (import "voxel" "subscribe" (func $subscribe (param i32)))
+        (memory (export "memory") 1)
+        (func (export "sdk_alloc") (param i32) (result i32) i32.const 1024)
+        (func (export "mod_init") (call $subscribe (i32.const 1)))
+        (func (export "on_event") (param i32 i32 i32) (local $i i32)
+            (loop $l
+                (br_if $l (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 400000))))))
+    "#
+    .to_string()
+}
+
+#[test]
+fn a_mod_over_its_tick_budget_waits_for_the_next_tick() {
+    let s = loaded_streamer();
+    let mut script = load(&burner(), &s).unwrap();
+    script.set_tick_budget(1_000_000);
+    script.send_event(&broken()).unwrap();
+    assert!(
+        script.over_budget(),
+        "~2 M d'instructions pour 1 M de budget"
+    );
+    // Dans le même tick, l'événement suivant n'est pas traité (et compté).
+    let before = script.stats().calls;
+    script.send_event(&broken()).unwrap();
+    assert_eq!(script.stats().calls, before);
+    assert_eq!(script.stats().skipped_calls, 1);
+    // Au tick suivant, le budget est rendu.
+    script.begin_tick();
+    assert!(!script.over_budget());
+    assert!(script.stats().fuel_last_tick >= 1_000_000);
+    assert_eq!(script.stats().overrun_ticks, 1);
+    script.send_event(&broken()).unwrap();
+    assert!(script.stats().calls > before, "le script est rappelé");
+}
+
+#[test]
+fn skipped_machines_are_woken_again_next_tick() {
+    let s = loaded_streamer();
+    // Un mod qui exporte `on_machines` et brûle ~2 M d'instructions à chaque appel.
+    let wat = r#"(module
+        (memory (export "memory") 1)
+        (func (export "sdk_alloc") (param i32) (result i32) i32.const 1024)
+        (func (export "on_machines") (param i32 i32 i32) (local $i i32)
+            (loop $l
+                (br_if $l (i32.lt_u (local.tee $i (i32.add (local.get $i) (i32.const 1))) (i32.const 400000))))))"#;
+    let mut machines = load(wat, &s).unwrap();
+    machines.set_tick_budget(1_000_000);
+    let at = [GridPos::world(IVec3::new(1, 2, 3))];
+    machines.machines(3, &at).unwrap();
+    assert!(machines.over_budget());
+    let late = machines.machines(3, &at).unwrap();
+    assert_eq!(late.schedules, vec![(at[0], 1)]);
+}
+
+#[test]
+fn a_mod_over_budget_for_five_seconds_is_disabled() {
+    let s = loaded_streamer();
+    let mut script = load(&burner(), &s).unwrap();
+    script.set_tick_budget(1_000_000);
+    for _ in 0..crate::MAX_OVERRUN_TICKS {
+        script.send_event(&broken()).unwrap();
+        script.begin_tick();
+    }
+    let reason = script.disabled().expect("désactivé");
+    assert!(reason.contains("budget"), "{reason}");
+    // Un mod qui reste dans son budget n'est jamais inquiété.
+    let mut calm = load(&burner(), &s).unwrap();
+    for _ in 0..crate::MAX_OVERRUN_TICKS * 2 {
+        calm.send_event(&broken()).unwrap();
+        calm.begin_tick();
+    }
+    assert!(calm.disabled().is_none());
+    assert_eq!(calm.stats().overrun_ticks, 0);
+}

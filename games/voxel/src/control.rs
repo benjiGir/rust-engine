@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-9 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | mods | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -187,6 +187,8 @@ pub enum Command {
     /// Réapparaître, depuis l'écran de mort.
     Respawn,
     /// La pause, la reprise, la page d'options d'un mod, et une action du joueur dans cette page.
+    /// La consommation de temps de chaque mod.
+    Mods,
     Pause,
     Resume,
     ModOptions(String),
@@ -393,6 +395,7 @@ pub fn parse(line: &str) -> Result<Command> {
         "attack" => Command::Attack,
         "use" => Command::Use,
         "respawn" => Command::Respawn,
+        "mods" => Command::Mods,
         "pause" => Command::Pause,
         "resume" => Command::Resume,
         "modoptions" => {
@@ -549,6 +552,7 @@ impl VoxelGame {
                 | Command::Culling(_)
                 | Command::Respawn
                 | Command::Resume
+                | Command::Mods
                 | Command::ModOptions(_)
                 | Command::OptionsEvent(..)
                 | Command::Inventory
@@ -881,6 +885,31 @@ impl VoxelGame {
             Command::Xp(points) => {
                 self.grant_xp(points);
                 Ok(self.state_json())
+            }
+            Command::Mods => {
+                let disabled = self.mods.disabled();
+                let rows: Vec<String> = self
+                    .mods
+                    .mod_stats()
+                    .into_iter()
+                    .map(|(id, s)| {
+                        let off = disabled
+                            .iter()
+                            .find(|(m, _)| *m == id)
+                            .map_or("null".to_string(), |(_, why)| json_str(why));
+                        format!(
+                            "{{\"id\":{},\"disabled\":{off},\"budget\":{},\"fuel_last_tick\":{},\"fuel_peak_tick\":{},\"calls\":{},\"skipped_calls\":{},\"overrun_ticks\":{}}}",
+                            json_str(&id),
+                            engine_mods::TICK_BUDGET,
+                            s.fuel_last_tick,
+                            s.fuel_peak_tick,
+                            s.calls,
+                            s.skipped_calls,
+                            s.overrun_ticks
+                        )
+                    })
+                    .collect();
+                Ok(format!("{{\"ok\":true,\"mods\":[{}]}}", rows.join(",")))
             }
             Command::Pause => {
                 self.mode = Mode::Paused(crate::menus::PausePage::Main);

@@ -4,6 +4,8 @@
 //!
 //! - `build-mods` : compile le script de chaque mod (`mods/<id>/script`) en WebAssembly
 //!   et copie le `.wasm` à l'endroit indiqué par son `mod.ron`.
+//! - `new-mod <id>` : crée le squelette d'un mod ; `test-mod <id>` : compile et lance ses tests
+//!   sans fenêtre (voir `new_mod.rs`).
 //! - `check-arch` : vérifie les règles d'architecture (voir `check_arch.rs`).
 //! - `ctl <commande>...` : pilote le jeu lancé avec `VOXEL_CONTROL` (voir `ctl.rs`).
 //! - `bench [--runs N] [--compare ancien.csv]` : le benchmark reproductible (voir `bench.rs`).
@@ -13,6 +15,7 @@ mod bench;
 mod check_arch;
 mod ctl;
 mod hooks;
+mod new_mod;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -27,11 +30,17 @@ fn main() -> Result<()> {
         "build-mods" => build_mods(),
         "check-arch" => check_arch::run(&root()),
         "ctl" => ctl::run(std::env::args().skip(2).collect()),
+        "new-mod" => new_mod::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
+        "test-mod" => new_mod::test(
+            &root(),
+            &std::env::args().skip(2).collect::<Vec<_>>(),
+            build_mods,
+        ),
         "hooks" => hooks::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         "bench" => bench::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         _ => {
             eprintln!(
-                "usage : cargo xtask build-mods | check-arch | ctl <commande>... | bench | hooks"
+                "usage : cargo xtask build-mods | new-mod <id> | test-mod <id> | check-arch | ctl <commande>... | bench | hooks"
             );
             bail!("tâche inconnue : « {task} »")
         }

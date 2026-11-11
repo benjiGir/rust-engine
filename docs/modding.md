@@ -4,6 +4,27 @@ Un mod ajoute au jeu des **données** (blocs, fluides, créatures, textures, son
 veut, un **script** : du code Rust compilé en WebAssembly, qui réagit aux événements du jeu et
 fait fonctionner des machines. Le mod d'exemple (`mods/example`) montre tout ce qui suit.
 
+## Démarrer vite
+
+```sh
+cargo xtask new-mod mon_mod     # le squelette : manifeste, un bloc, un script, un test
+cargo xtask test-mod mon_mod    # compile le script, puis lance ses tests sans fenêtre
+cargo xtask build-mods          # recompile les scripts (le jeu les recharge à chaud)
+```
+
+`new-mod` crée `mods/mon_mod/` (manifeste, `blocks.ron`, `script/` avec un test) et l'ajoute au
+workspace. Les **tests sans fenêtre** utilisent `engine_mods::testing::Harness` : le vrai script
+compilé, dans un petit monde reproductible, avec les blocs et objets du jeu et des mods.
+
+```rust
+let mut h = Harness::for_mod("mon_mod")?;
+h.place(IVec3::new(0, 100, 0), "mon_mod:machine");
+let (pris, demandes) = h.use_block(IVec3::new(0, 100, 0))?;   // un clic droit
+assert!(pris);
+// h.event(&ModEvent::...), h.machines(MACHINES_TICK, &[pos]), h.ui(pos, UI_BUTTON, id, 0),
+// h.block(pos) pour lire le monde, h.next_tick() pour rendre son budget au mod.
+```
+
 ## Le dossier d'un mod
 
 ```
@@ -364,6 +385,12 @@ Un script est du code écrit par quelqu'un d'autre. Il tourne dans `wasmtime`, i
 - **mémoire bornée** : 32 Mio au plus ;
 - **temps borné** : chaque appel reçoit du « carburant » (50 millions d'instructions). Un script
   qui boucle à l'infini tombe en panne sèche, l'appel s'arrête ;
+- **budget par tick** : chaque mod dispose de 20 millions d'instructions par tick de machines (tous
+  ses appels confondus). Au-delà, ses événements du tick sont perdus et ses machines reportées d'un
+  tick (réveillées par un tick programmé) : un mod gourmand se ralentit lui-même, pas le jeu.
+  Un mod qui dépasse son budget pendant 100 ticks de suite (5 secondes) est désactivé. Le budget est
+  rendu à chaque tick ; `cargo xtask ctl mods` montre ce que chaque mod consomme (dernier tick,
+  pire tick, appels reportés) ;
 - **un script qui plante ou boucle est désactivé**, avec un message dans les logs ; le jeu
   continue sans lui.
 
