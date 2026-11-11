@@ -46,6 +46,41 @@ pub fn is_cold(world: &World, pos: IVec3) -> bool {
     biomes.get(crate::biome::BiomeId(id)).temperature - altitude * 0.012 < FREEZING
 }
 
+/// Ce qui tombe du ciel à un endroit quand il y a du mauvais temps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Precipitation {
+    /// Rien : un désert reste sec.
+    None,
+    Rain,
+    /// Dans le froid (biome gelé, ou haute altitude).
+    Snow,
+}
+
+/// L'humidité en dessous de laquelle il ne pleut jamais (le désert, la savane).
+const DRY_HUMIDITY: f64 = -0.5;
+
+/// La précipitation au-dessus de `pos`, selon le biome (et l'altitude).
+pub fn precipitation_at(world: &World, pos: IVec3) -> Precipitation {
+    let Some(biomes) = world.biomes() else {
+        return Precipitation::Rain;
+    };
+    let (chunk, [x, _, z]) = World::split(pos);
+    let Some(id) = world.chunk(chunk).and_then(|c| c.biome(x, z)) else {
+        return Precipitation::Rain;
+    };
+    if id as usize >= biomes.len() {
+        return Precipitation::Rain;
+    }
+    let biome = biomes.get(crate::biome::BiomeId(id));
+    if is_cold(world, pos) {
+        Precipitation::Snow
+    } else if biome.kind == crate::biome::BiomeKind::Land && biome.climate.1 <= DRY_HUMIDITY {
+        Precipitation::None
+    } else {
+        Precipitation::Rain
+    }
+}
+
 pub struct Grass {
     grass: BlockId,
     dirt: BlockId,
@@ -416,5 +451,25 @@ mod tests {
             s.borrow().world().block(at) == snow
         });
         assert!(done, "pas de neige sur l'herbe de la toundra");
+    }
+
+    #[test]
+    fn precipitation_depends_on_the_biome() {
+        let s = world();
+        let at = IVec3::new(8, 110, 8);
+        let set = |key: &str| {
+            let id = s.borrow().generator().biomes().id(key).unwrap();
+            s.borrow_mut()
+                .world_mut_for_tests()
+                .chunk_mut(IVec3::new(0, 3, 0))
+                .set_biomes(vec![id.0; 1024]);
+        };
+        let kind = || precipitation_at(s.borrow().world(), at);
+        set("core:plains");
+        assert_eq!(kind(), Precipitation::Rain);
+        set("core:desert");
+        assert_eq!(kind(), Precipitation::None);
+        set("core:snowy_tundra");
+        assert_eq!(kind(), Precipitation::Snow);
     }
 }

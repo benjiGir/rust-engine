@@ -64,6 +64,7 @@ mod stats;
 mod stress;
 mod survival;
 mod ui;
+mod weather;
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
@@ -187,6 +188,9 @@ struct VoxelGame {
     /// `Some` en mode `VOXEL_SCREENSHOTS` : la visite guidée en cours.
     tour: Option<screenshots::Tour>,
     day: DayCycle,
+    weather: weather::Weather,
+    /// Le brouillard par beau temps (début, fin) : la pluie le resserre.
+    base_fog: (f32, f32),
     /// La sauvegarde (absente en mode démo, vol automatique ou captures, sauf si
     /// `VOXEL_WORLD` est donné : ces modes modifient le monde).
     store: Option<Arc<engine_voxel::SaveStore>>,
@@ -607,6 +611,8 @@ impl VoxelGame {
             demo,
             tour,
             day: DayCycle::new(time, env_parse("VOXEL_DAY_LENGTH").unwrap_or(600.0)),
+            weather: weather::Weather::new(seed),
+            base_fog: (view_distance * 0.6, view_distance * 0.95),
             store,
             last_autosave: Instant::now(),
             save_started: Instant::now(),
@@ -772,6 +778,17 @@ impl VoxelGame {
             self.handle_keys(ctx);
         }
         self.day.update(dt);
+        let thunder = {
+            let player_position = player::body(&self.ecs, self.player).position;
+            let streamer = self.world.borrow();
+            self.weather.update(dt, streamer.world(), player_position)
+        };
+        if let Some(audio) = &mut self.audio {
+            if thunder {
+                audio.play(audio::THUNDER);
+            }
+            audio.update_rain(self.weather.amount());
+        }
         // L'heure, pour l'apparition des créatures (l'ECS ne connaît pas le jour).
         *self.ecs.resource_mut::<spawning::Sky>() = spawning::Sky {
             daylight: self.day.daylight(),
@@ -913,6 +930,7 @@ impl VoxelGame {
         self.renderer.time = self.started.elapsed().as_secs_f32();
         let mut mob_boxes = mobs::instances(&self.ecs, alpha);
         projectiles::instances(&self.ecs, alpha, &mut mob_boxes);
+        self.weather.instances(self.camera.position, &mut mob_boxes);
         // Les objets au sol : de petits cubes qui tournent.
         mob_boxes.extend(drops::instances(
             &self.ecs,
@@ -939,10 +957,15 @@ impl VoxelGame {
         // L'heure décide du soleil et de la couleur du ciel, donc du brouillard.
         self.renderer.sun = Sun {
             direction: self.day.sun_direction(),
-            daylight: self.day.daylight(),
+            daylight: self.day.daylight() * self.weather.daylight_factor(),
             color: self.day.sun_color(),
         };
-        let sky = self.day.sky_color().as_dvec3();
+        let fog_scale = self.weather.fog_scale();
+        self.renderer.fog = Some(Fog {
+            start: self.base_fog.0 * fog_scale,
+            end: self.base_fog.1 * fog_scale,
+        });
+        let sky = self.weather.tint_sky(self.day.sky_color()).as_dvec3();
         self.renderer.clear_color = engine_render::wgpu_color(sky.x, sky.y, sky.z);
         self.renderer.outline = self.target.map(|hit| {
             let min = hit.block_pos.as_vec3();

@@ -114,6 +114,35 @@ fn splash(seed: u64) -> Vec<f32> {
     normalize(samples, 0.8)
 }
 
+/// La pluie : un bruit clair et continu (huit secondes qui bouclent sans à-coup).
+fn rain(duration: f32, seed: u64) -> Vec<f32> {
+    let n = seconds(duration);
+    let hiss = filtered_noise(n, 0.5, seed);
+    let body = filtered_noise(n, 0.12, seed + 1);
+    let samples = hiss
+        .iter()
+        .zip(&body)
+        .map(|(h, b)| h * 0.7 + b * 0.5)
+        .collect();
+    normalize(samples, 0.6)
+}
+
+/// Le tonnerre : un claquement sec, puis un grondement grave qui roule et s'éteint.
+fn thunder(seed: u64) -> Vec<f32> {
+    let n = seconds(4.0);
+    let crack = filtered_noise(n, 0.4, seed);
+    let rumble = filtered_noise(n, 0.012, seed + 1);
+    let samples = (0..n)
+        .map(|i| {
+            let t = i as f32 / RATE as f32;
+            let roll = 0.6 + 0.4 * (t * 7.0).sin().abs();
+            crack[i] * hit_envelope(i, 0.002, 0.06) * 0.6
+                + rumble[i] * 6.0 * hit_envelope(i, 0.15, 1.3) * roll
+        })
+        .collect();
+    normalize(samples, 0.9)
+}
+
 /// Le vent : du bruit très filtré dont le volume ondule. Le nombre de vagues est entier
 /// sur la durée : le son peut boucler sans à-coup de volume.
 fn wind(duration: f32, seed: u64) -> Vec<f32> {
@@ -205,6 +234,8 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         ("place_soft", thump(160.0, 80.0, 0.15, 8)),
         ("place_hard", thump(320.0, 140.0, 0.12, 9)),
         ("splash", splash(10)),
+        ("rain", rain(8.0, 13)),
+        ("thunder", thunder(15)),
         ("ambience_day", wind(8.0, 11)),
         ("ambience_night", night(8.0, 12)),
     ];

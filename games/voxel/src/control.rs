@@ -159,6 +159,8 @@ pub enum Command {
     Inventory,
     Mode(MoveMode),
     Time(f32),
+    /// Le temps qu'il fait : `weather clear|rain|storm`.
+    Weather(crate::weather::Sky),
     /// Le culling des grottes allumé ou non.
     Culling(bool),
     /// Un coup au joueur (armure et invulnérabilité comprises).
@@ -331,6 +333,12 @@ pub fn parse(line: &str) -> Result<Command> {
         "time" => {
             count(&[1])?;
             Command::Time(number(0)?.rem_euclid(1.0))
+        }
+        "weather" => {
+            count(&[1])?;
+            Command::Weather(crate::weather::Sky::parse(args[0]).ok_or_else(|| {
+                anyhow::anyhow!("temps inconnu « {} » (clear, rain ou storm)", args[0])
+            })?)
         }
         "eat" => Command::Eat,
         "mobs" => Command::Mobs,
@@ -621,6 +629,10 @@ impl VoxelGame {
             Command::Time(time) => {
                 self.day.time = time;
                 Ok(self.state_json())
+            }
+            Command::Weather(sky) => {
+                self.weather.set(sky);
+                Ok(format!("{{\"ok\":true,\"weather\":\"{}\"}}", sky.name()))
             }
             Command::Damage(amount) => {
                 let dealt = self.hurt_player(amount, crate::survival::DamageCause::Command);
@@ -943,6 +955,11 @@ mod tests {
             })
         );
         assert_eq!(parse("time 1.25").unwrap(), Command::Time(0.25));
+        assert_eq!(
+            parse("weather storm").unwrap(),
+            Command::Weather(crate::weather::Sky::Storm)
+        );
+        assert!(parse("weather hail").is_err());
     }
 
     #[test]

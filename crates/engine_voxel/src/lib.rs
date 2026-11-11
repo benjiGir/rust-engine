@@ -77,6 +77,7 @@ pub use mesh::{
 };
 pub use pathfind::{Path, PathRules, find_path};
 pub use physics::{PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
+pub use plants::{Precipitation, precipitation_at};
 pub use raycast::{RayHit, ray_aabb, raycast};
 pub use registry::{BlockDef, BlockRegistry, BlockSounds, CORE_NAMESPACE, Shape, Support, Tint};
 pub use save::{

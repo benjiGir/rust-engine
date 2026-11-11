@@ -36,7 +36,7 @@ crates/mod_sdk          # le kit pour écrire le script d'un mod en Rust (compil
 tools/xtask             # tâches du projet : cargo xtask build-mods, check-arch, hooks, bench, ctl
 docs/                   # modding.md (écrire un mod), architecture.md (réseaux, fluides, structures mobiles)
 games/voxel             # le jeu (E : inventaire et artisanat, clic droit : établi/four/coffre, F3 : inspecteur,
-                        # F : vol, T : temps, F1/F2 : rendu, F4 : bras, houe : clic droit laboure, graines : se plantent sur la terre labourée, engrais : accélère la pousse, blé/carotte : élevage, F6 : culling des grottes) ; clic gauche maintenu : miner
+                        # F : vol, T : temps, F1/F2 : rendu, météo (pluie, neige, orage, nuages ; `weather clear|rain|storm` en commande), F4 : bras, houe : clic droit laboure, graines : se plantent sur la terre labourée, engrais : accélère la pousse, blé/carotte : élevage, F6 : culling des grottes) ; clic gauche maintenu : miner
 assets/core/            # blocks.ron (les blocs de base), biomes.ron (15 biomes), ores.ron (minerais par profondeur),
                         # fluids.ron, items.ron (objets, outils, armures), recipes.ron, smelting.ron, loot.ron,
                         # textures/ et items/ (PNG 16×16), sounds/ (WAV)
@@ -104,7 +104,7 @@ Variables du jeu :
 - `VOXEL_CONTROL=1` (ou un numéro de port, 7878 par défaut) : le jeu écoute des commandes texte sur
   `127.0.0.1` et répond en JSON. Utile pour tester sans clavier ou écrire des scénarios :
   `cargo xtask ctl state "goto 0 80 0" "wait 2" "look 0 -60" break "screenshot shots/a.png"`.
-  `cargo xtask ctl help` liste les commandes (déplacement, regard, blocs, inventaire, heure, capture) ;
+  `cargo xtask ctl help` liste les commandes (déplacement, regard, blocs, inventaire, heure, météo, capture) ;
 - `VOXEL_BENCH=fichier.csv` : le benchmark reproductible (graine fixe, 6 trajets, midi figé, sans VSync,
   1280 × 720) ; `VOXEL_BENCH_ONLY=foret,ocean` pour quelques trajets. Plus simple :
   `cargo xtask bench` (3 passages, médianes, résultat dans `target/bench/<commit>.csv`), puis après un

@@ -29,6 +29,8 @@ use kira::{AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Tween};
 const AMBIENCE_DAY: &str = "core:ambience_day";
 const AMBIENCE_NIGHT: &str = "core:ambience_night";
 pub const SPLASH: &str = "core:splash";
+const RAIN: &str = "core:rain";
+pub const THUNDER: &str = "core:thunder";
 
 /// Les réglages, lus dans l'environnement.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -84,6 +86,9 @@ pub struct Audio {
     sounds: HashMap<String, StaticSoundData>,
     day: Option<StaticSoundHandle>,
     night: Option<StaticSoundHandle>,
+    /// La boucle de pluie, et le dernier volume appliqué.
+    rain: Option<StaticSoundHandle>,
+    last_rain: f32,
     /// Le dernier mélange jour/nuit appliqué, pour ne pas renvoyer la même commande.
     last_mix: f32,
     /// Un petit générateur pseudo-aléatoire : chaque son est joué un peu plus aigu ou
@@ -120,6 +125,8 @@ impl Audio {
             sounds: load_sounds(registry),
             day: None,
             night: None,
+            rain: None,
+            last_rain: -1.0,
             last_mix: -1.0,
             seed: 0x9E37_79B9,
         };
@@ -146,11 +153,15 @@ impl Audio {
     /// Relit les fichiers (rechargement à chaud) et relance l'ambiance.
     pub fn reload(&mut self, registry: &BlockRegistry) {
         self.sounds = load_sounds(registry);
-        for handle in [self.day.take(), self.night.take()].into_iter().flatten() {
+        for handle in [self.day.take(), self.night.take(), self.rain.take()]
+            .into_iter()
+            .flatten()
+        {
             let mut handle = handle;
             handle.stop(Tween::default());
         }
         self.last_mix = -1.0;
+        self.last_rain = -1.0;
         self.start_ambience();
         log::info!("{} sons rechargés", self.sounds.len());
     }
@@ -165,6 +176,22 @@ impl Audio {
         };
         self.day = start(AMBIENCE_DAY, self);
         self.night = start(AMBIENCE_NIGHT, self);
+        self.rain = start(RAIN, self);
+    }
+
+    /// Le volume de la pluie, de 0 (rien) à 1 (l'averse).
+    pub fn update_rain(&mut self, amount: f32) {
+        if (amount - self.last_rain).abs() < 0.02 {
+            return;
+        }
+        self.last_rain = amount;
+        let tween = Tween {
+            duration: std::time::Duration::from_secs(1),
+            ..Tween::default()
+        };
+        if let Some(rain) = &mut self.rain {
+            rain.set_volume(to_decibels(amount * 0.8), tween);
+        }
     }
 
     /// À chaque image : fond le vent du jour et les grillons de la nuit selon la lumière.
@@ -221,7 +248,13 @@ impl Audio {
 /// Tous les sons cités par le registre, plus l'ambiance et l'éclaboussure.
 /// Le décodage des WAV se fait ici, une fois, loin du thread audio.
 fn load_sounds(registry: &BlockRegistry) -> HashMap<String, StaticSoundData> {
-    let mut keys: Vec<String> = vec![AMBIENCE_DAY.into(), AMBIENCE_NIGHT.into(), SPLASH.into()];
+    let mut keys: Vec<String> = vec![
+        AMBIENCE_DAY.into(),
+        AMBIENCE_NIGHT.into(),
+        SPLASH.into(),
+        RAIN.into(),
+        THUNDER.into(),
+    ];
     for (_, def) in registry.iter() {
         for key in [&def.sounds.step, &def.sounds.break_, &def.sounds.place]
             .into_iter()
