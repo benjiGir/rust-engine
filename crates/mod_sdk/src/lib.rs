@@ -36,10 +36,10 @@ pub use host::{
     Item, Recipe, add_energy, add_inventory, add_kinetic, add_tank, block_base, block_id, call_mod,
     close_menu, data, energy_extract, energy_insert, energy_stored, find_recipe, fluid_amount,
     fluid_drain, fluid_fill, get_block, give_item, give_stack, item_count, item_extract, item_id,
-    item_insert, kinetic_speed, log, mod_loaded, power, random, received_power, schedule_tick,
-    set_block, set_data, set_kinetic, set_power, set_setting, set_slot, set_world_value, setting,
-    setting_bool, setting_f32, setting_i32, show_menu, show_options, slot, spawn_entity, subscribe,
-    world_value,
+    item_insert, kinetic_speed, log, mod_loaded, power, random, received_power, register_command,
+    schedule_tick, set_block, set_data, set_kinetic, set_power, set_setting, set_slot,
+    set_world_value, setting, setting_bool, setting_f32, setting_i32, show_menu, show_options,
+    slot, spawn_entity, subscribe, world_value,
 };
 
 /// Une grille de blocs : le monde (`Grid::WORLD`), ou une structure mobile (plus tard).
@@ -239,6 +239,11 @@ pub trait Mod {
     fn call(&mut self, _name: &str, _args: &[u8]) -> Option<Vec<u8>> {
         None
     }
+    /// Le joueur a tapé la commande `/name args` déclarée avec [`register_command`]. La réponse
+    /// s'affiche dans la console (une ligne par `\n`) ; `None` : rien à dire.
+    fn command(&mut self, _name: &str, _args: &str) -> Option<String> {
+        None
+    }
 }
 
 // ----- La mécanique d'export (utilisée par `export_mod!`) -----
@@ -433,6 +438,20 @@ macro_rules! export_mod {
                 Some((name, args)) => {
                     match __MOD.with_borrow_mut(|m| $crate::Mod::call(m, &name, &args)) {
                         Some(reply) => $crate::__private::set_reply(reply),
+                        None => -1,
+                    }
+                }
+                None => -1,
+            }
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn on_command(_ptr: i32, len: i32) -> i32 {
+            match $crate::__private::call_request(len) {
+                Some((name, args)) => {
+                    let args = String::from_utf8_lossy(&args).into_owned();
+                    match __MOD.with_borrow_mut(|m| $crate::Mod::command(m, &name, &args)) {
+                        Some(text) => $crate::__private::set_reply(text.into_bytes()),
                         None => -1,
                     }
                 }

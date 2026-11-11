@@ -574,6 +574,15 @@ pub fn set_world_value(key: &str, value: &str) -> bool {
     unsafe { ffi::world_set(key_ptr, key_len, val_ptr, val_len) != 0 }
 }
 
+/// Déclare la commande `/nom` du mod (dans [`crate::Mod::init`]) : `help` est sa ligne d'aide
+/// dans `/help`. Le nom : minuscules, chiffres et `_`, 32 caractères au plus.
+pub fn register_command(name: &str, help: &str) {
+    let (name_ptr, name_len) = addr(name.as_bytes());
+    let (help_ptr, help_len) = addr(help.as_bytes());
+    // SAFETY: l'hôte lit dans `name` et `help`, vivants pendant l'appel.
+    unsafe { ffi::register_command(name_ptr, name_len, help_ptr, help_len) }
+}
+
 /// Au plus ce nombre d'octets pour les arguments et la réponse d'un appel entre mods.
 pub const MAX_CALL_BYTES: usize = 64 * 1024;
 

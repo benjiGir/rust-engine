@@ -152,6 +152,32 @@ impl Mod for Mecanique {
     fn init(&mut self) {
         self.crank = mod_sdk::block_id("mecanique:crank").unwrap_or_default();
         self.press = mod_sdk::block_id("mecanique:press").unwrap_or_default();
+        mod_sdk::register_command("tours", "combien de tours de manivelle dans ce monde");
+        mod_sdk::register_command(
+            "manivelle",
+            "<tr/min> : la vitesse de la manivelle (sans argument : la lire)",
+        );
+    }
+
+    fn command(&mut self, name: &str, args: &str) -> Option<String> {
+        match name {
+            "tours" => Some(format!(
+                "La manivelle a tourné {} fois dans ce monde.",
+                crank_turns()
+            )),
+            "manivelle" => match args.trim().parse::<f32>() {
+                Ok(speed) if (1.0..=256.0).contains(&speed) => {
+                    mod_sdk::set_setting("crank_speed", &speed.round().to_string());
+                    Some(format!("Manivelle réglée à {} tr/min.", speed.round()))
+                }
+                Ok(_) => Some("La vitesse va de 1 à 256 tr/min.".to_string()),
+                Err(_) if args.trim().is_empty() => {
+                    Some(format!("Manivelle à {} tr/min.", crank_speed()))
+                }
+                Err(_) => Some("Usage : /manivelle <tr/min>".to_string()),
+            },
+            _ => None,
+        }
     }
 
     fn machines(&mut self, call: MachineCall, positions: &[Pos]) {

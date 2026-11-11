@@ -235,6 +235,23 @@ impl ModSystem {
         (used, actions)
     }
 
+    /// Les commandes `/nom` des mods : (mod, nom, aide).
+    pub fn commands(&self) -> Vec<(String, String, String)> {
+        self.runtime.commands()
+    }
+
+    /// Le joueur tape la commande `/name args` du mod `mod_id` : sa réponse, et ce qu'il demande
+    /// au jeu.
+    pub fn command(
+        &mut self,
+        mod_id: &str,
+        name: &str,
+        args: &str,
+    ) -> (Option<String>, Vec<MachineAction>) {
+        let (reply, requests) = self.runtime.command(mod_id, name, args);
+        (reply, self.settle(requests))
+    }
+
     /// Une action du joueur dans le menu d'une machine du mod `mod_id`.
     pub fn ui_event(
         &mut self,

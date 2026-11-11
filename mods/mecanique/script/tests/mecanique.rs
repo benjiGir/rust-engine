@@ -203,3 +203,34 @@ fn the_generator_places_workshops_with_their_machines_and_loot() {
     let ruby = h.block_id("example:ruby");
     assert!(generator.biomes().ores().iter().any(|o| o.block == ruby));
 }
+
+#[test]
+fn the_commands_are_declared_and_answer() {
+    let mut h = Harness::for_mod("mecanique").unwrap();
+    let names: Vec<String> = h.commands().into_iter().map(|(n, _)| n).collect();
+    assert_eq!(names, ["tours", "manivelle"]);
+    let (reply, _) = h.command("tours", "").unwrap();
+    assert!(reply.unwrap().contains("0 fois"));
+    // `/manivelle 100` règle la vitesse de la manivelle, comme la page d'options.
+    let (reply, _) = h.command("manivelle", "100").unwrap();
+    assert!(reply.unwrap().contains("100"));
+    assert_eq!(
+        h.settings.borrow().get("mecanique", "crank_speed"),
+        Some("100")
+    );
+    assert!(
+        h.command("manivelle", "9999")
+            .unwrap()
+            .0
+            .unwrap()
+            .contains("1 à 256")
+    );
+    assert!(
+        h.command("manivelle", "abc")
+            .unwrap()
+            .0
+            .unwrap()
+            .contains("Usage")
+    );
+    assert_eq!(h.command("inconnue", "").unwrap().0, None);
+}

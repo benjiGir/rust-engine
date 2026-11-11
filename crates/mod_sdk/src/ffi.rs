@@ -172,6 +172,8 @@ unsafe extern "C" {
     pub fn world_get(key_ptr: i32, key_len: i32, out_ptr: i32, cap: i32) -> i32;
     /// Enregistre une donnée du mod dans ce monde (clé de 64 octets, valeur de 64 Kio, 1 024 clés au plus), sauvegardée avec le monde. 1 si c'est fait.
     pub fn world_set(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32) -> i32;
+    /// Déclare la commande `/nom` du mod (à appeler dans `init`) avec sa ligne d'aide : le joueur la tape dans la console, et le mod la reçoit dans `on_command`.
+    pub fn register_command(name_ptr: i32, name_len: i32, help_ptr: i32, help_len: i32);
     /// Appelle la fonction `name` du mod `mod` avec ces octets (64 Kio au plus) ; copie sa réponse (au plus `cap` octets) et renvoie sa taille. −1 si le mod est absent, désactivé, hors budget, déjà en cours d'appel (pas de cycle) ou s'il ne répond pas.
     pub fn call_mod(
         mod_ptr: i32,
@@ -384,6 +386,8 @@ mod inert {
     pub unsafe fn world_set(_: i32, _: i32, _: i32, _: i32) -> i32 {
         0
     }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn register_command(_: i32, _: i32, _: i32, _: i32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn call_mod(_: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32) -> i32 {
         -1

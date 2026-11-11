@@ -220,6 +220,16 @@ impl Harness {
             .unwrap_or(0.0)
     }
 
+    /// Le joueur tape `/name args` : (la réponse du script, ce qu'il demande au jeu).
+    pub fn command(&mut self, name: &str, args: &str) -> Result<(Option<String>, Requests)> {
+        self.script.command(name, args)
+    }
+
+    /// Les commandes `/nom` que le script a déclarées : (nom, aide).
+    pub fn commands(&self) -> Vec<(String, String)> {
+        self.script.commands().to_vec()
+    }
+
     /// Un autre mod appelle ce script : `Mod::call(name, args)`.
     pub fn call(&mut self, name: &str, args: &[u8]) -> Result<Option<Vec<u8>>> {
         Ok(self.script.call(name, args)?.0)

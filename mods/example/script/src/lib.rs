@@ -133,6 +133,15 @@ impl Example {
 }
 
 impl Mod for Example {
+    fn command(&mut self, name: &str, args: &str) -> Option<String> {
+        if name != "rubis" {
+            return None;
+        }
+        let count = args.trim().parse::<u32>().unwrap_or(1).clamp(1, 64);
+        mod_sdk::give_item(self.ruby, count);
+        Some(format!("{count} rubis donné(s)."))
+    }
+
     fn options(&mut self) -> Option<Menu> {
         Some(
             Menu::new("Mod d'exemple")
@@ -194,6 +203,10 @@ impl Mod for Example {
         mod_sdk::subscribe(EventKind::BlockBroken);
         mod_sdk::subscribe(EventKind::BlockPlaced);
         mod_sdk::subscribe(EventKind::ChunkGenerated);
+        mod_sdk::register_command(
+            "rubis",
+            "[nombre] : se donner des rubis (1 par défaut, 64 au plus)",
+        );
         mod_sdk::log("prêt : casseur et rubis");
     }
 

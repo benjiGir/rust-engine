@@ -39,6 +39,7 @@ mod audio;
 mod bench;
 mod breeding;
 mod components;
+mod console;
 mod content;
 mod control;
 mod culling;
@@ -870,9 +871,11 @@ impl VoxelGame {
         }
         let interactive = self.mode == Mode::Playing;
         self.ui.menu_open = !interactive;
+        self.update_console(ctx);
         // E : l'inventaire. Ouvert, il libère la souris ; fermé, la pile tenue est rangée.
         let close = self.ui.inventory_open && escape;
         let toggle = interactive
+            && !self.console_open()
             && ctx
                 .input
                 .key_pressed(self.settings.keys.key(Action::Inventory));
@@ -894,7 +897,7 @@ impl VoxelGame {
         if self.mouse_captured {
             self.look(ctx.input.mouse_delta());
         }
-        if interactive {
+        if interactive && !self.console_open() {
             self.handle_keys(ctx);
         }
         self.day.update(dt);
@@ -1428,24 +1431,6 @@ impl VoxelGame {
         self.ui.screen = screen;
         self.ui.inventory_open = true;
         true
-    }
-
-    /// Ferme l'écran ouvert : la grille d'artisanat et la main retournent dans
-    /// l'inventaire (ce qui n'y tient pas tombe par terre).
-    fn close_screen(&mut self) {
-        self.forget_mod_menu();
-        self.ui.split = None;
-        let loose = self.inventory.put_away(&self.content.items);
-        let at = player::body(&self.ecs, self.player)
-            .position
-            .floor()
-            .as_ivec3()
-            + IVec3::Y;
-        for stack in loose {
-            self.drop_stack(at, stack);
-        }
-        self.ui.inventory_open = false;
-        self.ui.screen = ui::Screen::Inventory;
     }
 
     /// Les objets d'un coffre ou d'un four (vide pour un autre bloc).

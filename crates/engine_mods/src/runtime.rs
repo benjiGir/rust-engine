@@ -185,6 +185,8 @@ pub struct HostState {
     settings: Rc<RefCell<crate::ModSettings>>,
     world_data: Rc<RefCell<crate::ModSettings>>,
     peers: Peers,
+    /// Les commandes déclarées par le script (`register_command`) : (nom, aide).
+    commands: Vec<(String, String)>,
     requests: Requests,
     subscriptions: Vec<i32>,
     limits: StoreLimits,
@@ -258,6 +260,7 @@ impl ScriptHost {
             settings: self.settings.clone(),
             world_data: self.world_data.clone(),
             peers: self.peers.clone(),
+            commands: Vec::new(),
             requests: Requests::default(),
             subscriptions: Vec::new(),
             // Le bac à sable mémoire : une seule mémoire, de taille bornée.
@@ -298,6 +301,9 @@ impl ScriptHost {
         let call_reply = instance
             .get_typed_func::<(), i32>(&mut store, "call_reply")
             .ok();
+        let on_command = instance
+            .get_typed_func::<(i32, i32), i32>(&mut store, "on_command")
+            .ok();
         let on_options = instance
             .get_typed_func::<(i32, i32, i32), ()>(&mut store, "on_options")
             .ok();
@@ -313,9 +319,11 @@ impl ScriptHost {
             on_ui,
             on_options,
             on_call,
+            on_command,
             call_reply,
             disabled: None,
             stats: ModStats::default(),
+            commands: Vec::new(),
             spent: 0,
             consecutive_overruns: 0,
             tick_budget: TICK_BUDGET,
@@ -326,6 +334,7 @@ impl ScriptHost {
         {
             script.guarded(|store| init.call(store, ()))?;
         }
+        script.commands = std::mem::take(&mut script.store.data_mut().commands);
         Ok(script)
     }
 }
@@ -356,10 +365,13 @@ pub struct ScriptMod {
     on_ui: Option<TypedFunc<UiArgs, ()>>,
     on_options: Option<TypedFunc<(i32, i32, i32), ()>>,
     on_call: Option<TypedFunc<(i32, i32), i32>>,
+    on_command: Option<TypedFunc<(i32, i32), i32>>,
     call_reply: Option<TypedFunc<(), i32>>,
     /// La raison de sa désactivation, s'il a planté.
     disabled: Option<String>,
     stats: ModStats,
+    /// Ses commandes `/nom` : (nom, aide).
+    commands: Vec<(String, String)>,
     /// Instructions dépensées dans le tick en cours, et ticks de dépassement consécutifs.
     spent: u64,
     consecutive_overruns: u32,
@@ -541,6 +553,46 @@ impl ScriptMod {
             .read(&self.store, reply_ptr as u32 as usize, &mut reply)
             .context("lecture de la réponse du mod")?;
         Ok((Some(reply), requests))
+    }
+
+    /// Les commandes `/nom` que ce script a déclarées dans `init` : (nom, aide).
+    pub fn commands(&self) -> &[(String, String)] {
+        &self.commands
+    }
+
+    /// Le joueur tape `/name args`. Renvoie la réponse du script (`None` : rien à dire) et ce
+    /// qu'il demande au jeu. Une commande est une action du joueur : elle ne dépend pas du
+    /// budget par tick.
+    pub fn command(&mut self, name: &str, args: &str) -> Result<(Option<String>, Requests)> {
+        let (Some(on_command), Some(call_reply)) =
+            (self.on_command.clone(), self.call_reply.clone())
+        else {
+            return Ok((None, Requests::default()));
+        };
+        if self.disabled.is_some() {
+            return Ok((None, Requests::default()));
+        }
+        let mut payload = (name.len() as u16).to_le_bytes().to_vec();
+        payload.extend(name.as_bytes());
+        payload.extend(args.as_bytes());
+        let ptr = self.write_guest(&payload)?;
+        let mut len = -1;
+        let mut reply_ptr = 0;
+        let requests = self.guarded(|store| {
+            len = on_command.call(&mut *store, (ptr, payload.len() as i32))?;
+            if len >= 0 {
+                reply_ptr = call_reply.call(&mut *store, ())?;
+            }
+            Ok(())
+        })?;
+        if len < 0 || len as usize > MAX_CALL_BYTES {
+            return Ok((None, requests));
+        }
+        let mut reply = vec![0u8; len as usize];
+        self.memory
+            .read(&self.store, reply_ptr as u32 as usize, &mut reply)
+            .context("lecture de la réponse du mod")?;
+        Ok((Some(String::from_utf8_lossy(&reply).into_owned()), requests))
     }
 
     /// La page d'options : `kind` vaut `menu::UI_OPEN` à l'ouverture, puis les actions du
@@ -734,6 +786,30 @@ impl ModRuntime {
             let s = s.borrow();
             !s.subscribed(kind) || !s.over_budget()
         })
+    }
+
+    /// Les commandes de tous les scripts : (mod, nom, aide).
+    pub fn commands(&self) -> Vec<(String, String, String)> {
+        self.scripts
+            .iter()
+            .flat_map(|s| {
+                let s = s.borrow();
+                let id = s.id().to_string();
+                s.commands()
+                    .iter()
+                    .map(|(name, help)| (id.clone(), name.clone(), help.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    /// Exécute la commande `/name args` du mod `mod_id`.
+    pub fn command(&self, mod_id: &str, name: &str, args: &str) -> (Option<String>, Requests) {
+        let Some(script) = self.scripts.iter().find(|s| s.borrow().id() == mod_id) else {
+            return (None, Requests::default());
+        };
+        let result = script.borrow_mut().command(name, args);
+        result.unwrap_or_default()
     }
 
     /// Un nouveau tick de machines : chaque mod retrouve son budget de temps.

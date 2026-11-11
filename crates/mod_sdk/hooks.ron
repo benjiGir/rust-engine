@@ -147,6 +147,11 @@
          params: [("key_ptr", I32), ("key_len", I32), ("val_ptr", I32), ("val_len", I32)], ret: I32, fallback: "0",
          doc: "Enregistre une donnée du mod dans ce monde (clé de 64 octets, valeur de 64 Kio, 1 024 clés au plus), sauvegardée avec le monde. 1 si c'est fait."),
 
+        // Commandes.
+        (name: "register_command", group: "Commandes",
+         params: [("name_ptr", I32), ("name_len", I32), ("help_ptr", I32), ("help_len", I32)],
+         doc: "Déclare la commande `/nom` du mod (à appeler dans `init`) avec sa ligne d'aide : le joueur la tape dans la console, et le mod la reçoit dans `on_command`."),
+
         // Appels entre mods.
         (name: "call_mod", group: "Appels entre mods",
          params: [("mod_ptr", I32), ("mod_len", I32), ("name_ptr", I32), ("name_len", I32), ("arg_ptr", I32), ("arg_len", I32), ("out_ptr", I32), ("cap", I32)], ret: I32, fallback: "-1",

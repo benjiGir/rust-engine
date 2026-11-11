@@ -101,6 +101,7 @@ pub(super) fn define_host_functions(linker: &mut Linker<HostState>) -> wasmtime:
     define_content(linker)?;
     define_ui(linker)?;
     define_calls(linker)?;
+    define_commands(linker)?;
     Ok(())
 }
 
@@ -907,6 +908,41 @@ fn define_content(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
 /// Les appels entre mods. Un script en cours d'appel est emprunté en écriture : l'appeler de
 /// nouveau (un cycle A → B → A, ou un mod qui s'appelle lui-même) échoue au lieu de se
 /// bloquer, et la profondeur est donc bornée par le nombre de mods.
+/// Les commandes `/nom` : déclarées dans `init`, validées ici (le jeu ne voit que des noms sains).
+fn define_commands(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        "voxel",
+        "register_command",
+        |mut caller: Caller<'_, HostState>,
+         name_ptr: i32,
+         name_len: i32,
+         help_ptr: i32,
+         help_len: i32|
+         -> HostResult<()> {
+            if name_len > 32 || help_len > 200 {
+                return Ok(());
+            }
+            let name = read_string(&mut caller, name_ptr, name_len)?;
+            let help = read_string(&mut caller, help_ptr, help_len)?;
+            let valid = name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+            let state = caller.data_mut();
+            if !valid
+                || state.commands.len() >= 32
+                || state.commands.iter().any(|(n, _)| *n == name)
+            {
+                log::warn!("[mod {}] commande « {name} » refusée", state.mod_id);
+                return Ok(());
+            }
+            state.commands.push((name, help));
+            Ok(())
+        },
+    )?;
+    Ok(())
+}
+
 fn define_calls(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
     linker.func_wrap(
         "voxel",

@@ -165,6 +165,24 @@ impl VoxelGame {
             .map(|d| d.key.clone())
     }
 
+    /// Ferme l'écran ouvert : la grille d'artisanat et la main retournent dans
+    /// l'inventaire (ce qui n'y tient pas tombe par terre).
+    pub(crate) fn close_screen(&mut self) {
+        self.forget_mod_menu();
+        self.ui.split = None;
+        let loose = self.inventory.put_away(&self.content.items);
+        let at = player::body(&self.ecs, self.player)
+            .position
+            .floor()
+            .as_ivec3()
+            + IVec3::Y;
+        for stack in loose {
+            self.drop_stack(at, stack);
+        }
+        self.ui.inventory_open = false;
+        self.ui.screen = ui::Screen::Inventory;
+    }
+
     /// Un clic droit sur un levier, un bouton ou un répéteur.
     pub(crate) fn use_machine(&mut self) -> bool {
         let Some(hit) = self.target else {

@@ -116,3 +116,37 @@ fn new_chunks_get_a_surface_ruby() {
     }
     assert_eq!(count_chunk(&off), before);
 }
+
+#[test]
+fn the_ruby_command_gives_rubies() {
+    use engine_voxel::MachineAction;
+    let mut h = Harness::for_mod("example").unwrap();
+    assert_eq!(h.commands().len(), 1);
+    let ruby = h.block_id("example:ruby");
+    let (reply, requests) = h.command("rubis", "5").unwrap();
+    assert!(reply.unwrap().contains('5'));
+    assert_eq!(
+        requests.actions,
+        vec![MachineAction::GiveItem {
+            block: ruby,
+            count: 5
+        }]
+    );
+    // Sans argument : un seul ; trop grand : 64 au plus.
+    let (_, one) = h.command("rubis", "").unwrap();
+    assert_eq!(
+        one.actions,
+        vec![MachineAction::GiveItem {
+            block: ruby,
+            count: 1
+        }]
+    );
+    let (_, many) = h.command("rubis", "1000").unwrap();
+    assert_eq!(
+        many.actions,
+        vec![MachineAction::GiveItem {
+            block: ruby,
+            count: 64
+        }]
+    );
+}

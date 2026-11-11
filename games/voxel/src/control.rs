@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-9 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | mods | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | mods | console [texte] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -189,6 +189,8 @@ pub enum Command {
     /// La pause, la reprise, la page d'options d'un mod, et une action du joueur dans cette page.
     /// La consommation de temps de chaque mod.
     Mods,
+    /// Ouvre la console (sans texte) ou y valide une ligne.
+    Console(Option<String>),
     Pause,
     Resume,
     ModOptions(String),
@@ -396,6 +398,7 @@ pub fn parse(line: &str) -> Result<Command> {
         "use" => Command::Use,
         "respawn" => Command::Respawn,
         "mods" => Command::Mods,
+        "console" => Command::Console((!args.is_empty()).then(|| args.join(" "))),
         "pause" => Command::Pause,
         "resume" => Command::Resume,
         "modoptions" => {
@@ -542,7 +545,7 @@ impl VoxelGame {
         request.reply(json);
     }
 
-    fn execute(&mut self, ctx: &mut Context, command: Command) -> Result<String> {
+    pub(crate) fn execute(&mut self, ctx: &mut Context, command: Command) -> Result<String> {
         let playing = self.mode == Mode::Playing;
         let needs_world = !matches!(
             command,
@@ -553,6 +556,7 @@ impl VoxelGame {
                 | Command::Respawn
                 | Command::Resume
                 | Command::Mods
+                | Command::Console(_)
                 | Command::ModOptions(_)
                 | Command::OptionsEvent(..)
                 | Command::Inventory
@@ -885,6 +889,13 @@ impl VoxelGame {
             Command::Xp(points) => {
                 self.grant_xp(points);
                 Ok(self.state_json())
+            }
+            Command::Console(line) => {
+                match line {
+                    Some(line) => self.ui.console.submitted.push(line),
+                    None => self.open_console(),
+                }
+                Ok(ok())
             }
             Command::Mods => {
                 let disabled = self.mods.disabled();

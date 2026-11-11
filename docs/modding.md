@@ -322,6 +322,35 @@ budget, ne répond pas, ou si l'appel ferait un **cycle** (A appelle B qui rappe
 bloqué). Le temps passé dans le mod appelé compte dans **son** budget ; ce qu'il demande au jeu
 (donner un objet, poser un bloc) est fait comme si l'appelant l'avait demandé.
 
+### Les commandes
+
+Le joueur ouvre la **console** avec Entrée (ou `/`), tape `/commande arguments`, et la réponse
+s'affiche au-dessus de la barre d'objets (Échap ferme la console, les flèches rappellent les
+commandes déjà tapées). `/help` liste tout, `/mods` montre ce que consomme chaque mod. Le jeu a ses
+commandes (`/give`, `/time`, `/weather`, `/summon`, `/tp`, `/xp`) ; un mod ajoute les siennes :
+
+```rust
+fn init(&mut self) {
+    mod_sdk::register_command("rubis", "[nombre] : se donner des rubis");   // dans `init`
+}
+
+fn command(&mut self, name: &str, args: &str) -> Option<String> {
+    match name {
+        "rubis" => {
+            mod_sdk::give_item(self.ruby, args.trim().parse().unwrap_or(1));
+            Some("Voilà.".to_string())          // la réponse : une ligne par `\n`
+        }
+        _ => None,                              // rien à dire
+    }
+}
+```
+
+Le nom : minuscules, chiffres et `_`, 32 caractères au plus, 32 commandes par mod. Si deux mods
+déclarent la même, `/mod:nom` désigne la bonne. Une commande est une action du joueur : elle ne
+dépend pas du budget par tick, et ce qu'elle demande au jeu (donner un objet, poser un bloc) est
+fait aussitôt. `cargo xtask ctl console /commande` la lance sans clavier (pour les tests),
+`h.command(nom, args)` du banc d'essai la teste sans fenêtre.
+
 ### Les événements
 
 `mod_sdk::subscribe(EventKind::...)` dans `init`, puis `Mod::event` les reçoit :
@@ -454,6 +483,7 @@ mémoire.
 | `on_ui(type: i32, g: i32, x: i32, y: i32, z: i32, id: i32, valeur: i32)` | facultatif ; action dans un menu : type 1 bouton, 2 case (valeur 0/1), 3 curseur (bits d'un f32), 4 rafraîchissement, 5 fermé |
 | `on_options(type: i32, id: i32, valeur: i32)` | facultatif ; page d'options : type 6 ouverture, puis 1 à 3 actions du joueur, 5 fermée ; le mod répond par `options_show` |
 | `on_call(ptr: i32, taille: i32) -> i32` et `call_reply() -> i32` | facultatifs ; un autre mod appelle une fonction : le jeu écrit `[longueur du nom: u16][nom][arguments]` à `sdk_alloc`, `on_call` renvoie la taille de la réponse (−1 : aucune), que le jeu lit à l'adresse donnée par `call_reply` |
+| `on_command(ptr: i32, taille: i32) -> i32` | facultatif ; une commande `/nom` : même format que `on_call` (`[longueur du nom: u16][nom][arguments en texte]`), la réponse est lue à l'adresse de `call_reply` |
 | `on_use(g: i32, x: i32, y: i32, z: i32) -> i32` | facultatif ; clic droit du joueur sur une machine du mod ; renvoie 1 si le clic est pris en compte |
 
 **Données** (petit-boutistes) : les positions de `on_machines` sont `nombre` fois
@@ -533,6 +563,12 @@ test vérifie que le jeu définit exactement ces fonctions.
 | `setting_set(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32) -> i32` | Enregistre un réglage du mod (clé de 64 octets, valeur de 1 024, 256 clés au plus). 1 si c'est fait. |
 | `world_get(key_ptr: i32, key_len: i32, out_ptr: i32, cap: i32) -> i32` | Copie la valeur (texte) d'une donnée du mod **dans ce monde** (au plus `cap` octets) ; renvoie sa taille, −1 si elle n'existe pas. |
 | `world_set(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32) -> i32` | Enregistre une donnée du mod dans ce monde (clé de 64 octets, valeur de 64 Kio, 1 024 clés au plus), sauvegardée avec le monde. 1 si c'est fait. |
+
+*Commandes*
+
+| Fonction | Rôle |
+|---|---|
+| `register_command(name_ptr: i32, name_len: i32, help_ptr: i32, help_len: i32)` | Déclare la commande `/nom` du mod (à appeler dans `init`) avec sa ligne d'aide : le joueur la tape dans la console, et le mod la reçoit dans `on_command`. |
 
 *Appels entre mods*
 

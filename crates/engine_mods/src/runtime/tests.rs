@@ -379,6 +379,7 @@ fn host_matches_the_catalog() {
         settings: Default::default(),
         world_data: Default::default(),
         peers: Default::default(),
+        commands: Vec::new(),
         requests: Requests::default(),
         subscriptions: Vec::new(),
         limits: wasmtime::StoreLimitsBuilder::new().build(),
@@ -856,4 +857,32 @@ fn calls_to_missing_or_self_or_silent_mods_fail_cleanly() {
     assert_eq!(runtime.call("absent", "x", b"").0, None);
     let (reply, _) = runtime.call("b", "ping", b"");
     assert_eq!(reply, Some(b"ok".to_vec()));
+}
+
+#[test]
+fn only_valid_command_names_are_registered() {
+    let s = loaded_streamer();
+    // Dans `init` : « bon_nom » est accepté, « Mauvais » (majuscule), « a b » (espace),
+    // « 1x » (chiffre en tête) et un doublon sont refusés.
+    let wat = r#"(module
+        (import "voxel" "register_command" (func $reg (param i32 i32 i32 i32)))
+        (memory (export "memory") 1)
+        (data (i32.const 0) "bon_nom")
+        (data (i32.const 16) "Mauvais")
+        (data (i32.const 32) "a b")
+        (data (i32.const 48) "1x")
+        (data (i32.const 64) "aide")
+        (func (export "sdk_alloc") (param i32) (result i32) i32.const 4096)
+        (func (export "mod_init")
+            (call $reg (i32.const 0) (i32.const 7) (i32.const 64) (i32.const 4))
+            (call $reg (i32.const 16) (i32.const 7) (i32.const 64) (i32.const 4))
+            (call $reg (i32.const 32) (i32.const 3) (i32.const 64) (i32.const 4))
+            (call $reg (i32.const 48) (i32.const 2) (i32.const 64) (i32.const 4))
+            (call $reg (i32.const 0) (i32.const 7) (i32.const 64) (i32.const 4)))
+    )"#;
+    let script = load(wat, &s).unwrap();
+    assert_eq!(
+        script.commands(),
+        [("bon_nom".to_string(), "aide".to_string())]
+    );
 }
