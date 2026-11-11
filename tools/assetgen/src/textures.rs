@@ -391,6 +391,71 @@ fn tech(kind: &str, on: bool) -> Image {
             }
             image.set(8, 8, [0.9, 0.9, 0.95]);
         }
+        "assembler" => {
+            edge(&mut image, [0.3, 0.3, 0.33]);
+            // Un engrenage au centre : un anneau, des dents, un trou.
+            for y in 0..SIZE {
+                for x in 0..SIZE {
+                    let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
+                    let r = (dx * dx + dy * dy).sqrt();
+                    let teeth = (dy.atan2(dx) * 4.0).cos() > 0.3;
+                    if (3.0..5.0).contains(&r) || (5.0..6.5).contains(&r) && teeth {
+                        image.set(x, y, [0.85, 0.7, 0.3]);
+                    }
+                }
+            }
+        }
+        "balloon" => {
+            for y in 0..SIZE {
+                for x in 0..SIZE {
+                    let stripe = (x / 4) % 2 == 0;
+                    let c = if stripe {
+                        [0.9, 0.25, 0.2]
+                    } else {
+                        [0.95, 0.9, 0.85]
+                    };
+                    image.set(x, y, scale(c, 0.9 + 0.08 * ((x + y) % 3) as f32));
+                }
+            }
+        }
+        "propeller" => {
+            edge(&mut image, [0.3, 0.3, 0.33]);
+            for k in 2..14 {
+                image.set(k, 5, [0.8, 0.82, 0.88]);
+                image.set(k, 6, [0.8, 0.82, 0.88]);
+                image.set(k, 9, [0.65, 0.68, 0.75]);
+                image.set(k, 10, [0.65, 0.68, 0.75]);
+            }
+            for y in 7..9 {
+                for x in 7..9 {
+                    image.set(x, y, [0.9, 0.8, 0.3]);
+                }
+            }
+            // Une pointe : le sens de la poussée, vers la droite.
+            for k in 0..4 {
+                image.set(12 + k.min(3), 7, [0.9, 0.3, 0.2]);
+                image.set(12 + k.min(3), 8, [0.9, 0.3, 0.2]);
+            }
+        }
+        "helm" => {
+            let wood = [0.5, 0.36, 0.22];
+            image = Image::filled(wood).noise(wood, 0.07, 75);
+            for y in 0..SIZE {
+                for x in 0..SIZE {
+                    let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
+                    let r = (dx * dx + dy * dy).sqrt();
+                    let spoke = dx.abs() < 0.8
+                        || dy.abs() < 0.8
+                        || (dx - dy).abs() < 0.9
+                        || (dx + dy).abs() < 0.9;
+                    if (5.5..7.0).contains(&r) || (r < 5.5 && spoke) {
+                        image.set(x, y, [0.25, 0.16, 0.08]);
+                    }
+                }
+            }
+            image.set(7, 7, [0.9, 0.75, 0.3]);
+            image.set(8, 8, [0.9, 0.75, 0.3]);
+        }
         "fan" => {
             edge(&mut image, [0.3, 0.3, 0.33]);
             let (a, b): ([f32; 3], [f32; 3]) = if on {
@@ -2062,6 +2127,10 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("motor.png"), tech("motor", false)),
         (core.join("fan.png"), tech("fan", false)),
         (core.join("fan_on.png"), tech("fan", true)),
+        (core.join("assembler.png"), tech("assembler", false)),
+        (core.join("balloon.png"), tech("balloon", false)),
+        (core.join("propeller.png"), tech("propeller", false)),
+        (core.join("helm.png"), tech("helm", false)),
         (core.join("wire.png"), wire(false)),
         (core.join("wire_on.png"), wire(true)),
         (core.join("lever.png"), lever(false)),

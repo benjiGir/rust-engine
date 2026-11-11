@@ -33,8 +33,13 @@ struct VertexIn {
     @location(3) light: vec4<f32>,
     // Les 16 bits du bas : la couche de texture ; au-dessus, des drapeaux.
     @location(4) texture: u32,
-    // L'origine du chunk dans le monde (xyz).
+    // L'origine du chunk dans le monde (xyz) et, pour une structure mobile, son lacet (w) :
+    // les sommets tournent autour de l'axe vertical avant d'être placés.
     @location(5) origin: vec4<f32>,
+    // La base des coordonnées de texture (xyz) : l'origine du chunk dans son propre repère.
+    // Pour le monde, c'est l'origine ; pour une structure qui bouge, ses coordonnées locales,
+    // afin que les textures restent collées aux blocs.
+    @location(6) uv_base: vec4<f32>,
 };
 
 // Le codage des positions (voir `engine_voxel::POSITION_SCALE` et `POSITION_BIAS`).
@@ -56,12 +61,28 @@ struct VertexOut {
     // `flat` : un entier ne s'interpole pas, on garde la valeur du premier sommet.
     @location(4) @interpolate(flat) texture: u32,
     @location(5) @interpolate(flat) flags: u32,
+    // Position et normale dans le repère des textures (celui de la structure, s'il y en a une).
+    @location(6) tex_position: vec3<f32>,
+    @location(7) tex_normal: vec3<f32>,
 };
+
+// Fait tourner un vecteur autour de l'axe vertical (même convention que `rotate_y` côté jeu).
+fn rotate_y(v: vec3<f32>, yaw: f32) -> vec3<f32> {
+    let s = sin(yaw);
+    let c = cos(yaw);
+    return vec3<f32>(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
+}
 
 @vertex
 fn vs_main(vertex: VertexIn) -> VertexOut {
     var out: VertexOut;
-    let world = vertex.origin.xyz + vec3<f32>(vertex.position.xyz) / POSITION_SCALE - vec3<f32>(POSITION_BIAS);
+    let local = vec3<f32>(vertex.position.xyz) / POSITION_SCALE - vec3<f32>(POSITION_BIAS);
+    var world = vertex.origin.xyz + local;
+    var normal = vertex.normal.xyz;
+    if vertex.origin.w != 0.0 {
+        world = vertex.origin.xyz + rotate_y(local, vertex.origin.w);
+        normal = rotate_y(normal, vertex.origin.w);
+    }
     var position = world;
     // Le vent : un petit déplacement horizontal qui ne dépend que de la position dans le
     // monde et du temps. Deux sommets au même endroit bougent pareil : les feuilles
@@ -75,8 +96,10 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
     }
     out.clip_position = camera.view_proj * vec4<f32>(position, 1.0);
     out.color = vertex.color;
-    out.normal = vertex.normal.xyz;
+    out.normal = normal;
     out.world_position = world;
+    out.tex_position = vertex.uv_base.xyz + local;
+    out.tex_normal = vertex.normal.xyz;
     // Interpolée entre les sommets : c'est ce qui rend la lumière « douce ».
     out.light = vertex.light.xyz;
     out.texture = vertex.texture & TEXTURE_MASK;
@@ -106,7 +129,7 @@ fn face_uv(position: vec3<f32>, normal: vec3<f32>) -> vec2<f32> {
 
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-    var texel = textureSample(block_textures, block_sampler, face_uv(in.world_position, in.normal), in.texture);
+    var texel = textureSample(block_textures, block_sampler, face_uv(in.tex_position, in.tex_normal), in.texture);
     // Une feuille au cœur du feuillage : ses trous deviennent un vert sombre (la couleur
     // de la feuille, assombrie), comme le fond d'un buisson dense.
     if (in.flags & FLAG_FILLED) != 0u && texel.a < 0.5 {

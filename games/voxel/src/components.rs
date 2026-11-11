@@ -124,3 +124,8 @@ pub struct Home(pub Vec3);
 pub struct Trader {
     pub uses: Vec<u32>,
 }
+
+/// L'entité se tient sur une structure mobile : sa physique se fait dans le repère de cette
+/// structure (voir `ships.rs`), pour qu'elle marche sur un pont qui bouge.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OnGrid(pub engine_voxel::GridId);

@@ -813,6 +813,33 @@
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 1.5, tool: Pickaxe,
     ),
+    // Les structures mobiles (phase 9d) : l'assembleur détache une structure du monde (clic droit)
+    // et la repose ; le ballon la porte, l'hélice la pousse (elle tourne grâce à un arbre), la barre
+    // la dirige. Voir engine_voxel/src/subgrid.rs et ship.rs.
+    (
+        id: "core:assembler", name: "Assembleur", color: (0.5, 0.5, 0.55), texture: "assembler",
+        
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 2.0,
+    ),
+    (
+        id: "core:balloon", name: "Ballon", color: (0.9, 0.3, 0.25), texture: "balloon",
+        
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 0.4,
+    ),
+    (
+        id: "core:propeller", name: "Hélice", color: (0.6, 0.6, 0.65), texture: "propeller",
+        behavior: "core:propeller",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.5,
+    ),
+    (
+        id: "core:helm", name: "Barre", color: (0.55, 0.4, 0.25), texture: "helm",
+        
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.0,
+    ),
     // ----- Les fluides -----
     // Ce que devient la lave au contact de l'eau.
     (

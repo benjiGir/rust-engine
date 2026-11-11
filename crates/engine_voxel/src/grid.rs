@@ -1,4 +1,4 @@
-//! Les grilles de blocs : le monde, et plus tard les structures mobiles.
+//! Les grilles de blocs : le monde, et les structures mobiles (voir `subgrid.rs`).
 //!
 //! Dans Create (contraptions) ou Valkyrien Skies (vaisseaux), un groupe de blocs se
 //! détache du monde et bouge : il tourne, vole, flotte. Ses machines doivent continuer
@@ -123,16 +123,30 @@ impl BlockAccess for ChunkStreamer {
 
 /// Toutes les grilles, pour retrouver celle d'un [`GridPos`].
 ///
-/// Aujourd'hui, seulement le monde. En phase 9d, les structures mobiles s'y ajoutent
-/// (une table `GridId → sous-grille`), sans changer le code des machines ni des mods.
+/// Le monde, plus les structures mobiles (une table `GridId → sous-grille`) : le code des
+/// machines et des mods ne change pas.
 #[derive(Clone, Copy)]
 pub struct Grids<'a> {
     world: &'a RefCell<ChunkStreamer>,
+    /// Les structures mobiles (phase 9d), s'il y en a : une table `GridId → sous-grille`.
+    subs: Option<&'a crate::subgrid::SubGrids>,
 }
 
 impl<'a> Grids<'a> {
+    /// Le monde seul.
     pub fn new(world: &'a RefCell<ChunkStreamer>) -> Self {
-        Self { world }
+        Self { world, subs: None }
+    }
+
+    /// Le monde et ses structures mobiles : les machines d'un vaisseau tournent comme les autres.
+    pub fn with_subgrids(
+        world: &'a RefCell<ChunkStreamer>,
+        subs: &'a crate::subgrid::SubGrids,
+    ) -> Self {
+        Self {
+            world,
+            subs: Some(subs),
+        }
     }
 
     /// Le monde lui-même, pour les comportements natifs qui ont besoin de plus que des
@@ -144,7 +158,12 @@ impl<'a> Grids<'a> {
     /// La grille demandée, `None` si elle n'existe pas (ou plus : une structure démontée).
     /// `RefCell<dyn BlockAccess>` : le monde et une sous-grille s'utilisent pareil.
     pub fn get(&self, grid: GridId) -> Option<&'a RefCell<dyn BlockAccess>> {
-        (grid == GridId::WORLD).then_some(self.world as &RefCell<dyn BlockAccess>)
+        if grid == GridId::WORLD {
+            return Some(self.world as &RefCell<dyn BlockAccess>);
+        }
+        self.subs?
+            .get(grid)
+            .map(|cell| cell as &RefCell<dyn BlockAccess>)
     }
 
     pub fn block(&self, at: GridPos) -> BlockId {

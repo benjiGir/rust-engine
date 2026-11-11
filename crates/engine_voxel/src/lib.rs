@@ -36,7 +36,9 @@ mod plants;
 mod raycast;
 mod registry;
 mod save;
+mod ship;
 mod streaming;
+mod subgrid;
 mod tech;
 mod trees;
 mod visibility;
@@ -97,7 +99,12 @@ pub use save::{
     ChunkToSave, FORMAT_VERSION, LoadedChunk, PlayerSave, REGION_SIZE, SaveReport, SaveStore,
     SavedInventory, SavedStack, UNKNOWN_BLOCK, UnknownBlocks, WorldMeta, write_atomic,
 };
+pub use ship::{ShipInput, StepReport, step as step_ship};
 pub use streaming::{ChunkStreamer, StreamEvent, StreamStats, StreamingConfig};
+pub use subgrid::{
+    AssemblyError, MAX_BLOCKS, SubGrid, SubGrids, extract, land, landing_cells, load_grids,
+    quarter_turns, rotate_facing, rotate_y, save_grids,
+};
 pub use trees::{Part, Rng64, TreeBlocks, TreeKind, Wood, grow as grow_tree};
 pub use visibility::{FACE_DIRECTIONS, FaceConnections, VisibilityGraph};
 pub use world::World;

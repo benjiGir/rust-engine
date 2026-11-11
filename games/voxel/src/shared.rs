@@ -9,10 +9,13 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use engine_voxel::ChunkStreamer;
+use engine_voxel::{ChunkStreamer, SubGrids};
 
 /// La ressource ECS qui donne accès au monde.
 pub struct SharedStreamer(pub Rc<RefCell<ChunkStreamer>>);
+
+/// La ressource ECS qui donne accès aux structures mobiles (voir `ships.rs`).
+pub struct SharedSubGrids(pub Rc<RefCell<SubGrids>>);
 
 /// `world.streamer().borrow()` dans les systèmes. Renvoie une copie du `Rc` (une
 /// incrémentation de compteur) : l'emprunt de la ressource ECS est rendu aussitôt.

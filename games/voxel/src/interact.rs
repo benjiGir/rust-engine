@@ -13,7 +13,13 @@ impl VoxelGame {
         let block = streamer.world().block(hit.block_pos);
         let directional = matches!(
             self.registry.def(block).behavior.as_deref(),
-            Some("core:piston" | "core:sticky_piston" | "core:inverter" | "core:repeater")
+            Some(
+                "core:piston"
+                    | "core:sticky_piston"
+                    | "core:inverter"
+                    | "core:repeater"
+                    | "core:propeller"
+            )
         );
         if !directional {
             return;

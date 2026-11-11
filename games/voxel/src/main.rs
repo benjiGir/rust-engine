@@ -62,6 +62,7 @@ mod projectiles;
 mod screenshots;
 mod settings;
 mod shared;
+mod ships;
 mod soundscape;
 mod spawning;
 mod stats;
@@ -195,6 +196,9 @@ struct VoxelGame {
     tour: Option<screenshots::Tour>,
     day: DayCycle,
     weather: weather::Weather,
+    /// Les maillages des structures mobiles, et la structure dont on tient la barre.
+    grid_meshes: ships::GridMeshes,
+    helm: Option<engine_voxel::GridId>,
     /// 0 paisible, 1 normale, 2 difficile.
     difficulty: u8,
     potions: potions::Potions,
@@ -494,9 +498,39 @@ impl VoxelGame {
             content.smelting.clone(),
             content.brewing.clone(),
         );
+        // Les structures mobiles du monde : relues, et leurs machines redémarrent.
+        if let Some(store) = &store {
+            match engine_voxel::load_grids(store.dir(), &registry) {
+                Ok(loaded) if !loaded.is_empty() => {
+                    log::info!("{} structure(s) mobile(s) chargée(s)", loaded.len());
+                    *mods.subgrids.borrow_mut() = loaded;
+                    let shared = mods.subgrids.clone();
+                    let subs = shared.borrow();
+                    let mut actions = Vec::new();
+                    for id in subs.ids() {
+                        // L'emprunt de la grille doit finir avant de démarrer ses machines.
+                        let active: Vec<engine_voxel::GridPos> = {
+                            let grid = subs.get(id).expect("identifiant connu").borrow();
+                            grid.cells()
+                                .filter(|c| mods.machines.has_behavior(grid.world().block(*c)))
+                                .map(|c| engine_voxel::GridPos::new(id, c))
+                                .collect()
+                        };
+                        let grids = engine_voxel::Grids::with_subgrids(&world, &subs);
+                        mods.machines
+                            .grid_blocks_loaded(grids, &active, &mut actions);
+                    }
+                }
+                Ok(_) => {}
+                Err(err) => log::error!("structures mobiles non chargées : {err:#}"),
+            }
+        }
         let mut ecs = engine_ecs::World::new();
         events::register(&mut ecs);
         ecs.insert_resource(shared::SharedStreamer(world.clone()));
+        ecs.insert_resource(shared::SharedSubGrids(mods.subgrids.clone()));
+        ecs.insert_resource(ships::ShipControl::default());
+        ecs.insert_resource(ships::ShipEvents::default());
         ecs.insert_resource(Arc::new(mob_registry));
         // Les blocs où les créatures ne vont jamais : les fluides qui blessent (la lave).
         ecs.insert_resource(Arc::new(navigation::DangerBlocks(
@@ -528,6 +562,7 @@ impl VoxelGame {
             .add(Stage::FixedUpdate, "créatures : soleil", spawning::dissolve)
             .add(Stage::FixedUpdate, "créatures : élevage", breeding::update)
             .add(Stage::FixedUpdate, "créatures : IA", mobs::wander)
+            .add(Stage::FixedUpdate, "structures mobiles", ships::update)
             .add(Stage::FixedUpdate, "physique", mobs::physics)
             .add(
                 Stage::FixedUpdate,
@@ -646,6 +681,8 @@ impl VoxelGame {
             tour,
             day: DayCycle::new(time, env_parse("VOXEL_DAY_LENGTH").unwrap_or(600.0)),
             weather: weather::Weather::new(seed),
+            grid_meshes: ships::GridMeshes::default(),
+            helm: None,
             difficulty,
             potions,
             effects: potions::Effects::default(),
@@ -840,6 +877,7 @@ impl VoxelGame {
         }
         self.update_soundscape(dt);
         self.update_effects(dt);
+        self.update_ships(ctx);
         if let Some(audio) = &mut self.audio {
             if thunder {
                 audio.play(audio::THUNDER);
@@ -921,6 +959,8 @@ impl VoxelGame {
             // Un clic droit : un lit, un conteneur, sinon poser.
             let bed = self.target.map(|hit| hit.block_pos);
             if ctx.input.mouse_pressed(MouseButton::Right)
+                && !self.use_ship()
+                && !self.use_assembler()
                 && !bed.is_some_and(|pos| self.use_bed(pos))
                 && !self.open_container()
                 && !self.use_machine()
@@ -1037,6 +1077,10 @@ impl VoxelGame {
         let (ui_frame, platform) = self.build_ui(raw);
         self.ui.handle_output(&ctx.window, platform);
 
+        {
+            let subs = self.mods.subgrids.borrow();
+            self.grid_meshes.sync(&mut self.renderer, &subs);
+        }
         self.update_visibility(self.renderer.aspect());
         let start = Instant::now();
         let result = self.renderer.render(&self.camera, Some(ui_frame));

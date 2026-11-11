@@ -138,7 +138,7 @@ si quelque chose a changé. Seuls les fluides en mouvement travaillent ; un lac 
 coûte rien, comme une machine qui dort. Une pompe ou un seau convertit entre bloc de fluide
 (1000 mB) et réservoir.
 
-### Structures mobiles (phase 9d) : contraptions et vaisseaux
+### Structures mobiles (phase 9d, fait : `subgrid.rs`, `ship.rs`, `games/voxel/src/ships.rs`) : contraptions et vaisseaux
 
 1. **Extraction** : quand une structure se met en mouvement (un piston de Create, un vaisseau
    qui décolle), ses blocs et leurs block entities sont **retirés du monde** et copiés dans une
@@ -162,6 +162,34 @@ coûte rien, comme une machine qui dort. Une pompe ou un seau convertit entre bl
 8. **Sauvegarde** : chaque sous-grille est sauvegardée à part (ses chunks, sa transformation,
    ses vitesses) ; la réassembler dans le monde (atterrir) recopie ses blocs dans le monde
    et supprime la grille.
+
+**Ce qui est fait, et ce qui diffère du plan.**
+
+- **Extraction** (`extract`) : un parcours à partir d'un bloc (l'assembleur) rassemble tout ce qui
+  lui est relié par une face, sauf le terrain (pierre, terre, sable, eau…) ; les blocs et leurs
+  états sont copiés dans une `SubGrid` (un vrai `World` local) et retirés du monde. Au plus 4 096 blocs.
+- **Transformation** : une position (celle du pivot, au centre de masse) et un **lacet** : la
+  rotation est limitée à l'axe vertical (une structure ne se retourne pas). Les machines, les
+  ticks programmés et les réseaux de la phase 9c tournent en coordonnées locales (`Grids::with_subgrids`).
+- **Rendu** : chaque chunk local est maillé par le mailleur du monde ; le shader reçoit le lacet
+  avec l'origine du maillage, et les textures restent accrochées au repère de la structure.
+- **Physique** : au lieu de `rapier3d`, un petit corps rigide à quatre degrés de liberté (la
+  position et le lacet) : gravité, flottaison (chaque bloc immergé déplace 1,6), ballons,
+  hélices (poussée proportionnelle à la rotation reçue, et couple si elles sont décentrées),
+  barre, frottements, collisions axe par axe avec le terrain. Rapier ne servirait qu'à des
+  structures qui tanguent, roulent ou se heurtent entre elles.
+- **Le joueur porté** : une entité qui se pose sur un pont reçoit `OnGrid` ; sa physique
+  (`PlayerBody`) tourne alors dans le repère de la structure, donc elle marche, saute et tombe
+  normalement sur un pont qui avance et tourne, et la caméra tourne avec lui.
+- **Sauvegarde** : `grids.bin` dans le dossier du monde (blocs par nom, états, transformation,
+  vitesses).
+- **Réassemblage** (`land`) : la structure se repose alignée sur la grille (rotation arrondie au
+  quart de tour, orientation des pistons, répéteurs et hélices tournée avec elle) si la place
+  est libre ; sinon elle refuse et rien ne change.
+
+Limites : une structure assemblée ne se modifie pas (on la repose d'abord) ; sa lumière est
+celle du plein ciel (pas d'ombres) ; pas de collisions entre structures ; pas de fluides dans
+une structure.
 
 ### Comment tout s'articule
 

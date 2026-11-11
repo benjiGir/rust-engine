@@ -30,6 +30,7 @@ const MOTOR_COST: u64 = 8;
 pub const MOTOR_SPEED: f32 = 64.0;
 pub const MOTOR_CAPACITY: f32 = 512.0;
 pub const FAN_IMPACT: f32 = 128.0;
+pub const PROPELLER_IMPACT: f32 = 96.0;
 
 /// Crée les capacités d'un bloc s'il n'en a pas encore (un rechargement garde son contenu).
 fn ensure_caps(ctx: &mut MachineContext, at: GridPos, make: impl FnOnce(&mut Capabilities)) {
@@ -71,16 +72,24 @@ impl BlockBehavior for Solar {
 
     fn scheduled_tick(&self, ctx: &mut MachineContext, positions: &[GridPos]) {
         for &at in positions {
-            // Le ciel doit être dégagé : la lumière du ciel au-dessus est au maximum.
-            let open = at.grid == GridId::WORLD
-                && ctx
-                    .grids
+            // Le ciel doit être dégagé : dans le monde, la lumière du ciel au-dessus est au
+            // maximum ; sur une structure mobile (qui n'a pas de lumière à elle), rien de plein
+            // au-dessus dans la structure.
+            let open = if at.grid == GridId::WORLD {
+                ctx.grids
                     .world()
                     .borrow()
                     .world()
                     .light(at.pos + glam::IVec3::Y)
                     .0
-                    >= 15;
+                    >= 15
+            } else {
+                let registry = ctx.registry();
+                (1..=16).all(|d| {
+                    let b = ctx.block(at.offset(glam::IVec3::Y * d));
+                    b.is_air() || registry.as_ref().is_some_and(|r| !r.is_solid(b))
+                })
+            };
             if open {
                 ctx.grids.write(at, |e| {
                     if let Some(store) = e.caps.as_mut().and_then(|c| c.energy.as_mut()) {
@@ -297,6 +306,26 @@ impl BlockBehavior for Fan {
     }
 }
 
+/// Une hélice : elle consomme de la rotation (un arbre la relie à un moteur) et pousse dans
+/// le sens où elle regarde, d'autant plus que sa vitesse est grande. La poussée est appliquée par
+/// `ship.rs` à la structure qui la porte ; ici, elle ne fait que recevoir de la rotation.
+struct Propeller;
+
+impl BlockBehavior for Propeller {
+    fn placed(&self, ctx: &mut MachineContext, positions: &[GridPos]) {
+        for &at in positions {
+            ensure_caps(ctx, at, |c| {
+                c.kinetic = Some(Kinetic {
+                    speed: 0.0,
+                    stress_capacity: 0.0,
+                    stress_impact: PROPELLER_IMPACT,
+                    sides: Sides::ALL,
+                });
+            });
+        }
+    }
+}
+
 /// Tous les comportements de machines de base, par nom (`core:solar_panel`...). Un
 /// comportement dont un bloc manque au registre est simplement omis.
 pub fn natives(registry: &BlockRegistry) -> Vec<(&'static str, Rc<dyn BlockBehavior>)> {
@@ -306,6 +335,7 @@ pub fn natives(registry: &BlockRegistry) -> Vec<(&'static str, Rc<dyn BlockBehav
     out.push(("core:battery", Rc::new(Battery)));
     out.push(("core:tank", Rc::new(Tank)));
     out.push(("core:motor", Rc::new(Motor)));
+    out.push(("core:propeller", Rc::new(Propeller)));
     if let (Some(off), Some(on)) = (id("core:power_lamp"), id("core:power_lamp_on")) {
         out.push(("core:power_lamp", Rc::new(PowerLamp { off, on })));
     }

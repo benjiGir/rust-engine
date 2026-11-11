@@ -285,6 +285,11 @@ pub fn physics(world: &mut World) {
         .unwrap_or_default();
     let shared = world.streamer();
     let streamer = shared.borrow();
+    // Les structures mobiles, s'il y en a : une entité qui s'y tient se déplace dans leur repère.
+    let subs = world
+        .get_resource::<crate::shared::SharedSubGrids>()
+        .map(|s| s.0.clone());
+    let subs = subs.as_ref().map(|s| s.borrow());
     world
         .query::<(
             &mut Transform,
@@ -299,6 +304,31 @@ pub fn physics(world: &mut World) {
                 if world.has::<Flying>(entity)
                     || crate::spawning::asleep(world, entity, transform.position, center)
                 {
+                    return;
+                }
+                // Sur une structure : on simule dans son repère (elle peut tourner et avancer).
+                let ride = world
+                    .get::<crate::components::OnGrid>(entity)
+                    .and_then(|g| subs.as_ref()?.get(g.0));
+                if let Some(cell) = ride {
+                    let grid = cell.borrow();
+                    let mut body = PlayerBody::with_size(
+                        grid.to_local(transform.position),
+                        collider.width,
+                        collider.height,
+                    );
+                    body.velocity = grid.direction_to_local(velocity.0);
+                    body.on_ground = collider.on_ground;
+                    body.step(
+                        grid.world(),
+                        grid.direction_to_local(intent.walk),
+                        intent.jump,
+                        dt,
+                    );
+                    transform.position = grid.to_world(body.position);
+                    velocity.0 = grid.direction_to_world(body.velocity);
+                    collider.on_ground = body.on_ground;
+                    collider.in_liquid = false;
                     return;
                 }
                 let mut body =

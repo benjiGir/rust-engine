@@ -65,6 +65,8 @@ pub struct ModSystem {
     /// Les mods qui ont un script : (identifiant, fichier `.wasm`).
     scripts: Vec<(String, PathBuf)>,
     world: Rc<RefCell<ChunkStreamer>>,
+    /// Les structures mobiles : leurs machines tournent au même rythme que celles du monde.
+    pub subgrids: Rc<RefCell<engine_voxel::SubGrids>>,
     registry: Arc<BlockRegistry>,
     steps: u32,
     pub last_tick: TickReport,
@@ -103,6 +105,7 @@ impl ModSystem {
             host,
             scripts,
             world,
+            subgrids: Rc::new(RefCell::new(engine_voxel::SubGrids::new(registry.clone()))),
             registry,
             steps: 0,
             last_tick: TickReport::default(),
@@ -128,7 +131,11 @@ impl ModSystem {
             return (actions, None);
         }
         self.steps = 0;
-        let report = self.machines.run_tick(&self.world, &mut actions);
+        let report = {
+            let subs = self.subgrids.borrow();
+            let grids = Grids::with_subgrids(&self.world, &subs);
+            self.machines.run_grids_tick(grids, &mut actions)
+        };
         self.last_tick = report;
         // La nature autour du joueur : l'herbe, les pousses, les feuilles.
         let center = engine_voxel::World::chunk_containing(player);

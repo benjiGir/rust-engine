@@ -433,6 +433,36 @@ impl Machines {
         count
     }
 
+    /// Des blocs actifs d'une grille viennent d'apparaître (une structure qu'on assemble, ou
+    /// qu'on recharge) : ils démarrent comme après un chargement de chunk.
+    pub fn grid_blocks_loaded(
+        &mut self,
+        grids: Grids,
+        positions: &[GridPos],
+        actions: &mut Vec<MachineAction>,
+    ) {
+        for (behavior, list) in self.group(grids, positions.iter().copied()) {
+            let mut ctx = self.context(grids, actions);
+            behavior.loaded(&mut ctx, &list);
+        }
+    }
+
+    /// Le joueur clique sur le bloc `at` d'une grille quelconque. `true` si un comportement
+    /// l'a pris en compte.
+    pub fn use_grid_block(
+        &mut self,
+        grids: Grids,
+        at: GridPos,
+        actions: &mut Vec<MachineAction>,
+    ) -> bool {
+        let block = grids.block(at);
+        let Some(behavior) = self.behaviors.get(&block).cloned() else {
+            return false;
+        };
+        let mut ctx = self.context(grids, actions);
+        behavior.used(&mut ctx, at)
+    }
+
     /// Le joueur clique sur le bloc en `pos` (levier, bouton, répéteur). `true` si un
     /// comportement l'a pris en compte.
     pub fn use_block(

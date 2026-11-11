@@ -158,7 +158,8 @@ pub struct Fog {
 /// qui rendent leur mémoire au GPU. C'est le RAII, comme `using` en C# mais automatique.
 struct GpuMesh {
     vertex_buffer: wgpu::Buffer,
-    /// L'origine du chunk (16 octets), lue comme une instance par le shader.
+    /// L'origine du chunk, son lacet et la base des textures (32 octets), lus comme une
+    /// instance par le shader.
     origin_buffer: wgpu::Buffer,
     /// Les indices opaques, puis les translucides, dans un seul tampon.
     index_buffer: wgpu::Buffer,
@@ -616,6 +617,29 @@ impl Renderer {
         origin: Vec3,
         bounds: Aabb,
     ) -> Option<MeshId> {
+        self.add_mesh_in_frame(
+            vertices,
+            indices,
+            translucent_indices,
+            origin,
+            origin,
+            bounds,
+        )
+    }
+
+    /// Comme [`Renderer::add_mesh`] pour un maillage d'une **structure mobile** : `origin` est
+    /// la position actuelle de l'origine du chunk dans le monde, `uv_base` son origine dans le
+    /// repère de la structure (les textures y sont accrochées). On le déplace ensuite avec
+    /// [`Renderer::set_mesh_transform`].
+    pub fn add_mesh_in_frame(
+        &mut self,
+        vertices: &[ColorVertex],
+        indices: &[u32],
+        translucent_indices: &[u32],
+        origin: Vec3,
+        uv_base: Vec3,
+        bounds: Aabb,
+    ) -> Option<MeshId> {
         if indices.is_empty() && translucent_indices.is_empty() {
             return None;
         }
@@ -639,8 +663,11 @@ impl Renderer {
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("chunk origin"),
-                contents: bytemuck::bytes_of(&origin.extend(0.0).to_array()),
-                usage: wgpu::BufferUsages::VERTEX,
+                contents: bytemuck::bytes_of(&[
+                    origin.extend(0.0).to_array(),
+                    uv_base.extend(0.0).to_array(),
+                ]),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             });
         let id = MeshId(self.next_mesh_id);
         self.next_mesh_id += 1;
@@ -656,6 +683,19 @@ impl Renderer {
             },
         );
         Some(id)
+    }
+
+    /// Déplace un maillage de structure mobile : où est l'origine de son chunk dans le monde,
+    /// son lacet (rotation autour de la verticale), et sa boîte englobante dans le monde (pour
+    /// le frustum culling).
+    pub fn set_mesh_transform(&mut self, id: MeshId, origin: Vec3, yaw: f32, bounds: Aabb) {
+        let Some(mesh) = self.meshes.get_mut(&id) else {
+            return;
+        };
+        mesh.bounds = bounds;
+        let value = [origin.x, origin.y, origin.z, yaw];
+        self.queue
+            .write_buffer(&mesh.origin_buffer, 0, bytemuck::bytes_of(&value));
     }
 
     /// Retire un maillage ; ses tampons GPU sont libérés.
@@ -1185,11 +1225,12 @@ fn create_chunk_pipelines(
                 0 => Uint16x4, 1 => Snorm8x4, 2 => Unorm8x4, 3 => Unorm8x4, 4 => Uint32
             ],
         }),
-        // L'origine du chunk : une seule valeur pour tout le maillage (une « instance »).
+        // L'origine du chunk, son lacet et la base des textures : une seule valeur pour tout
+        // le maillage (une « instance »).
         Some(wgpu::VertexBufferLayout {
-            array_stride: 16,
+            array_stride: 32,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &wgpu::vertex_attr_array![5 => Float32x4],
+            attributes: &wgpu::vertex_attr_array![5 => Float32x4, 6 => Float32x4],
         }),
     ];
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {

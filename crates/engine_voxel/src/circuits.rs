@@ -66,7 +66,7 @@ fn facing_index(direction: IVec3) -> u8 {
 pub fn placement_state(behavior: &str, look: Vec3) -> Option<BlockEntity> {
     let horizontal = match behavior {
         "core:inverter" | "core:repeater" => true,
-        "core:piston" | "core:sticky_piston" => false,
+        "core:piston" | "core:sticky_piston" | "core:propeller" => false,
         _ => return None,
     };
     let mut look = look;

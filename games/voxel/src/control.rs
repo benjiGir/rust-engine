@@ -159,6 +159,11 @@ pub enum Command {
     Inventory,
     Mode(MoveMode),
     Time(f32),
+    /// Détache la structure qui contient ce bloc, la repose, les liste, ou braque la barre.
+    Assemble(IVec3),
+    Land(u32),
+    Ships,
+    Steer(u32, f32),
     /// Les capacités d'un bloc actif (énergie, fluides, rotation).
     Inspect(IVec3),
     /// Le bilan des réseaux de câbles, de tuyaux et d'arbres.
@@ -345,6 +350,28 @@ pub fn parse(line: &str) -> Result<Command> {
             Command::Inspect(block_pos(0)?)
         }
         "networks" => Command::Networks,
+        "assemble" => {
+            count(&[3])?;
+            Command::Assemble(block_pos(0)?)
+        }
+        "land" => {
+            count(&[1])?;
+            Command::Land(
+                args[0]
+                    .parse()
+                    .context("land : le numéro d'une structure (voir ships)")?,
+            )
+        }
+        "ships" => Command::Ships,
+        "steer" => {
+            count(&[2])?;
+            Command::Steer(
+                args[0]
+                    .parse()
+                    .context("steer : le numéro d'une structure (voir ships)")?,
+                number(1)?.clamp(-1.0, 1.0),
+            )
+        }
         "structures" => {
             count(&[0, 1])?;
             let radius = if args.is_empty() { 600.0 } else { number(0)? };
@@ -689,6 +716,42 @@ impl VoxelGame {
                     "{{\"ok\":true,\"block\":{block},\"power\":{power},\"energy\":{energy},\"tanks\":[{}],\"kinetic\":{kinetic}}}",
                     tanks.join(",")
                 ))
+            }
+            Command::Assemble(pos) => {
+                let id = self.assemble(pos).map_err(|e| anyhow::anyhow!(e))?;
+                Ok(format!("{{\"ok\":true,\"ship\":{}}}", id.0))
+            }
+            Command::Land(id) => {
+                let placed = self
+                    .disassemble(engine_voxel::GridId(id))
+                    .map_err(|e| anyhow::anyhow!(e))?;
+                Ok(format!("{{\"ok\":true,\"placed\":{placed}}}"))
+            }
+            Command::Steer(id, value) => {
+                if let Some(mut control) = self.ecs.get_resource_mut::<crate::ships::ShipControl>()
+                {
+                    control.forced = (value != 0.0).then_some((engine_voxel::GridId(id), value));
+                }
+                Ok(ok())
+            }
+            Command::Ships => {
+                let subs = self.mods.subgrids.borrow();
+                let list: Vec<String> = subs
+                    .ids()
+                    .iter()
+                    .map(|id| {
+                        let g = subs.get(*id).expect("identifiant connu").borrow();
+                        format!(
+                            "{{\"id\":{},\"blocks\":{},\"pos\":{},\"yaw\":{:.3},\"velocity\":{}}}",
+                            id.0,
+                            g.len(),
+                            vec3(g.position),
+                            g.yaw,
+                            vec3(g.velocity)
+                        )
+                    })
+                    .collect();
+                Ok(format!("{{\"ok\":true,\"ships\":[{}]}}", list.join(",")))
             }
             Command::Networks => {
                 let stats = self.mods.machines.networks().stats();
@@ -1054,6 +1117,13 @@ mod tests {
             Command::Inspect(IVec3::new(1, 2, 3))
         );
         assert_eq!(parse("networks").unwrap(), Command::Networks);
+        assert_eq!(
+            parse("assemble 1 2 3").unwrap(),
+            Command::Assemble(IVec3::new(1, 2, 3))
+        );
+        assert_eq!(parse("land 2").unwrap(), Command::Land(2));
+        assert_eq!(parse("steer 1 -2").unwrap(), Command::Steer(1, -1.0));
+        assert_eq!(parse("ships").unwrap(), Command::Ships);
         assert_eq!(
             parse("weather storm").unwrap(),
             Command::Weather(crate::weather::Sky::Storm)
