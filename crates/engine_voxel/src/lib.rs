@@ -17,6 +17,7 @@ mod block;
 mod block_rules;
 mod capabilities;
 mod chunk;
+mod circuits;
 mod containers;
 mod crafting;
 mod farming;
@@ -46,6 +47,7 @@ pub use capabilities::{
     Capabilities, EnergyStorage, Face, FluidTank, Inventory, ItemStack, Kinetic, MAX_STACK, Sides,
 };
 pub use chunk::{BlockEntity, CHUNK_SIZE, Chunk, DEFAULT_LIGHT};
+pub use circuits::{FACINGS, PUSH_LIMIT, facing_of, placement_state};
 pub use containers::{
     CHEST_SLOTS, Chest, FURNACE_FUEL, FURNACE_INPUT, FURNACE_OUTPUT, Furnace, FurnaceState,
     container_slots, register as register_containers,

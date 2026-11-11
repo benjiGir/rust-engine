@@ -152,6 +152,13 @@ impl ModSystem {
         actions
     }
 
+    /// Le joueur clique sur un bloc actif (levier, bouton, répéteur) : `true` s'il réagit.
+    pub fn use_block(&mut self, pos: IVec3) -> (bool, Vec<MachineAction>) {
+        let mut actions = Vec::new();
+        let used = self.machines.use_block(&self.world, pos, &mut actions);
+        (used, actions)
+    }
+
     /// Transmet un événement aux scripts. Ce qu'ils demandent (ticks, voisins à prévenir)
     /// passe par l'ordonnanceur des machines ; le reste revient au jeu.
     pub fn dispatch(&mut self, event: &ModEvent) -> Vec<MachineAction> {

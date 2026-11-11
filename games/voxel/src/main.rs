@@ -866,6 +866,7 @@ impl VoxelGame {
             if ctx.input.mouse_pressed(MouseButton::Right)
                 && !bed.is_some_and(|pos| self.use_bed(pos))
                 && !self.open_container()
+                && !self.use_machine()
                 && !self.feed_mob()
                 && !self.use_hoe()
                 && !self.use_fertilizer()
@@ -938,6 +939,7 @@ impl VoxelGame {
             alpha,
             self.renderer.time,
         ));
+        self.direction_hint(&mut mob_boxes);
         self.renderer.set_instances(&mob_boxes);
         // Le bras, éclairé par la lumière là où se tient le joueur.
         let (sky, block) = self
@@ -1474,6 +1476,59 @@ impl VoxelGame {
     }
 
     /// Pose le bloc de la case choisie contre la face visée. Renvoie sa position si c'est fait.
+    /// Une flèche sur le bloc visé s'il est orienté (piston, inverseur, répéteur) : une barre
+    /// claire dans sa direction, avec un bout plus vif devant.
+    fn direction_hint(&self, out: &mut Vec<engine_render::CubeInstance>) {
+        let Some(hit) = self.target else { return };
+        let streamer = self.streamer();
+        let block = streamer.world().block(hit.block_pos);
+        let directional = matches!(
+            self.registry.def(block).behavior.as_deref(),
+            Some("core:piston" | "core:sticky_piston" | "core:inverter" | "core:repeater")
+        );
+        if !directional {
+            return;
+        }
+        let facing = engine_voxel::facing_of(streamer.block_entity(hit.block_pos));
+        let center = hit.block_pos.as_vec3() + Vec3::splat(0.5) + hit.normal.as_vec3() * 0.52;
+        let along = facing.as_vec3();
+        let bar = Vec3::ONE * 0.12 + along.abs() * 0.5;
+        out.push(engine_render::CubeInstance::new(
+            center,
+            bar,
+            Vec3::new(1.0, 0.9, 0.3),
+        ));
+        out.push(engine_render::CubeInstance::new(
+            center + along * 0.3,
+            Vec3::splat(0.2),
+            Vec3::new(1.0, 0.3, 0.1),
+        ));
+    }
+
+    /// Un clic droit sur un levier, un bouton ou un répéteur.
+    fn use_machine(&mut self) -> bool {
+        let Some(hit) = self.target else {
+            return false;
+        };
+        let block = self.streamer().world().block(hit.block_pos);
+        let circuit = matches!(
+            self.registry.def(block).behavior.as_deref(),
+            Some("core:lever" | "core:button" | "core:repeater")
+        );
+        if !circuit {
+            return false;
+        }
+        let (used, actions) = self.mods.use_block(hit.block_pos);
+        self.apply_machine_actions(actions);
+        if used {
+            self.hand.punch();
+            if let Some(audio) = &mut self.audio {
+                audio.play("core:place_hard");
+            }
+        }
+        used
+    }
+
     /// Un aliment en main, clic droit sur un animal qui l'aime : il entre en rut.
     fn feed_mob(&mut self) -> bool {
         let Some(item) = self.inventory.selected_item() else {
@@ -1592,6 +1647,16 @@ impl VoxelGame {
             self.hand.punch();
             // Des feuilles posées par le joueur ne se décomposent pas : une entité de bloc
             // les marque comme « posées ».
+            // Un piston, un inverseur, un répéteur : ils visent où le joueur regarde.
+            if let Some(state) = self
+                .registry
+                .def(block)
+                .behavior
+                .as_deref()
+                .and_then(|b| engine_voxel::placement_state(b, self.camera.forward()))
+            {
+                self.streamer_mut().set_block_entity(pos, Some(state));
+            }
             if self.registry.def(block).behavior.as_deref() == Some("core:leaves") {
                 self.streamer_mut()
                     .set_block_entity(pos, Some(engine_voxel::BlockEntity::default()));
@@ -2186,6 +2251,15 @@ fn starter_inventory(items: &engine_voxel::ItemRegistry) -> Inventory {
         // De quoi construire un mécanisme : horloge → lampe, horloge → casseur.
         ("core:clock", 4),
         ("core:lamp", 4),
+        // Les circuits (phase O8).
+        ("core:wire", 32),
+        ("core:lever", 4),
+        ("core:button", 4),
+        ("core:repeater", 2),
+        ("core:inverter", 2),
+        ("core:gate", 2),
+        ("core:piston", 2),
+        ("core:sticky_piston", 2),
         ("example:breaker", 2),
         ("example:ruby", 4),
     ] {

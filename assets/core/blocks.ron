@@ -614,6 +614,110 @@
         sounds: (break: "break_soft", place: "place_soft"),
         hardness: 0.0, support: Farmland,
     ),
+    // Les circuits (phase O8). Voir engine_voxel/src/circuits.rs : la variante « _on » est le
+    // même bloc dans son état actif ; elle lâche l'objet de base (loot.ron).
+    (
+        id: "core:wire", name: "Câble de signal", color: (0.4, 0.08, 0.06), texture: "wire",
+        shape: Flat, cutout: true, solid: false, transparent: true, light_opacity: 0, support: Floor, behavior: "core:wire",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 0.0,
+    ),
+    (
+        id: "core:wire_on", name: "Câble de signal (actif)", color: (1.0, 0.15, 0.1), texture: "wire_on", placeable: false,
+        shape: Flat, cutout: true, solid: false, transparent: true, light_opacity: 0, support: Floor, behavior: "core:wire",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 0.0,
+    ),
+    (
+        id: "core:lever", name: "Levier", color: (0.5, 0.5, 0.52), texture: "lever",
+        behavior: "core:lever",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 0.5,
+    ),
+    (
+        id: "core:lever_on", name: "Levier (actif)", color: (0.8, 0.3, 0.25), texture: "lever_on", placeable: false,
+        behavior: "core:lever",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 0.5,
+    ),
+    (
+        id: "core:button", name: "Bouton", color: (0.55, 0.55, 0.57), texture: "button",
+        behavior: "core:button",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 0.5,
+    ),
+    (
+        id: "core:button_on", name: "Bouton (pressé)", color: (0.8, 0.3, 0.25), texture: "button_on", placeable: false,
+        behavior: "core:button",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 0.5,
+    ),
+    (
+        id: "core:gate", name: "Herse", color: (0.35, 0.35, 0.38), texture: "gate",
+        behavior: "core:gate",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 2.0,
+    ),
+    (
+        id: "core:gate_open", name: "Herse (ouverte)", color: (0.35, 0.35, 0.38), texture: "gate_open", placeable: false,
+        behavior: "core:gate", cutout: true, solid: false, transparent: true, light_opacity: 0,
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 2.0,
+    ),
+    (
+        id: "core:inverter", name: "Inverseur", color: (0.4, 0.4, 0.43), texture: "inverter",
+        behavior: "core:inverter",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 0.5,
+    ),
+    (
+        id: "core:inverter_on", name: "Inverseur (émet)", color: (0.9, 0.25, 0.2), texture: "inverter_on", placeable: false,
+        behavior: "core:inverter",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 0.5,
+    ),
+    (
+        id: "core:repeater", name: "Répéteur", color: (0.4, 0.4, 0.43), texture: "repeater",
+        behavior: "core:repeater",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 0.5,
+    ),
+    (
+        id: "core:repeater_on", name: "Répéteur (émet)", color: (0.9, 0.25, 0.2), texture: "repeater_on", placeable: false,
+        behavior: "core:repeater",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 0.5,
+    ),
+    (
+        id: "core:piston", name: "Piston", color: (0.6, 0.5, 0.35), texture: "piston",
+        behavior: "core:piston",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.0,
+    ),
+    (
+        id: "core:piston_on", name: "Piston (sorti)", color: (0.5, 0.42, 0.3), texture: "piston_on", placeable: false,
+        behavior: "core:piston",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.0,
+    ),
+    (
+        id: "core:sticky_piston", name: "Piston collant", color: (0.45, 0.6, 0.3), texture: "sticky_piston",
+        behavior: "core:sticky_piston",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.0,
+    ),
+    (
+        id: "core:sticky_piston_on", name: "Piston collant (sorti)", color: (0.4, 0.5, 0.28), texture: "sticky_piston_on", placeable: false,
+        behavior: "core:sticky_piston",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.0,
+    ),
+    (
+        id: "core:piston_head", name: "Tête de piston", color: (0.65, 0.55, 0.4), texture: "piston_head", placeable: false,
+        
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.0,
+    ),
     // ----- Les fluides -----
     // Ce que devient la lave au contact de l'eau.
     (

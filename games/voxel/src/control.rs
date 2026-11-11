@@ -672,7 +672,7 @@ impl VoxelGame {
                 if self.use_bed(hit.block_pos) {
                     return Ok(self.state_json());
                 }
-                if self.open_container() {
+                if self.open_container() || self.use_machine() {
                     return Ok(ok());
                 }
                 let pos = self.place_at_target().context("use : rien à faire ici")?;

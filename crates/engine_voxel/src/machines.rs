@@ -44,7 +44,7 @@ pub const MACHINE_TICKS_PER_SECOND: u32 = 20;
 /// La puissance maximale d'un signal, comme la redstone.
 pub const MAX_POWER: u8 = 15;
 
-const NEIGHBOURS: [IVec3; 6] = [
+pub(crate) const NEIGHBOURS: [IVec3; 6] = [
     IVec3::X,
     IVec3::NEG_X,
     IVec3::Y,
@@ -96,6 +96,10 @@ pub trait BlockBehavior {
     /// Un « tick aléatoire » : le bloc a été tiré au sort (voir [`Machines::run_random_ticks`]).
     /// Pour ce qui évolue lentement et sans prévenir : l'herbe, les pousses, les feuilles.
     fn random_tick(&self, _ctx: &mut MachineContext, _positions: &[GridPos]) {}
+    /// Le joueur clique dessus (levier, bouton, répéteur). `true` si le clic est pris en compte.
+    fn used(&self, _ctx: &mut MachineContext, _at: GridPos) -> bool {
+        false
+    }
 }
 
 /// Les ticks programmés et les voisins à prévenir.
@@ -285,11 +289,17 @@ impl Machines {
         let leaves: Rc<dyn BlockBehavior> = Rc::new(plants::Leaves::new(registry));
         let sapling: Option<Rc<dyn BlockBehavior>> =
             plants::Sapling::new(registry).map(|s| Rc::new(s) as _);
+        let circuits = crate::circuits::natives(registry);
         let farmland: Option<Rc<dyn BlockBehavior>> =
             crate::farming::Farmland::new(registry).map(|f| Rc::new(f) as _);
         let crop: Rc<dyn BlockBehavior> = Rc::new(crate::farming::Crop);
         for (id, def) in registry.iter() {
             match def.behavior.as_deref() {
+                Some(name) if circuits.iter().any(|(n, _)| *n == name) => {
+                    if let Some((_, behavior)) = circuits.iter().find(|(n, _)| *n == name) {
+                        machines.register(id, behavior.clone());
+                    }
+                }
                 Some("core:crop") => machines.register_random(id, crop.clone()),
                 Some("core:farmland") => {
                     if let Some(farmland) = &farmland {
@@ -401,6 +411,24 @@ impl Machines {
             start = end;
         }
         count
+    }
+
+    /// Le joueur clique sur le bloc en `pos` (levier, bouton, répéteur). `true` si un
+    /// comportement l'a pris en compte.
+    pub fn use_block(
+        &mut self,
+        world: &RefCell<ChunkStreamer>,
+        pos: IVec3,
+        actions: &mut Vec<MachineAction>,
+    ) -> bool {
+        let grids = Grids::new(world);
+        let at = GridPos::world(pos);
+        let block = grids.block(at);
+        let Some(behavior) = self.behaviors.get(&block).cloned() else {
+            return false;
+        };
+        let mut ctx = self.context(grids, actions);
+        behavior.used(&mut ctx, at)
     }
 
     pub fn has_behavior(&self, block: BlockId) -> bool {
@@ -565,8 +593,7 @@ impl Machines {
 pub fn received_power(grid: &(impl BlockAccess + ?Sized), pos: IVec3) -> u8 {
     NEIGHBOURS
         .iter()
-        .filter_map(|&o| grid.block_entity(pos + o))
-        .map(|e| e.power)
+        .map(|&o| crate::circuits::power_toward(grid, pos + o, pos))
         .max()
         .unwrap_or(0)
 }

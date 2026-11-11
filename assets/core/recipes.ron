@@ -11,6 +11,12 @@
         (pattern: ["#", "#"], key: {"#": "#planks"}, result: ("stick", 4)),
         (pattern: ["##", "##"], key: {"#": "#planks"}, result: ("workbench", 1)),
         (pattern: ["###", "# #", "###"], key: {"#": "#stones"}, result: ("furnace", 1)),
+        // Les circuits (phase O8).
+        (pattern: ["s", "#"], key: {"s": "stick", "#": "cobblestone"}, result: ("lever", 1)),
+        (pattern: ["c", "s"], key: {"c": "cinnabar_dust", "s": "stick"}, result: ("inverter", 1)),
+        (pattern: ["cic", "sss"], key: {"c": "cinnabar_dust", "i": "inverter", "s": "stone"}, result: ("repeater", 1)),
+        (pattern: ["ii", "ii", "ii"], key: {"i": "iron_ingot"}, result: ("gate", 1)),
+        (pattern: ["PPP", "#i#", "#c#"], key: {"P": "#planks", "#": "cobblestone", "i": "iron_ingot", "c": "cinnabar_dust"}, result: ("piston", 1)),
         (pattern: ["www"], key: {"w": "wheat"}, result: ("bread", 1)),
         (pattern: ["###", "# #", "###"], key: {"#": "#planks"}, result: ("chest", 1)),
         (pattern: ["LLL", "PPP"], key: {"L": "#leaves", "P": "#planks"}, result: ("bed", 1)),
@@ -75,6 +81,9 @@
         (ingredients: ["jungle_log"], result: ("jungle_planks", 4)),
         (ingredients: ["spores", "seeds", "dirt"], result: ("fertilizer", 2)),
         (ingredients: ["melon_slice"], result: ("melon_seeds", 1)),
+        (ingredients: ["cinnabar_dust"], result: ("wire", 3)),
+        (ingredients: ["stone"], result: ("button", 2)),
+        (ingredients: ["spores", "piston"], result: ("sticky_piston", 1)),
         (ingredients: ["flint", "iron_ingot"], result: ("torch", 8)),
     ],
 )

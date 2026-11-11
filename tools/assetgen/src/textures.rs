@@ -129,6 +129,156 @@ fn farmland(wet: bool) -> Image {
     image
 }
 
+/// Un câble de signal : un trait en croix qui relie les bords de la case.
+fn wire(on: bool) -> Image {
+    let color = if on {
+        [1.0, 0.18, 0.1]
+    } else {
+        [0.42, 0.08, 0.06]
+    };
+    let mut image = Image::transparent();
+    for k in 0..SIZE {
+        for w in 7..9 {
+            image.set(k, w, scale(color, 0.9 + 0.1 * (k % 2) as f32));
+            image.set(w, k, scale(color, 0.9 + 0.1 * (k % 2) as f32));
+        }
+    }
+    image
+}
+
+/// Une plaque de pierre grise sur laquelle on dessine les mécanismes.
+fn plate(seed: u64) -> Image {
+    let base = [0.5, 0.5, 0.53];
+    let mut image = Image::filled(base).noise(base, 0.06, seed);
+    for k in 0..SIZE {
+        for edge in [0, SIZE - 1] {
+            image.set(k, edge, scale(base, 0.65));
+            image.set(edge, k, scale(base, 0.65));
+        }
+    }
+    image
+}
+
+/// Un levier : un manche penché à gauche (relevé) ou à droite (actif, bout rouge).
+fn lever(on: bool) -> Image {
+    let mut image = plate(50);
+    for k in 0..8i32 {
+        let x = if on { 5 + k / 2 } else { 11 - k / 2 };
+        image.plot(x, 12 - k, [0.45, 0.32, 0.2]);
+        image.plot(x + 1, 12 - k, [0.55, 0.4, 0.25]);
+    }
+    let tip = if on { 9 } else { 6 };
+    let color = if on {
+        [1.0, 0.2, 0.12]
+    } else {
+        [0.5, 0.15, 0.1]
+    };
+    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+        image.plot(tip + dx, 3 + dy, color);
+    }
+    image.plot(8, 13, [0.3, 0.3, 0.32]);
+    image
+}
+
+/// Un bouton : un carré en relief, enfoncé et rouge quand il est pressé.
+fn button(on: bool) -> Image {
+    let mut image = plate(51);
+    let (inner, rim) = if on {
+        ([0.9, 0.22, 0.15], [0.55, 0.12, 0.1])
+    } else {
+        ([0.72, 0.72, 0.76], [0.4, 0.4, 0.44])
+    };
+    for y in 4..12 {
+        for x in 4..12 {
+            let edge = x == 4 || y == 4 || x == 11 || y == 11;
+            image.set(x, y, if edge { rim } else { inner });
+        }
+    }
+    image
+}
+
+/// Une herse : des barreaux de fer ; ouverte, ils sont découpés sur fond transparent.
+fn gate(open: bool) -> Image {
+    let iron = [0.55, 0.56, 0.6];
+    let mut image = if open {
+        Image::transparent()
+    } else {
+        Image::filled([0.22, 0.22, 0.25]).noise([0.22, 0.22, 0.25], 0.08, 52)
+    };
+    for x in (1..SIZE).step_by(4) {
+        for y in 0..SIZE {
+            for w in 0..2 {
+                image.set(x + w, y, scale(iron, 0.85 + 0.1 * (y % 3) as f32));
+            }
+        }
+    }
+    for y in [1, 8, 14] {
+        for x in 0..SIZE {
+            image.set(x, y, scale(iron, 0.7));
+        }
+    }
+    image
+}
+
+/// L'inverseur (un point) et le répéteur (deux points), allumés ou non.
+fn logic(dots: usize, on: bool) -> Image {
+    let mut image = plate(53 + dots as u64);
+    let color = if on {
+        [1.0, 0.2, 0.1]
+    } else {
+        [0.35, 0.1, 0.08]
+    };
+    let xs: &[usize] = if dots == 1 { &[7] } else { &[4, 10] };
+    for &x in xs {
+        for dy in 0..3 {
+            for dx in 0..3 {
+                image.set(x + dx, 6 + dy, color);
+            }
+        }
+    }
+    // Une rainure d'entrée à gauche, de sortie à droite : le sens de la lecture.
+    for x in 0..3 {
+        image.set(x, 7, scale([0.5, 0.5, 0.53], 0.5));
+    }
+    for x in 13..SIZE {
+        image.set(x, 7, color);
+    }
+    image
+}
+
+/// Un piston : une planche bordée de fer ; `centre` colore le cœur (vert : collant).
+fn piston(extended: bool, centre: [f32; 3]) -> Image {
+    let wood = [0.62, 0.5, 0.3];
+    let mut image = Image::filled(wood).noise(wood, 0.06, 56);
+    let iron = [0.5, 0.5, 0.55];
+    for k in 0..SIZE {
+        for edge in [0, 1, SIZE - 2, SIZE - 1] {
+            image.set(k, edge, iron);
+            image.set(edge, k, iron);
+        }
+    }
+    for y in 5..11 {
+        for x in 5..11 {
+            let shade = if extended { 0.55 } else { 1.0 };
+            image.set(x, y, scale(centre, shade));
+        }
+    }
+    image
+}
+
+/// La tête d'un piston sorti : une planche pleine.
+fn piston_head() -> Image {
+    let wood = [0.7, 0.57, 0.34];
+    let mut image = Image::filled(wood).noise(wood, 0.07, 57);
+    for k in 0..SIZE {
+        for edge in [0, SIZE - 1] {
+            image.set(k, edge, scale(wood, 0.7));
+            image.set(edge, k, scale(wood, 0.7));
+        }
+    }
+    image
+}
+
 /// Le côté de l'herbe : de la terre, avec une bordure d'herbe irrégulière en haut.
 fn grass_side() -> Image {
     let mut image = dirt();
@@ -1612,6 +1762,29 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("melon_1.png"), ground_crop("melon", 1)),
         (core.join("melon_2.png"), ground_crop("melon", 2)),
         (core.join("melon_3.png"), ground_crop("melon", 3)),
+        (core.join("wire.png"), wire(false)),
+        (core.join("wire_on.png"), wire(true)),
+        (core.join("lever.png"), lever(false)),
+        (core.join("lever_on.png"), lever(true)),
+        (core.join("button.png"), button(false)),
+        (core.join("button_on.png"), button(true)),
+        (core.join("gate.png"), gate(false)),
+        (core.join("gate_open.png"), gate(true)),
+        (core.join("inverter.png"), logic(1, false)),
+        (core.join("inverter_on.png"), logic(1, true)),
+        (core.join("repeater.png"), logic(2, false)),
+        (core.join("repeater_on.png"), logic(2, true)),
+        (core.join("piston.png"), piston(false, [0.78, 0.74, 0.7])),
+        (core.join("piston_on.png"), piston(true, [0.78, 0.74, 0.7])),
+        (
+            core.join("sticky_piston.png"),
+            piston(false, [0.45, 0.75, 0.3]),
+        ),
+        (
+            core.join("sticky_piston_on.png"),
+            piston(true, [0.45, 0.75, 0.3]),
+        ),
+        (core.join("piston_head.png"), piston_head()),
         (core.join("farmland_dry.png"), farmland(false)),
         (core.join("farmland_wet.png"), farmland(true)),
         (core.join("cobblestone.png"), cobblestone()),
