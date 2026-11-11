@@ -174,6 +174,8 @@ pub struct HostState {
     registry: Arc<BlockRegistry>,
     content: ModContent,
     settings: Rc<RefCell<crate::ModSettings>>,
+    world_data: Rc<RefCell<crate::ModSettings>>,
+    peers: Peers,
     requests: Requests,
     subscriptions: Vec<i32>,
     limits: StoreLimits,
@@ -186,6 +188,8 @@ pub struct ScriptHost {
     linker: Linker<HostState>,
     content: ModContent,
     settings: Rc<RefCell<crate::ModSettings>>,
+    world_data: Rc<RefCell<crate::ModSettings>>,
+    peers: Peers,
 }
 
 impl ScriptHost {
@@ -201,6 +205,8 @@ impl ScriptHost {
             linker,
             content: ModContent::default(),
             settings: Rc::default(),
+            world_data: Rc::new(RefCell::new(crate::ModSettings::default().for_world())),
+            peers: Peers::default(),
         })
     }
 
@@ -212,6 +218,16 @@ impl ScriptHost {
     /// Les réglages des mods, partagés avec le jeu (qui les écrit dans la page d'options).
     pub fn set_settings(&mut self, settings: Rc<RefCell<crate::ModSettings>>) {
         self.settings = settings;
+    }
+
+    /// Les scripts que les mods peuvent s'appeler (`ModRuntime::peers`).
+    pub fn set_peers(&mut self, peers: Peers) {
+        self.peers = peers;
+    }
+
+    /// Les données du monde des mods, sauvegardées avec le monde.
+    pub fn set_world_data(&mut self, data: Rc<RefCell<crate::ModSettings>>) {
+        self.world_data = data;
     }
 
     /// Charge un script : compile, instancie, puis appelle `mod_init`.
@@ -231,6 +247,8 @@ impl ScriptHost {
             registry,
             content: self.content.clone(),
             settings: self.settings.clone(),
+            world_data: self.world_data.clone(),
+            peers: self.peers.clone(),
             requests: Requests::default(),
             subscriptions: Vec::new(),
             // Le bac à sable mémoire : une seule mémoire, de taille bornée.
@@ -265,6 +283,12 @@ impl ScriptHost {
         let on_ui = instance
             .get_typed_func::<UiArgs, ()>(&mut store, "on_ui")
             .ok();
+        let on_call = instance
+            .get_typed_func::<(i32, i32), i32>(&mut store, "on_call")
+            .ok();
+        let call_reply = instance
+            .get_typed_func::<(), i32>(&mut store, "call_reply")
+            .ok();
         let on_options = instance
             .get_typed_func::<(i32, i32, i32), ()>(&mut store, "on_options")
             .ok();
@@ -279,6 +303,8 @@ impl ScriptHost {
             on_use,
             on_ui,
             on_options,
+            on_call,
+            call_reply,
             disabled: None,
             stats: ModStats::default(),
             spent: 0,
@@ -320,6 +346,8 @@ pub struct ScriptMod {
     on_use: Option<TypedFunc<(i32, i32, i32, i32), i32>>,
     on_ui: Option<TypedFunc<UiArgs, ()>>,
     on_options: Option<TypedFunc<(i32, i32, i32), ()>>,
+    on_call: Option<TypedFunc<(i32, i32), i32>>,
+    call_reply: Option<TypedFunc<(), i32>>,
     /// La raison de sa désactivation, s'il a planté.
     disabled: Option<String>,
     stats: ModStats,
@@ -472,6 +500,40 @@ impl ScriptMod {
         })
     }
 
+    /// Un autre mod appelle la fonction `name` de ce mod. Renvoie sa réponse (`None` : il ne
+    /// répond pas, ou n'a pas de `on_call`) et ce qu'il a demandé au jeu pendant l'appel.
+    pub fn call(&mut self, name: &str, args: &[u8]) -> Result<(Option<Vec<u8>>, Requests)> {
+        let (Some(on_call), Some(call_reply)) = (self.on_call.clone(), self.call_reply.clone())
+        else {
+            return Ok((None, Requests::default()));
+        };
+        if self.disabled.is_some() || self.over_budget() {
+            self.stats.skipped_calls += 1;
+            return Ok((None, Requests::default()));
+        }
+        let mut payload = (name.len() as u16).to_le_bytes().to_vec();
+        payload.extend(name.as_bytes());
+        payload.extend(args);
+        let ptr = self.write_guest(&payload)?;
+        let mut len = -1;
+        let mut reply_ptr = 0;
+        let requests = self.guarded(|store| {
+            len = on_call.call(&mut *store, (ptr, payload.len() as i32))?;
+            if len >= 0 {
+                reply_ptr = call_reply.call(&mut *store, ())?;
+            }
+            Ok(())
+        })?;
+        if len < 0 || len as usize > MAX_CALL_BYTES {
+            return Ok((None, requests));
+        }
+        let mut reply = vec![0u8; len as usize];
+        self.memory
+            .read(&self.store, reply_ptr as u32 as usize, &mut reply)
+            .context("lecture de la réponse du mod")?;
+        Ok((Some(reply), requests))
+    }
+
     /// La page d'options : `kind` vaut `menu::UI_OPEN` à l'ouverture, puis les actions du
     /// joueur et `menu::UI_CLOSED`. Le script répond en rappelant `options_show`.
     pub fn options_event(&mut self, kind: i32, id: i32, value: i32) -> Result<Requests> {
@@ -527,6 +589,13 @@ impl ScriptMod {
     }
 }
 
+/// Les scripts chargés, avec leur identifiant : ce que voit un script qui en appelle un autre.
+/// L'identifiant est gardé à côté pour chercher sans emprunter un script en cours d'appel.
+pub type Peers = Rc<RefCell<Vec<(String, Rc<RefCell<ScriptMod>>)>>>;
+
+/// Au plus ce nombre d'octets pour les arguments et la réponse d'un appel entre mods.
+pub const MAX_CALL_BYTES: usize = 64 * 1024;
+
 /// Les arguments de `on_ui` : type, grille, x, y, z, identifiant, valeur.
 type UiArgs = (i32, i32, i32, i32, i32, i32, i32);
 
@@ -578,13 +647,32 @@ impl BlockBehavior for ScriptBehavior {
 #[derive(Default)]
 pub struct ModRuntime {
     scripts: Vec<Rc<RefCell<ScriptMod>>>,
+    peers: Peers,
 }
 
 impl ModRuntime {
     pub fn add(&mut self, script: ScriptMod) -> Rc<RefCell<ScriptMod>> {
+        let id = script.id().to_string();
         let script = Rc::new(RefCell::new(script));
         self.scripts.push(script.clone());
+        self.peers.borrow_mut().push((id, script.clone()));
         script
+    }
+
+    /// La liste que les scripts consultent pour s'appeler : à donner au `ScriptHost`
+    /// (`set_peers`) avant de charger les scripts.
+    pub fn peers(&self) -> Peers {
+        self.peers.clone()
+    }
+
+    /// Appelle la fonction `name` du mod `mod_id` (pour le jeu et les tests ; entre mods, voir
+    /// `call_mod`). Renvoie sa réponse et ce qu'il demande au jeu.
+    pub fn call(&self, mod_id: &str, name: &str, args: &[u8]) -> (Option<Vec<u8>>, Requests) {
+        let Some(script) = self.scripts.iter().find(|s| s.borrow().id() == mod_id) else {
+            return (None, Requests::default());
+        };
+        let result = script.borrow_mut().call(name, args);
+        result.unwrap_or_default()
     }
 
     /// Remplace le script d'un mod (rechargement à chaud) ; renvoie `false` s'il n'existait pas.

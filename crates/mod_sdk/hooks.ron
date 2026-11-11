@@ -140,6 +140,21 @@
          params: [("key_ptr", I32), ("key_len", I32), ("val_ptr", I32), ("val_len", I32)], ret: I32, fallback: "0",
          doc: "Enregistre un réglage du mod (clé de 64 octets, valeur de 1 024, 256 clés au plus). 1 si c'est fait."),
 
+        (name: "world_get", group: "Réglages",
+         params: [("key_ptr", I32), ("key_len", I32), ("out_ptr", I32), ("cap", I32)], ret: I32, fallback: "-1",
+         doc: "Copie la valeur (texte) d'une donnée du mod **dans ce monde** (au plus `cap` octets) ; renvoie sa taille, −1 si elle n'existe pas."),
+        (name: "world_set", group: "Réglages",
+         params: [("key_ptr", I32), ("key_len", I32), ("val_ptr", I32), ("val_len", I32)], ret: I32, fallback: "0",
+         doc: "Enregistre une donnée du mod dans ce monde (clé de 64 octets, valeur de 64 Kio, 1 024 clés au plus), sauvegardée avec le monde. 1 si c'est fait."),
+
+        // Appels entre mods.
+        (name: "call_mod", group: "Appels entre mods",
+         params: [("mod_ptr", I32), ("mod_len", I32), ("name_ptr", I32), ("name_len", I32), ("arg_ptr", I32), ("arg_len", I32), ("out_ptr", I32), ("cap", I32)], ret: I32, fallback: "-1",
+         doc: "Appelle la fonction `name` du mod `mod` avec ces octets (64 Kio au plus) ; copie sa réponse (au plus `cap` octets) et renvoie sa taille. −1 si le mod est absent, désactivé, hors budget, déjà en cours d'appel (pas de cycle) ou s'il ne répond pas."),
+        (name: "mod_loaded", group: "Appels entre mods",
+         params: [("ptr", I32), ("len", I32)], ret: I32, fallback: "0",
+         doc: "1 si le mod (son identifiant) est chargé et actif."),
+
         // Objets et recettes.
         (name: "item_id", group: "Objets et recettes",
          params: [("ptr", I32), ("len", I32)], ret: I32, fallback: "-1",

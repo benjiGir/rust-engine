@@ -98,6 +98,13 @@ fn run_press(pos: Pos) -> bool {
     true
 }
 
+/// Combien de fois la manivelle a tourné dans ce monde (une donnée du mod, sauvegardée avec lui).
+fn crank_turns() -> u32 {
+    mod_sdk::world_value("crank_turns")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
+
 fn press_menu(pos: Pos) -> Menu {
     let speed = mod_sdk::kinetic_speed(pos).abs();
     let (label, fraction) = match current_recipe(pos) {
@@ -115,6 +122,10 @@ fn press_menu(pos: Pos) -> Menu {
     };
     Menu::new("Presse")
         .label(&status)
+        .label(&format!(
+            "Tours de manivelle dans ce monde : {}",
+            crank_turns()
+        ))
         .row_begin()
         .slots(INPUT as u16, 1, 1)
         .bar(&label, fraction)
@@ -173,6 +184,7 @@ impl Mod for Mecanique {
         if block == self.crank {
             mod_sdk::set_kinetic(pos, crank_speed(), CRANK_CAPACITY, 0.0);
             mod_sdk::schedule_tick(pos, crank_ticks());
+            mod_sdk::set_world_value("crank_turns", &(crank_turns() + 1).to_string());
             true
         } else if block == self.press {
             mod_sdk::show_menu(pos, &press_menu(pos));
@@ -185,6 +197,16 @@ impl Mod for Mecanique {
     fn ui(&mut self, pos: Pos, event: UiEvent) {
         if event == UiEvent::Refresh {
             mod_sdk::show_menu(pos, &press_menu(pos));
+        }
+    }
+
+    /// Ce que Mécanique offre aux autres mods (`mod_sdk::call_mod("mecanique", nom, args)`) :
+    /// `crank_speed` (f32, tr/min) et `crank_turns` (u32, dans ce monde).
+    fn call(&mut self, name: &str, _args: &[u8]) -> Option<Vec<u8>> {
+        match name {
+            "crank_speed" => Some(crank_speed().to_le_bytes().to_vec()),
+            "crank_turns" => Some(crank_turns().to_le_bytes().to_vec()),
+            _ => None,
         }
     }
 

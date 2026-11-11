@@ -527,6 +527,7 @@ impl VoxelGame {
                 machine_recipes: content.machine_recipes.clone(),
             },
             &project_root(),
+            launch.world.as_deref(),
         );
         // Le coffre et le four : des machines natives qui ont besoin des objets et de la fonte.
         engine_voxel::register_containers(

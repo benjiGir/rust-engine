@@ -145,3 +145,24 @@ fn shafts_and_gears_are_variant_conduits_in_boxes() {
         assert_eq!(x.conduit, Some(engine_voxel::NetworkKind::Kinetic));
     }
 }
+
+#[test]
+fn the_world_remembers_crank_turns_and_other_mods_can_ask() {
+    let mut h = Harness::for_mod("mecanique").unwrap();
+    h.place(AT, "mecanique:crank");
+    h.machines(MACHINES_PLACED, &[AT]).unwrap();
+    for _ in 0..3 {
+        h.use_block(AT).unwrap();
+    }
+    // La donnée est dans le monde de ce mod (sauvegardée avec lui par le jeu).
+    assert_eq!(
+        h.world_data.borrow().get("mecanique", "crank_turns"),
+        Some("3")
+    );
+    // Un autre mod peut la demander, ainsi que la vitesse réglée.
+    let turns = h.call("crank_turns", b"").unwrap().unwrap();
+    assert_eq!(u32::from_le_bytes(turns.try_into().unwrap()), 3);
+    let speed = h.call("crank_speed", b"").unwrap().unwrap();
+    assert_eq!(f32::from_le_bytes(speed.try_into().unwrap()), 32.0);
+    assert_eq!(h.call("inconnu", b"").unwrap(), None);
+}

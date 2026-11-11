@@ -166,6 +166,23 @@ unsafe extern "C" {
     pub fn setting_get(key_ptr: i32, key_len: i32, out_ptr: i32, cap: i32) -> i32;
     /// Enregistre un réglage du mod (clé de 64 octets, valeur de 1 024, 256 clés au plus). 1 si c'est fait.
     pub fn setting_set(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32) -> i32;
+    /// Copie la valeur (texte) d'une donnée du mod **dans ce monde** (au plus `cap` octets) ; renvoie sa taille, −1 si elle n'existe pas.
+    pub fn world_get(key_ptr: i32, key_len: i32, out_ptr: i32, cap: i32) -> i32;
+    /// Enregistre une donnée du mod dans ce monde (clé de 64 octets, valeur de 64 Kio, 1 024 clés au plus), sauvegardée avec le monde. 1 si c'est fait.
+    pub fn world_set(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32) -> i32;
+    /// Appelle la fonction `name` du mod `mod` avec ces octets (64 Kio au plus) ; copie sa réponse (au plus `cap` octets) et renvoie sa taille. −1 si le mod est absent, désactivé, hors budget, déjà en cours d'appel (pas de cycle) ou s'il ne répond pas.
+    pub fn call_mod(
+        mod_ptr: i32,
+        mod_len: i32,
+        name_ptr: i32,
+        name_len: i32,
+        arg_ptr: i32,
+        arg_len: i32,
+        out_ptr: i32,
+        cap: i32,
+    ) -> i32;
+    /// 1 si le mod (son identifiant) est chargé et actif.
+    pub fn mod_loaded(ptr: i32, len: i32) -> i32;
     /// Le numéro d'un objet (bloc ou non) à partir de son identifiant (`example:ruby`) ; −1 s'il n'existe pas.
     pub fn item_id(ptr: i32, len: i32) -> i32;
     /// Donne `count` objets de numéro `id` (voir `item_id`) au joueur.
@@ -355,6 +372,22 @@ mod inert {
     }
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn setting_set(_: i32, _: i32, _: i32, _: i32) -> i32 {
+        0
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn world_get(_: i32, _: i32, _: i32, _: i32) -> i32 {
+        -1
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn world_set(_: i32, _: i32, _: i32, _: i32) -> i32 {
+        0
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn call_mod(_: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32, _: i32) -> i32 {
+        -1
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn mod_loaded(_: i32, _: i32) -> i32 {
         0
     }
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]

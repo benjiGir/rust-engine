@@ -32,6 +32,8 @@ pub struct Harness {
     pub registry: Arc<BlockRegistry>,
     pub script: ScriptMod,
     pub settings: Rc<RefCell<ModSettings>>,
+    /// Les données du mod propres à ce monde (`world_value` côté script).
+    pub world_data: Rc<RefCell<ModSettings>>,
     pub mod_id: String,
 }
 
@@ -108,12 +110,15 @@ impl Harness {
             machine_recipes: Arc::new(recipes),
         });
         host.set_settings(settings.clone());
+        let world_data = Rc::new(RefCell::new(ModSettings::default().for_world()));
+        host.set_world_data(world_data.clone());
         let script = host.load(mod_id, &bytes, streamer.clone(), registry.clone())?;
         Ok(Self {
             streamer,
             registry,
             script,
             settings,
+            world_data,
             mod_id: mod_id.to_string(),
         })
     }
@@ -213,6 +218,11 @@ impl Harness {
             .block_entity(pos)
             .and_then(|e| e.caps.as_ref()?.kinetic.as_ref().map(|k| k.speed))
             .unwrap_or(0.0)
+    }
+
+    /// Un autre mod appelle ce script : `Mod::call(name, args)`.
+    pub fn call(&mut self, name: &str, args: &[u8]) -> Result<Option<Vec<u8>>> {
+        Ok(self.script.call(name, args)?.0)
     }
 
     /// Un tick de machines : le budget de temps du mod est rendu.

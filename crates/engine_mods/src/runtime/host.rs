@@ -100,6 +100,7 @@ pub(super) fn define_host_functions(linker: &mut Linker<HostState>) -> wasmtime:
     define_capabilities(linker)?;
     define_content(linker)?;
     define_ui(linker)?;
+    define_calls(linker)?;
     Ok(())
 }
 
@@ -774,6 +775,51 @@ fn define_ui(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
             Ok(done as i32)
         },
     )?;
+    linker.func_wrap(
+        "voxel",
+        "world_get",
+        |mut caller: Caller<'_, HostState>,
+         key_ptr: i32,
+         key_len: i32,
+         out_ptr: i32,
+         cap: i32|
+         -> HostResult<i32> {
+            let key = read_string(&mut caller, key_ptr, key_len)?;
+            let state = caller.data();
+            let value = state
+                .world_data
+                .borrow()
+                .get(&state.mod_id, &key)
+                .map(str::to_owned);
+            let Some(value) = value else { return Ok(-1) };
+            let n = value.len().min(cap.max(0) as usize);
+            write_guest(&mut caller, out_ptr, &value.as_bytes()[..n])?;
+            Ok(value.len() as i32)
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "world_set",
+        |mut caller: Caller<'_, HostState>,
+         key_ptr: i32,
+         key_len: i32,
+         val_ptr: i32,
+         val_len: i32|
+         -> HostResult<i32> {
+            // Une valeur trop grande est refusée sans lire la mémoire du mod.
+            if val_len < 0 || val_len as usize > crate::settings::MAX_WORLD_VALUE {
+                return Ok(0);
+            }
+            let key = read_string(&mut caller, key_ptr, key_len)?;
+            let value = read_string(&mut caller, val_ptr, val_len)?;
+            let state = caller.data();
+            let done = state
+                .world_data
+                .borrow_mut()
+                .set(&state.mod_id, &key, &value);
+            Ok(done as i32)
+        },
+    )?;
     linker.func_wrap("voxel", "ui_close", |mut caller: Caller<'_, HostState>| {
         let mod_id = caller.data().mod_id.clone();
         caller
@@ -853,6 +899,82 @@ fn define_content(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
             let n = text.len().min(out_cap.max(0) as usize);
             write_guest(&mut caller, out_ptr, &text.as_bytes()[..n])?;
             Ok(text.len() as i32)
+        },
+    )?;
+    Ok(())
+}
+
+/// Les appels entre mods. Un script en cours d'appel est emprunté en écriture : l'appeler de
+/// nouveau (un cycle A → B → A, ou un mod qui s'appelle lui-même) échoue au lieu de se
+/// bloquer, et la profondeur est donc bornée par le nombre de mods.
+fn define_calls(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        "voxel",
+        "call_mod",
+        |mut caller: Caller<'_, HostState>,
+         mod_ptr: i32,
+         mod_len: i32,
+         name_ptr: i32,
+         name_len: i32,
+         arg_ptr: i32,
+         arg_len: i32,
+         out_ptr: i32,
+         cap: i32|
+         -> HostResult<i32> {
+            if arg_len < 0 || arg_len as usize > super::MAX_CALL_BYTES || name_len > 64 {
+                return Ok(-1);
+            }
+            let target = read_string(&mut caller, mod_ptr, mod_len)?;
+            let name = read_string(&mut caller, name_ptr, name_len)?;
+            let args = read_guest(&mut caller, arg_ptr, arg_len)?;
+            let me = caller.data().mod_id.clone();
+            if target == me {
+                return Ok(-1);
+            }
+            let peer = caller
+                .data()
+                .peers
+                .borrow()
+                .iter()
+                .find(|(id, _)| *id == target)
+                .map(|(_, script)| script.clone());
+            let Some(peer) = peer else { return Ok(-1) };
+            // Occupé (cycle) : refusé, sans attendre.
+            let Ok(mut script) = peer.try_borrow_mut() else {
+                log::warn!("[mod {me}] appel de « {target} » refusé : déjà en cours (cycle ?)");
+                return Ok(-1);
+            };
+            let result = script.call(&name, &args);
+            drop(script);
+            let (reply, requests) = match result {
+                Ok(done) => done,
+                Err(_) => return Ok(-1),
+            };
+            // Ce que le mod appelé a demandé au jeu est fait comme si l'appelant l'avait demandé.
+            caller.data_mut().requests.append(requests);
+            let Some(reply) = reply else { return Ok(-1) };
+            let n = reply.len().min(cap.max(0) as usize);
+            write_guest(&mut caller, out_ptr, &reply[..n])?;
+            Ok(reply.len() as i32)
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "mod_loaded",
+        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> HostResult<i32> {
+            let id = read_string(&mut caller, ptr, len)?;
+            let state = caller.data();
+            let found = state
+                .peers
+                .borrow()
+                .iter()
+                .find(|(m, _)| *m == id)
+                .map(|(_, s)| s.clone());
+            // Un script occupé (en cours d'appel) est chargé, et actif tant qu'il n'a pas planté.
+            Ok(
+                found.is_some_and(|s| s.try_borrow().map_or(true, |s| s.disabled().is_none()))
+                    as i32,
+            )
         },
     )?;
     Ok(())

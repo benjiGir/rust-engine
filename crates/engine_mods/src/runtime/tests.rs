@@ -377,6 +377,8 @@ fn host_matches_the_catalog() {
         registry: BlockRegistry::builtin(),
         content: Default::default(),
         settings: Default::default(),
+        world_data: Default::default(),
+        peers: Default::default(),
         requests: Requests::default(),
         subscriptions: Vec::new(),
         limits: wasmtime::StoreLimitsBuilder::new().build(),
@@ -755,4 +757,97 @@ fn a_mod_over_budget_for_five_seconds_is_disabled() {
     }
     assert!(calm.disabled().is_none());
     assert_eq!(calm.stats().overrun_ticks, 0);
+}
+
+/// Deux mods qui s'appellent : `a` appelle `b.ping("x")` à chaque événement et donne autant
+/// d'objets que la réponse a d'octets ; `b` répond « ok » (2 octets), donne 5 objets, puis
+/// tente de rappeler `a` (un cycle, refusé) et donne 100 + le code reçu.
+fn calling_pair(s: &Rc<RefCell<ChunkStreamer>>) -> ModRuntime {
+    let a = r#"(module
+        (import "voxel" "subscribe" (func $subscribe (param i32)))
+        (import "voxel" "give_item" (func $give (param i32 i32)))
+        (import "voxel" "call_mod" (func $call (param i32 i32 i32 i32 i32 i32 i32 i32) (result i32)))
+        (import "voxel" "mod_loaded" (func $loaded (param i32 i32) (result i32)))
+        (memory (export "memory") 1)
+        (data (i32.const 0) "b")
+        (data (i32.const 8) "ping")
+        (data (i32.const 16) "x")
+        (data (i32.const 24) "zz")
+        (func (export "sdk_alloc") (param i32) (result i32) i32.const 4096)
+        (func (export "mod_init") (call $subscribe (i32.const 1)))
+        (func (export "on_event") (param i32 i32 i32)
+            ;; b est chargé : 1 objet ; un mod absent : 0 (donc rien)
+            (call $give (i32.const 1) (call $loaded (i32.const 0) (i32.const 1)))
+            (call $give (i32.const 1) (call $loaded (i32.const 24) (i32.const 2)))
+            (call $give (i32.const 2)
+                (call $call (i32.const 0) (i32.const 1) (i32.const 8) (i32.const 4) (i32.const 16) (i32.const 1) (i32.const 512) (i32.const 64))))
+        (func (export "on_call") (param i32 i32) (result i32) i32.const -1)
+        (func (export "call_reply") (result i32) i32.const 0)
+    )"#;
+    let b = r#"(module
+        (import "voxel" "give_item" (func $give (param i32 i32)))
+        (import "voxel" "call_mod" (func $call (param i32 i32 i32 i32 i32 i32 i32 i32) (result i32)))
+        (memory (export "memory") 1)
+        (data (i32.const 0) "a")
+        (data (i32.const 8) "x")
+        (data (i32.const 2048) "ok")
+        (func (export "sdk_alloc") (param i32) (result i32) i32.const 4096)
+        (func (export "on_call") (param i32 i32) (result i32)
+            (call $give (i32.const 3) (i32.const 5))
+            ;; un cycle : a est en cours d'appel
+            (call $give (i32.const 4)
+                (i32.add (i32.const 100)
+                    (call $call (i32.const 0) (i32.const 1) (i32.const 8) (i32.const 1) (i32.const 8) (i32.const 1) (i32.const 512) (i32.const 8))))
+            i32.const 2)
+        (func (export "call_reply") (result i32) i32.const 2048)
+    )"#;
+    let mut runtime = ModRuntime::default();
+    let mut host = ScriptHost::new().unwrap();
+    host.set_peers(runtime.peers());
+    let registry = s.borrow().world().registry().clone();
+    for (id, wat) in [("a", a), ("b", b)] {
+        let script = host
+            .load(id, wat.as_bytes(), s.clone(), registry.clone())
+            .unwrap();
+        runtime.add(script);
+    }
+    runtime
+}
+
+#[test]
+fn a_mod_calls_another_and_gets_its_reply_and_its_requests() {
+    let s = loaded_streamer();
+    let runtime = calling_pair(&s);
+    let requests = runtime.dispatch(&broken());
+    let counts: Vec<(u16, u32)> = requests
+        .actions
+        .iter()
+        .map(|a| match a {
+            MachineAction::GiveItem { block, count } => (block.0, *count),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        counts,
+        vec![
+            (1, 1), // `b` est chargé
+            // (rien pour le mod absent « zz »)
+            (3, 5),  // demandé par `b` pendant l'appel, fait comme si `a` l'avait demandé
+            (4, 99), // le cycle b -> a est refusé (-1), donc 100 - 1
+            (2, 2),  // la réponse « ok » : 2 octets
+        ]
+    );
+}
+
+#[test]
+fn calls_to_missing_or_self_or_silent_mods_fail_cleanly() {
+    let s = loaded_streamer();
+    let runtime = calling_pair(&s);
+    // `a` n'a pas de réponse à donner (son `on_call` renvoie -1).
+    let (reply, requests) = runtime.call("a", "n'importe quoi", b"");
+    assert_eq!(reply, None);
+    assert!(requests.actions.is_empty());
+    assert_eq!(runtime.call("absent", "x", b"").0, None);
+    let (reply, _) = runtime.call("b", "ping", b"");
+    assert_eq!(reply, Some(b"ok".to_vec()));
 }

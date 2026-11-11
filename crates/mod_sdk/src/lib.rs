@@ -33,12 +33,13 @@ pub mod ui;
 use std::cell::RefCell;
 
 pub use host::{
-    Item, Recipe, add_energy, add_inventory, add_kinetic, add_tank, block_base, block_id,
+    Item, Recipe, add_energy, add_inventory, add_kinetic, add_tank, block_base, block_id, call_mod,
     close_menu, data, energy_extract, energy_insert, energy_stored, find_recipe, fluid_amount,
     fluid_drain, fluid_fill, get_block, give_item, give_stack, item_count, item_extract, item_id,
-    item_insert, kinetic_speed, log, power, random, received_power, schedule_tick, set_block,
-    set_data, set_kinetic, set_power, set_setting, set_slot, setting, setting_bool, setting_f32,
-    setting_i32, show_menu, show_options, slot, spawn_entity, subscribe,
+    item_insert, kinetic_speed, log, mod_loaded, power, random, received_power, schedule_tick,
+    set_block, set_data, set_kinetic, set_power, set_setting, set_slot, set_world_value, setting,
+    setting_bool, setting_f32, setting_i32, show_menu, show_options, slot, spawn_entity, subscribe,
+    world_value,
 };
 
 /// Une grille de blocs : le monde (`Grid::WORLD`), ou une structure mobile (plus tard).
@@ -213,9 +214,19 @@ pub trait Mod {
     }
     /// Une action du joueur dans la page d'options : en général, un `set_setting`.
     fn options_event(&mut self, _event: ui::UiEvent) {}
+    /// Un autre mod appelle la fonction `name` de ce mod (voir [`call_mod`]) : la réponse, ou
+    /// `None` pour « je ne sais pas faire ça ».
+    fn call(&mut self, _name: &str, _args: &[u8]) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 // ----- La mécanique d'export (utilisée par `export_mod!`) -----
+
+thread_local! {
+    /// La réponse à l'appel d'un autre mod, que le jeu vient lire.
+    static REPLY: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
 
 thread_local! {
     /// Le tampon où le jeu dépose les données d'un appel (événement, positions).
@@ -302,6 +313,28 @@ pub mod __private {
         })
     }
 
+    /// Décode l'appel que le jeu vient d'écrire dans le tampon : (nom, arguments).
+    pub fn call_request(len: i32) -> Option<(String, Vec<u8>)> {
+        BUFFER.with_borrow(|buffer| {
+            let bytes = &buffer[..(len.max(0) as usize).min(buffer.len())];
+            let name_len = u16::from_le_bytes(bytes.get(..2)?.try_into().ok()?) as usize;
+            let name = String::from_utf8(bytes.get(2..2 + name_len)?.to_vec()).ok()?;
+            Some((name, bytes.get(2 + name_len..)?.to_vec()))
+        })
+    }
+
+    /// Garde la réponse pour que le jeu la lise ; renvoie sa taille.
+    pub fn set_reply(reply: Vec<u8>) -> i32 {
+        REPLY.with_borrow_mut(|r| {
+            *r = reply;
+            r.len() as i32
+        })
+    }
+
+    pub fn reply_ptr() -> i32 {
+        REPLY.with_borrow(|r| r.as_ptr() as usize as i32)
+    }
+
     pub fn ui_event(kind: i32, id: i32, value: i32) -> Option<crate::ui::UiEvent> {
         crate::ui::UiEvent::decode(kind, id, value)
     }
@@ -369,6 +402,24 @@ macro_rules! export_mod {
                     $crate::show_options(&menu);
                 }
             });
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn on_call(_ptr: i32, len: i32) -> i32 {
+            match $crate::__private::call_request(len) {
+                Some((name, args)) => {
+                    match __MOD.with_borrow_mut(|m| $crate::Mod::call(m, &name, &args)) {
+                        Some(reply) => $crate::__private::set_reply(reply),
+                        None => -1,
+                    }
+                }
+                None => -1,
+            }
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn call_reply() -> i32 {
+            $crate::__private::reply_ptr()
         }
 
         #[unsafe(no_mangle)]

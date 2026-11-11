@@ -545,3 +545,72 @@ pub fn set_slot(pos: Pos, slot: usize, stack: Option<(&str, u32)>) -> bool {
         ) != 0
     }
 }
+
+/// Une donnée du mod **propre à ce monde**, sauvegardée avec lui (contrairement aux
+/// [`setting`], qui suivent le joueur). Du texte : de quoi ranger des nombres, des listes, du JSON.
+pub fn world_value(key: &str) -> Option<String> {
+    let (key_ptr, key_len) = addr(key.as_bytes());
+    let mut buffer = vec![0u8; 256];
+    loop {
+        let (out_ptr, cap) = (buffer.as_mut_ptr() as usize as i32, buffer.len() as i32);
+        // SAFETY: l'hôte lit dans `key` et écrit au plus `cap` octets dans `buffer`.
+        let len = unsafe { ffi::world_get(key_ptr, key_len, out_ptr, cap) };
+        if len < 0 {
+            return None;
+        }
+        if len as usize <= buffer.len() {
+            buffer.truncate(len as usize);
+            return Some(String::from_utf8_lossy(&buffer).into_owned());
+        }
+        buffer = vec![0u8; len as usize];
+    }
+}
+
+/// Enregistre une donnée du mod dans ce monde (64 Kio au plus par valeur, 1 024 clés).
+pub fn set_world_value(key: &str, value: &str) -> bool {
+    let (key_ptr, key_len) = addr(key.as_bytes());
+    let (val_ptr, val_len) = addr(value.as_bytes());
+    // SAFETY: l'hôte lit dans `key` et `value`, vivants pendant l'appel.
+    unsafe { ffi::world_set(key_ptr, key_len, val_ptr, val_len) != 0 }
+}
+
+/// Au plus ce nombre d'octets pour les arguments et la réponse d'un appel entre mods.
+pub const MAX_CALL_BYTES: usize = 64 * 1024;
+
+/// Appelle la fonction `name` d'un autre mod (son [`crate::Mod::call`]) avec ces octets et
+/// renvoie sa réponse. `None` si le mod est absent ou désactivé, s'il ne répond pas, s'il est
+/// hors budget ce tick-ci, ou si l'appel ferait un cycle (A appelle B qui rappelle A).
+/// Déclarez le mod appelé dans les `dependencies` de votre `mod.ron` : il est chargé avant vous.
+pub fn call_mod(mod_id: &str, name: &str, args: &[u8]) -> Option<Vec<u8>> {
+    let (mod_ptr, mod_len) = addr(mod_id.as_bytes());
+    let (name_ptr, name_len) = addr(name.as_bytes());
+    let (arg_ptr, arg_len) = addr(args);
+    // Une seule tentative, avec la plus grande réponse permise : rappeler la fonction pour
+    // lire une réponse plus longue la relancerait (et ses effets avec).
+    let mut buffer = vec![0u8; MAX_CALL_BYTES];
+    // SAFETY: l'hôte lit dans `mod_id`, `name` et `args`, et écrit au plus `cap` octets dans `buffer`.
+    let len = unsafe {
+        ffi::call_mod(
+            mod_ptr,
+            mod_len,
+            name_ptr,
+            name_len,
+            arg_ptr,
+            arg_len,
+            buffer.as_mut_ptr() as usize as i32,
+            buffer.len() as i32,
+        )
+    };
+    if len < 0 {
+        return None;
+    }
+    buffer.truncate((len as usize).min(MAX_CALL_BYTES));
+    Some(buffer)
+}
+
+/// Vrai si le mod (son identifiant) est chargé et actif.
+pub fn mod_loaded(mod_id: &str) -> bool {
+    let (ptr, len) = addr(mod_id.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `mod_id`.
+    unsafe { ffi::mod_loaded(ptr, len) != 0 }
+}

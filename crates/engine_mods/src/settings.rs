@@ -14,6 +14,25 @@ use serde::{Deserialize, Serialize};
 pub const MAX_KEY: usize = 64;
 pub const MAX_VALUE: usize = 1024;
 pub const MAX_KEYS: usize = 256;
+/// Les données d'un monde (`mod_data.ron` dans son dossier) : plus grandes que des réglages.
+pub const MAX_WORLD_VALUE: usize = 64 * 1024;
+pub const MAX_WORLD_KEYS: usize = 1024;
+
+/// Les bornes d'un magasin : longueur d'une valeur et nombre de clés par mod.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Limits {
+    value: usize,
+    keys: usize,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            value: MAX_VALUE,
+            keys: MAX_KEYS,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ModSettings {
@@ -21,9 +40,21 @@ pub struct ModSettings {
     /// Modifié depuis la dernière écriture sur disque.
     #[serde(skip)]
     dirty: bool,
+    #[serde(skip)]
+    limits: Limits,
 }
 
 impl ModSettings {
+    /// Les mêmes données, avec les bornes des données d'un monde (valeurs jusqu'à 64 Kio,
+    /// 1 024 clés par mod).
+    pub fn for_world(mut self) -> Self {
+        self.limits = Limits {
+            value: MAX_WORLD_VALUE,
+            keys: MAX_WORLD_KEYS,
+        };
+        self
+    }
+
     /// Lit le fichier ; un fichier absent ou illisible donne des réglages vides.
     pub fn load(path: &Path) -> Self {
         match std::fs::read_to_string(path) {
@@ -60,11 +91,11 @@ impl ModSettings {
 
     /// Range une valeur. `false` si la clé ou la valeur est trop longue, ou s'il y a trop de clés.
     pub fn set(&mut self, mod_id: &str, key: &str, value: &str) -> bool {
-        if key.is_empty() || key.len() > MAX_KEY || value.len() > MAX_VALUE {
+        if key.is_empty() || key.len() > MAX_KEY || value.len() > self.limits.value {
             return false;
         }
         let entry = self.values.entry(mod_id.to_string()).or_default();
-        if !entry.contains_key(key) && entry.len() >= MAX_KEYS {
+        if !entry.contains_key(key) && entry.len() >= self.limits.keys {
             return false;
         }
         if entry.get(key).map(String::as_str) != Some(value) {
@@ -101,6 +132,19 @@ mod tests {
         assert!(
             s.set("c", "k0", "2"),
             "une clé existante se modifie toujours"
+        );
+    }
+
+    #[test]
+    fn world_data_allows_bigger_values() {
+        let mut data = ModSettings::default().for_world();
+        let big = "v".repeat(MAX_WORLD_VALUE);
+        assert!(data.set("a", "table", &big));
+        assert!(!data.set("a", "table2", &"v".repeat(MAX_WORLD_VALUE + 1)));
+        let mut settings = ModSettings::default();
+        assert!(
+            !settings.set("a", "table", &big),
+            "les réglages restent petits"
         );
     }
 

@@ -287,6 +287,40 @@ une fois par seconde, et au retour de la page.
 
 La page n'est disponible qu'en jeu (le script d'un mod vit avec le monde), pas depuis le menu principal.
 
+### Les données du monde
+
+À côté des réglages du joueur (valables partout), un mod range ses données **propres à un monde** :
+`world_value(clé)` et `set_world_value(clé, valeur)` (du texte : nombres, listes, JSON...). Elles
+suivent la sauvegarde du monde (`saves/<monde>/mod_data.ron`, écrit avec le monde et à la
+fermeture) : un compteur de parties, une progression, un registre de machines. Limites : clé de
+64 octets, valeur de 64 Kio, 1 024 clés par mod. Dans un monde sans sauvegarde, elles ne durent
+que la partie.
+
+### Les appels entre mods
+
+Un mod peut offrir des fonctions aux autres, et en appeler :
+
+```rust
+// Dans le mod qui offre (mecanique) :
+fn call(&mut self, name: &str, _args: &[u8]) -> Option<Vec<u8>> {
+    match name {
+        "crank_speed" => Some(crank_speed().to_le_bytes().to_vec()),
+        _ => None,   // « je ne sais pas faire ça »
+    }
+}
+
+// Dans un autre mod (qui déclare `mecanique` dans ses dépendances) :
+if mod_sdk::mod_loaded("mecanique")
+    && let Some(bytes) = mod_sdk::call_mod("mecanique", "crank_speed", &[])
+{ /* ... */ }
+```
+
+Arguments et réponse sont des octets (64 Kio au plus) : à chacun de choisir son format. L'appel est
+synchrone, dans le même tick. `call_mod` renvoie `None` si le mod est absent, désactivé, hors
+budget, ne répond pas, ou si l'appel ferait un **cycle** (A appelle B qui rappelle A : refusé, jamais
+bloqué). Le temps passé dans le mod appelé compte dans **son** budget ; ce qu'il demande au jeu
+(donner un objet, poser un bloc) est fait comme si l'appelant l'avait demandé.
+
 ### Les événements
 
 `mod_sdk::subscribe(EventKind::...)` dans `init`, puis `Mod::event` les reçoit :
@@ -417,6 +451,7 @@ mémoire.
 | `on_machines(type: i32, ptr: i32, nombre: i32)` | facultatif ; type 0 posées, 1 chargées, 2 voisin, 3 tick |
 | `on_ui(type: i32, g: i32, x: i32, y: i32, z: i32, id: i32, valeur: i32)` | facultatif ; action dans un menu : type 1 bouton, 2 case (valeur 0/1), 3 curseur (bits d'un f32), 4 rafraîchissement, 5 fermé |
 | `on_options(type: i32, id: i32, valeur: i32)` | facultatif ; page d'options : type 6 ouverture, puis 1 à 3 actions du joueur, 5 fermée ; le mod répond par `options_show` |
+| `on_call(ptr: i32, taille: i32) -> i32` et `call_reply() -> i32` | facultatifs ; un autre mod appelle une fonction : le jeu écrit `[longueur du nom: u16][nom][arguments]` à `sdk_alloc`, `on_call` renvoie la taille de la réponse (−1 : aucune), que le jeu lit à l'adresse donnée par `call_reply` |
 | `on_use(g: i32, x: i32, y: i32, z: i32) -> i32` | facultatif ; clic droit du joueur sur une machine du mod ; renvoie 1 si le clic est pris en compte |
 
 **Données** (petit-boutistes) : les positions de `on_machines` sont `nombre` fois
@@ -494,6 +529,15 @@ test vérifie que le jeu définit exactement ces fonctions.
 |---|---|
 | `setting_get(key_ptr: i32, key_len: i32, out_ptr: i32, cap: i32) -> i32` | Copie la valeur (texte) du réglage du mod (au plus `cap` octets) ; renvoie sa taille, −1 s'il n'existe pas. |
 | `setting_set(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32) -> i32` | Enregistre un réglage du mod (clé de 64 octets, valeur de 1 024, 256 clés au plus). 1 si c'est fait. |
+| `world_get(key_ptr: i32, key_len: i32, out_ptr: i32, cap: i32) -> i32` | Copie la valeur (texte) d'une donnée du mod **dans ce monde** (au plus `cap` octets) ; renvoie sa taille, −1 si elle n'existe pas. |
+| `world_set(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32) -> i32` | Enregistre une donnée du mod dans ce monde (clé de 64 octets, valeur de 64 Kio, 1 024 clés au plus), sauvegardée avec le monde. 1 si c'est fait. |
+
+*Appels entre mods*
+
+| Fonction | Rôle |
+|---|---|
+| `call_mod(mod_ptr: i32, mod_len: i32, name_ptr: i32, name_len: i32, arg_ptr: i32, arg_len: i32, out_ptr: i32, cap: i32) -> i32` | Appelle la fonction `name` du mod `mod` avec ces octets (64 Kio au plus) ; copie sa réponse (au plus `cap` octets) et renvoie sa taille. −1 si le mod est absent, désactivé, hors budget, déjà en cours d'appel (pas de cycle) ou s'il ne répond pas. |
+| `mod_loaded(ptr: i32, len: i32) -> i32` | 1 si le mod (son identifiant) est chargé et actif. |
 
 *Objets et recettes*
 

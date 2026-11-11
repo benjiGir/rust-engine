@@ -73,6 +73,9 @@ pub struct ModSystem {
     /// Les réglages des mods (`mod_settings.ron`), partagés avec leurs scripts.
     settings: Rc<RefCell<ModSettings>>,
     settings_path: PathBuf,
+    /// Les données des mods propres au monde (`mod_data.ron` de son dossier ; `None` : monde éphémère).
+    world_data: Rc<RefCell<ModSettings>>,
+    world_data_path: Option<PathBuf>,
     /// Les mods qui ont une page d'options : (identifiant, nom), s'ils ont un script.
     pub options_mods: Vec<(String, String)>,
 }
@@ -84,7 +87,16 @@ impl ModSystem {
         registry: Arc<BlockRegistry>,
         content: ModContent,
         root: &Path,
+        world_dir: Option<&Path>,
     ) -> Self {
+        // Les données des mods propres à ce monde, sauvegardées avec lui.
+        let world_data_path = world_dir.map(|d| d.join("mod_data.ron"));
+        let world_data = Rc::new(RefCell::new(
+            world_data_path
+                .as_deref()
+                .map_or_else(ModSettings::default, ModSettings::load)
+                .for_world(),
+        ));
         let settings_path = root.join("mod_settings.ron");
         let settings = Rc::new(RefCell::new(ModSettings::load(&settings_path)));
         let options_mods = order
@@ -100,6 +112,8 @@ impl ModSystem {
             .map(|mut host| {
                 host.set_content(content);
                 host.set_settings(settings.clone());
+                host.set_world_data(world_data.clone());
+                host.set_peers(runtime.peers());
                 host
             });
         let scripts: Vec<(String, PathBuf)> = order
@@ -130,6 +144,8 @@ impl ModSystem {
             last_tick: TickReport::default(),
             settings,
             settings_path,
+            world_data,
+            world_data_path,
             options_mods,
         }
     }
@@ -213,6 +229,13 @@ impl ModSystem {
     ) -> Vec<MachineAction> {
         let requests = self.runtime.options_event(mod_id, kind, id, value);
         self.settle(requests)
+    }
+
+    /// Écrit les données du monde des mods si elles ont changé (avec la sauvegarde du monde).
+    pub fn save_world_data(&self) {
+        if let Some(path) = &self.world_data_path {
+            self.world_data.borrow_mut().save_if_dirty(path);
+        }
     }
 
     /// Écrit les réglages des mods s'ils ont changé.
