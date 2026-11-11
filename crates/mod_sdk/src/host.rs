@@ -583,6 +583,41 @@ pub fn register_command(name: &str, help: &str) {
     unsafe { ffi::register_command(name_ptr, name_len, help_ptr, help_len) }
 }
 
+/// Le numéro d'un type de créature (`"example:guard"`), à comparer avec `MobView::kind`.
+pub fn mob_kind(key: &str) -> Option<u32> {
+    let (ptr, len) = addr(key.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `key`.
+    let id = unsafe { ffi::mob_kind(ptr, len) };
+    (id >= 0).then_some(id as u32)
+}
+
+/// Ordre pendant [`crate::Mod::mobs`] : la créature marche vers (dx, dz) à `speed` blocs par
+/// seconde (0 : elle s'arrête). Valable jusqu'au prochain appel.
+pub fn mob_move(mob: crate::mobs::MobId, dx: f32, dz: f32, speed: f32) {
+    // SAFETY: des nombres seulement.
+    unsafe { ffi::mob_move(mob.0 as i32, dx, dz, speed) }
+}
+
+/// Ordre pendant [`crate::Mod::mobs`] : la créature saute (si elle touche le sol).
+pub fn mob_jump(mob: crate::mobs::MobId) {
+    // SAFETY: un entier seulement.
+    unsafe { ffi::mob_jump(mob.0 as i32) }
+}
+
+/// Ordre pendant [`crate::Mod::mobs`] : la créature blesse le joueur s'il est à portée de bras
+/// (3 blocs), au plus une fois par seconde.
+pub fn mob_attack(mob: crate::mobs::MobId, damage: f32) {
+    // SAFETY: des nombres seulement.
+    unsafe { ffi::mob_attack(mob.0 as i32, damage) }
+}
+
+/// Ordre pendant [`crate::Mod::mobs`] : range un entier dans la mémoire de la créature (il revient
+/// dans `MobView::state`). Pour un état d'esprit : 0 repos, 1 poursuite...
+pub fn mob_state(mob: crate::mobs::MobId, value: u32) {
+    // SAFETY: des entiers seulement.
+    unsafe { ffi::mob_state(mob.0 as i32, value as i32) }
+}
+
 /// Au plus ce nombre d'octets pour les arguments et la réponse d'un appel entre mods.
 pub const MAX_CALL_BYTES: usize = 64 * 1024;
 

@@ -150,3 +150,63 @@ fn the_ruby_command_gives_rubies() {
         }]
     );
 }
+
+#[test]
+fn the_guard_idles_chases_attacks_and_flees() {
+    use engine_mods::mobs::MobSnapshot;
+    use engine_voxel::MachineAction::{MobAttack, MobMove, MobState};
+    let mut h = Harness::for_mod("example").unwrap();
+    let guard = h.mob_kind("example:guard");
+    let snap = |to: [f32; 3], health: f32, state: u32| MobSnapshot {
+        id: 5,
+        kind: guard,
+        health,
+        max_health: 20.0,
+        to_player: to,
+        state,
+        ..Default::default()
+    };
+    // Loin du joueur : il rôde, rien n'est dit sur son état (déjà 0).
+    let far = h.mobs(&[snap([60.0, 0.0, 0.0], 20.0, 0)]).unwrap();
+    assert!(
+        !far.actions
+            .iter()
+            .any(|a| matches!(a, MobState { .. } | MobAttack { .. }))
+    );
+    // Le joueur à 10 blocs : il le poursuit (état 1) en marchant vers lui à 3 blocs/s.
+    let chase = h.mobs(&[snap([10.0, 0.0, 0.0], 20.0, 0)]).unwrap();
+    assert!(chase.actions.contains(&MobState { mob: 5, value: 1 }));
+    assert!(chase.actions.contains(&MobMove {
+        mob: 5,
+        dx: 10.0,
+        dz: 0.0,
+        speed: 3.0
+    }));
+    // Tout près : il s'arrête et frappe.
+    let close = h.mobs(&[snap([1.0, 0.0, 0.0], 20.0, 1)]).unwrap();
+    assert!(close.actions.contains(&MobAttack {
+        mob: 5,
+        damage: 2.0
+    }));
+    assert!(close.actions.contains(&MobMove {
+        mob: 5,
+        dx: 0.0,
+        dz: 0.0,
+        speed: 0.0
+    }));
+    // Blessé : il fuit, à l'opposé du joueur, et change d'état.
+    let flee = h.mobs(&[snap([10.0, 0.0, 2.0], 4.0, 1)]).unwrap();
+    assert!(flee.actions.contains(&MobState { mob: 5, value: 2 }));
+    assert!(flee.actions.contains(&MobMove {
+        mob: 5,
+        dx: -10.0,
+        dz: -2.0,
+        speed: 4.0
+    }));
+    // Les créatures d'un autre type sont laissées tranquilles.
+    let other = MobSnapshot {
+        kind: guard + 1,
+        ..snap([1.0, 0.0, 0.0], 20.0, 0)
+    };
+    assert!(h.mobs(&[other]).unwrap().actions.is_empty());
+}

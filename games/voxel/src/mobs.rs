@@ -74,6 +74,9 @@ struct MobFileEntry {
     ranged: Option<crate::projectiles::RangedDef>,
     #[serde(default)]
     breeds: Option<crate::breeding::BreedingDef>,
+    /// Le script de son mod la dirige (`Mod::mobs`) au lieu de l'IA du jeu.
+    #[serde(default)]
+    brain: bool,
 }
 
 /// Ce que lâche une créature à sa mort : un objet, un nombre (min, max), une chance.
@@ -112,6 +115,8 @@ pub struct MobDef {
     pub ranged: Option<crate::projectiles::RangedDef>,
     /// Comment elle se reproduit (voir `breeding.rs`) ; `None` : elle ne le fait pas.
     pub breeds: Option<crate::breeding::BreedingDef>,
+    /// Dirigée par le script de son mod (celui de l'espace de noms de son identifiant).
+    pub brain: bool,
 }
 
 /// Toutes les créatures connues. Leur numéro (`Mob::kind`) est leur place dans la liste.
@@ -205,9 +210,15 @@ impl MobRegistry {
                 xp: entry.xp,
                 ranged: entry.ranged,
                 breeds: entry.breeds,
+                brain: entry.brain,
             });
         }
         Ok(())
+    }
+
+    /// Les identifiants des types de créatures, dans l'ordre de leur numéro.
+    pub fn keys(&self) -> Vec<String> {
+        self.defs.iter().map(|d| d.key.clone()).collect()
     }
 
     pub fn by_key(&self, key: &str) -> Option<&MobDef> {
@@ -407,6 +418,10 @@ pub fn wander(world: &mut World) {
                 let Some(def) = registry.get(mob.kind) else {
                     return;
                 };
+                // Une créature à comportement est dirigée par son script (`mob_brains.rs`).
+                if def.brain {
+                    return;
+                }
                 let position = transform.position;
                 // Loin du joueur : elle ne pense pas (zone de simulation).
                 if target.is_some_and(|t| {

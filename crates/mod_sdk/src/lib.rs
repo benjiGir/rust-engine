@@ -28,6 +28,7 @@
 
 mod ffi;
 mod host;
+pub mod mobs;
 pub mod ui;
 
 use std::cell::RefCell;
@@ -36,10 +37,11 @@ pub use host::{
     Item, Recipe, add_energy, add_inventory, add_kinetic, add_tank, block_base, block_id, call_mod,
     close_menu, data, energy_extract, energy_insert, energy_stored, find_recipe, fluid_amount,
     fluid_drain, fluid_fill, get_block, give_item, give_stack, item_count, item_extract, item_id,
-    item_insert, kinetic_speed, log, mod_loaded, power, random, received_power, register_command,
-    schedule_tick, set_block, set_data, set_kinetic, set_power, set_setting, set_slot,
-    set_world_value, setting, setting_bool, setting_f32, setting_i32, show_menu, show_options,
-    slot, spawn_entity, subscribe, world_value,
+    item_insert, kinetic_speed, log, mob_attack, mob_jump, mob_kind, mob_move, mob_state,
+    mod_loaded, power, random, received_power, register_command, schedule_tick, set_block,
+    set_data, set_kinetic, set_power, set_setting, set_slot, set_world_value, setting,
+    setting_bool, setting_f32, setting_i32, show_menu, show_options, slot, spawn_entity, subscribe,
+    world_value,
 };
 
 /// Une grille de blocs : le monde (`Grid::WORLD`), ou une structure mobile (plus tard).
@@ -244,6 +246,10 @@ pub trait Mod {
     fn command(&mut self, _name: &str, _args: &str) -> Option<String> {
         None
     }
+    /// Les créatures à comportement du mod (`brain: true` dans `entities.ron`) qui sont près du
+    /// joueur, quatre fois par seconde, **toutes en un seul appel** (voir [`mobs`]). Répondre
+    /// avec [`mob_move`], [`mob_jump`], [`mob_attack`] et [`mob_state`].
+    fn mobs(&mut self, _mobs: &[mobs::MobView]) {}
 }
 
 // ----- La mécanique d'export (utilisée par `export_mod!`) -----
@@ -351,6 +357,38 @@ pub mod __private {
         })
     }
 
+    /// Les créatures que le jeu vient d'écrire dans le tampon.
+    pub fn mobs(count: i32) -> Vec<mobs::MobView> {
+        BUFFER.with_borrow(|buffer| decode_mobs(buffer, count))
+    }
+
+    pub fn decode_mobs(bytes: &[u8], count: i32) -> Vec<mobs::MobView> {
+        let word = |r: &[u8], i: usize| -> [u8; 4] { r[i * 4..i * 4 + 4].try_into().unwrap() };
+        let float = |r: &[u8], i: usize| f32::from_le_bytes(word(r, i));
+        bytes
+            .as_chunks::<{ mobs::RECORD_BYTES }>()
+            .0
+            .iter()
+            .take(count.max(0) as usize)
+            .map(|r| {
+                let r = &r[..];
+                let flags = u32::from_le_bytes(word(r, 10));
+                mobs::MobView {
+                    id: mobs::MobId(u32::from_le_bytes(word(r, 0))),
+                    kind: u32::from_le_bytes(word(r, 1)),
+                    position: [float(r, 2), float(r, 3), float(r, 4)],
+                    health: float(r, 5),
+                    max_health: float(r, 6),
+                    to_player: [float(r, 7), float(r, 8), float(r, 9)],
+                    on_ground: flags & mobs::FLAG_ON_GROUND != 0,
+                    in_liquid: flags & mobs::FLAG_IN_LIQUID != 0,
+                    hurt: flags & mobs::FLAG_HURT != 0,
+                    state: u32::from_le_bytes(word(r, 11)),
+                }
+            })
+            .collect()
+    }
+
     /// Garde la réponse pour que le jeu la lise ; renvoie sa taille.
     pub fn set_reply(reply: Vec<u8>) -> i32 {
         REPLY.with_borrow_mut(|r| {
@@ -443,6 +481,12 @@ macro_rules! export_mod {
                 }
                 None => -1,
             }
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn on_mobs(_ptr: i32, count: i32) {
+            let mobs = $crate::__private::mobs(count);
+            __MOD.with_borrow_mut(|m| $crate::Mod::mobs(m, &mobs));
         }
 
         #[unsafe(no_mangle)]

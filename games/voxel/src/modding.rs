@@ -75,6 +75,8 @@ pub struct ModSystem {
     pub last_tick: TickReport,
     /// Les chunks neufs en attente d'être décorés par les scripts qui s'y intéressent.
     pending_chunks: std::collections::VecDeque<IVec3>,
+    /// Compte les ticks de machines : les créatures à comportement pensent un tick sur cinq.
+    brain_clock: u32,
     /// Les réglages des mods (`mod_settings.ron`), partagés avec leurs scripts.
     settings: Rc<RefCell<ModSettings>>,
     settings_path: PathBuf,
@@ -148,6 +150,7 @@ impl ModSystem {
             steps: 0,
             last_tick: TickReport::default(),
             pending_chunks: std::collections::VecDeque::new(),
+            brain_clock: 0,
             settings,
             settings_path,
             world_data,
@@ -233,6 +236,27 @@ impl ModSystem {
         let mut actions = Vec::new();
         let used = self.machines.use_block(&self.world, pos, &mut actions);
         (used, actions)
+    }
+
+    /// Vrai un tick de machines sur cinq (4 fois par seconde) : le moment de confier leurs
+    /// créatures aux scripts.
+    pub fn brain_due(&mut self, machine_tick: bool) -> bool {
+        if !machine_tick {
+            return false;
+        }
+        self.brain_clock = (self.brain_clock + 1) % 5;
+        self.brain_clock == 0
+    }
+
+    /// Les mods dont le script dirige des créatures.
+    pub fn brain_mods(&self) -> Vec<String> {
+        self.runtime.mob_brains()
+    }
+
+    /// Confie un lot de créatures au script de `mod_id` : ses ordres.
+    pub fn mob_brains(&mut self, mod_id: &str, bytes: &[u8], count: usize) -> Vec<MachineAction> {
+        let requests = self.runtime.mobs(mod_id, bytes, count);
+        self.settle(requests)
     }
 
     /// Les commandes `/nom` des mods : (mod, nom, aide).

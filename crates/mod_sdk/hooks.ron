@@ -147,6 +147,23 @@
          params: [("key_ptr", I32), ("key_len", I32), ("val_ptr", I32), ("val_len", I32)], ret: I32, fallback: "0",
          doc: "Enregistre une donnée du mod dans ce monde (clé de 64 octets, valeur de 64 Kio, 1 024 clés au plus), sauvegardée avec le monde. 1 si c'est fait."),
 
+        // Créatures à comportement.
+        (name: "mob_kind", group: "Créatures",
+         params: [("ptr", I32), ("len", I32)], ret: I32, fallback: "-1",
+         doc: "Le numéro d'un type de créature (`example:guard`) tel que le montrent les créatures reçues dans `on_mobs` ; −1 s'il n'existe pas."),
+        (name: "mob_move", group: "Créatures",
+         params: [("mob", I32), ("dx", F32), ("dz", F32), ("speed", F32)],
+         doc: "Pendant `on_mobs` : la créature marche dans la direction (dx, dz) à `speed` blocs par seconde (au plus le double de sa vitesse de base) ; elle se tourne vers là. Une vitesse nulle l'arrête. Valable jusqu'au prochain appel."),
+        (name: "mob_jump", group: "Créatures",
+         params: [("mob", I32)],
+         doc: "Pendant `on_mobs` : la créature saute (si elle touche le sol)."),
+        (name: "mob_attack", group: "Créatures",
+         params: [("mob", I32), ("damage", F32)],
+         doc: "Pendant `on_mobs` : la créature blesse le joueur s'il est à portée de bras (3 blocs) et si elle n'a pas frappé depuis une seconde."),
+        (name: "mob_state", group: "Créatures",
+         params: [("mob", I32), ("value", I32)],
+         doc: "Pendant `on_mobs` : la mémoire de la créature (un entier de votre choix, rendu dans `state` au prochain appel)."),
+
         // Commandes.
         (name: "register_command", group: "Commandes",
          params: [("name_ptr", I32), ("name_len", I32), ("help_ptr", I32), ("help_len", I32)],

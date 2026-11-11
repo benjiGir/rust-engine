@@ -172,6 +172,16 @@ unsafe extern "C" {
     pub fn world_get(key_ptr: i32, key_len: i32, out_ptr: i32, cap: i32) -> i32;
     /// Enregistre une donnée du mod dans ce monde (clé de 64 octets, valeur de 64 Kio, 1 024 clés au plus), sauvegardée avec le monde. 1 si c'est fait.
     pub fn world_set(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32) -> i32;
+    /// Le numéro d'un type de créature (`example:guard`) tel que le montrent les créatures reçues dans `on_mobs` ; −1 s'il n'existe pas.
+    pub fn mob_kind(ptr: i32, len: i32) -> i32;
+    /// Pendant `on_mobs` : la créature marche dans la direction (dx, dz) à `speed` blocs par seconde (au plus le double de sa vitesse de base) ; elle se tourne vers là. Une vitesse nulle l'arrête. Valable jusqu'au prochain appel.
+    pub fn mob_move(mob: i32, dx: f32, dz: f32, speed: f32);
+    /// Pendant `on_mobs` : la créature saute (si elle touche le sol).
+    pub fn mob_jump(mob: i32);
+    /// Pendant `on_mobs` : la créature blesse le joueur s'il est à portée de bras (3 blocs) et si elle n'a pas frappé depuis une seconde.
+    pub fn mob_attack(mob: i32, damage: f32);
+    /// Pendant `on_mobs` : la mémoire de la créature (un entier de votre choix, rendu dans `state` au prochain appel).
+    pub fn mob_state(mob: i32, value: i32);
     /// Déclare la commande `/nom` du mod (à appeler dans `init`) avec sa ligne d'aide : le joueur la tape dans la console, et le mod la reçoit dans `on_command`.
     pub fn register_command(name_ptr: i32, name_len: i32, help_ptr: i32, help_len: i32);
     /// Appelle la fonction `name` du mod `mod` avec ces octets (64 Kio au plus) ; copie sa réponse (au plus `cap` octets) et renvoie sa taille. −1 si le mod est absent, désactivé, hors budget, déjà en cours d'appel (pas de cycle) ou s'il ne répond pas.
@@ -386,6 +396,18 @@ mod inert {
     pub unsafe fn world_set(_: i32, _: i32, _: i32, _: i32) -> i32 {
         0
     }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn mob_kind(_: i32, _: i32) -> i32 {
+        -1
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn mob_move(_: i32, _: f32, _: f32, _: f32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn mob_jump(_: i32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn mob_attack(_: i32, _: f32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn mob_state(_: i32, _: i32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn register_command(_: i32, _: i32, _: i32, _: i32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]

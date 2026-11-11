@@ -10,4 +10,19 @@
             (offset: (0.41, 0.52, -0.16), size: (0.04, 0.14, 0.12), color: (0.05, 0.15, 0.05)),
         ],
     ),
+    // Une créature à comportement : `brain: true` la fait diriger par le script du mod (voir
+    // `Mod::mobs` dans script/src/lib.rs) au lieu de l'IA du jeu. Le gardien rôde, poursuit le
+    // joueur proche, frappe de près, et fuit quand il est blessé.
+    (
+        id: "example:guard", name: "Gardien", health: 20.0, speed: 2.2, size: (0.7, 1.7),
+        hostile: true, brain: true, xp: (2, 6), weight: 1,
+        spawn_on: ["core:grass", "core:stone"],
+        drops: [(item: "example:ruby", count: (0, 2), chance: 0.6)],
+        parts: [
+            (offset: (0.0, 0.85, 0.0), size: (0.6, 0.9, 0.4), color: (0.45, 0.45, 0.5)),
+            (offset: (0.0, 1.5, 0.0), size: (0.45, 0.45, 0.45), color: (0.6, 0.6, 0.65)),
+            (offset: (0.0, 0.3, 0.0), size: (0.5, 0.6, 0.35), color: (0.3, 0.3, 0.35)),
+            (offset: (0.24, 1.55, 0.0), size: (0.1, 0.1, 0.3), color: (0.9, 0.2, 0.15)),
+        ],
+    ),
 ]

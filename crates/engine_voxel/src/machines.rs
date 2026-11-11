@@ -68,6 +68,25 @@ pub enum MachineAction {
         at: GridPos,
         data: Vec<u8>,
     },
+    /// Ordres d'un script à une de ses créatures à comportement (voir `engine_mods::mobs`) ; le
+    /// jeu ne les applique qu'aux créatures du lot qu'il vient de confier au script.
+    MobMove {
+        mob: u32,
+        dx: f32,
+        dz: f32,
+        speed: f32,
+    },
+    MobJump {
+        mob: u32,
+    },
+    MobAttack {
+        mob: u32,
+        damage: f32,
+    },
+    MobState {
+        mob: u32,
+        value: u32,
+    },
     /// Afficher (ou mettre à jour) la page d'options du mod.
     ShowOptions {
         mod_id: String,

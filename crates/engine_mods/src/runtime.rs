@@ -174,6 +174,8 @@ impl Requests {
 pub struct ModContent {
     pub items: Arc<ItemRegistry>,
     pub machine_recipes: Arc<MachineRecipes>,
+    /// Les identifiants des types de créatures, dans l'ordre de leur numéro (`mob_kind`).
+    pub mob_keys: Arc<Vec<String>>,
 }
 
 /// Ce que voient les fonctions hôtes pendant un appel : le monde, et les demandes en cours.
@@ -301,6 +303,9 @@ impl ScriptHost {
         let call_reply = instance
             .get_typed_func::<(), i32>(&mut store, "call_reply")
             .ok();
+        let on_mobs = instance
+            .get_typed_func::<(i32, i32), ()>(&mut store, "on_mobs")
+            .ok();
         let on_command = instance
             .get_typed_func::<(i32, i32), i32>(&mut store, "on_command")
             .ok();
@@ -320,6 +325,7 @@ impl ScriptHost {
             on_options,
             on_call,
             on_command,
+            on_mobs,
             call_reply,
             disabled: None,
             stats: ModStats::default(),
@@ -366,6 +372,7 @@ pub struct ScriptMod {
     on_options: Option<TypedFunc<(i32, i32, i32), ()>>,
     on_call: Option<TypedFunc<(i32, i32), i32>>,
     on_command: Option<TypedFunc<(i32, i32), i32>>,
+    on_mobs: Option<TypedFunc<(i32, i32), ()>>,
     call_reply: Option<TypedFunc<(), i32>>,
     /// La raison de sa désactivation, s'il a planté.
     disabled: Option<String>,
@@ -553,6 +560,28 @@ impl ScriptMod {
             .read(&self.store, reply_ptr as u32 as usize, &mut reply)
             .context("lecture de la réponse du mod")?;
         Ok((Some(reply), requests))
+    }
+
+    /// Le script a un `on_mobs` (le jeu ne lui envoie des créatures que dans ce cas).
+    pub fn has_mobs(&self) -> bool {
+        self.on_mobs.is_some()
+    }
+
+    /// Confie un lot de créatures (`count` enregistrements, voir `mobs::encode`) au script.
+    /// Hors budget, le lot est ignoré : les créatures gardent leurs derniers ordres.
+    pub fn mobs(&mut self, bytes: &[u8], count: usize) -> Result<Requests> {
+        let Some(on_mobs) = self.on_mobs.clone() else {
+            return Ok(Requests::default());
+        };
+        if self.disabled.is_some() {
+            return Ok(Requests::default());
+        }
+        if self.over_budget() {
+            self.stats.skipped_calls += 1;
+            return Ok(Requests::default());
+        }
+        let ptr = self.write_guest(bytes)?;
+        self.guarded(|store| on_mobs.call(store, (ptr, count as i32)))
     }
 
     /// Les commandes `/nom` que ce script a déclarées dans `init` : (nom, aide).
@@ -786,6 +815,24 @@ impl ModRuntime {
             let s = s.borrow();
             !s.subscribed(kind) || !s.over_budget()
         })
+    }
+
+    /// Confie un lot de créatures au script du mod `mod_id`.
+    pub fn mobs(&self, mod_id: &str, bytes: &[u8], count: usize) -> Requests {
+        let Some(script) = self.scripts.iter().find(|s| s.borrow().id() == mod_id) else {
+            return Requests::default();
+        };
+        let result = script.borrow_mut().mobs(bytes, count);
+        result.unwrap_or_default()
+    }
+
+    /// Les mods dont le script dirige des créatures (il a un `on_mobs`).
+    pub fn mob_brains(&self) -> Vec<String> {
+        self.scripts
+            .iter()
+            .filter(|s| s.borrow().has_mobs())
+            .map(|s| s.borrow().id().to_string())
+            .collect()
     }
 
     /// Les commandes de tous les scripts : (mod, nom, aide).

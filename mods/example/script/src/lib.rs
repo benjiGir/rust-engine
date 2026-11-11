@@ -12,9 +12,12 @@
 //!   Ses données (sauvegardées avec le monde) : `[dx, dy, dz, armé]`.
 //! - **Les rubis** : casser de la pierre donne parfois (1 fois sur 8) un rubis en plus.
 
+use mod_sdk::mobs::MobView;
 use mod_sdk::ui::{Menu, UiEvent};
 use mod_sdk::{Block, Event, EventKind, MachineCall, Mod, Pos};
 
+/// À cette distance (blocs), un gardien voit le joueur et le poursuit.
+const GUARD_SIGHT: f32 = 18.0;
 /// Par défaut : 2 secondes à 20 ticks par seconde (réglable dans la page d'options du mod).
 const DEFAULT_BREAK_PERIOD: i32 = 40;
 /// Par défaut : 1 chance sur 8 (réglable de même).
@@ -63,6 +66,8 @@ struct Example {
     stone: Block,
     ruby: Block,
     breaker: Block,
+    /// Le type de créature du gardien (`brain: true` : ce script le dirige).
+    guard: Option<u32>,
 }
 
 /// L'état d'un casseur, rangé dans les données de son bloc.
@@ -133,6 +138,43 @@ impl Example {
 }
 
 impl Mod for Example {
+    /// Les gardiens proches, tous d'un coup. Trois états d'esprit rangés dans la mémoire de la
+    /// créature : 0 il rôde, 1 il poursuit le joueur, 2 il fuit (blessé).
+    fn mobs(&mut self, mobs: &[MobView]) {
+        let Some(guard) = self.guard else { return };
+        for m in mobs.iter().filter(|m| m.kind == guard) {
+            let [dx, _, dz] = m.to_player;
+            let distance = m.distance_to_player();
+            let mood = if m.health < m.max_health * 0.3 {
+                2
+            } else if distance < GUARD_SIGHT {
+                1
+            } else {
+                0
+            };
+            if mood != m.state {
+                mod_sdk::mob_state(m.id, mood);
+            }
+            match mood {
+                2 => mod_sdk::mob_move(m.id, -dx, -dz, 4.0),
+                1 if distance > 2.0 => mod_sdk::mob_move(m.id, dx, dz, 3.0),
+                1 => {
+                    mod_sdk::mob_move(m.id, 0.0, 0.0, 0.0);
+                    mod_sdk::mob_attack(m.id, 2.0);
+                }
+                _ => match mod_sdk::random() % 4 {
+                    // Au repos : parfois il s'arrête, parfois il part dans une direction au hasard.
+                    0 => mod_sdk::mob_move(m.id, 0.0, 0.0, 0.0),
+                    1 => {
+                        let angle = (mod_sdk::random() % 628) as f32 / 100.0;
+                        mod_sdk::mob_move(m.id, angle.cos(), angle.sin(), 1.0);
+                    }
+                    _ => {}
+                },
+            }
+        }
+    }
+
     fn command(&mut self, name: &str, args: &str) -> Option<String> {
         if name != "rubis" {
             return None;
@@ -200,6 +242,7 @@ impl Mod for Example {
         self.stone = find("core:stone");
         self.ruby = find("example:ruby");
         self.breaker = find("example:breaker");
+        self.guard = mod_sdk::mob_kind("example:guard");
         mod_sdk::subscribe(EventKind::BlockBroken);
         mod_sdk::subscribe(EventKind::BlockPlaced);
         mod_sdk::subscribe(EventKind::ChunkGenerated);

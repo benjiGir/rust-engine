@@ -87,6 +87,10 @@ pub struct Wander {
     pub panic: f32,
 }
 
+/// La mémoire d'une créature à comportement : un entier que son script range (`mob_state`).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct BrainState(pub u32);
+
 /// Une poussée horizontale en cours (le recul d'un coup), gardée d'un pas à l'autre.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Impulse(pub Vec3);

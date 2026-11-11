@@ -26,6 +26,27 @@ use glam::{IVec3, Vec3};
 
 use crate::{ModContent, ModEvent, ModSettings, Requests, ScriptHost, ScriptMod, abi, manifest};
 
+/// Les identifiants des créatures de `entities.ron` du jeu et des mods, dans l'ordre (le numéro
+/// d'un type de créature est sa place dans cette liste, comme dans le jeu).
+fn mob_keys(dirs: &[(String, PathBuf)]) -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct Id {
+        id: String,
+    }
+    let core = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/core");
+    std::iter::once(core)
+        .chain(dirs.iter().map(|(_, dir)| dir.clone()))
+        .filter_map(|dir| std::fs::read_to_string(dir.join("entities.ron")).ok())
+        .flat_map(|text| {
+            ron::Options::default()
+                .with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME)
+                .from_str::<Vec<Id>>(&text)
+                .unwrap_or_default()
+        })
+        .map(|e| e.id)
+        .collect()
+}
+
 /// Un mod chargé dans un petit monde, prêt à recevoir des événements.
 pub struct Harness {
     pub streamer: Rc<RefCell<ChunkStreamer>>,
@@ -34,6 +55,7 @@ pub struct Harness {
     pub settings: Rc<RefCell<ModSettings>>,
     /// Les données du mod propres à ce monde (`world_value` côté script).
     pub world_data: Rc<RefCell<ModSettings>>,
+    mob_keys: Arc<Vec<String>>,
     pub mod_id: String,
 }
 
@@ -104,10 +126,12 @@ impl Harness {
             )
         })?;
         let settings = Rc::new(RefCell::new(ModSettings::default()));
+        let mob_keys = Arc::new(mob_keys(&dirs));
         let mut host = ScriptHost::new()?;
         host.set_content(ModContent {
             items: Arc::new(items),
             machine_recipes: Arc::new(recipes),
+            mob_keys: mob_keys.clone(),
         });
         host.set_settings(settings.clone());
         let world_data = Rc::new(RefCell::new(ModSettings::default().for_world()));
@@ -119,6 +143,7 @@ impl Harness {
             script,
             settings,
             world_data,
+            mob_keys,
             mod_id: mod_id.to_string(),
         })
     }
@@ -228,6 +253,19 @@ impl Harness {
     /// Les commandes `/nom` que le script a déclarées : (nom, aide).
     pub fn commands(&self) -> Vec<(String, String)> {
         self.script.commands().to_vec()
+    }
+
+    /// Confie ces créatures au script (`on_mobs`) : ce qu'il ordonne.
+    pub fn mobs(&mut self, mobs: &[crate::mobs::MobSnapshot]) -> Result<Requests> {
+        self.script.mobs(&crate::mobs::encode(mobs), mobs.len())
+    }
+
+    /// Le numéro d'un type de créature, comme `mob_kind` le donne au script.
+    pub fn mob_kind(&self, key: &str) -> u32 {
+        self.mob_keys
+            .iter()
+            .position(|k| k == key)
+            .unwrap_or_else(|| panic!("créature inconnue : {key}")) as u32
     }
 
     /// Un autre mod appelle ce script : `Mod::call(name, args)`.

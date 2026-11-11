@@ -54,6 +54,7 @@ mod hot_reload;
 mod interact;
 mod inventory;
 mod menus;
+mod mob_brains;
 mod mobs;
 mod mod_menu;
 mod modding;
@@ -526,6 +527,7 @@ impl VoxelGame {
             engine_mods::ModContent {
                 items: content.items.clone(),
                 machine_recipes: content.machine_recipes.clone(),
+                mob_keys: Arc::new(mob_registry.keys()),
             },
             &project_root(),
             launch.world.as_deref(),
@@ -796,6 +798,7 @@ impl VoxelGame {
         self.pick_up_drops(ctx.fixed_dt);
         let (actions, machine_tick) = self.mods.fixed_step(eye);
         self.apply_machine_actions(actions);
+        self.run_mob_brains(machine_tick.is_some());
         if let Some(stress) = &mut self.stress {
             let eye = player::eye(&self.ecs, self.player, 1.0);
             let ready = self.world.borrow().is_idle();
@@ -1905,6 +1908,11 @@ impl VoxelGame {
                     events::send(&self.ecs, BlockBroken { pos, block });
                 }
                 MachineAction::Log(message) => log::info!("{message}"),
+                // Les ordres aux créatures ne valent que pendant leur lot (`mob_brains.rs`).
+                MachineAction::MobMove { .. }
+                | MachineAction::MobJump { .. }
+                | MachineAction::MobAttack { .. }
+                | MachineAction::MobState { .. } => {}
             }
         }
     }

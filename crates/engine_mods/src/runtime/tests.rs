@@ -505,6 +505,7 @@ fn content_host(streamer: &Rc<RefCell<ChunkStreamer>>) -> ScriptHost {
     host.set_content(ModContent {
         items: Arc::new(items),
         machine_recipes: Arc::new(recipes),
+        mob_keys: Default::default(),
     });
     host
 }

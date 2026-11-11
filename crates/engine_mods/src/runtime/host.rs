@@ -102,6 +102,7 @@ pub(super) fn define_host_functions(linker: &mut Linker<HostState>) -> wasmtime:
     define_ui(linker)?;
     define_calls(linker)?;
     define_commands(linker)?;
+    define_mobs(linker)?;
     Ok(())
 }
 
@@ -909,6 +910,85 @@ fn define_content(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
 /// nouveau (un cycle A → B → A, ou un mod qui s'appelle lui-même) échoue au lieu de se
 /// bloquer, et la profondeur est donc bornée par le nombre de mods.
 /// Les commandes `/nom` : déclarées dans `init`, validées ici (le jeu ne voit que des noms sains).
+/// Les créatures à comportement : le type par son nom, et les ordres (rangés pour le jeu, qui les
+/// applique aux créatures du lot en cours).
+fn define_mobs(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        "voxel",
+        "mob_kind",
+        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> HostResult<i32> {
+            let key = read_string(&mut caller, ptr, len)?;
+            Ok(caller
+                .data()
+                .content
+                .mob_keys
+                .iter()
+                .position(|k| *k == key)
+                .map_or(-1, |i| i as i32))
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "mob_move",
+        |mut caller: Caller<'_, HostState>, mob: i32, dx: f32, dz: f32, speed: f32| {
+            if dx.is_finite() && dz.is_finite() && speed.is_finite() {
+                caller
+                    .data_mut()
+                    .requests
+                    .actions
+                    .push(MachineAction::MobMove {
+                        mob: mob as u32,
+                        dx,
+                        dz,
+                        speed,
+                    });
+            }
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "mob_jump",
+        |mut caller: Caller<'_, HostState>, mob: i32| {
+            caller
+                .data_mut()
+                .requests
+                .actions
+                .push(MachineAction::MobJump { mob: mob as u32 });
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "mob_attack",
+        |mut caller: Caller<'_, HostState>, mob: i32, damage: f32| {
+            if damage.is_finite() && damage > 0.0 {
+                caller
+                    .data_mut()
+                    .requests
+                    .actions
+                    .push(MachineAction::MobAttack {
+                        mob: mob as u32,
+                        damage,
+                    });
+            }
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "mob_state",
+        |mut caller: Caller<'_, HostState>, mob: i32, value: i32| {
+            caller
+                .data_mut()
+                .requests
+                .actions
+                .push(MachineAction::MobState {
+                    mob: mob as u32,
+                    value: value as u32,
+                });
+        },
+    )?;
+    Ok(())
+}
+
 fn define_commands(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
     linker.func_wrap(
         "voxel",

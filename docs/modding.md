@@ -32,7 +32,7 @@ mods/example/
 ├── mod.ron            # le manifeste (obligatoire)
 ├── blocks.ron         # ses blocs (facultatif)
 ├── fluids.ron         # ses fluides (facultatif)
-├── entities.ron       # ses créatures (facultatif)
+├── entities.ron       # ses créatures, avec ou sans `brain: true` (facultatif)
 ├── ores.ron, biomes.ron, structures.ron   # le monde généré (facultatifs)
 ├── items.ron          # ses objets (facultatif)
 ├── machine_recipes.ron # les recettes de ses machines (facultatif)
@@ -484,6 +484,7 @@ mémoire.
 | `on_options(type: i32, id: i32, valeur: i32)` | facultatif ; page d'options : type 6 ouverture, puis 1 à 3 actions du joueur, 5 fermée ; le mod répond par `options_show` |
 | `on_call(ptr: i32, taille: i32) -> i32` et `call_reply() -> i32` | facultatifs ; un autre mod appelle une fonction : le jeu écrit `[longueur du nom: u16][nom][arguments]` à `sdk_alloc`, `on_call` renvoie la taille de la réponse (−1 : aucune), que le jeu lit à l'adresse donnée par `call_reply` |
 | `on_command(ptr: i32, taille: i32) -> i32` | facultatif ; une commande `/nom` : même format que `on_call` (`[longueur du nom: u16][nom][arguments en texte]`), la réponse est lue à l'adresse de `call_reply` |
+| `on_mobs(ptr: i32, nombre: i32)` | facultatif ; un lot de créatures à comportement : `nombre` enregistrements de 12 mots de 4 octets (`id, type, x, y, z, vie, vie max, vers_joueur_x, _y, _z, drapeaux, mémoire`), à répondre par `mob_*` |
 | `on_use(g: i32, x: i32, y: i32, z: i32) -> i32` | facultatif ; clic droit du joueur sur une machine du mod ; renvoie 1 si le clic est pris en compte |
 
 **Données** (petit-boutistes) : les positions de `on_machines` sont `nombre` fois
@@ -563,6 +564,16 @@ test vérifie que le jeu définit exactement ces fonctions.
 | `setting_set(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32) -> i32` | Enregistre un réglage du mod (clé de 64 octets, valeur de 1 024, 256 clés au plus). 1 si c'est fait. |
 | `world_get(key_ptr: i32, key_len: i32, out_ptr: i32, cap: i32) -> i32` | Copie la valeur (texte) d'une donnée du mod **dans ce monde** (au plus `cap` octets) ; renvoie sa taille, −1 si elle n'existe pas. |
 | `world_set(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32) -> i32` | Enregistre une donnée du mod dans ce monde (clé de 64 octets, valeur de 64 Kio, 1 024 clés au plus), sauvegardée avec le monde. 1 si c'est fait. |
+
+*Créatures*
+
+| Fonction | Rôle |
+|---|---|
+| `mob_kind(ptr: i32, len: i32) -> i32` | Le numéro d'un type de créature (`example:guard`) tel que le montrent les créatures reçues dans `on_mobs` ; −1 s'il n'existe pas. |
+| `mob_move(mob: i32, dx: f32, dz: f32, speed: f32)` | Pendant `on_mobs` : la créature marche dans la direction (dx, dz) à `speed` blocs par seconde (au plus le double de sa vitesse de base) ; elle se tourne vers là. Une vitesse nulle l'arrête. Valable jusqu'au prochain appel. |
+| `mob_jump(mob: i32)` | Pendant `on_mobs` : la créature saute (si elle touche le sol). |
+| `mob_attack(mob: i32, damage: f32)` | Pendant `on_mobs` : la créature blesse le joueur s'il est à portée de bras (3 blocs) et si elle n'a pas frappé depuis une seconde. |
+| `mob_state(mob: i32, value: i32)` | Pendant `on_mobs` : la mémoire de la créature (un entier de votre choix, rendu dans `state` au prochain appel). |
 
 *Commandes*
 
@@ -655,6 +666,53 @@ tous les scripts abonnés ont du budget : un chunk n'est pas perdu parce qu'un m
 Le mod d'exemple y pose un rubis sur le sol de certains chunks (réglage `surface_ruby_chance`).
 Limites : un chunk déchargé avant que son événement soit livré n'est pas décoré, et un chunk entièrement
 vide (de l'air) ne déclenche rien.
+
+## Les créatures à comportement
+
+Une créature se décrit en données (`entities.ron` : vie, vitesse, taille, apparence, butin, règles
+d'apparition). Son **comportement** peut venir du jeu (errance, poursuite des hostiles, fuite, tir,
+reproduction) ou de **votre script** : ajoutez `brain: true` et c'est le script du mod qui la dirige.
+La physique, les dégâts reçus, la mort, le butin et le rendu restent ceux du jeu.
+
+```ron
+(id: "mon_mod:gardien", name: "Gardien", health: 20.0, speed: 2.2, size: (0.7, 1.7),
+ hostile: true, brain: true, spawn_on: ["core:grass"], parts: [ /* ... */ ])
+```
+
+```rust
+fn init(&mut self) {
+    self.gardien = mod_sdk::mob_kind("mon_mod:gardien");          // son numéro de type
+}
+
+fn mobs(&mut self, mobs: &[MobView]) {                            // 4 fois par seconde, TOUTES d'un coup
+    for m in mobs.iter().filter(|m| Some(m.kind) == self.gardien) {
+        if m.distance_to_player() < 18.0 {
+            mod_sdk::mob_move(m.id, m.to_player[0], m.to_player[2], 3.0);   // vers le joueur, à 3 blocs/s
+        }
+    }
+}
+```
+
+Le jeu confie au script les créatures de **son mod** (celles de l'espace de noms de leur
+identifiant) qui sont à moins de 48 blocs du joueur, les plus proches d'abord, 64 au plus par appel.
+Un appel du jeu vers le script coûte cher et un ordre du script vers le jeu presque rien : c'est
+pourquoi tout le monde passe en un seul lot. Chaque `MobView` donne le numéro, le type, la position,
+la vie, le vecteur vers le joueur, des drapeaux (au sol, dans un liquide, blessée) et la **mémoire**
+de la créature (`state`). Les ordres :
+
+| Ordre | Effet |
+|---|---|
+| `mob_move(id, dx, dz, vitesse)` | marcher dans cette direction (vitesse en blocs/s, au plus le double de sa vitesse de base ; 0 : s'arrêter) ; elle se tourne ; devant un obstacle elle saute |
+| `mob_jump(id)` | sauter |
+| `mob_attack(id, dégâts)` | blesser le joueur s'il est à moins de 3 blocs, au plus une fois par seconde |
+| `mob_state(id, valeur)` | ranger un entier (un état d'esprit : repos, poursuite, fuite...) qui revient au prochain appel |
+
+Un ordre vaut jusqu'au prochain appel (250 ms) : une créature à qui on ne dit rien continue ce
+qu'elle faisait. Le script ne commande que les créatures du lot qu'il vient de recevoir. Le coût
+compte dans le budget par tick du mod ; hors budget, le lot est sauté et les créatures gardent leurs
+derniers ordres. Le gardien du mod d'exemple (`example:guard`) rôde, poursuit le joueur, frappe de
+près et fuit quand il est blessé ; son test sans fenêtre (`h.mobs(&[MobSnapshot {..}])`) vérifie
+chaque état.
 
 ## Les coûts mesurés
 
