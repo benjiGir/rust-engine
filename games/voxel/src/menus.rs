@@ -392,6 +392,10 @@ impl VoxelGame {
                 ui.add(egui::Slider::new(&mut s.render_distance, 4..=32))
                     .on_hover_text("Appliquée au prochain monde chargé");
                 ui.end_row();
+                ui.label("Terrain lointain (chunks, 0 : aucun)");
+                ui.add(egui::Slider::new(&mut s.far_distance, 0..=192))
+                    .on_hover_text("Décor simplifié au-delà des chunks détaillés. Appliqué au prochain monde chargé");
+                ui.end_row();
                 ui.label("Champ de vision (°)");
                 ui.add(egui::Slider::new(&mut s.fov, 50.0..=110.0));
                 ui.end_row();

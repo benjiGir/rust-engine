@@ -57,6 +57,7 @@ games/                  # à venir : railway (city builder)
 cargo run --release -p voxel                             # le jeu, optimisé
 RUST_LOG=info,engine_core=debug cargo run -p voxel       # FPS et triangles dans les logs
 VOXEL_AUTOFLY=1 cargo run --release -p voxel             # la caméra avance seule : mesure du chargement
+VOXEL_FAR=128 cargo run --release -p voxel               # terrain lointain jusqu'à 128 chunks (0 : aucun ; options : « Terrain lointain »)
 cargo bench -p engine_voxel                              # génération d'un chunk, culling contre greedy
 cargo bench -p engine_ecs                                # notre ECS contre hecs, objets sur tapis
 cargo bench -p engine_voxel --bench machines             # 10k/50k/100k machines, 50k câbles et tuyaux

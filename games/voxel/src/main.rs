@@ -47,6 +47,7 @@ mod death;
 mod drops;
 mod enchanting;
 mod events;
+mod far_terrain;
 mod hand;
 mod hot_reload;
 mod interact;
@@ -196,6 +197,8 @@ struct VoxelGame {
     tour: Option<screenshots::Tour>,
     day: DayCycle,
     weather: weather::Weather,
+    /// Le terrain lointain simplifié (voir `far_terrain.rs`), s'il est activé.
+    far: Option<far_terrain::FarTerrain>,
     /// Les maillages des structures mobiles, et la structure dont on tient la barre.
     grid_meshes: ships::GridMeshes,
     helm: Option<engine_voxel::GridId>,
@@ -383,12 +386,32 @@ impl VoxelGame {
             leaf_culling: std::env::var("VOXEL_LEAF_CULLING").map_or(true, |v| v != "0"),
             ..StreamingConfig::default()
         };
-        // Le brouillard termine juste avant le bord du rayon de vue.
-        let view_distance = (config.view_radius * CHUNK_SIZE as i32) as f32;
+        // Le terrain lointain (simplifié) prolonge le monde au-delà des chunks détaillés ;
+        // `VOXEL_FAR=0` le coupe, pour comparer. Pas dans le décor du menu principal.
+        let far_chunks = if launch.title {
+            0
+        } else {
+            env_parse("VOXEL_FAR")
+                .unwrap_or(settings.far_distance)
+                .clamp(0, 192)
+        };
+        let far_chunks = if far_chunks > config.view_radius {
+            far_chunks
+        } else {
+            0
+        };
+        // Le brouillard termine juste avant le bord de ce qu'on dessine.
+        let drawn_chunks = if far_chunks > 0 {
+            far_chunks
+        } else {
+            config.view_radius
+        };
+        let view_distance = (drawn_chunks * CHUNK_SIZE as i32) as f32;
         renderer.fog = Some(Fog {
             start: view_distance * 0.6,
             end: view_distance * 0.95,
         });
+        let near_radius = config.view_radius;
         log::info!(
             "graine {seed}, rayon de vue {} chunks, {} threads de fond",
             config.view_radius,
@@ -396,6 +419,11 @@ impl VoxelGame {
         );
         let generator = TerrainGenerator::with_registry(seed, registry.clone())?;
         let mut streamer = ChunkStreamer::new(generator, config);
+        let far = (far_chunks > 0).then(|| {
+            let far = far_terrain::FarTerrain::new(&streamer, near_radius, far_chunks);
+            log::info!("terrain lointain : jusqu'à {far_chunks} chunks");
+            far
+        });
         // Les fluides : ceux du jeu et des mods (viscosité, densité...), pour la nage et
         // la simulation.
         let owned: Vec<(String, PathBuf)> =
@@ -681,6 +709,7 @@ impl VoxelGame {
             tour,
             day: DayCycle::new(time, env_parse("VOXEL_DAY_LENGTH").unwrap_or(600.0)),
             weather: weather::Weather::new(seed),
+            far,
             grid_meshes: ships::GridMeshes::default(),
             helm: None,
             difficulty,
@@ -1016,6 +1045,7 @@ impl VoxelGame {
         let start = Instant::now();
         let eye = player::eye(&self.ecs, self.player, 1.0);
         self.streamer_mut().update(eye);
+        self.update_far(eye);
         let streamed = Instant::now();
         let uploads = self.apply_stream_events();
         self.frame_stats
@@ -2014,6 +2044,14 @@ impl VoxelGame {
             render.meshes_total,
             render.meshes_hidden,
         );
+        if let Some(far) = &self.far {
+            let stats = far.stats();
+            ctx.status.push_str(&format!(
+                " | lointain {} tuiles ({} en cours)",
+                far.mesh_count(),
+                stats.pending
+            ));
+        }
 
         if let Some(report) = self.frame_stats.tick() {
             self.debug = ui::DebugInfo {

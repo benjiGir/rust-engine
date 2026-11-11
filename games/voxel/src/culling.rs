@@ -58,6 +58,9 @@ impl VoxelGame {
             .extend(culling.chunks.iter().filter_map(|c| self.meshes.get(c)));
         // Les structures mobiles sont toujours dessinées (le frustum les écarte au besoin).
         culling.ids.extend(self.grid_meshes.ids());
+        if let Some(far) = &self.far {
+            culling.ids.extend(far.ids());
+        }
         self.renderer.set_visible_meshes(Some(&culling.ids));
     }
 

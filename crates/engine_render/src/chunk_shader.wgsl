@@ -38,7 +38,8 @@ struct VertexIn {
     @location(5) origin: vec4<f32>,
     // La base des coordonnées de texture (xyz) : l'origine du chunk dans son propre repère.
     // Pour le monde, c'est l'origine ; pour une structure qui bouge, ses coordonnées locales,
-    // afin que les textures restent collées aux blocs.
+    // afin que les textures restent collées aux blocs. `w` : l'échelle des positions locales
+    // (0 ou 1 : un bloc par unité ; un terrain lointain en met 4, 8, 16... par unité).
     @location(6) uv_base: vec4<f32>,
 };
 
@@ -76,7 +77,10 @@ fn rotate_y(v: vec3<f32>, yaw: f32) -> vec3<f32> {
 @vertex
 fn vs_main(vertex: VertexIn) -> VertexOut {
     var out: VertexOut;
-    let local = vec3<f32>(vertex.position.xyz) / POSITION_SCALE - vec3<f32>(POSITION_BIAS);
+    var local = vec3<f32>(vertex.position.xyz) / POSITION_SCALE - vec3<f32>(POSITION_BIAS);
+    if vertex.uv_base.w > 1.0 {
+        local = local * vertex.uv_base.w;
+    }
     var world = vertex.origin.xyz + local;
     var normal = vertex.normal.xyz;
     if vertex.origin.w != 0.0 {

@@ -20,6 +20,7 @@ mod chunk;
 mod circuits;
 mod containers;
 mod crafting;
+mod far;
 mod farming;
 mod fluid_sim;
 mod fluids;
@@ -61,6 +62,10 @@ pub use containers::{
 pub use crafting::{
     BrewRecipe, Brewing, Ingredient, LootEntry, LootTables, Recipe, Recipes, Smelting,
     SmeltingRecipe,
+};
+pub use far::{
+    CELLS as FAR_CELLS, FarConfig, FarEvent, FarMesh, FarStats, FarStreamer, FarTile, build_tile,
+    select_tiles,
 };
 pub use farming::{
     FarmBlocks, IRRIGATION_REACH, fertilized, is_farmland, is_irrigated, is_ripe, next_stage,

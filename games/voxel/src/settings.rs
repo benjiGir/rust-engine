@@ -193,6 +193,9 @@ pub fn key_name(key: KeyCode) -> Option<&'static str> {
 pub struct Settings {
     /// Rayon de chargement, en chunks (appliqué au prochain monde chargé).
     pub render_distance: i32,
+    /// Jusqu'où on dessine le terrain lointain simplifié, en chunks (0 : pas de terrain
+    /// lointain). Appliqué au prochain monde chargé.
+    pub far_distance: i32,
     /// Champ de vision vertical, en degrés.
     pub fov: f32,
     pub mouse_sensitivity: f32,
@@ -209,6 +212,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             render_distance: 16,
+            far_distance: 64,
             fov: 70.0,
             mouse_sensitivity: 1.0,
             volume_master: 1.0,

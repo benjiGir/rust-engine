@@ -58,7 +58,7 @@ pub const LAVA_LEVEL: i32 = 10;
 pub const FREEZING: f32 = 0.15;
 
 /// Pas de la grille d'interpolation, en blocs.
-const STEP: i32 = 4;
+pub(crate) const STEP: i32 = 4;
 /// Points de la grille par côté de chunk (32 / 4 + 1, les deux bords compris).
 const GRID: usize = CHUNK_SIZE / STEP as usize + 1;
 
@@ -291,6 +291,13 @@ impl TerrainGenerator {
     pub fn column(&self, x: i32, z: i32) -> Column {
         let fields = self.fields_at(x, z, |gx, gz| self.fields(gx, gz));
         self.interpret(fields)
+    }
+
+    /// La colonne au point de grille (gx, gz), soit au bloc (4 gx, 4 gz) : les cartes y sont
+    /// évaluées une seule fois, sans interpolation. Quatre fois moins cher que [`Self::column`] :
+    /// pour le terrain lointain, qui échantillonne sur cette grille.
+    pub fn column_at_grid_point(&self, gx: i32, gz: i32) -> Column {
+        self.interpret(self.fields(gx, gz))
     }
 
     /// Les cartes deviennent une hauteur et un biome.

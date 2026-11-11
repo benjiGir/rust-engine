@@ -108,6 +108,40 @@ Pas encore fait : les engrenages (rapports de vitesse entre deux arbres) et la r
 réseaux sur plusieurs cœurs (ils sont indépendants : c'est possible, mais un tick coûte déjà
 quelques microsecondes).
 
+### Terrain lointain (fait : `far.rs`)
+
+Les chunks détaillés (grottes, minerais, arbres, lumière) sont chers : 3 000 à 32 chunks de
+rayon, plus de 50 000 à 128. Très loin, on ne voit que la forme du terrain. Le **terrain
+lointain** ne regarde donc que la surface : pour une grille de points, la hauteur et le biome que
+le générateur donne déjà sans rien creuser, maillés en tuiles de 32 × 32 cellules, colorées selon
+le biome, l'altitude et la pente, avec de l'eau à la hauteur de la mer.
+
+- **Niveaux de détail** : cinq niveaux, une cellule fait 2, 4, 8, 16 ou 32 blocs. Chaque tuile
+  coûte la même chose (1 089 sommets) : l'arbre quaternaire (`select_tiles`) prend des tuiles
+  fines près du monde détaillé et de plus en plus grandes avec la distance. À 128 chunks de
+  rayon, il faut environ 500 tuiles.
+- **Aucun trou, aucun recouvrement** : le décor commence exactement là où les chunks détaillés
+  s'arrêtent, par des tuiles fines au grain des chunks ; des jupes verticales cachent les fentes
+  entre deux niveaux. Une région de 32 chunks ne change de niveau que d'un coup, quand toutes ses
+  nouvelles tuiles sont prêtes.
+- **Même format que les chunks** : les sommets font 24 octets et le shader multiplie leurs
+  positions par l'échelle de la tuile (`Renderer::add_mesh_scaled`).
+- **En tâche de fond** : deux threads construisent les tuiles (`FarStreamer`), sans toucher au
+  monde ; le thread principal n'envoie au GPU que ce qui est prêt.
+
+Mesures (`cargo xtask bench --only foret`, Mac, release) :
+
+| Réglage | Chunks détaillés | FPS (1 % le plus lent) | CPU | GPU |
+|---|---|---|---|---|
+| rayon 16, pas de terrain lointain | 529 | 120 (82) | 1,26 ms | 3,8 ms |
+| rayon 16 + terrain lointain à 128 chunks (4 km) | 703 | 120 (91) | 1,25 ms | 3,0 ms |
+| rayon 64 détaillé, sans terrain lointain | 6 275 | 39 (19) | 15 ms | 20 ms |
+
+Voir 4 km de paysage ne coûte donc pas de temps mesurable, alors que 64 chunks détaillés
+divisent les FPS par trois et ne finissent pas de charger en 90 s. Limites : pas d'arbres ni de
+villages au loin (le décor y est lissé), et le décor lointain ne montre pas les modifications du
+joueur.
+
 ### Fluides dans le monde (fait : `fluid_sim.rs`)
 
 Le modèle retenu conserve le **volume** : chaque cellule a une quantité (4096 = un bloc),

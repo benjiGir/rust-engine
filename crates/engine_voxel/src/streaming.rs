@@ -409,6 +409,11 @@ impl ChunkStreamer {
         &self.generator
     }
 
+    /// Le générateur partagé : le terrain lointain l'utilise dans ses propres threads.
+    pub fn generator_arc(&self) -> Arc<TerrainGenerator> {
+        self.generator.clone()
+    }
+
     pub fn config(&self) -> &StreamingConfig {
         &self.config
     }

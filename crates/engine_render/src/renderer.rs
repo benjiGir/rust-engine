@@ -640,6 +640,31 @@ impl Renderer {
         uv_base: Vec3,
         bounds: Aabb,
     ) -> Option<MeshId> {
+        self.add_mesh_scaled(
+            vertices,
+            indices,
+            translucent_indices,
+            origin,
+            uv_base,
+            1.0,
+            bounds,
+        )
+    }
+
+    /// Un maillage dont les positions locales sont multipliées par `scale` : un terrain
+    /// lointain dessine une cellule de 4, 8, 16... blocs avec les mêmes sommets compacts qu'un
+    /// chunk (voir `engine_voxel::far`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_mesh_scaled(
+        &mut self,
+        vertices: &[ColorVertex],
+        indices: &[u32],
+        translucent_indices: &[u32],
+        origin: Vec3,
+        uv_base: Vec3,
+        scale: f32,
+        bounds: Aabb,
+    ) -> Option<MeshId> {
         if indices.is_empty() && translucent_indices.is_empty() {
             return None;
         }
@@ -665,7 +690,7 @@ impl Renderer {
                 label: Some("chunk origin"),
                 contents: bytemuck::bytes_of(&[
                     origin.extend(0.0).to_array(),
-                    uv_base.extend(0.0).to_array(),
+                    uv_base.extend(scale).to_array(),
                 ]),
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             });
