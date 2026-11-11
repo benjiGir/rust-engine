@@ -15,6 +15,7 @@ use std::sync::Arc;
 use engine_voxel::BlockRegistry;
 
 use super::*;
+use crate::menu as abi_ui;
 
 fn loaded_streamer() -> Rc<RefCell<ChunkStreamer>> {
     streamer_with(TerrainGenerator::new(7))
@@ -570,4 +571,57 @@ fn a_right_click_reaches_the_script_which_may_take_it() {
     // Un mod sans `on_use` ne prend rien.
     let mut plain = load(&module(""), &s).unwrap();
     assert!(!plain.used(GridPos::world(IVec3::ZERO)).unwrap().0);
+}
+
+#[test]
+fn a_script_shows_a_menu_and_hears_the_player() {
+    let s = loaded_streamer();
+    // À l'événement, le mod montre le menu « label hi » de la machine en (1,2,3) ; quand le
+    // joueur presse un bouton (kind 1, id 7), il donne 7 objets.
+    let wat = r#"(module
+        (import "voxel" "subscribe" (func $subscribe (param i32)))
+        (import "voxel" "give_item" (func $give (param i32 i32)))
+        (import "voxel" "ui_show" (func $show (param i32 i32 i32 i32 i32 i32)))
+        (import "voxel" "ui_close" (func $close))
+        (memory (export "memory") 1)
+        (data (i32.const 0) "\01\02\00hi")
+        (func (export "sdk_alloc") (param i32) (result i32) i32.const 1024)
+        (func (export "mod_init") (call $subscribe (i32.const 1)))
+        (func (export "on_event") (param i32 i32 i32)
+            (call $show (i32.const 0) (i32.const 1) (i32.const 2) (i32.const 3) (i32.const 0) (i32.const 5))
+            (call $close))
+        (func (export "on_ui") (param $kind i32) (param $g i32) (param $x i32) (param $y i32) (param $z i32) (param $id i32) (param $v i32)
+            (if (i32.eq (local.get $kind) (i32.const 1))
+                (then (call $give (i32.const 1) (local.get $id)))))
+    )"#;
+    let mut script = load(wat, &s).unwrap();
+    let requests = script.send_event(&broken()).unwrap();
+    let at = GridPos::world(IVec3::new(1, 2, 3));
+    assert_eq!(
+        requests.actions,
+        vec![
+            MachineAction::ShowMenu {
+                mod_id: "test".into(),
+                at,
+                data: vec![1, 2, 0, b'h', b'i']
+            },
+            MachineAction::CloseMenu {
+                mod_id: "test".into()
+            },
+        ]
+    );
+    let heard = script.ui_event(abi_ui::UI_BUTTON, at, 7, 0).unwrap();
+    assert_eq!(
+        heard.actions,
+        vec![MachineAction::GiveItem {
+            block: BlockId(1),
+            count: 7
+        }]
+    );
+    // Un clic de menu pour un mod sans `on_ui` : rien.
+    let mut plain = load(&module(""), &s).unwrap();
+    assert_eq!(
+        plain.ui_event(abi_ui::UI_BUTTON, at, 1, 0).unwrap(),
+        Requests::default()
+    );
 }

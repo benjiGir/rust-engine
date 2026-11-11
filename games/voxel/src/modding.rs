@@ -171,13 +171,21 @@ impl ModSystem {
         (used, actions)
     }
 
-    /// Transmet un événement aux scripts. Ce qu'ils demandent (ticks, voisins à prévenir)
-    /// passe par l'ordonnanceur des machines ; le reste revient au jeu.
-    pub fn dispatch(&mut self, event: &ModEvent) -> Vec<MachineAction> {
-        if self.runtime.is_empty() {
-            return Vec::new();
-        }
-        let requests = self.runtime.dispatch(event);
+    /// Une action du joueur dans le menu d'une machine du mod `mod_id`.
+    pub fn ui_event(
+        &mut self,
+        mod_id: &str,
+        kind: i32,
+        at: engine_voxel::GridPos,
+        id: i32,
+        value: i32,
+    ) -> Vec<MachineAction> {
+        let requests = self.runtime.ui_event(mod_id, kind, at, id, value);
+        self.settle(requests)
+    }
+
+    /// Applique les ticks et les voisins demandés par un script ; le reste revient au jeu.
+    fn settle(&mut self, requests: engine_mods::Requests) -> Vec<MachineAction> {
         for (at, delay) in requests.schedules {
             self.machines.schedule(at, delay);
         }
@@ -185,6 +193,16 @@ impl ModSystem {
             self.machines.notify_neighbors(Grids::new(&self.world), at);
         }
         requests.actions
+    }
+
+    /// Transmet un événement aux scripts. Ce qu'ils demandent (ticks, voisins à prévenir)
+    /// passe par l'ordonnanceur des machines ; le reste revient au jeu.
+    pub fn dispatch(&mut self, event: &ModEvent) -> Vec<MachineAction> {
+        if self.runtime.is_empty() {
+            return Vec::new();
+        }
+        let requests = self.runtime.dispatch(event);
+        self.settle(requests)
     }
 
     /// Recharge les scripts des mods (un `.wasm` a changé). Un script invalide est

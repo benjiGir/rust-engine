@@ -179,6 +179,53 @@ en place.
 pas de bloc contre elle) ; `false` le laisse passer. C'est là qu'une machine ouvre son menu, change
 de mode ou donne un objet.
 
+### Les menus
+
+Une machine peut avoir un menu (son écran, ouvert par un clic droit). Le script le **décrit**,
+le jeu le dessine : aucun dessin ne passe par le WebAssembly, et un menu ouvert ne coûte rien
+tant que le joueur n'agit pas.
+
+```rust
+fn used(&mut self, pos: Pos) -> bool {
+    let menu = Menu::new("Presse")
+        .bar("Progression", 0.4)
+        .row_begin().slots(0, 2, 2).slots(2, 1, 1).row_end()   // cases de l'inventaire de la machine
+        .toggle(1, "Active", true)
+        .button(2, "Vider");
+    mod_sdk::show_menu(pos, &menu);
+    true
+}
+
+fn ui(&mut self, pos: Pos, event: UiEvent) {
+    match event {
+        UiEvent::Button(2) => { /* vider */ }
+        UiEvent::Toggle(1, on) => { /* ... */ }
+        UiEvent::Refresh => {}   // 5 fois par seconde tant que le menu est ouvert
+        _ => return,
+    }
+    mod_sdk::show_menu(pos, &menu_a_jour(pos));   // remettre le menu à jour
+}
+```
+
+| Élément | Rôle |
+|---|---|
+| `label(texte)`, `separator()` | du texte, un trait |
+| `bar(texte, 0..1)` | une jauge (progression, niveau) |
+| `button(id, texte)` | `UiEvent::Button(id)` quand on clique |
+| `toggle(id, texte, actif)` | une case à cocher : `UiEvent::Toggle(id, actif)` |
+| `slider(id, texte, min, max, valeur)` | un curseur : `UiEvent::Slider(id, valeur)` |
+| `slots(première, nombre, colonnes)` | des cases de l'inventaire de la machine (`add_inventory`) |
+| `row_begin()` … `row_end()` | place les éléments côte à côte (pas d'imbrication) |
+
+- **Ouverture** : un menu ne s'ouvre qu'en réponse à un clic droit (dans `Mod::used`). Une fois
+  ouvert, le mod peut le remettre à jour (`show_menu` sur la même machine) ou le fermer
+  (`close_menu`) ; un mod ne peut pas faire surgir un menu quand il veut.
+- **Limites** : 16 Kio, 256 éléments et 64 cases par menu, textes de 255 octets. Un menu invalide est
+  refusé avec la raison dans les logs, sans effet sur le jeu.
+- **Cases** : le joueur y dépose et en retire des objets comme dans un coffre ; la machine est
+  réveillée (`ScheduledTick`) à chaque changement.
+- `UiEvent::Closed` arrive quand le joueur ferme le menu (Échap).
+
 ### Les événements
 
 `mod_sdk::subscribe(EventKind::...)` dans `init`, puis `Mod::event` les reçoit :
@@ -301,6 +348,7 @@ mémoire.
 | `mod_init()` | facultatif, appelé au chargement |
 | `on_event(type: i32, ptr: i32, taille: i32)` | facultatif |
 | `on_machines(type: i32, ptr: i32, nombre: i32)` | facultatif ; type 0 posées, 1 chargées, 2 voisin, 3 tick |
+| `on_ui(type: i32, g: i32, x: i32, y: i32, z: i32, id: i32, valeur: i32)` | facultatif ; action dans un menu : type 1 bouton, 2 case (valeur 0/1), 3 curseur (bits d'un f32), 4 rafraîchissement, 5 fermé |
 | `on_use(g: i32, x: i32, y: i32, z: i32) -> i32` | facultatif ; clic droit du joueur sur une machine du mod ; renvoie 1 si le clic est pris en compte |
 
 **Données** (petit-boutistes) : les positions de `on_machines` sont `nombre` fois
@@ -361,6 +409,13 @@ test vérifie que le jeu définit exactement ces fonctions.
 | `item_extract(g: i32, x: i32, y: i32, z: i32, face: i32, ptr: i32, len: i32, count: i32, simulate: i32) -> i32` | Sort des objets par cette face ; renvoie le nombre retiré. |
 | `kinetic_speed(g: i32, x: i32, y: i32, z: i32) -> f32` | La vitesse de rotation (tr/min, signée). |
 | `set_kinetic(g: i32, x: i32, y: i32, z: i32, speed: f32, capacity: f32, impact: f32) -> i32` | Règle la vitesse, la capacité et la consommation de contrainte. 1 si c'est fait. |
+
+*Interface*
+
+| Fonction | Rôle |
+|---|---|
+| `ui_show(g: i32, x: i32, y: i32, z: i32, ptr: i32, len: i32)` | Ouvre (ou met à jour) le menu de la machine à cette position : `len` octets décrivant le menu (voir `Menu`). Le joueur le voit à l'écran. |
+| `ui_close()` | Ferme le menu du mod s'il est ouvert. |
 
 *Objets et recettes*
 

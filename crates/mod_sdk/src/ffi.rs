@@ -152,6 +152,10 @@ unsafe extern "C" {
         capacity: f32,
         impact: f32,
     ) -> i32;
+    /// Ouvre (ou met à jour) le menu de la machine à cette position : `len` octets décrivant le menu (voir `Menu`). Le joueur le voit à l'écran.
+    pub fn ui_show(g: i32, x: i32, y: i32, z: i32, ptr: i32, len: i32);
+    /// Ferme le menu du mod s'il est ouvert.
+    pub fn ui_close();
     /// Le numéro d'un objet (bloc ou non) à partir de son identifiant (`example:ruby`) ; −1 s'il n'existe pas.
     pub fn item_id(ptr: i32, len: i32) -> i32;
     /// Donne `count` objets de numéro `id` (voir `item_id`) au joueur.
@@ -321,6 +325,10 @@ mod inert {
     pub unsafe fn set_kinetic(_: i32, _: i32, _: i32, _: i32, _: f32, _: f32, _: f32) -> i32 {
         0
     }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn ui_show(_: i32, _: i32, _: i32, _: i32, _: i32, _: i32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn ui_close() {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn item_id(_: i32, _: i32) -> i32 {
         -1

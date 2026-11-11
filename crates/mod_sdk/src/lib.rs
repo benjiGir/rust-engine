@@ -28,15 +28,16 @@
 
 mod ffi;
 mod host;
+pub mod ui;
 
 use std::cell::RefCell;
 
 pub use host::{
-    Item, Recipe, add_energy, add_inventory, add_kinetic, add_tank, block_base, block_id, data,
-    energy_extract, energy_insert, energy_stored, find_recipe, fluid_amount, fluid_drain,
-    fluid_fill, get_block, give_item, give_stack, item_count, item_extract, item_id, item_insert,
-    kinetic_speed, log, power, random, received_power, schedule_tick, set_block, set_data,
-    set_kinetic, set_power, spawn_entity, subscribe,
+    Item, Recipe, add_energy, add_inventory, add_kinetic, add_tank, block_base, block_id,
+    close_menu, data, energy_extract, energy_insert, energy_stored, find_recipe, fluid_amount,
+    fluid_drain, fluid_fill, get_block, give_item, give_stack, item_count, item_extract, item_id,
+    item_insert, kinetic_speed, log, power, random, received_power, schedule_tick, set_block,
+    set_data, set_kinetic, set_power, show_menu, spawn_entity, subscribe,
 };
 
 /// Une grille de blocs : le monde (`Grid::WORLD`), ou une structure mobile (plus tard).
@@ -201,6 +202,8 @@ pub trait Mod {
     fn used(&mut self, _pos: Pos) -> bool {
         false
     }
+    /// Le joueur a agi dans le menu de la machine en `pos` (voir [`ui::Menu`]).
+    fn ui(&mut self, _pos: Pos, _event: ui::UiEvent) {}
 }
 
 // ----- La mécanique d'export (utilisée par `export_mod!`) -----
@@ -290,6 +293,10 @@ pub mod __private {
         })
     }
 
+    pub fn ui_event(kind: i32, id: i32, value: i32) -> Option<crate::ui::UiEvent> {
+        crate::ui::UiEvent::decode(kind, id, value)
+    }
+
     pub fn machine_call(kind: i32) -> Option<MachineCall> {
         Some(match kind {
             ffi::MACHINES_PLACED => MachineCall::Placed,
@@ -331,6 +338,14 @@ macro_rules! export_mod {
         pub extern "C" fn on_use(grid: i32, x: i32, y: i32, z: i32) -> i32 {
             let pos = $crate::Pos::in_grid($crate::Grid(grid as u32), x, y, z);
             __MOD.with_borrow_mut(|m| $crate::Mod::used(m, pos)) as i32
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn on_ui(kind: i32, grid: i32, x: i32, y: i32, z: i32, id: i32, value: i32) {
+            if let Some(event) = $crate::__private::ui_event(kind, id, value) {
+                let pos = $crate::Pos::in_grid($crate::Grid(grid as u32), x, y, z);
+                __MOD.with_borrow_mut(|m| $crate::Mod::ui(m, pos, event));
+            }
         }
 
         #[unsafe(no_mangle)]

@@ -431,3 +431,17 @@ pub fn find_recipe(kind: &str, available: &[(&str, u32)]) -> Option<Recipe> {
         });
     }
 }
+
+/// Ouvre le menu de la machine en `pos` pour le joueur, ou met à jour celui qui est ouvert.
+/// Un menu trop gros (voir [`crate::ui::MAX_MENU_BYTES`]) est ignoré.
+pub fn show_menu(pos: Pos, menu: &crate::ui::Menu) {
+    let (ptr, len) = addr(menu.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `menu`.
+    unsafe { ffi::ui_show(pos.grid.0 as i32, pos.x, pos.y, pos.z, ptr, len) }
+}
+
+/// Ferme le menu du mod, s'il est ouvert.
+pub fn close_menu() {
+    // SAFETY: aucun argument.
+    unsafe { ffi::ui_close() }
+}

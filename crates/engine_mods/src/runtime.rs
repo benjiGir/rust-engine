@@ -245,6 +245,9 @@ impl ScriptHost {
         let on_use = instance
             .get_typed_func::<(i32, i32, i32, i32), i32>(&mut store, "on_use")
             .ok();
+        let on_ui = instance
+            .get_typed_func::<UiArgs, ()>(&mut store, "on_ui")
+            .ok();
         let mut script = ScriptMod {
             id: mod_id.to_string(),
             store,
@@ -254,6 +257,7 @@ impl ScriptHost {
             on_event,
             on_machines,
             on_use,
+            on_ui,
             disabled: None,
         };
         if let Ok(init) = script
@@ -276,6 +280,7 @@ pub struct ScriptMod {
     on_event: Option<TypedFunc<(i32, i32, i32), ()>>,
     on_machines: Option<TypedFunc<(i32, i32, i32), ()>>,
     on_use: Option<TypedFunc<(i32, i32, i32, i32), i32>>,
+    on_ui: Option<TypedFunc<UiArgs, ()>>,
     /// La raison de sa désactivation, s'il a planté.
     disabled: Option<String>,
 }
@@ -355,6 +360,31 @@ impl ScriptMod {
         self.guarded(|store| on_event.call(store, (kind, ptr, payload.len() as i32)))
     }
 
+    /// Une action du joueur dans le menu de la machine en `at` (`kind` : voir `menu::UI_*`,
+    /// `value` : 0 ou 1 pour une case, les bits d'un décimal pour un curseur).
+    pub fn ui_event(&mut self, kind: i32, at: GridPos, id: i32, value: i32) -> Result<Requests> {
+        let Some(on_ui) = self.on_ui.clone() else {
+            return Ok(Requests::default());
+        };
+        if self.disabled.is_some() {
+            return Ok(Requests::default());
+        }
+        self.guarded(|store| {
+            on_ui.call(
+                store,
+                (
+                    kind,
+                    at.grid.0 as i32,
+                    at.pos.x,
+                    at.pos.y,
+                    at.pos.z,
+                    id,
+                    value,
+                ),
+            )
+        })
+    }
+
     /// Le joueur fait un clic droit sur une machine du mod. Renvoie si le script a pris le
     /// clic en compte (sinon le jeu continue : poser un bloc contre elle, par exemple).
     pub fn used(&mut self, at: GridPos) -> Result<(bool, Requests)> {
@@ -389,6 +419,9 @@ impl ScriptMod {
         self.guarded(|store| on_machines.call(store, (kind, ptr, positions.len() as i32)))
     }
 }
+
+/// Les arguments de `on_ui` : type, grille, x, y, z, identifiant, valeur.
+type UiArgs = (i32, i32, i32, i32, i32, i32, i32);
 
 /// Le comportement d'un bloc défini par le script d'un mod.
 pub struct ScriptBehavior {
@@ -461,6 +494,15 @@ impl ModRuntime {
 
     pub fn len(&self) -> usize {
         self.scripts.len()
+    }
+
+    /// Transmet une action de menu au script du mod `mod_id`.
+    pub fn ui_event(&self, mod_id: &str, kind: i32, at: GridPos, id: i32, value: i32) -> Requests {
+        let Some(script) = self.scripts.iter().find(|s| s.borrow().id() == mod_id) else {
+            return Requests::default();
+        };
+        let result = script.borrow_mut().ui_event(kind, at, id, value);
+        result.unwrap_or_default()
     }
 
     pub fn is_empty(&self) -> bool {

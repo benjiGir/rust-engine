@@ -61,6 +61,17 @@ pub enum MachineAction {
         block: BlockId,
         count: u32,
     },
+    /// Ouvrir (ou mettre à jour) le menu d'une machine de mod : `data` est le menu encodé par
+    /// le SDK, lu et vérifié par le jeu.
+    ShowMenu {
+        mod_id: String,
+        at: GridPos,
+        data: Vec<u8>,
+    },
+    /// Fermer le menu de ce mod.
+    CloseMenu {
+        mod_id: String,
+    },
     /// Faire apparaître une créature (identifiant texte, comme `core:pig`).
     /// Donner des objets (pas forcément des blocs) au joueur.
     GiveStack {

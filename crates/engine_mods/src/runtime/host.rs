@@ -99,6 +99,7 @@ pub(super) fn define_host_functions(linker: &mut Linker<HostState>) -> wasmtime:
     define_blocks(linker)?;
     define_capabilities(linker)?;
     define_content(linker)?;
+    define_ui(linker)?;
     Ok(())
 }
 
@@ -615,6 +616,45 @@ fn parse_stacks(state: &HostState, text: &str) -> Vec<(engine_voxel::ItemId, u32
             Some((state.content.items.id(key.trim())?, n.trim().parse().ok()?))
         })
         .collect()
+}
+
+fn define_ui(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        "voxel",
+        "ui_show",
+        |mut caller: Caller<'_, HostState>,
+         g: i32,
+         x: i32,
+         y: i32,
+         z: i32,
+         ptr: i32,
+         len: i32|
+         -> HostResult<()> {
+            // Un menu trop gros est ignoré sans lire sa mémoire : le jeu le refuserait de toute façon.
+            if len as usize > crate::menu::MAX_MENU_BYTES || len < 0 {
+                log::warn!("[mod {}] menu trop gros, ignoré", caller.data().mod_id);
+                return Ok(());
+            }
+            let data = read_guest(&mut caller, ptr, len)?;
+            let state = caller.data_mut();
+            let mod_id = state.mod_id.clone();
+            state.requests.actions.push(MachineAction::ShowMenu {
+                mod_id,
+                at: at(g, x, y, z),
+                data,
+            });
+            Ok(())
+        },
+    )?;
+    linker.func_wrap("voxel", "ui_close", |mut caller: Caller<'_, HostState>| {
+        let mod_id = caller.data().mod_id.clone();
+        caller
+            .data_mut()
+            .requests
+            .actions
+            .push(MachineAction::CloseMenu { mod_id });
+    })?;
+    Ok(())
 }
 
 fn define_content(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {

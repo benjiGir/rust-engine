@@ -12,6 +12,7 @@
 //!   Ses données (sauvegardées avec le monde) : `[dx, dy, dz, armé]`.
 //! - **Les rubis** : casser de la pierre donne parfois (1 fois sur 8) un rubis en plus.
 
+use mod_sdk::ui::{Menu, UiEvent};
 use mod_sdk::{Block, Event, EventKind, MachineCall, Mod, Pos};
 
 /// 2 secondes à 20 ticks par seconde.
@@ -30,19 +31,24 @@ struct Example {
 struct Breaker {
     facing: Pos,
     armed: bool,
+    /// Éteint depuis son menu : il ne s'arme plus.
+    disabled: bool,
 }
 
 impl Breaker {
     fn load(pos: Pos) -> Breaker {
         match mod_sdk::data(pos).as_deref() {
-            Some(&[x, y, z, armed, ..]) => Breaker {
-                facing: Pos::new(x as i8 as i32, y as i8 as i32, z as i8 as i32),
-                armed: armed != 0,
+            Some([x, y, z, armed, rest @ ..]) => Breaker {
+                facing: Pos::new(*x as i8 as i32, *y as i8 as i32, *z as i8 as i32),
+                armed: *armed != 0,
+                // Les casseurs sauvegardés avant le menu n'ont que 4 octets : actifs.
+                disabled: rest.first().is_some_and(|&d| d != 0),
             },
             // Pas encore de données : tourné vers +X.
             _ => Breaker {
                 facing: Pos::new(1, 0, 0),
                 armed: false,
+                disabled: false,
             },
         }
     }
@@ -56,9 +62,25 @@ impl Breaker {
                 f.y as i8 as u8,
                 f.z as i8 as u8,
                 self.armed as u8,
+                self.disabled as u8,
             ],
         );
     }
+}
+
+/// Le menu d'un casseur (clic droit) : un état, un interrupteur et un bouton.
+fn breaker_menu(pos: Pos) -> Menu {
+    let breaker = Breaker::load(pos);
+    let f = breaker.facing;
+    Menu::new("Casseur")
+        .label(&format!("Casse vers ({}, {}, {})", f.x, f.y, f.z))
+        .bar(
+            if breaker.armed { "Armé" } else { "Au repos" },
+            breaker.armed as u8 as f32,
+        )
+        .separator()
+        .toggle(1, "Actif", !breaker.disabled)
+        .button(2, "Casser maintenant")
 }
 
 impl Example {
@@ -73,6 +95,26 @@ impl Example {
 }
 
 impl Mod for Example {
+    fn used(&mut self, pos: Pos) -> bool {
+        mod_sdk::show_menu(pos, &breaker_menu(pos));
+        true
+    }
+
+    fn ui(&mut self, pos: Pos, event: UiEvent) {
+        let mut breaker = Breaker::load(pos);
+        match event {
+            UiEvent::Toggle(1, on) => {
+                breaker.disabled = !on;
+                breaker.save(pos);
+            }
+            UiEvent::Button(2) => self.try_break(pos, breaker.facing),
+            UiEvent::Refresh => {}
+            _ => return,
+        }
+        // Le menu montre l'état à jour.
+        mod_sdk::show_menu(pos, &breaker_menu(pos));
+    }
+
     fn init(&mut self) {
         let find = |key: &str| mod_sdk::block_id(key).unwrap_or_default();
         self.stone = find("core:stone");
@@ -95,6 +137,7 @@ impl Mod for Example {
                 Breaker {
                     facing,
                     armed: false,
+                    disabled: false,
                 }
                 .save(pos);
             }
@@ -115,7 +158,7 @@ impl Mod for Example {
                 }
                 // Un voisin a changé : alimenté maintenant ? Alors on s'arme.
                 MachineCall::NeighborChanged => {
-                    if !breaker.armed && mod_sdk::received_power(pos) > 0 {
+                    if !breaker.armed && !breaker.disabled && mod_sdk::received_power(pos) > 0 {
                         breaker.armed = true;
                         breaker.save(pos);
                         mod_sdk::schedule_tick(pos, BREAK_PERIOD);

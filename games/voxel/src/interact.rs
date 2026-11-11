@@ -182,7 +182,10 @@ impl VoxelGame {
             return false;
         }
         let (used, actions) = self.mods.use_block(hit.block_pos);
+        // Le script peut ouvrir son menu, mais seulement en réponse à ce clic.
+        self.ui.allow_mod_menu = true;
         self.apply_machine_actions(actions);
+        self.ui.allow_mod_menu = false;
         if used {
             self.hand.punch();
             if let Some(audio) = &mut self.audio {

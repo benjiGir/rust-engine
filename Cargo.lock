@@ -1160,6 +1160,7 @@ dependencies = [
  "engine_voxel",
  "glam",
  "log",
+ "mod_sdk",
  "ron",
  "semver",
  "serde",

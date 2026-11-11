@@ -17,6 +17,7 @@ wasmtime = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+mod_sdk = { workspace = true }
 
 [[bench]]
 name = "wasm"

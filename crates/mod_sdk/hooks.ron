@@ -114,6 +114,14 @@
          params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("speed", F32), ("capacity", F32), ("impact", F32)], ret: I32, fallback: "0",
          doc: "Règle la vitesse, la capacité et la consommation de contrainte. 1 si c'est fait."),
 
+        // Interface.
+        (name: "ui_show", group: "Interface",
+         params: [("g", I32), ("x", I32), ("y", I32), ("z", I32), ("ptr", I32), ("len", I32)],
+         doc: "Ouvre (ou met à jour) le menu de la machine à cette position : `len` octets décrivant le menu (voir `Menu`). Le joueur le voit à l'écran."),
+        (name: "ui_close", group: "Interface",
+         params: [],
+         doc: "Ferme le menu du mod s'il est ouvert."),
+
         // Objets et recettes.
         (name: "item_id", group: "Objets et recettes",
          params: [("ptr", I32), ("len", I32)], ret: I32, fallback: "-1",

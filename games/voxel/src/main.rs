@@ -54,6 +54,7 @@ mod interact;
 mod inventory;
 mod menus;
 mod mobs;
+mod mod_menu;
 mod modding;
 mod navigation;
 mod persistence;
@@ -1113,6 +1114,7 @@ impl VoxelGame {
         // L'interface de cette image.
         let raw = self.ui.take_input(&ctx.window);
         let (ui_frame, platform) = self.build_ui(raw);
+        self.flush_mod_ui();
         self.ui.handle_output(&ctx.window, platform);
 
         {
@@ -1428,6 +1430,7 @@ impl VoxelGame {
     /// Ferme l'écran ouvert : la grille d'artisanat et la main retournent dans
     /// l'inventaire (ce qui n'y tient pas tombe par terre).
     fn close_screen(&mut self) {
+        self.forget_mod_menu();
         self.ui.split = None;
         let loose = self.inventory.put_away(&self.content.items);
         let at = player::body(&self.ecs, self.player)
@@ -1894,6 +1897,10 @@ impl VoxelGame {
                         log::info!("inventaire plein : {left} objet(s) perdu(s)");
                     }
                 }
+                MachineAction::ShowMenu { mod_id, at, data } => {
+                    self.show_mod_menu(mod_id, at, &data);
+                }
+                MachineAction::CloseMenu { mod_id } => self.close_mod_menu_of(&mod_id),
                 MachineAction::SpawnEntity { kind, position } => {
                     let registry = self.ecs.resource::<Arc<MobRegistry>>().clone();
                     match registry.id(&kind) {

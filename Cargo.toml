@@ -32,6 +32,7 @@ engine_render = { path = "crates/engine_render" }
 engine_voxel = { path = "crates/engine_voxel" }
 engine_ecs = { path = "crates/engine_ecs" }
 engine_mods = { path = "crates/engine_mods" }
+mod_sdk = { path = "crates/mod_sdk" }
 engine_trace = { path = "crates/engine_trace" }
 engine_inspect = { path = "crates/engine_inspect" }
 engine_inspect_derive = { path = "crates/engine_inspect_derive" }
