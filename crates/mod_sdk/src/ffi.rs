@@ -186,6 +186,8 @@ unsafe extern "C" {
     pub fn mob_kind(ptr: i32, len: i32) -> i32;
     /// Pendant `on_mobs` : la créature marche dans la direction (dx, dz) à `speed` blocs par seconde (au plus le double de sa vitesse de base) ; elle se tourne vers là. Une vitesse nulle l'arrête. Valable jusqu'au prochain appel.
     pub fn mob_move(mob: i32, dx: f32, dz: f32, speed: f32);
+    /// Pendant `on_mobs` : la créature va jusqu'à ce point en **cherchant son chemin** (contourne les murs, saute les marches, évite la lave) à `speed` blocs par seconde (au plus le double de sa vitesse de base). Elle continue seule entre deux appels, vers le point le plus proche si le but est inaccessible ; `mob_move` ou un nouveau `mob_move_to` change son ordre.
+    pub fn mob_move_to(mob: i32, x: f32, y: f32, z: f32, speed: f32);
     /// Pendant `on_mobs` : la créature saute (si elle touche le sol).
     pub fn mob_jump(mob: i32);
     /// Pendant `on_mobs` : la créature blesse le joueur s'il est à portée de bras (3 blocs) et si elle n'a pas frappé depuis une seconde.
@@ -458,6 +460,8 @@ mod inert {
     }
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn mob_move(_: i32, _: f32, _: f32, _: f32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn mob_move_to(_: i32, _: f32, _: f32, _: f32, _: f32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn mob_jump(_: i32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]

@@ -16,10 +16,14 @@ use engine_voxel::MachineAction;
 use glam::Vec3;
 
 use crate::VoxelGame;
-use crate::components::{BrainState, Collider, Health, Hurt, Mob, MoveIntent, Transform, Wander};
+use crate::components::{
+    BrainGoal, BrainState, Collider, Health, Hurt, Mob, MoveIntent, Transform, Wander,
+};
 use crate::events::{self, PlayerAttacked};
 use crate::mobs::MobRegistry;
+use crate::navigation::{DangerBlocks, PathFollow, SEARCHES_PER_STEP, cell_of};
 use crate::player;
+use crate::shared::StreamerExt;
 
 /// Au bout de cette distance (blocs), le joueur est à portée de bras d'une créature qui frappe.
 const REACH: f32 = 3.0;
@@ -144,6 +148,8 @@ impl VoxelGame {
                         walk != Vec3::ZERO
                             && self.streamer().world().is_solid(ahead.floor().as_ivec3())
                     };
+                    // Un ordre de marche direct annule le trajet en cours.
+                    self.ecs.remove::<BrainGoal>(entity);
                     if let Some(mut intent) = self.ecs.get_mut::<MoveIntent>(entity) {
                         intent.walk = walk;
                         // Un obstacle devant : la créature saute (comme celles du jeu).
@@ -154,6 +160,28 @@ impl VoxelGame {
                     {
                         transform.yaw = direction.z.atan2(direction.x);
                     }
+                }
+                MachineAction::MobMoveTo {
+                    mob,
+                    x,
+                    y,
+                    z,
+                    speed,
+                } => {
+                    let Some(&entity) = batch.get(&mob) else {
+                        continue;
+                    };
+                    let Some(kind) = self.ecs.get::<Mob>(entity).map(|m| m.kind) else {
+                        continue;
+                    };
+                    let max = registry.get(kind).map_or(1.0, |d| d.speed) * 2.0;
+                    self.ecs.insert(
+                        entity,
+                        BrainGoal {
+                            cell: cell_of(Vec3::new(x, y, z)),
+                            speed: speed.clamp(0.0, max),
+                        },
+                    );
                 }
                 MachineAction::MobJump { mob } => {
                     if let Some(&entity) = batch.get(&mob)
@@ -197,4 +225,44 @@ impl VoxelGame {
             }
         }
     }
+}
+
+/// Les créatures à comportement qui vont quelque part (`mob_move_to`) : un chemin vers leur but
+/// (recalculé si elles se coincent), suivi à chaque pas de simulation, entre deux appels du
+/// script. Les recherches sont partagées avec le reste des créatures par le même budget par pas.
+pub fn follow_goals(world: &mut engine_ecs::World) {
+    let dt = world.resource::<crate::mobs::FixedDt>().0;
+    let danger = world.resource::<Arc<DangerBlocks>>().clone();
+    let shared = world.streamer();
+    let streamer = shared.borrow();
+    let mut searches = SEARCHES_PER_STEP;
+    world
+        .query::<(
+            &mut Transform,
+            &mut MoveIntent,
+            &Collider,
+            &mut PathFollow,
+            &BrainGoal,
+        )>()
+        .for_each(|_, (transform, intent, collider, follow, goal)| {
+            let position = transform.position;
+            if searches > 0 && follow.wants(goal.cell, position) {
+                follow.plan(
+                    streamer.world(),
+                    &danger,
+                    position,
+                    collider.height,
+                    goal.cell,
+                );
+                searches -= 1;
+            }
+            let (direction, path_jump) = follow.steer(position, dt).unwrap_or((Vec3::ZERO, false));
+            intent.walk = direction * goal.speed;
+            let ahead = position + direction * (collider.width * 0.5 + 0.4) + Vec3::Y * 0.5;
+            let blocked = streamer.world().is_solid(ahead.floor().as_ivec3());
+            intent.jump = direction != Vec3::ZERO && (path_jump || blocked);
+            if direction != Vec3::ZERO {
+                transform.yaw = direction.z.atan2(direction.x);
+            }
+        });
 }

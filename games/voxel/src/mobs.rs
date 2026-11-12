@@ -1078,6 +1078,50 @@ pub(crate) mod tests {
         panic!("pas arrivé (chemin trouvé : {planned}), il est en {at}");
     }
 
+    /// Une créature dirigée par un script (`mob_move_to`) contourne un mur pour aller au point
+    /// demandé : sans chemin, en ligne droite, elle resterait collée au mur.
+    #[test]
+    fn a_scripted_mob_walks_around_a_wall_to_its_goal() {
+        let mut world = sim();
+        let stone = blocks().id("core:stone").unwrap();
+        {
+            let shared = world.streamer();
+            let mut streamer = shared.borrow_mut();
+            for x in -8..9 {
+                for z in -8..9 {
+                    streamer.set_block_raw(IVec3::new(x, 150, z), stone);
+                }
+            }
+            for z in -3..4 {
+                for y in 151..154 {
+                    streamer.set_block_raw(IVec3::new(0, y, z), stone);
+                }
+            }
+        }
+        let slime = world
+            .resource::<Arc<MobRegistry>>()
+            .id("example:slime")
+            .unwrap();
+        let mob = spawn_mob(&mut world, slime, Vec3::new(-3.5, 151.0, 0.5)).unwrap();
+        let goal = Vec3::new(4.5, 151.0, 0.5);
+        world.insert(
+            mob,
+            crate::components::BrainGoal {
+                cell: crate::navigation::cell_of(goal),
+                speed: 3.0,
+            },
+        );
+        for _ in 0..(20 * 60) {
+            crate::mob_brains::follow_goals(&mut world);
+            physics(&mut world);
+            if world.get::<Transform>(mob).unwrap().position.distance(goal) < 1.5 {
+                return;
+            }
+        }
+        let at = world.get::<Transform>(mob).unwrap().position;
+        panic!("pas arrivé, il est en {at}");
+    }
+
     #[test]
     fn mobs_get_hurt_by_falls_and_lava() {
         let mut world = sim();

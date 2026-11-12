@@ -138,7 +138,13 @@ impl Donjons {
                     mod_sdk::mob_move(m.id, 0.0, 0.0, 0.0);
                     mod_sdk::mob_attack(m.id, 6.0);
                 } else {
-                    mod_sdk::mob_move(m.id, dx, dz, 2.6);
+                    // Il poursuit le joueur en cherchant son chemin (la charge, elle, fonce droit).
+                    let target = [
+                        m.position[0] + m.to_player[0],
+                        m.position[1] + m.to_player[1],
+                        m.position[2] + m.to_player[2],
+                    ];
+                    mod_sdk::mob_move_to(m.id, target, 2.6);
                 }
                 if timer > 0 {
                     mod_sdk::mob_state(m.id, keep(CHASE, timer - 1, summoned));

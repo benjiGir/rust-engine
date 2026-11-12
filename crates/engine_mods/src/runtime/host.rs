@@ -1086,6 +1086,25 @@ fn define_mobs(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
     )?;
     linker.func_wrap(
         "voxel",
+        "mob_move_to",
+        |mut caller: Caller<'_, HostState>, mob: i32, x: f32, y: f32, z: f32, speed: f32| {
+            if [x, y, z, speed].iter().all(|v| v.is_finite()) {
+                caller
+                    .data_mut()
+                    .requests
+                    .actions
+                    .push(MachineAction::MobMoveTo {
+                        mob: mob as u32,
+                        x,
+                        y,
+                        z,
+                        speed,
+                    });
+            }
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
         "mob_jump",
         |mut caller: Caller<'_, HostState>, mob: i32| {
             caller

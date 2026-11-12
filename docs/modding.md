@@ -699,6 +699,7 @@ test vérifie que le jeu définit exactement ces fonctions.
 |---|---|
 | `mob_kind(ptr: i32, len: i32) -> i32` | Le numéro d'un type de créature (`example:guard`) tel que le montrent les créatures reçues dans `on_mobs` ; −1 s'il n'existe pas. |
 | `mob_move(mob: i32, dx: f32, dz: f32, speed: f32)` | Pendant `on_mobs` : la créature marche dans la direction (dx, dz) à `speed` blocs par seconde (au plus le double de sa vitesse de base) ; elle se tourne vers là. Une vitesse nulle l'arrête. Valable jusqu'au prochain appel. |
+| `mob_move_to(mob: i32, x: f32, y: f32, z: f32, speed: f32)` | Pendant `on_mobs` : la créature va jusqu'à ce point en **cherchant son chemin** (contourne les murs, saute les marches, évite la lave) à `speed` blocs par seconde (au plus le double de sa vitesse de base). Elle continue seule entre deux appels, vers le point le plus proche si le but est inaccessible ; `mob_move` ou un nouveau `mob_move_to` change son ordre. |
 | `mob_jump(mob: i32)` | Pendant `on_mobs` : la créature saute (si elle touche le sol). |
 | `mob_attack(mob: i32, damage: f32)` | Pendant `on_mobs` : la créature blesse le joueur s'il est à portée de bras (3 blocs) et si elle n'a pas frappé depuis une seconde. |
 | `mob_state(mob: i32, value: i32)` | Pendant `on_mobs` : la mémoire de la créature (un entier de votre choix, rendu dans `state` au prochain appel). |
@@ -883,7 +884,9 @@ fn init(&mut self) {
 fn mobs(&mut self, mobs: &[MobView]) {                            // 4 fois par seconde, TOUTES d'un coup
     for m in mobs.iter().filter(|m| Some(m.kind) == self.gardien) {
         if m.distance_to_player() < 18.0 {
-            mod_sdk::mob_move(m.id, m.to_player[0], m.to_player[2], 3.0);   // vers le joueur, à 3 blocs/s
+            let p = m.position;
+            let to = [p[0] + m.to_player[0], p[1] + m.to_player[1], p[2] + m.to_player[2]];
+            mod_sdk::mob_move_to(m.id, to, 3.0);   // vers le joueur en cherchant son chemin, à 3 blocs/s
         }
     }
 }
@@ -899,12 +902,14 @@ de la créature (`state`). Les ordres :
 | Ordre | Effet |
 |---|---|
 | `mob_move(id, dx, dz, vitesse)` | marcher dans cette direction (vitesse en blocs/s, au plus le double de sa vitesse de base ; 0 : s'arrêter) ; elle se tourne ; devant un obstacle elle saute |
+| `mob_move_to(id, [x, y, z], vitesse)` | aller à ce point **en cherchant son chemin** (contourne les murs, saute les marches, évite la lave et les grandes chutes) ; elle continue seule entre deux appels, recalcule si le but bouge ou si elle se coince, et va au plus près si le but est inaccessible. Les recherches ont un budget partagé avec les créatures du jeu |
 | `mob_jump(id)` | sauter |
 | `mob_attack(id, dégâts)` | blesser le joueur s'il est à moins de 3 blocs, au plus une fois par seconde |
 | `mob_state(id, valeur)` | ranger un entier (un état d'esprit : repos, poursuite, fuite...) qui revient au prochain appel |
 
 Un ordre vaut jusqu'au prochain appel (250 ms) : une créature à qui on ne dit rien continue ce
-qu'elle faisait. Le script ne commande que les créatures du lot qu'il vient de recevoir. Le coût
+qu'elle faisait. `mob_move` marche **droit** (utile pour une charge, ou pour fuir) et annule un
+`mob_move_to` en cours ; pour poursuivre ou rejoindre un point, préférez `mob_move_to`. Le script ne commande que les créatures du lot qu'il vient de recevoir. Le coût
 compte dans le budget par tick du mod ; hors budget, le lot est sauté et les créatures gardent leurs
 derniers ordres. Le gardien du mod d'exemple (`example:guard`) rôde, poursuit le joueur, frappe de
 près et fuit quand il est blessé ; son test sans fenêtre (`h.mobs(&[MobSnapshot {..}])`) vérifie

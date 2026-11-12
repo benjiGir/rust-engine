@@ -157,7 +157,16 @@ impl Mod for Example {
             }
             match mood {
                 2 => mod_sdk::mob_move(m.id, -dx, -dz, 4.0),
-                1 if distance > 2.0 => mod_sdk::mob_move(m.id, dx, dz, 3.0),
+                // Il poursuit en cherchant son chemin : un mur ne l'arrête plus.
+                1 if distance > 2.0 => mod_sdk::mob_move_to(
+                    m.id,
+                    [
+                        m.position[0] + m.to_player[0],
+                        m.position[1] + m.to_player[1],
+                        m.position[2] + m.to_player[2],
+                    ],
+                    3.0,
+                ),
                 1 => {
                     mod_sdk::mob_move(m.id, 0.0, 0.0, 0.0);
                     mod_sdk::mob_attack(m.id, 2.0);

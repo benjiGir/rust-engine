@@ -76,6 +76,14 @@ pub enum MachineAction {
         dz: f32,
         speed: f32,
     },
+    /// Aller à ce point en cherchant son chemin (jusqu'au prochain ordre).
+    MobMoveTo {
+        mob: u32,
+        x: f32,
+        y: f32,
+        z: f32,
+        speed: f32,
+    },
     MobJump {
         mob: u32,
     },

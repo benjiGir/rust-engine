@@ -689,6 +689,16 @@ pub fn mob_move(mob: crate::mobs::MobId, dx: f32, dz: f32, speed: f32) {
     unsafe { ffi::mob_move(mob.0 as i32, dx, dz, speed) }
 }
 
+/// Ordre pendant [`crate::Mod::mobs`] : la créature va jusqu'au point `to` (x, y, z) **en cherchant
+/// son chemin** : elle contourne les murs, saute les marches et évite la lave, à `speed` blocs par
+/// seconde. Elle continue seule entre deux appels (le jeu recalcule le chemin si le but bouge ou
+/// si elle se coince) ; si le but est inaccessible, elle va au plus près. [`mob_move`] ou un
+/// nouveau `mob_move_to` change son ordre.
+pub fn mob_move_to(mob: crate::mobs::MobId, to: [f32; 3], speed: f32) {
+    // SAFETY: des nombres seulement.
+    unsafe { ffi::mob_move_to(mob.0 as i32, to[0], to[1], to[2], speed) }
+}
+
 /// Ordre pendant [`crate::Mod::mobs`] : la créature saute (si elle touche le sol).
 pub fn mob_jump(mob: crate::mobs::MobId) {
     // SAFETY: un entier seulement.

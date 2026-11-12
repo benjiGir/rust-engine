@@ -5,7 +5,7 @@ use engine_mods::ModEvent;
 use engine_mods::mobs::MobSnapshot;
 use engine_mods::player::PlayerSnapshot;
 use engine_mods::testing::{Harness, MACHINES_PLACED, MACHINES_TICK};
-use engine_voxel::MachineAction::{self, MobAttack, MobMove, MobState};
+use engine_voxel::MachineAction::{self, MobAttack, MobMove, MobMoveTo, MobState};
 use glam::{IVec3, Vec3};
 
 const AT: IVec3 = IVec3::new(0, 100, 0);
@@ -108,10 +108,12 @@ fn the_warden_chases_charges_strikes_and_calls_reinforcements_at_half_health() {
     }));
     // À 10 blocs : il poursuit, puis passe en charge (phase 2, compteur de 5 dans les bits hauts).
     let chase = h.mobs(&[warden(&h, [10.0, 0.0, 0.0], 80.0, 1)]).unwrap();
-    assert!(chase.actions.contains(&MobMove {
+    // Vers le joueur : sa position (10, 70, 10) plus le vecteur (10, 0, 0).
+    assert!(chase.actions.contains(&MobMoveTo {
         mob: 9,
-        dx: 10.0,
-        dz: 0.0,
+        x: 20.0,
+        y: 70.0,
+        z: 10.0,
         speed: 2.6
     }));
     assert!(chase.actions.contains(&MobState {

@@ -94,6 +94,14 @@ pub struct Wander {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GravityScale(pub f32);
 
+/// Où une créature à comportement va (`mob_move_to`) : la case du but et la vitesse. Le chemin
+/// est cherché et suivi par le jeu entre deux appels du script.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BrainGoal {
+    pub cell: glam::IVec3,
+    pub speed: f32,
+}
+
 /// La mémoire d'une créature à comportement : un entier que son script range (`mob_state`).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct BrainState(pub u32);

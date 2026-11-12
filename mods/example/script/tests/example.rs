@@ -154,7 +154,7 @@ fn the_ruby_command_gives_rubies() {
 #[test]
 fn the_guard_idles_chases_attacks_and_flees() {
     use engine_mods::mobs::MobSnapshot;
-    use engine_voxel::MachineAction::{MobAttack, MobMove, MobState};
+    use engine_voxel::MachineAction::{MobAttack, MobMove, MobMoveTo, MobState};
     let mut h = Harness::for_mod("example").unwrap();
     let guard = h.mob_kind("example:guard");
     let snap = |to: [f32; 3], health: f32, state: u32| MobSnapshot {
@@ -176,10 +176,11 @@ fn the_guard_idles_chases_attacks_and_flees() {
     // Le joueur à 10 blocs : il le poursuit (état 1) en marchant vers lui à 3 blocs/s.
     let chase = h.mobs(&[snap([10.0, 0.0, 0.0], 20.0, 0)]).unwrap();
     assert!(chase.actions.contains(&MobState { mob: 5, value: 1 }));
-    assert!(chase.actions.contains(&MobMove {
+    assert!(chase.actions.contains(&MobMoveTo {
         mob: 5,
-        dx: 10.0,
-        dz: 0.0,
+        x: 10.0,
+        y: 0.0,
+        z: 0.0,
         speed: 3.0
     }));
     // Tout près : il s'arrête et frappe.

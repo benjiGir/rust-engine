@@ -9,7 +9,7 @@
 //!     for m in mobs {
 //!         let dist = (m.to_player[0].powi(2) + m.to_player[2].powi(2)).sqrt();
 //!         if dist < 16.0 {
-//!             mod_sdk::mob_move(m.id, m.to_player[0], m.to_player[2], 3.0); // vers le joueur
+//!             mod_sdk::mob_move(m.id, m.to_player[0], m.to_player[2], 3.0); // droit vers le joueur
 //!         }
 //!     }
 //! }

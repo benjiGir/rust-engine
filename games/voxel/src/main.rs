@@ -571,6 +571,11 @@ impl VoxelGame {
             .add(Stage::FixedUpdate, "créatures : soleil", spawning::dissolve)
             .add(Stage::FixedUpdate, "créatures : élevage", breeding::update)
             .add(Stage::FixedUpdate, "créatures : IA", mobs::wander)
+            .add(
+                Stage::FixedUpdate,
+                "créatures : trajets des scripts",
+                mob_brains::follow_goals,
+            )
             .add(Stage::FixedUpdate, "structures mobiles", ships::update)
             .add(Stage::FixedUpdate, "physique", mobs::physics)
             .add(
@@ -1900,6 +1905,7 @@ impl VoxelGame {
                 MachineAction::Log(message) => log::info!("{message}"),
                 // Les ordres aux créatures ne valent que pendant leur lot (`mob_brains.rs`).
                 MachineAction::MobMove { .. }
+                | MachineAction::MobMoveTo { .. }
                 | MachineAction::MobJump { .. }
                 | MachineAction::MobAttack { .. }
                 | MachineAction::MobState { .. } => {}
