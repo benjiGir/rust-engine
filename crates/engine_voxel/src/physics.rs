@@ -39,6 +39,9 @@ const BODY_FLOAT: f32 = 1.1;
 const CURRENT_PUSH: f32 = 3.0;
 /// Le courant le plus fort qu'un corps subit.
 const MAX_CURRENT: f32 = 2.5;
+/// La hauteur qu'un corps au sol monte sans sauter en marchant contre une marche (une dalle, un
+/// escalier de demi-blocs).
+const STEP_HEIGHT: f32 = 0.6;
 /// Ce qu'il reste de la vitesse de chute quand on entre dans l'eau : le plongeon est freiné.
 const ENTRY_DAMPING: f32 = 0.35;
 /// Plus grand pas de déplacement testé d'un coup.
@@ -182,8 +185,69 @@ impl PlayerBody {
         self.on_ground = false;
         // Y d'abord : on sait tout de suite si l'on est posé avant de glisser en X et Z.
         for axis in [1, 0, 2] {
+            let before = self.position;
             self.move_axis(world, axis, delta[axis]);
+            // Arrêté par une marche basse alors qu'on est posé : on la monte, sans sauter.
+            let blocked = axis != 1 && delta[axis] != 0.0 && {
+                (self.position[axis] - before[axis]).abs() < delta[axis].abs() * 0.9
+            };
+            if blocked && self.on_ground && self.velocity.y <= 0.0 && !self.in_liquid {
+                self.step_up(world, axis, delta[axis], before);
+            }
         }
+    }
+
+    /// Monte une marche de `STEP_HEIGHT` au plus : la même avancée, un peu plus haut, puis on se
+    /// repose sur la marche. Sans effet (le corps reste où il était) si rien ne passe, par exemple
+    /// contre un mur ou sous un plafond bas.
+    fn step_up(&mut self, world: &World, axis: usize, wanted: f32, before: Vec3) {
+        let stuck = self.position;
+        for tenth in 1..=6 {
+            let lift = tenth as f32 * 0.1;
+            if lift > STEP_HEIGHT + 1e-4 {
+                break;
+            }
+            self.position = before + Vec3::Y * lift;
+            if self.overlaps_solid(world) {
+                continue;
+            }
+            self.move_axis(world, axis, wanted);
+            if (self.position[axis] - before[axis]).abs() >= wanted.abs() * 0.9 {
+                // Posé sur la marche : on redescend du surplus.
+                self.try_move(world, 1, -lift);
+                self.on_ground = true;
+                return;
+            }
+        }
+        self.position = stuck;
+    }
+
+    /// La boîte du corps est-elle dans un bloc plein (en tenant compte des formes) ?
+    fn overlaps_solid(&self, world: &World) -> bool {
+        let (min, max) = self.bounds();
+        let (first, last) = (min.floor().as_ivec3(), max.ceil().as_ivec3() - IVec3::ONE);
+        for x in first.x..=last.x {
+            for y in first.y..=last.y {
+                for z in first.z..=last.z {
+                    let block = IVec3::new(x, y, z);
+                    if !world.is_solid(block) {
+                        continue;
+                    }
+                    let boxes = world.block_boxes(block);
+                    if boxes.is_empty() {
+                        return true;
+                    }
+                    let origin = block.as_vec3();
+                    if boxes
+                        .iter()
+                        .any(|b| min.cmplt(origin + b.max).all() && max.cmpgt(origin + b.min).all())
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Le courant qui pousse le corps (blocs par seconde, horizontal) : l'eau coule vers les
@@ -581,6 +645,71 @@ mod tests {
             PlayerBody::surface_at(&world, Vec3::new(0.5, 30.0, 0.5)),
             None
         );
+    }
+
+    /// Un monde au sol de pierre (y = 0) avec une dalle (demi-bloc) de test en `x = 2`, y = 1.
+    fn world_with_a_slab_at_x2() -> World {
+        let mut registry = (*crate::registry::BlockRegistry::builtin()).clone();
+        registry
+            .add_source(
+                "test",
+                r#"[(id: "test:slab", name: "D", color: (1,1,1), boxes: [(from: (0,0,0), to: (16,8,16))])]"#,
+                "test",
+            )
+            .unwrap();
+        let registry = std::sync::Arc::new(registry);
+        let (stone, slab) = (
+            registry.id("core:stone").unwrap(),
+            registry.id("test:slab").unwrap(),
+        );
+        let mut world = World::with_registry(registry);
+        for x in -8..8 {
+            for z in -8..8 {
+                world.set_block(IVec3::new(x, 0, z), stone);
+            }
+        }
+        for x in 2..6 {
+            for z in -8..8 {
+                world.set_block(IVec3::new(x, 1, z), slab);
+            }
+        }
+        world
+    }
+
+    #[test]
+    fn a_walking_body_climbs_a_half_block_without_jumping_but_not_a_full_one() {
+        let world = world_with_a_slab_at_x2();
+        let mut body = PlayerBody::new(Vec3::new(0.5, 1.0, 0.5));
+        run(&mut body, &world, Vec3::new(4.0, 0.0, 0.0), false, 8);
+        run(&mut body, &world, Vec3::new(4.0, 0.0, 0.0), false, 80);
+        assert!(body.position.x > 4.0, "il est passé : {}", body.position.x);
+        assert!(
+            (body.position.y - 1.5).abs() < 0.05 && body.on_ground,
+            "posé sur la dalle : {}",
+            body.position.y
+        );
+        // Un bloc plein (1 de haut) l'arrête : il faut sauter.
+        let stone = world.registry().id("core:stone").unwrap();
+        let mut wall = world_with_a_slab_at_x2();
+        for z in -8..8 {
+            wall.set_block(IVec3::new(2, 1, z), stone);
+        }
+        let mut body = PlayerBody::new(Vec3::new(0.5, 1.0, 0.5));
+        run(&mut body, &wall, Vec3::new(4.0, 0.0, 0.0), false, 120);
+        assert!(body.position.x < 2.0, "arrêté : {}", body.position.x);
+    }
+
+    #[test]
+    fn a_low_ceiling_stops_a_step_up() {
+        let mut world = world_with_a_slab_at_x2();
+        let stone = world.registry().id("core:stone").unwrap();
+        // Un plafond juste au-dessus de la dalle : la tête ne passe pas.
+        for z in -8..8 {
+            world.set_block(IVec3::new(2, 3, z), stone);
+        }
+        let mut body = PlayerBody::new(Vec3::new(0.5, 1.0, 0.5));
+        run(&mut body, &world, Vec3::new(4.0, 0.0, 0.0), false, 120);
+        assert!(body.position.x < 2.0, "{}", body.position.x);
     }
 
     #[test]

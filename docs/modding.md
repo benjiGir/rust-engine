@@ -924,6 +924,7 @@ dungeons: {"crypte": (
             (template: "tresor", role: Treasure), (template: "arene", role: Boss)],
     count: (6, 9), cell: 24, depth: 22,           // 6 à 9 salles, 24 blocs entre leurs centres, plancher à 22 sous la surface
     wall: "mon_mod:brique", light: "core:glowstone",
+    stairs: "mon_mod:escalier",                   // facultatif : un bloc à états Facing4 (voir « Les formes et les états »)
     tiers: ["crypte_1", "crypte_2", "crypte_3"],  // les tables de butin, du plus pauvre au plus riche
 )},
 structures: [(id: "mon_mod:crypte", kind: Graph, dungeon: "crypte", spacing: 10, chance: 0.5, biomes: [])],
@@ -934,8 +935,11 @@ structures: [(id: "mon_mod:crypte", kind: Graph, dungeon: "crypte", spacing: 10,
   **profonde** (en nombre de salles depuis l'entrée) est celle du **boss** ; jusqu'à deux bouts de branche sont
   des salles du **trésor** ; les autres tirent un plan parmi les salles `Room` (selon leur `weight`).
 - **La construction** : des couloirs de 3 × 3 (murs, sol et toit en `wall`, un bloc `light` encastré dans le toit
-  tous les 6 blocs) percent les murs des salles pour y faire des portes ; un escalier de marches pleines
-  (on saute d'une marche à l'autre) monte de l'entrée jusqu'à la surface. Les plans ne tournent pas.
+  tous les 6 blocs) percent les murs des salles pour y faire des portes ; un escalier monte de l'entrée
+  jusqu'à la surface. Avec `stairs`, il est fait de **demi-marches** (le bloc donné, tourné dans le sens de la
+  montée : la partie haute du côté où l'on monte) : le joueur le monte en marchant, car un corps au sol monte
+  seul une marche de 0,6 bloc au plus (dalles et escaliers de tous les mods en profitent). Sans `stairs`, ce
+  sont des marches pleines qu'on franchit en sautant. Les plans ne tournent pas.
 - **Le butin à paliers** : la profondeur d'une salle donne son palier. Dans un plan, un coffre nomme sa table :
   `"@tier"` (le palier de la salle), `"@treasure"` (un palier au-dessus) ou `"@boss"` (le dernier), ou une
   table précise. Plus on s'enfonce, plus c'est riche.

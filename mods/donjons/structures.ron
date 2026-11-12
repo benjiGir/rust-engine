@@ -3,7 +3,7 @@
 //
 // `dungeons` décrit un donjon : ses salles (un plan + un rôle), leur nombre, l'écart entre elles
 // (`cell`, au moins la plus grande salle + 6), la profondeur du plancher, les murs des couloirs, la
-// lumière du toit et les tables de butin par palier (du plus pauvre au plus riche). La disposition
+// lumière du toit, l'escalier (`stairs` : un bloc à demi-marches, on le monte en marchant) et les tables de butin par palier (du plus pauvre au plus riche). La disposition
 // pousse comme un arbre depuis l'entrée ; la salle la plus profonde est celle du boss, des bouts de
 // branche sont des salles du trésor. Dans un plan, un coffre nomme sa table : `@tier` (le palier de la
 // salle), `@treasure` (un palier au-dessus) ou `@boss` (le dernier).
@@ -21,7 +21,7 @@
                 (template: "arena", role: Boss),
             ],
             count: (6, 9), cell: 24, depth: 22,
-            wall: "donjons:crypt_brick", light: "core:glowstone",
+            wall: "donjons:crypt_brick", light: "core:glowstone", stairs: "donjons:crypt_stairs",
             tiers: ["crypt_1", "crypt_2", "crypt_3"],
         ),
     },

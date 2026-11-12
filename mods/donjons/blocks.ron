@@ -64,4 +64,12 @@
         hardness: 3.0, tool: Pickaxe,
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
+    // Un escalier de crypte : deux demi-marches (la partie haute au nord, puis tournée). On le monte
+    // en marchant, sans sauter. Les couloirs qui montent à la surface en sont faits.
+    (
+        id: "donjons:crypt_stairs", name: "Escalier de crypte", color: (0.23, 0.22, 0.26), texture: "crypt_brick",
+        boxes: [(from: (0, 0, 0), to: (16, 8, 16)), (from: (0, 8, 0), to: (16, 16, 8))],
+        states: [Facing4], hardness: 2.5, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
 ]

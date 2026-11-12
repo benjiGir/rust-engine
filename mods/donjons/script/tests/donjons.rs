@@ -288,3 +288,55 @@ fn machines_placed_by_the_generator_have_a_state_so_the_game_wakes_them() {
         "un état pour réveiller le sceau"
     );
 }
+
+/// Le vrai générateur : l'escalier de la crypte est fait de demi-marches, et un corps qui marche
+/// (sans jamais sauter) le monte jusqu'à la surface.
+#[test]
+fn the_crypt_stairs_are_half_steps_you_can_walk_up_without_jumping() {
+    use engine_voxel::{PlayerBody, StructureKind, TerrainGenerator, World};
+    use glam::Vec3;
+    let h = Harness::for_mod("donjons").unwrap();
+    let mods = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dirs: Vec<(String, std::path::PathBuf)> = ["donjons", "example", "magie", "mecanique"]
+        .iter()
+        .map(|m| (m.to_string(), mods.join(m)))
+        .collect();
+    let generator = TerrainGenerator::with_mods(7, h.registry.clone(), &dirs).unwrap();
+    let site = generator
+        .structure_sites_in((-6000, -6000), (6000, 6000))
+        .into_iter()
+        .find(|s| s.kind == StructureKind::Graph)
+        .unwrap();
+    let plan = generator.blueprint(&site).unwrap();
+    // Les blocs d'escalier du plan, avec leur orientation.
+    let stairs: Vec<(IVec3, String)> = plan
+        .blocks()
+        .iter()
+        .filter_map(|&(p, b)| {
+            let key = h.registry.def(b).key.clone();
+            key.starts_with("donjons:crypt_stairs").then_some((p, key))
+        })
+        .collect();
+    assert!(stairs.len() >= 9, "{} blocs d'escalier", stairs.len());
+    let first = stairs.iter().min_by_key(|(p, _)| p.y).unwrap();
+    let direction = match first.1.as_str() {
+        k if k.ends_with("[facing=east]") => IVec3::X,
+        k if k.ends_with("[facing=west]") => IVec3::NEG_X,
+        k if k.ends_with("[facing=south]") => IVec3::Z,
+        _ => IVec3::NEG_Z,
+    };
+    // Un petit monde fait du plan seul.
+    let mut world = World::with_registry(h.registry.clone());
+    for &(p, b) in plan.blocks() {
+        world.set_block(p, b);
+    }
+    // Il marche le long de l'escalier, depuis la première marche, sans sauter.
+    let start = first.0.as_vec3() + Vec3::new(0.5, 0.5, 0.5);
+    let mut body = PlayerBody::new(start);
+    let walk = direction.as_vec3() * 3.0;
+    for _ in 0..(60 * 6) {
+        body.step(&world, walk, false, 1.0 / 60.0);
+    }
+    let climbed = body.position.y - start.y;
+    assert!(climbed >= 5.0, "il n'a monté que de {climbed} blocs");
+}

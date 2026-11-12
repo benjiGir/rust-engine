@@ -73,6 +73,10 @@ pub(super) struct DungeonEntry {
     /// Un bloc lumineux encastré dans le toit des couloirs (facultatif).
     #[serde(default)]
     light: Option<String>,
+    /// Un escalier en demi-marches (facultatif) : un bloc à `Facing4` (la partie haute au nord).
+    /// Sans lui, l'escalier est fait de marches pleines qu'on franchit en sautant.
+    #[serde(default)]
+    stairs: Option<String>,
     /// Les tables de butin par palier, du plus pauvre au plus riche.
     tiers: Vec<String>,
 }
@@ -86,6 +90,8 @@ pub struct GraphDef {
     depth: i32,
     wall: BlockId,
     light: Option<BlockId>,
+    /// Les quatre orientations de l'escalier : la partie haute au nord, à l'est, au sud, à l'ouest.
+    stairs: Option<[BlockId; 4]>,
     tiers: Vec<String>,
 }
 
@@ -182,6 +188,25 @@ fn resolve_one(
         depth: e.depth,
         wall: block(&e.wall)?,
         light: e.light.as_deref().map(block).transpose()?,
+        stairs: e
+            .stairs
+            .as_deref()
+            .map(|key| -> Result<[BlockId; 4]> {
+                let key = qualify_block(key, namespace);
+                let variant = |facing: &str| {
+                    let full = format!("{key}[facing={facing}]");
+                    blocks.id(&full).with_context(|| {
+                        format!("`stairs` : « {full} » n'existe pas (il faut un état Facing4)")
+                    })
+                };
+                Ok([
+                    variant("north")?,
+                    variant("east")?,
+                    variant("south")?,
+                    variant("west")?,
+                ])
+            })
+            .transpose()?,
         tiers: e.tiers.iter().map(|t| scoped(t, namespace)).collect(),
     })
 }
@@ -454,11 +479,20 @@ impl Builder<'_> {
         }
     }
 
-    /// L'escalier : des marches pleines (on saute de l'une à l'autre) qui montent d'un bloc par
-    /// bloc, depuis l'entrée jusqu'à émerger de la terre, avec un petit tour de pierre à la sortie.
+    /// L'escalier : il monte d'un bloc par bloc depuis l'entrée jusqu'à émerger de la terre, avec
+    /// un petit tour de pierre à la sortie. Avec `stairs`, chaque case porte un bloc d'escalier
+    /// (deux demi-marches, on le monte en marchant) ; sans, ce sont des marches pleines qu'on
+    /// franchit en sautant.
     fn stairs(&mut self, from: (i32, i32), dir: (i32, i32), reach: i32, y0: i32, def: &GraphDef) {
         let (sx, sz) = (dir.1.abs(), dir.0.abs());
         let start = reach; // juste après le mur de la salle
+        // La partie haute de l'escalier est du côté où l'on monte.
+        let facing = match dir {
+            (0, -1) => 0,
+            (1, 0) => 1,
+            (0, 1) => 2,
+            _ => 3,
+        };
         let mut step = 0;
         loop {
             let (x, z) = (
@@ -467,25 +501,32 @@ impl Builder<'_> {
             );
             let floor = y0 + step;
             let ground = self.height(x, z);
+            // Sorti de terre : la dernière case reste une marche pleine, à fleur de sol.
+            let last = floor >= ground || step > def.depth + 12;
+            let steps = def.stairs.filter(|_| !last).map(|s| s[facing]);
+            // Avec des demi-marches, le sol de la case est un bloc plus haut : le bloc d'escalier.
+            let rise = i32::from(steps.is_some());
             for side in -HALF_WIDTH - 1..=HALF_WIDTH + 1 {
                 let (px, pz) = (x + sx * side, z + sz * side);
                 let inside = side.abs() <= HALF_WIDTH;
                 // La coque d'abord (sol et parois), puis l'intérieur dégagé.
                 self.put(IVec3::new(px, floor, pz), def.wall);
                 if !inside {
-                    for y in floor + 1..=floor + 4 {
+                    for y in floor + 1..=floor + 4 + rise {
                         self.put(IVec3::new(px, y, pz), def.wall);
                     }
                 }
             }
             for side in -HALF_WIDTH..=HALF_WIDTH {
                 let (px, pz) = (x + sx * side, z + sz * side);
-                for y in floor + 1..=floor + 4 {
+                for y in floor + 1..=floor + 4 + rise {
                     self.air(IVec3::new(px, y, pz));
                 }
+                if let Some(block) = steps {
+                    self.put(IVec3::new(px, floor + 1, pz), block);
+                }
             }
-            // Sorti de terre : on s'arrête (la dernière marche est à fleur de sol).
-            if floor >= ground || step > def.depth + 12 {
+            if last {
                 break;
             }
             step += 1;

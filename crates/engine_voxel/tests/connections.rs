@@ -281,10 +281,19 @@ fn chunk_unloading_and_reloading_recompute_the_connection_without_saved_variants
             (fields[0].parse::<u16>().unwrap(), fields[1].to_string())
         })
         .collect();
-    // Les identifiants existants ne bougent jamais : les nouveaux blocs s'ajoutent à la fin.
-    let now: Vec<_> = r.iter().map(|(id, def)| (id.0, def.key.clone())).collect();
-    assert!(
-        now.len() >= ids.len() && now[..ids.len()] == ids[..],
-        "un identifiant de bloc a changé de place"
+    // Les identifiants du jeu de base ne bougent jamais (une passe visuelle n'en réordonne aucun) ;
+    // ceux des mods se décalent quand un mod gagne un bloc : les sauvegardes les nomment par leur
+    // identifiant texte (palette), pas par leur numéro.
+    let core = |list: &[(u16, String)]| -> Vec<(u16, String)> {
+        list.iter()
+            .filter(|(_, key)| key.starts_with("core:"))
+            .cloned()
+            .collect()
+    };
+    let now: Vec<(u16, String)> = r.iter().map(|(id, def)| (id.0, def.key.clone())).collect();
+    assert_eq!(
+        core(&now),
+        core(&ids),
+        "un identifiant du jeu de base a changé de place"
     );
 }
