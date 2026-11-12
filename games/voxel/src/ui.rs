@@ -58,6 +58,8 @@ pub struct GameUi {
     pub options_events: Vec<(i32, i32, i32)>,
     /// Dernière écriture des réglages des mods.
     pub settings_saved: std::time::Instant,
+    /// Les clics et touches simulés par `ctl`.
+    pub input: crate::ui_input::UiInput,
 }
 
 /// Une pile qu'on s'apprête à diviser, et combien d'objets prendre.
@@ -134,6 +136,7 @@ impl GameUi {
             options_menu: None,
             options_events: Vec::new(),
             settings_saved: std::time::Instant::now(),
+            input: Default::default(),
         }
     }
 
@@ -150,7 +153,9 @@ impl GameUi {
     }
 
     pub fn take_input(&mut self, window: &Window) -> egui::RawInput {
-        self.state.take_egui_input(window)
+        let mut raw = self.state.take_egui_input(window);
+        raw.events.extend(self.input.next_frame());
+        raw
     }
 
     pub fn handle_output(&mut self, window: &Window, output: egui::PlatformOutput) {
@@ -245,6 +250,7 @@ impl VoxelGame {
                 self.draw_inspector(ui.ctx());
             }
         });
+        self.ui.input.capture(&output.shapes);
         let primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
         let frame = UiFrame {
             primitives,

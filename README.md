@@ -111,6 +111,12 @@ Variables du jeu :
   `127.0.0.1` et répond en JSON. Utile pour tester sans clavier ou écrire des scénarios :
   `cargo xtask ctl state "goto 0 80 0" "wait 2" "look 0 -60" break "screenshot shots/a.png"`.
   `cargo xtask ctl help` liste les commandes (déplacement, regard, blocs, inventaire, heure, météo, capture) ;
+  Pour les écrans et les menus : `texts` liste les textes affichés avec leur position (en points),
+  `clicktext Ranger` clique sur le premier texte qui contient ce mot, `click x y [right]` clique en
+  un point, `type /mana 5` tape du texte et `key Enter [ctrl] [shift] [alt]` appuie sur une touche.
+  Un clic prend deux images (appui, puis relâchement) : laisser passer un instant avant la commande
+  suivante. Ces entrées vont à l'interface (egui), pas au monde : la caméra et les touches de jeu
+  se commandent avec `look`, `walk`, `use`...;
 - `VOXEL_BENCH=fichier.csv` : le benchmark reproductible (graine fixe, 6 trajets, midi figé, sans VSync,
   1280 × 720) ; `VOXEL_BENCH_ONLY=foret,ocean` pour quelques trajets. Plus simple :
   `cargo xtask bench` (3 passages, médianes, résultat dans `target/bench/<commit>.csv`), puis après un

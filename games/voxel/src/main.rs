@@ -81,6 +81,7 @@ mod stress;
 mod survival;
 mod trading;
 mod ui;
+mod ui_input;
 mod villagers;
 mod weather;
 

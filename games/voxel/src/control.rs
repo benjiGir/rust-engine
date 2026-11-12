@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-36 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | mods | travel dimension | console [texte] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | mods | travel dimension | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -195,6 +195,16 @@ pub enum Command {
     Travel(String),
     /// Ouvre la console (sans texte) ou y valide une ligne.
     Console(Option<String>),
+    /// Les textes affichés (avec leur position en points), pour viser un bouton.
+    UiTexts,
+    /// Un clic de souris en (x, y) points ; vrai : bouton droit.
+    UiClick(f32, f32, bool),
+    /// Un clic sur le premier texte qui contient ceci.
+    UiClickText(String, bool),
+    /// Du texte tapé au clavier.
+    UiType(String),
+    /// Une touche (nom egui) avec ses modificateurs : ctrl, shift, alt.
+    UiKey(String, Vec<String>),
     Pause,
     Resume,
     ModOptions(String),
@@ -417,6 +427,34 @@ pub fn parse(line: &str) -> Result<Command> {
             count(&[1])?;
             Command::Travel(args[0].to_string())
         }
+        "texts" => Command::UiTexts,
+        "click" => {
+            count(&[2, 3])?;
+            Command::UiClick(number(0)?, number(1)?, args.get(2) == Some(&"right"))
+        }
+        "clicktext" => {
+            let right = args.last() == Some(&"right");
+            let words = &args[..args.len() - usize::from(right)];
+            if words.is_empty() {
+                bail!("clicktext : quel texte cliquer ?");
+            }
+            Command::UiClickText(words.join(" "), right)
+        }
+        "type" => {
+            if args.is_empty() {
+                bail!("type : quel texte taper ?");
+            }
+            Command::UiType(args.join(" "))
+        }
+        "key" => {
+            if args.is_empty() {
+                bail!("key : quelle touche ? (Enter, Escape, ArrowUp, A...)");
+            }
+            Command::UiKey(
+                args[0].to_string(),
+                args[1..].iter().map(|m| m.to_string()).collect(),
+            )
+        }
         "console" => Command::Console((!args.is_empty()).then(|| args.join(" "))),
         "pause" => Command::Pause,
         "resume" => Command::Resume,
@@ -576,6 +614,11 @@ impl VoxelGame {
                 | Command::Resume
                 | Command::Mods
                 | Command::Console(_)
+                | Command::UiTexts
+                | Command::UiClick(..)
+                | Command::UiClickText(..)
+                | Command::UiType(_)
+                | Command::UiKey(..)
                 | Command::ModOptions(_)
                 | Command::OptionsEvent(..)
                 | Command::Inventory
@@ -940,6 +983,53 @@ impl VoxelGame {
                 self.grant_xp(points);
                 Ok(self.state_json())
             }
+            Command::UiTexts => Ok(format!(
+                "{{\"ok\":true,\"texts\":{}}}",
+                self.ui.input.texts_json()
+            )),
+            Command::UiClick(x, y, right) => {
+                let button = if right {
+                    engine_render::egui::PointerButton::Secondary
+                } else {
+                    engine_render::egui::PointerButton::Primary
+                };
+                self.ui.input.click(engine_render::egui::pos2(x, y), button);
+                Ok(ok())
+            }
+            Command::UiClickText(text, right) => {
+                let at = self.ui.input.find(&text).with_context(|| {
+                    format!("clicktext : aucun texte « {text} » à l'écran (voir texts)")
+                })?;
+                let button = if right {
+                    engine_render::egui::PointerButton::Secondary
+                } else {
+                    engine_render::egui::PointerButton::Primary
+                };
+                self.ui.input.click(at, button);
+                Ok(format!(
+                    "{{\"ok\":true,\"x\":{:.0},\"y\":{:.0}}}",
+                    at.x, at.y
+                ))
+            }
+            Command::UiType(text) => {
+                self.ui.input.text(&text);
+                Ok(ok())
+            }
+            Command::UiKey(name, mods) => {
+                let key = engine_render::egui::Key::from_name(&name)
+                    .with_context(|| format!("key : touche inconnue « {name} »"))?;
+                let mut modifiers = engine_render::egui::Modifiers::NONE;
+                for m in &mods {
+                    match m.as_str() {
+                        "ctrl" => modifiers.ctrl = true,
+                        "shift" => modifiers.shift = true,
+                        "alt" => modifiers.alt = true,
+                        other => bail!("key : modificateur inconnu « {other} » (ctrl, shift, alt)"),
+                    }
+                }
+                self.ui.input.key(key, modifiers);
+                Ok(ok())
+            }
             Command::Console(line) => {
                 match line {
                     Some(line) => self.ui.console.submitted.push(line),
@@ -1210,7 +1300,7 @@ fn ivec3(v: IVec3) -> String {
 }
 
 /// Une chaîne JSON, entre guillemets, échappée.
-fn json_str(text: &str) -> String {
+pub(crate) fn json_str(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     out.push('"');
     for c in text.chars() {
@@ -1266,6 +1356,27 @@ mod tests {
             parse("inspect 1 2 3").unwrap(),
             Command::Inspect(IVec3::new(1, 2, 3))
         );
+        assert_eq!(
+            parse("click 10 20 right").unwrap(),
+            Command::UiClick(10.0, 20.0, true)
+        );
+        assert_eq!(
+            parse("clicktext Ranger tout").unwrap(),
+            Command::UiClickText("Ranger tout".into(), false)
+        );
+        assert_eq!(
+            parse("clicktext Ranger right").unwrap(),
+            Command::UiClickText("Ranger".into(), true)
+        );
+        assert_eq!(
+            parse("type /mana 5").unwrap(),
+            Command::UiType("/mana 5".into())
+        );
+        assert_eq!(
+            parse("key Enter ctrl").unwrap(),
+            Command::UiKey("Enter".into(), vec!["ctrl".into()])
+        );
+        assert!(parse("key").is_err() && parse("type").is_err());
         assert_eq!(parse("networks").unwrap(), Command::Networks);
         assert_eq!(
             parse("assemble 1 2 3").unwrap(),
