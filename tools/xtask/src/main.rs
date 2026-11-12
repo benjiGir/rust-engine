@@ -6,6 +6,8 @@
 //!   et copie le `.wasm` à l'endroit indiqué par son `mod.ron`.
 //! - `new-mod <id>` : crée le squelette d'un mod ; `test-mod <id>` : compile et lance ses tests
 //!   sans fenêtre (voir `new_mod.rs`).
+//! - `docs [--check]` : génère la référence du SDK des mods (`target/doc/mod_sdk`) ; `--check`
+//!   refuse le moindre avertissement de documentation (lien cassé...).
 //! - `check-arch` : vérifie les règles d'architecture (voir `check_arch.rs`).
 //! - `ctl <commande>...` : pilote le jeu lancé avec `VOXEL_CONTROL` (voir `ctl.rs`).
 //! - `bench [--runs N] [--compare ancien.csv]` : le benchmark reproductible (voir `bench.rs`).
@@ -14,6 +16,7 @@
 mod bench;
 mod check_arch;
 mod ctl;
+mod docs;
 mod hooks;
 mod new_mod;
 
@@ -36,11 +39,12 @@ fn main() -> Result<()> {
             &std::env::args().skip(2).collect::<Vec<_>>(),
             build_mods,
         ),
+        "docs" => docs::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         "hooks" => hooks::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         "bench" => bench::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         _ => {
             eprintln!(
-                "usage : cargo xtask build-mods | new-mod <id> | test-mod <id> | check-arch | ctl <commande>... | bench | hooks"
+                "usage : cargo xtask build-mods | new-mod <id> | test-mod <id> | docs | check-arch | ctl <commande>... | bench | hooks"
             );
             bail!("tâche inconnue : « {task} »")
         }

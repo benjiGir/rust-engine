@@ -23,8 +23,15 @@
 //! mod_sdk::export_mod!(MonMod);
 //! ```
 //!
+//! Le guide complet (ce qu'un mod peut faire, avec des exemples) est dans `docs/modding.md` ; cette
+//! page en est la référence : chaque fonction, type et méthode de [`Mod`], documentés.
+//! (`cargo xtask docs` la génère.)
+//!
 //! Le jeu et le mod ne s'échangent que des entiers : les textes et les listes passent
 //! par la mémoire du mod. Ce kit cache ces détails (décrits dans `docs/modding.md`).
+
+// La référence du SDK est ce que lit l'auteur d'un mod : tout ce qui est public doit être documenté.
+#![warn(missing_docs)]
 
 mod ffi;
 mod host;
@@ -49,6 +56,7 @@ pub use host::{
 pub struct Grid(pub u32);
 
 impl Grid {
+    /// Le monde.
     pub const WORLD: Grid = Grid(0);
 }
 
@@ -56,9 +64,13 @@ impl Grid {
 /// structure qui bouge, les coordonnées restent les mêmes : la machine ne voit rien.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct Pos {
+    /// La grille.
     pub grid: Grid,
+    /// Abscisse.
     pub x: i32,
+    /// Hauteur.
     pub y: i32,
+    /// Profondeur.
     pub z: i32,
 }
 
@@ -68,6 +80,7 @@ impl Pos {
         Self::in_grid(Grid::WORLD, x, y, z)
     }
 
+    /// Une position dans une grille donnée.
     pub const fn in_grid(grid: Grid, x: i32, y: i32, z: i32) -> Self {
         Self { grid, x, y, z }
     }
@@ -109,15 +122,22 @@ pub const DIRECTIONS: [Pos; 6] = [
 /// Une face d'un bloc, dans l'ordre de [`DIRECTIONS`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Face {
+    /// Face +X.
     PosX = 0,
+    /// Face -X.
     NegX = 1,
+    /// Face +Y (dessus).
     PosY = 2,
+    /// Face -Y (dessous).
     NegY = 3,
+    /// Face +Z.
     PosZ = 4,
+    /// Face -Z.
     NegZ = 5,
 }
 
 impl Face {
+    /// Les six faces.
     pub const ALL: [Face; 6] = [
         Face::PosX,
         Face::NegX,
@@ -138,13 +158,17 @@ impl Face {
 pub struct Sides(pub u8);
 
 impl Sides {
+    /// Les six faces.
     pub const ALL: Sides = Sides(0b11_1111);
+    /// Aucune face.
     pub const NONE: Sides = Sides(0);
 
+    /// Une seule face.
     pub const fn only(face: Face) -> Sides {
         Sides(1 << face as u8)
     }
 
+    /// Les mêmes faces, plus celle-ci.
     pub const fn with(self, face: Face) -> Sides {
         Sides(self.0 | 1 << face as u8)
     }
@@ -155,6 +179,7 @@ impl Sides {
 pub struct Block(pub u16);
 
 impl Block {
+    /// L'air.
     pub const AIR: Block = Block(0);
 }
 
@@ -162,39 +187,60 @@ impl Block {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum EventKind {
+    /// Un bloc a été cassé ([`Event::BlockBroken`]).
     BlockBroken = ffi::EVENT_BLOCK_BROKEN,
+    /// Un bloc a été posé ([`Event::BlockPlaced`]).
     BlockPlaced = ffi::EVENT_BLOCK_PLACED,
+    /// Une créature est morte ([`Event::EntityDied`]).
     EntityDied = ffi::EVENT_ENTITY_DIED,
+    /// Un tick de machines, 20 par seconde ([`Event::Tick`]).
     Tick = ffi::EVENT_TICK,
+    /// Le joueur a perdu de la vie ([`Event::PlayerDamaged`]).
     PlayerDamaged = ffi::EVENT_PLAYER_DAMAGED,
+    /// Un chunk neuf vient d'être généré ([`Event::ChunkGenerated`]).
     ChunkGenerated = ffi::EVENT_CHUNK_GENERATED,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Un événement du jeu, reçu dans [`Mod::event`] après [`subscribe`].
 pub enum Event {
+    /// Un bloc a été cassé.
     BlockBroken {
+        /// Où il était.
         pos: Pos,
+        /// Ce qu'il était.
         block: Block,
     },
     /// `facing` : la direction (horizontale) vers laquelle regardait le joueur.
     BlockPlaced {
+        /// Où il a été posé.
         pos: Pos,
+        /// Ce qu'il est.
         block: Block,
+        /// La direction horizontale du regard du joueur qui l'a posé.
         facing: Pos,
     },
+    /// Une créature est morte.
     EntityDied {
+        /// Son type (`"core:pig"`).
         kind: String,
+        /// Où elle est morte.
         pos: Pos,
     },
+    /// Un tick de machines : son numéro.
     Tick(u64),
+    /// Le joueur a perdu de la vie.
     PlayerDamaged {
+        /// Les dégâts subis (après l'armure).
         amount: f32,
+        /// La vie qui lui reste.
         health_left: f32,
     },
     /// Un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde).
     /// `chunk` : ses coordonnées de chunk ; son coin minimal est [`Pos::chunk_origin`]. Pour le
     /// décorer, écrire dans ce chunk seulement (`set_block` hors des chunks chargés échoue).
     ChunkGenerated {
+        /// Les coordonnées du chunk (32 blocs de côté).
         chunk: Pos,
     },
 }

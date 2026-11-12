@@ -21,22 +21,37 @@ pub const MAX_MENU_BYTES: usize = 16 * 1024;
 
 /// Les types d'actions du joueur (le paramètre `kind` de `on_ui`).
 pub const UI_BUTTON: i32 = 1;
+/// Une case à cocher a changé.
 pub const UI_TOGGLE: i32 = 2;
+/// Un curseur a bougé.
 pub const UI_SLIDER: i32 = 3;
+/// Le menu demande à être rafraîchi.
 pub const UI_REFRESH: i32 = 4;
+/// Le joueur a fermé le menu.
 pub const UI_CLOSED: i32 = 5;
+/// La page d'options vient de s'ouvrir.
 pub const UI_OPEN: i32 = 6;
 
 // Les étiquettes du format (voir `docs/modding.md`).
+/// Étiquette du titre.
 pub const TAG_TITLE: u8 = 0;
+/// Étiquette d'une ligne de texte.
 pub const TAG_LABEL: u8 = 1;
+/// Étiquette d'un séparateur.
 pub const TAG_SEPARATOR: u8 = 2;
+/// Étiquette d'une jauge.
 pub const TAG_BAR: u8 = 3;
+/// Étiquette d'un bouton.
 pub const TAG_BUTTON: u8 = 4;
+/// Étiquette d'une case à cocher.
 pub const TAG_TOGGLE: u8 = 5;
+/// Étiquette d'un curseur.
 pub const TAG_SLIDER: u8 = 6;
+/// Étiquette de cases d'inventaire.
 pub const TAG_SLOTS: u8 = 7;
+/// Étiquette du début d'une ligne.
 pub const TAG_ROW_BEGIN: u8 = 8;
+/// Étiquette de la fin d'une ligne.
 pub const TAG_ROW_END: u8 = 9;
 
 /// Une action du joueur dans un menu.
@@ -161,6 +176,7 @@ impl Menu {
         self
     }
 
+    /// Termine la ligne commencée par [`Menu::row_begin`].
     pub fn row_end(mut self) -> Menu {
         self.bytes.push(TAG_ROW_END);
         self

@@ -10,10 +10,15 @@ fait fonctionner des machines. Le mod d'exemple (`mods/example`) montre tout ce 
 cargo xtask new-mod mon_mod     # le squelette : manifeste, un bloc, un script, un test
 cargo xtask test-mod mon_mod    # compile le script, puis lance ses tests sans fenêtre
 cargo xtask build-mods          # recompile les scripts (le jeu les recharge à chaud)
+cargo xtask docs                # la référence du SDK (chaque fonction, type et méthode), en HTML
 ```
 
 `new-mod` crée `mods/mon_mod/` (manifeste, `blocks.ron`, `script/` avec un test) et l'ajoute au
-workspace. Les **tests sans fenêtre** utilisent `engine_mods::testing::Harness` : le vrai script
+workspace. La **référence du SDK** (`cargo xtask docs`, puis `target/doc/mod_sdk/index.html`) documente
+chaque fonction, chaque type et chaque méthode du trait `Mod` ; ce guide-ci explique comment les
+assembler. Le **rechargement à chaud** couvre `blocks.ron`, les textures, les sons et les scripts ; les
+autres fichiers (objets, recettes, créatures, structures, minerais, `mod.ron`) demandent de relancer
+le jeu, qui le dit dans ses logs quand on les modifie. Les **tests sans fenêtre** utilisent `engine_mods::testing::Harness` : le vrai script
 compilé, dans un petit monde reproductible, avec les blocs et objets du jeu et des mods.
 
 ```rust

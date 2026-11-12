@@ -42,6 +42,7 @@ pub fn block_base(block: Block) -> Block {
     Block(unsafe { ffi::block_base(block.0 as i32) } as u16)
 }
 
+/// Le bloc à cette position (l'air si la position est hors du monde ou d'une grille inconnue).
 pub fn get_block(pos: Pos) -> Block {
     // SAFETY: des entiers seulement.
     Block(unsafe { ffi::get_block(pos.grid.0 as i32, pos.x, pos.y, pos.z) } as u16)
@@ -199,6 +200,7 @@ pub fn energy_stored(pos: Pos) -> Option<u64> {
     (stored >= 0).then_some(stored as u64)
 }
 
+/// Insère de l'énergie dans le stock du bloc par la face `from` (`None` : de l'intérieur) ; renvoie la quantité acceptée. `simulate` : seulement demander combien serait accepté.
 pub fn energy_insert(pos: Pos, from: Option<Face>, amount: u64, simulate: bool) -> u64 {
     // SAFETY: des nombres seulement.
     unsafe {
@@ -214,6 +216,7 @@ pub fn energy_insert(pos: Pos, from: Option<Face>, amount: u64, simulate: bool) 
     }
 }
 
+/// Retire de l'énergie du stock du bloc par la face `from` ; renvoie la quantité retirée. `simulate` : seulement la demander.
 pub fn energy_extract(pos: Pos, from: Option<Face>, amount: u64, simulate: bool) -> u64 {
     // SAFETY: des nombres seulement.
     unsafe {
@@ -236,6 +239,7 @@ pub fn fluid_amount(pos: Pos, fluid: &str) -> u32 {
     unsafe { ffi::fluid_amount(pos.grid.0 as i32, pos.x, pos.y, pos.z, ptr, len) as u32 }
 }
 
+/// Remplit les réservoirs du bloc avec ce fluide (`"core:water"`) par la face `from` ; renvoie la quantité acceptée, en millibuckets. `simulate` : seulement la demander.
 pub fn fluid_fill(
     pos: Pos,
     from: Option<Face>,
@@ -285,12 +289,14 @@ pub fn fluid_drain(
     }
 }
 
+/// Le nombre de cet objet (`"core:coal"`) dans l'inventaire du bloc.
 pub fn item_count(pos: Pos, item: &str) -> u32 {
     let (ptr, len) = addr(item.as_bytes());
     // SAFETY: l'hôte lit `len` octets à `ptr`, dans `item`.
     unsafe { ffi::item_count(pos.grid.0 as i32, pos.x, pos.y, pos.z, ptr, len) as u32 }
 }
 
+/// Range des objets dans l'inventaire du bloc par la face `from` ; renvoie le nombre accepté. `simulate` : seulement le demander.
 pub fn item_insert(pos: Pos, from: Option<Face>, item: &str, count: u32, simulate: bool) -> u32 {
     let (ptr, len) = addr(item.as_bytes());
     // SAFETY: l'hôte lit `len` octets à `ptr`, dans `item`.

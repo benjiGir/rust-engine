@@ -1,7 +1,7 @@
 //! Les créatures à comportement : une créature déclarée `brain: true` dans `entities.ron` n'a
 //! pas l'IA du jeu, c'est **le script de son mod** qui la dirige. Le jeu lui montre ses créatures
-//! par lot, quatre fois par seconde ([`crate::Mod::mobs`]), et il répond avec [`mob_move`],
-//! [`mob_jump`], [`mob_attack`] et [`mob_state`]. Un seul appel pour toutes les créatures
+//! par lot, quatre fois par seconde ([`crate::Mod::mobs`]), et il répond avec [`crate::mob_move`],
+//! [`crate::mob_jump`], [`crate::mob_attack`] et [`crate::mob_state`]. Un seul appel pour toutes les créatures
 //! proches : c'est ce qui rend ce modèle bon marché.
 //!
 //! ```ignore
@@ -17,8 +17,11 @@
 
 /// Les mêmes constantes que le jeu (un test les compare).
 pub const RECORD_BYTES: usize = 12 * 4;
+/// La créature touche le sol.
 pub const FLAG_ON_GROUND: u32 = 1;
+/// La créature est dans un liquide.
 pub const FLAG_IN_LIQUID: u32 = 1 << 1;
+/// La créature vient d'être frappée.
 pub const FLAG_HURT: u32 = 1 << 2;
 
 /// Le numéro d'une créature, valable seulement pendant l'appel qui l'a donné.
@@ -28,16 +31,21 @@ pub struct MobId(pub u32);
 /// Ce que le jeu montre d'une créature.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MobView {
+    /// Son numéro, valable pendant l'appel.
     pub id: MobId,
     /// Son type : à comparer avec [`crate::mob_kind`] (`mob_kind("example:guard")`).
     pub kind: u32,
     /// La position de ses pieds.
     pub position: [f32; 3],
+    /// Sa vie actuelle.
     pub health: f32,
+    /// Sa vie maximale.
     pub max_health: f32,
     /// Du pied de la créature vers le joueur (x, y, z).
     pub to_player: [f32; 3],
+    /// Elle touche le sol.
     pub on_ground: bool,
+    /// Elle est dans un liquide.
     pub in_liquid: bool,
     /// Elle vient d'être frappée.
     pub hurt: bool,

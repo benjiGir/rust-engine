@@ -44,6 +44,34 @@ impl Changes {
         self.shader || self.textures || self.blocks || self.sounds || self.scripts
     }
 
+    /// Les fichiers de données d'un mod que le rechargement à chaud ne relit pas (objets, recettes,
+    /// créatures, structures, minerais, manifeste...) : les changer demande de relancer le jeu.
+    /// Les fichiers des sauvegardes et les `blocks.ron` (rechargés) n'en font pas partie.
+    pub fn needs_restart<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<String> {
+        let mut names: Vec<String> = paths
+            .into_iter()
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("ron"))
+            .filter(|p| !p.components().any(|c| c.as_os_str() == "saves"))
+            .filter(|p| {
+                p.file_name().and_then(|n| n.to_str()) != Some("blocks.ron")
+                    && p.components()
+                        .any(|c| c.as_os_str() == "mods" || c.as_os_str() == "core")
+            })
+            .map(|p| {
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                let owner = p
+                    .parent()
+                    .and_then(|d| d.file_name())
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("?");
+                format!("{owner}/{name}")
+            })
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
     /// Le type de fichier décide de ce qu'il faut recharger.
     pub fn from_paths<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Self {
         let mut changes = Self::default();
@@ -106,6 +134,14 @@ impl HotReload {
             return None;
         }
         let changes = Changes::from_paths(&self.pending);
+        let restart = Changes::needs_restart(&self.pending);
+        if !restart.is_empty() {
+            log::warn!(
+                "modifié, mais pas rechargé à chaud : {} — relancez le jeu pour l'appliquer \
+                 (le rechargement à chaud couvre blocks.ron, textures, sons et scripts)",
+                restart.join(", ")
+            );
+        }
         self.pending.clear();
         changes.any().then_some(changes)
     }
@@ -171,6 +207,26 @@ mod tests {
         assert!(
             changes.blocks && !changes.shader,
             "world.ron n'est pas un fichier de blocs"
+        );
+    }
+
+    #[test]
+    fn other_mod_data_files_are_flagged_as_needing_a_restart() {
+        let paths = [
+            PathBuf::from("mods/mecanique/items.ron"),
+            PathBuf::from("mods/mecanique/structures.ron"),
+            PathBuf::from("mods/new_mod/mod.ron"),
+            PathBuf::from("mods/example/blocks.ron"),
+            PathBuf::from("saves/world/world.ron"),
+            PathBuf::from("mods/example/textures/ruby.png"),
+        ];
+        assert_eq!(
+            Changes::needs_restart(&paths),
+            [
+                "mecanique/items.ron",
+                "mecanique/structures.ron",
+                "new_mod/mod.ron"
+            ]
         );
     }
 
