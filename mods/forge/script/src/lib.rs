@@ -30,6 +30,9 @@ const FORGES: [(u32, &str, &str); 4] = [
     (3, "Tête de hache", "forge:anvil_axe"),
     (4, "Lame d'épée", "forge:anvil_sword"),
 ];
+/// Le bouton qui répare l'outil de la première case avec un lingot d'acier de la seconde.
+const REPAIR_BUTTON: u32 = 5;
+const REPAIR_INGOT: &str = "forge:steel_ingot";
 
 /// Ce qui brûle, et combien de ticks (20 par seconde).
 fn fuel_ticks(item: &str) -> Option<u32> {
@@ -198,9 +201,35 @@ fn furnace_menu(pos: Pos) -> Menu {
         .slots(FUEL as u16, 1, 1)
 }
 
-fn anvil_menu() -> Menu {
+/// L'état du marteau, pour le menu : « Marteau : 150 / 200 usages ».
+fn hammer_label(pos: Pos) -> String {
+    match mod_sdk::slot(pos, HAMMER) {
+        Some((item, _)) if item == HAMMER_ITEM => {
+            let max = mod_sdk::item_durability(HAMMER_ITEM);
+            let used = mod_sdk::slot_damage(pos, HAMMER).unwrap_or(0);
+            format!(
+                "Marteau de bronze : {} / {max} usages",
+                max.saturating_sub(used)
+            )
+        }
+        _ => "Marteau de bronze :".to_string(),
+    }
+}
+
+/// Un coup de marteau : une usure de plus, et il se brise quand il n'en peut plus.
+fn wear_hammer(pos: Pos) {
+    let used = mod_sdk::slot_damage(pos, HAMMER).unwrap_or(0) + 1;
+    if used >= mod_sdk::item_durability(HAMMER_ITEM) {
+        mod_sdk::set_slot(pos, HAMMER, None);
+        mod_sdk::say("Le marteau de bronze se brise.");
+    } else {
+        mod_sdk::set_slot_damage(pos, HAMMER, used);
+    }
+}
+
+fn anvil_menu(pos: Pos) -> Menu {
     let mut menu = Menu::new("Enclume")
-        .label("Marteau de bronze :")
+        .label(&hammer_label(pos))
         .slots(HAMMER as u16, 1, 1)
         .label("Lingots :")
         .row_begin()
@@ -212,7 +241,9 @@ fn anvil_menu() -> Menu {
     for (id, name, _) in FORGES {
         menu = menu.button(id, name);
     }
+    menu = menu.button(REPAIR_BUTTON, "Réparer");
     menu.row_end()
+        .label("Réparer : l'outil dans la première case, un lingot d'acier dans la seconde.")
 }
 
 /// Forge la pièce du bouton `button` : le marteau doit être là, la recette faisable, la sortie libre.
@@ -230,6 +261,32 @@ fn forge(pos: Pos, kind: &str) {
         return;
     }
     complete(pos, 0, ANVIL_INPUTS, ANVIL_OUT, &recipe);
+    wear_hammer(pos);
+}
+
+/// Répare l'outil de la case 0 : un lingot d'acier (case 1) rend un quart de sa durabilité.
+fn repair(pos: Pos) {
+    if mod_sdk::slot(pos, HAMMER).is_none_or(|(item, _)| item != HAMMER_ITEM) {
+        mod_sdk::say("Il faut un marteau de bronze.");
+        return;
+    }
+    let Some((tool, _)) = mod_sdk::slot(pos, 0) else {
+        mod_sdk::say("Posez l'outil à réparer dans la première case.");
+        return;
+    };
+    let max = mod_sdk::item_durability(&tool);
+    let worn = mod_sdk::slot_damage(pos, 0).unwrap_or(0);
+    if max == 0 || worn == 0 {
+        mod_sdk::say("Cet objet n'a rien à réparer.");
+        return;
+    }
+    if mod_sdk::slot(pos, 1).is_none_or(|(item, _)| item != REPAIR_INGOT) {
+        mod_sdk::say("Il faut un lingot d'acier dans la seconde case.");
+        return;
+    }
+    take(pos, 1, 1, REPAIR_INGOT, 1);
+    mod_sdk::set_slot_damage(pos, 0, worn.saturating_sub(max.div_ceil(4)));
+    wear_hammer(pos);
 }
 
 impl Mod for Forge {
@@ -270,7 +327,7 @@ impl Mod for Forge {
         let menu = if block == self.furnace {
             furnace_menu(pos)
         } else if block == self.anvil {
-            anvil_menu()
+            anvil_menu(pos)
         } else {
             return false;
         };
@@ -280,6 +337,7 @@ impl Mod for Forge {
 
     fn ui(&mut self, pos: Pos, event: UiEvent) {
         match event {
+            UiEvent::Button(REPAIR_BUTTON) => repair(pos),
             UiEvent::Button(id) => {
                 if let Some((_, _, kind)) = FORGES.iter().find(|(n, _, _)| *n == id) {
                     forge(pos, kind);

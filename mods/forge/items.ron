@@ -4,7 +4,7 @@
         (id: "forge:bronze_ingot", name: "Lingot de bronze", category: Material, color: (0.75, 0.49, 0.22), icon: "bronze_ingot"),
         (id: "forge:steel_ingot", name: "Lingot d'acier", category: Material, color: (0.67, 0.71, 0.76), icon: "steel_ingot"),
         (id: "forge:steel_plate", name: "Plaque d'acier", category: Material, color: (0.67, 0.71, 0.76), icon: "steel_plate"),
-        (id: "forge:bronze_hammer", name: "Marteau de bronze", category: Tool, color: (0.75, 0.49, 0.22), icon: "bronze_hammer", max_stack: 1),
+        (id: "forge:bronze_hammer", name: "Marteau de bronze", category: Tool, color: (0.75, 0.49, 0.22), icon: "bronze_hammer", max_stack: 1, durability: 200),
         (id: "forge:pickaxe_head", name: "Tête de pioche", category: Material, color: (0.67, 0.71, 0.76), icon: "pickaxe_head"),
         (id: "forge:axe_head", name: "Tête de hache", category: Material, color: (0.67, 0.71, 0.76), icon: "axe_head"),
         (id: "forge:sword_blade", name: "Lame d'épée", category: Material, color: (0.67, 0.71, 0.76), icon: "sword_blade"),

@@ -226,6 +226,35 @@ impl Harness {
         });
     }
 
+    /// Règle l'usure de l'objet dans une case de l'inventaire du bloc.
+    pub fn set_damage(&mut self, pos: IVec3, slot: usize, damage: u32) {
+        if let Some(Some(stack)) = self
+            .streamer
+            .borrow_mut()
+            .block_entity_mut(pos)
+            .and_then(|e| e.caps.as_mut())
+            .and_then(|c| c.inventory.as_mut())
+            .and_then(|i| i.slots.get_mut(slot))
+        {
+            stack.damage = damage;
+        }
+    }
+
+    /// L'usure de l'objet dans une case (`None` : case vide).
+    pub fn damage_of(&self, pos: IVec3, slot: usize) -> Option<u32> {
+        let streamer = self.streamer.borrow();
+        let stack = streamer
+            .block_entity(pos)?
+            .caps
+            .as_ref()?
+            .inventory
+            .as_ref()?
+            .slots
+            .get(slot)?
+            .as_ref()?;
+        Some(stack.damage)
+    }
+
     /// Vide une case de l'inventaire du bloc.
     pub fn clear_slot(&mut self, pos: IVec3, slot: usize) {
         if let Some(cell) = self

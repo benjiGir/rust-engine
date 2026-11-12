@@ -587,6 +587,37 @@ pub fn slot(pos: Pos, slot: usize) -> Option<(String, u32)> {
     }
 }
 
+/// L'usure de l'objet dans une case (0 : neuf ; il casse quand elle atteint [`item_durability`]),
+/// ou `None` si la case est vide ou n'existe pas.
+pub fn slot_damage(pos: Pos, slot: usize) -> Option<u32> {
+    // SAFETY: des nombres seulement.
+    let damage = unsafe { ffi::slot_damage(pos.grid.0 as i32, pos.x, pos.y, pos.z, slot as i32) };
+    u32::try_from(damage).ok()
+}
+
+/// Règle l'usure de l'objet dans une case. `false` si la case est vide ou n'existe pas.
+/// [`set_slot`] remet l'usure à zéro : la régler après avoir posé l'objet.
+pub fn set_slot_damage(pos: Pos, slot: usize, damage: u32) -> bool {
+    // SAFETY: des nombres seulement.
+    unsafe {
+        ffi::slot_set_damage(
+            pos.grid.0 as i32,
+            pos.x,
+            pos.y,
+            pos.z,
+            slot as i32,
+            damage.min(i32::MAX as u32) as i32,
+        ) != 0
+    }
+}
+
+/// Le nombre d'utilisations d'un objet avant qu'il casse (outils, armures) ; 0 s'il n'use pas.
+pub fn item_durability(key: &str) -> u32 {
+    let (ptr, len) = addr(key.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `key`.
+    unsafe { ffi::item_durability(ptr, len) as u32 }
+}
+
 /// Remplace une case de l'inventaire du bloc (`None` : la vider). `false` si la case n'existe
 /// pas ou si l'objet est inconnu.
 pub fn set_slot(pos: Pos, slot: usize, stack: Option<(&str, u32)>) -> bool {

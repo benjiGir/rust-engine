@@ -640,6 +640,55 @@ fn define_capabilities(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
     )?;
     linker.func_wrap(
         "voxel",
+        "slot_damage",
+        |caller: Caller<'_, HostState>, g: i32, x: i32, y: i32, z: i32, slot: i32| -> i32 {
+            read(caller.data(), at(g, x, y, z), |e| {
+                let stack = e
+                    .caps
+                    .as_ref()?
+                    .inventory
+                    .as_ref()?
+                    .slots
+                    .get(usize::try_from(slot).ok()?)?
+                    .as_ref()?;
+                Some(stack.damage as i32)
+            })
+            .flatten()
+            .unwrap_or(-1)
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "slot_set_damage",
+        |caller: Caller<'_, HostState>,
+         g: i32,
+         x: i32,
+         y: i32,
+         z: i32,
+         slot: i32,
+         damage: i32|
+         -> i32 {
+            let Ok(index) = usize::try_from(slot) else {
+                return 0;
+            };
+            write(caller.data(), at(g, x, y, z), |e| {
+                let stack = e
+                    .caps
+                    .as_mut()?
+                    .inventory
+                    .as_mut()?
+                    .slots
+                    .get_mut(index)?
+                    .as_mut()?;
+                stack.damage = damage.max(0) as u32;
+                Some(())
+            })
+            .flatten()
+            .is_some() as i32
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
         "item_insert",
         |mut caller: Caller<'_, HostState>,
          g: i32,
@@ -879,6 +928,18 @@ fn define_ui(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
 }
 
 fn define_content(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        "voxel",
+        "item_durability",
+        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> HostResult<i32> {
+            let key = read_string(&mut caller, ptr, len)?;
+            let items = &caller.data().content.items;
+            Ok(items
+                .id(&key)
+                .and_then(|id| items.get(id).durability)
+                .unwrap_or(0) as i32)
+        },
+    )?;
     linker.func_wrap(
         "voxel",
         "item_max_stack",

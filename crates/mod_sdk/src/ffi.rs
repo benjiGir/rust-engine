@@ -152,6 +152,10 @@ unsafe extern "C" {
     pub fn slot_get(g: i32, x: i32, y: i32, z: i32, slot: i32, ptr: i32, cap: i32) -> i32;
     /// Remplace une case de l'inventaire par `objet*nombre` (texte vide : la vider). 1 si c'est fait.
     pub fn slot_set(g: i32, x: i32, y: i32, z: i32, slot: i32, ptr: i32, len: i32) -> i32;
+    /// L'usure de l'objet dans cette case (0 : neuf, l'objet casse quand elle atteint sa durabilité) ; −1 si la case est vide ou n'existe pas.
+    pub fn slot_damage(g: i32, x: i32, y: i32, z: i32, slot: i32) -> i32;
+    /// Règle l'usure de l'objet dans cette case. 1 si c'est fait ; 0 si la case est vide ou n'existe pas. `slot_set` remet l'usure à 0.
+    pub fn slot_set_damage(g: i32, x: i32, y: i32, z: i32, slot: i32, damage: i32) -> i32;
     /// La vitesse de rotation (tr/min, signée).
     pub fn kinetic_speed(g: i32, x: i32, y: i32, z: i32) -> f32;
     /// Règle la vitesse, la capacité et la consommation de contrainte. 1 si c'est fait.
@@ -233,6 +237,8 @@ unsafe extern "C" {
     pub fn item_id(ptr: i32, len: i32) -> i32;
     /// Combien d'exemplaires de cet objet tiennent dans une case (1 pour un outil) ; 0 s'il n'existe pas.
     pub fn item_max_stack(ptr: i32, len: i32) -> i32;
+    /// Le nombre d'utilisations d'un objet avant qu'il casse (outils, armures) ; 0 s'il n'use pas ou n'existe pas.
+    pub fn item_durability(ptr: i32, len: i32) -> i32;
     /// Donne `count` objets de numéro `id` (voir `item_id`) au joueur.
     pub fn give_stack(id: i32, count: i32);
     /// Cherche une recette du type donné (`example:press`) faisable avec les objets `cle*nombre,cle*nombre` de l'entrée. Écrit `ticks;énergie;entrées;sorties` (même format) dans la sortie ; renvoie sa taille, −1 sans recette.
@@ -409,6 +415,14 @@ mod inert {
         0
     }
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn slot_damage(_: i32, _: i32, _: i32, _: i32, _: i32) -> i32 {
+        -1
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn slot_set_damage(_: i32, _: i32, _: i32, _: i32, _: i32, _: i32) -> i32 {
+        0
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn kinetic_speed(_: i32, _: i32, _: i32, _: i32) -> f32 {
         0.0
     }
@@ -500,6 +514,10 @@ mod inert {
     }
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn item_max_stack(_: i32, _: i32) -> i32 {
+        0
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn item_durability(_: i32, _: i32) -> i32 {
         0
     }
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]

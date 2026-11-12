@@ -127,3 +127,46 @@ fn the_blocks_load() {
         assert!(h.block_id(key).0 > 0, "{key}");
     }
 }
+
+#[test]
+fn every_forging_wears_the_hammer_until_it_breaks() {
+    let mut h = Harness::for_mod("forge").unwrap();
+    placed(&mut h, "forge:anvil");
+    h.put(AT, 0, "forge:steel_ingot", 6);
+    h.put(AT, 2, "forge:bronze_hammer", 1);
+    forge_button(&mut h, 1);
+    assert_eq!(h.damage_of(AT, 2), Some(1));
+    // Presque cassé : 199 usures sur 200, le prochain coup le brise.
+    h.set_damage(AT, 2, 199);
+    h.clear_slot(AT, 3);
+    forge_button(&mut h, 1);
+    assert_eq!(h.slot_of(AT, 2), None, "le marteau s'est brisé");
+    assert_eq!(
+        h.slot_of(AT, 3),
+        Some(("forge:steel_plate".into(), 1)),
+        "la pièce est faite"
+    );
+}
+
+#[test]
+fn the_anvil_repairs_a_quarter_of_the_durability_per_ingot() {
+    let mut h = Harness::for_mod("forge").unwrap();
+    placed(&mut h, "forge:anvil");
+    h.put(AT, 0, "forge:steel_pickaxe", 1);
+    h.set_damage(AT, 0, 500);
+    h.put(AT, 1, "forge:steel_ingot", 2);
+    h.put(AT, 2, "forge:bronze_hammer", 1);
+    forge_button(&mut h, 5);
+    // La pioche d'acier tient 700 usages : un quart = 175.
+    assert_eq!(h.damage_of(AT, 0), Some(325));
+    assert_eq!(h.slot_of(AT, 1), Some(("forge:steel_ingot".into(), 1)));
+    assert_eq!(h.damage_of(AT, 2), Some(1), "la réparation use le marteau");
+    // Sans usure, ou sans lingot : rien n'est consommé.
+    h.set_damage(AT, 0, 0);
+    forge_button(&mut h, 5);
+    assert_eq!(h.slot_of(AT, 1), Some(("forge:steel_ingot".into(), 1)));
+    h.set_damage(AT, 0, 100);
+    h.clear_slot(AT, 1);
+    forge_button(&mut h, 5);
+    assert_eq!(h.damage_of(AT, 0), Some(100));
+}

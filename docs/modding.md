@@ -615,6 +615,8 @@ test vérifie que le jeu définit exactement ces fonctions.
 | `item_extract(g: i32, x: i32, y: i32, z: i32, face: i32, ptr: i32, len: i32, count: i32, simulate: i32) -> i32` | Sort des objets par cette face ; renvoie le nombre retiré. |
 | `slot_get(g: i32, x: i32, y: i32, z: i32, slot: i32, ptr: i32, cap: i32) -> i32` | Lit une case de l'inventaire du bloc : écrit `objet*nombre` (au plus `cap` octets) et renvoie la taille ; −1 si la case est vide ou n'existe pas. |
 | `slot_set(g: i32, x: i32, y: i32, z: i32, slot: i32, ptr: i32, len: i32) -> i32` | Remplace une case de l'inventaire par `objet*nombre` (texte vide : la vider). 1 si c'est fait. |
+| `slot_damage(g: i32, x: i32, y: i32, z: i32, slot: i32) -> i32` | L'usure de l'objet dans cette case (0 : neuf, l'objet casse quand elle atteint sa durabilité) ; −1 si la case est vide ou n'existe pas. |
+| `slot_set_damage(g: i32, x: i32, y: i32, z: i32, slot: i32, damage: i32) -> i32` | Règle l'usure de l'objet dans cette case. 1 si c'est fait ; 0 si la case est vide ou n'existe pas. `slot_set` remet l'usure à 0. |
 | `kinetic_speed(g: i32, x: i32, y: i32, z: i32) -> f32` | La vitesse de rotation (tr/min, signée). |
 | `set_kinetic(g: i32, x: i32, y: i32, z: i32, speed: f32, capacity: f32, impact: f32) -> i32` | Règle la vitesse, la capacité et la consommation de contrainte. 1 si c'est fait. |
 
@@ -687,6 +689,7 @@ test vérifie que le jeu définit exactement ces fonctions.
 |---|---|
 | `item_id(ptr: i32, len: i32) -> i32` | Le numéro d'un objet (bloc ou non) à partir de son identifiant (`example:ruby`) ; −1 s'il n'existe pas. |
 | `item_max_stack(ptr: i32, len: i32) -> i32` | Combien d'exemplaires de cet objet tiennent dans une case (1 pour un outil) ; 0 s'il n'existe pas. |
+| `item_durability(ptr: i32, len: i32) -> i32` | Le nombre d'utilisations d'un objet avant qu'il casse (outils, armures) ; 0 s'il n'use pas ou n'existe pas. |
 | `give_stack(id: i32, count: i32)` | Donne `count` objets de numéro `id` (voir `item_id`) au joueur. |
 | `recipe_find(kind_ptr: i32, kind_len: i32, in_ptr: i32, in_len: i32, out_ptr: i32, out_cap: i32) -> i32` | Cherche une recette du type donné (`example:press`) faisable avec les objets `cle*nombre,cle*nombre` de l'entrée. Écrit `ticks;énergie;entrées;sorties` (même format) dans la sortie ; renvoie sa taille, −1 sans recette. |
 
@@ -745,8 +748,11 @@ toute seule. Tests : `cargo xtask test-mod entrepot`.
 - des outils et armures d'acier (`items.ron`) que l'on assemble à l'établi (`recipes.ron`) à partir
   des pièces : tête de pioche + 2 bâtons, plaques d'acier pour l'armure.
 Le four et l'enclume ont des `ports`, donc un réseau d'objets (Mécanique, Entrepôt) peut les alimenter
-et vider leur sortie. Limites : le marteau ne s'use pas (une case d'inventaire ne garde pas la
-durabilité côté script) et il n'y a pas de réparation. Tests : `cargo xtask test-mod forge`.
+et vider leur sortie. Le **marteau s'use** (200 coups, chacun une usure, il se brise ensuite) et l'enclume **répare** : le
+bouton « Réparer » rend un quart de la durabilité d'un outil par lingot d'acier. C'est l'API d'usure :
+`slot_damage` / `set_slot_damage` lisent et règlent l'usure d'une pile, `item_durability` donne le
+maximum (une pile est cassée quand l'usure l'atteint). Attention : `set_slot` remet l'usure à 0, donc
+la régler après avoir posé l'objet. Tests : `cargo xtask test-mod forge`.
 
 ## La génération du monde
 
