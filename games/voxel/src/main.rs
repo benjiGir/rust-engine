@@ -45,6 +45,7 @@ mod control;
 mod culling;
 mod daytime;
 mod death;
+mod dimensions;
 mod drops;
 mod enchanting;
 mod events;
@@ -52,6 +53,8 @@ mod far_terrain;
 mod hand;
 mod hot_reload;
 mod interact;
+mod launch;
+pub use launch::{Launch, Request};
 mod inventory;
 mod item_art;
 mod item_models;
@@ -224,6 +227,8 @@ struct VoxelGame {
     /// La sauvegarde (absente en mode démo, vol automatique ou captures, sauf si
     /// `VOXEL_WORLD` est donné : ces modes modifient le monde).
     store: Option<Arc<engine_voxel::SaveStore>>,
+    /// Les dimensions du monde et celle où l'on est (voir `dimensions.rs`).
+    dims: dimensions::Dimensions,
     last_autosave: Instant,
     save_started: Instant,
     /// Le lancement du jeu (pour animer le vent).
@@ -257,68 +262,6 @@ struct VoxelGame {
     experience: survival::Experience,
     /// `VOXEL_BENCH` : le benchmark reproductible (voir `bench.rs`).
     bench: Option<bench::Bench>,
-}
-
-/// Comment lancer un monde : depuis quel dossier, avec quelle graine.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Launch {
-    /// Le dossier de sauvegarde (`None` : un monde jetable, rien n'est écrit).
-    pub world: Option<PathBuf>,
-    /// La graine d'un nouveau monde (un monde existant garde la sienne).
-    pub seed: Option<u32>,
-    /// Le monde de fond du menu principal : survol de caméra, sans joueur.
-    pub title: bool,
-    /// La difficulté d'un nouveau monde (0 paisible, 1 normale, 2 difficile).
-    pub difficulty: Option<u8>,
-}
-
-impl Launch {
-    /// Les modes automatiques (captures, démo, vol, test de charge) et `VOXEL_WORLD`
-    /// lancent un monde directement, sans menu, comme avant.
-    fn from_env() -> Option<Self> {
-        let automatic = [
-            "VOXEL_DEMO",
-            "VOXEL_AUTOFLY",
-            "VOXEL_SCREENSHOTS",
-            "VOXEL_STRESS",
-            "VOXEL_BENCH",
-        ]
-        .iter()
-        .any(|v| std::env::var(v).is_ok());
-        let named = std::env::var("VOXEL_WORLD").is_ok();
-        if !automatic && !named {
-            return None;
-        }
-        Some(Self {
-            // Les modes automatiques n'écrivent pas dans le monde du joueur, sauf demande explicite.
-            world: named.then(|| persistence::world_dir(&assets_dir())),
-            seed: env_parse("VOXEL_SEED"),
-            title: false,
-            difficulty: None,
-        })
-    }
-
-    /// Le monde de fond du menu principal.
-    pub fn title() -> Self {
-        Self {
-            world: None,
-            seed: Some(TITLE_SEED),
-            title: true,
-            difficulty: None,
-        }
-    }
-}
-
-/// La graine du monde de fond du menu.
-const TITLE_SEED: u32 = 2024;
-
-/// Ce que le jeu demande à l'application : changer de monde ou quitter.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Request {
-    Play(Launch),
-    /// Retour au menu principal (le monde est sauvegardé et déchargé).
-    Title,
-    Quit,
 }
 
 /// Où en est le jeu : le menu principal (un monde de fond), le jeu, ou la pause.
@@ -369,6 +312,13 @@ impl VoxelGame {
                 (None, None)
             }
         };
+        let (mut dims, store) = dimensions::open(
+            &registry,
+            &mod_dirs,
+            store,
+            meta.as_ref(),
+            launch.dimension.as_deref(),
+        )?;
         if let Some(meta) = &meta {
             persistence::check_mods(meta, &registry);
         }
@@ -379,6 +329,7 @@ impl VoxelGame {
             .map(|m| m.seed)
             .or(launch.seed)
             .unwrap_or(DEFAULT_SEED);
+        dims.base_seed = seed;
         // Un monde existant garde sa difficulté.
         let difficulty = meta
             .as_ref()
@@ -423,7 +374,7 @@ impl VoxelGame {
             config.view_radius,
             config.worker_threads
         );
-        let generator = modding::terrain(seed, &registry, &mod_dirs)?;
+        let generator = modding::terrain(seed, &registry, &mod_dirs, &dims.current)?;
         let mut streamer = ChunkStreamer::new(generator, config);
         let far = (far_chunks > 0).then(|| {
             let far = far_terrain::FarTerrain::new(&streamer, near_radius, far_chunks);
@@ -520,6 +471,8 @@ impl VoxelGame {
         );
         // Un monde sauvegardé reprend là où on l'a laissé.
         let (eye, yaw, pitch, mode) = persistence::saved_eye(meta.as_ref()).unwrap_or(default_view);
+        // Arrivé par un portail : au sol, aux mêmes x et z (voir `dimensions.rs`).
+        let eye = dims.arrive(eye, meta.as_ref(), streamer.generator());
         // Le monde ECS : le streamer et les registres deviennent des ressources, que les
         // systèmes (physique, IA) lisent sans que le jeu ait à les leur passer.
         let world = Rc::new(RefCell::new(streamer));
@@ -531,6 +484,7 @@ impl VoxelGame {
                 items: content.items.clone(),
                 machine_recipes: content.machine_recipes.clone(),
                 mob_keys: Arc::new(mob_registry.keys()),
+                dimension: dims.current.key.as_str().into(),
             },
             &project_root(),
             launch.world.as_deref(),
@@ -577,6 +531,7 @@ impl VoxelGame {
         ecs.insert_resource(ships::ShipControl::default());
         ecs.insert_resource(ships::ShipEvents::default());
         ecs.insert_resource(Arc::new(mob_registry));
+        ecs.insert_resource(components::GravityScale(dims.current.gravity));
         // Les blocs où les créatures ne vont jamais : les fluides qui blessent (la lave).
         ecs.insert_resource(Arc::new(navigation::DangerBlocks(
             (0..registry.len())
@@ -739,6 +694,7 @@ impl VoxelGame {
             trades,
             base_fog: (view_distance * 0.6, view_distance * 0.95),
             store,
+            dims,
             last_autosave: Instant::now(),
             save_started: Instant::now(),
             started: Instant::now(),
@@ -926,6 +882,7 @@ impl VoxelGame {
             );
         }
         self.update_soundscape(dt);
+        self.update_dimensions(dt);
         self.update_effects(dt);
         self.update_ships(ctx);
         if let Some(audio) = &mut self.audio {
@@ -1250,6 +1207,7 @@ impl Game for App {
                         seed: Some(7),
                         title: false,
                         difficulty: None,
+                        dimension: None,
                     }),
                     1 => Request::Title,
                     _ => Request::Quit,
@@ -1860,6 +1818,9 @@ impl VoxelGame {
                     self.show_mod_menu(mod_id, at, &data);
                 }
                 MachineAction::CloseMenu { mod_id } => self.close_mod_menu_of(&mod_id),
+                MachineAction::Travel { dimension } => {
+                    self.travel(&dimension);
+                }
                 MachineAction::ShowOptions { mod_id, data } => {
                     self.show_mod_options(mod_id, &data);
                 }

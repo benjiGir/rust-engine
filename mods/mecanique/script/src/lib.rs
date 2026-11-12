@@ -152,6 +152,11 @@ impl Mod for Mecanique {
     fn init(&mut self) {
         self.crank = mod_sdk::block_id("mecanique:crank").unwrap_or_default();
         self.press = mod_sdk::block_id("mecanique:press").unwrap_or_default();
+        mod_sdk::register_command(
+            "fonderie",
+            "passer dans la Fonderie (le monde est rechargé)",
+        );
+        mod_sdk::register_command("retour", "revenir dans le monde de départ");
         mod_sdk::register_command("tours", "combien de tours de manivelle dans ce monde");
         mod_sdk::register_command(
             "manivelle",
@@ -161,6 +166,20 @@ impl Mod for Mecanique {
 
     fn command(&mut self, name: &str, args: &str) -> Option<String> {
         match name {
+            "fonderie" | "retour" => {
+                let target = if name == "fonderie" {
+                    "mecanique:foundry"
+                } else {
+                    "core:overworld"
+                };
+                if mod_sdk::dimension() == target {
+                    Some("Vous y êtes déjà.".to_string())
+                } else if mod_sdk::travel_to(target) {
+                    Some("En route…".to_string())
+                } else {
+                    Some("Voyage impossible.".to_string())
+                }
+            }
             "tours" => Some(format!(
                 "La manivelle a tourné {} fois dans ce monde.",
                 crank_turns()

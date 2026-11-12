@@ -164,6 +164,14 @@
          params: [("mob", I32), ("value", I32)],
          doc: "Pendant `on_mobs` : la mémoire de la créature (un entier de votre choix, rendu dans `state` au prochain appel)."),
 
+        // Dimensions.
+        (name: "travel_to", group: "Dimensions",
+         params: [("ptr", I32), ("len", I32)], ret: I32, fallback: "0",
+         doc: "Fait passer le joueur dans cette dimension (`mon_mod:ma_dimension`) : le monde est sauvegardé puis rechargé, et le joueur arrive au sol aux mêmes x et z. 1 si le voyage est lancé, 0 si la dimension est inconnue ou si le monde n'est pas sauvegardé."),
+        (name: "dimension", group: "Dimensions",
+         params: [("out_ptr", I32), ("cap", I32)], ret: I32, fallback: "-1",
+         doc: "Copie l'identifiant de la dimension où se trouve le joueur (`core:overworld`, `mon_mod:ma_dimension`) ; renvoie sa taille."),
+
         // Commandes.
         (name: "register_command", group: "Commandes",
          params: [("name_ptr", I32), ("name_len", I32), ("help_ptr", I32), ("help_len", I32)],

@@ -176,6 +176,8 @@ pub struct ModContent {
     pub machine_recipes: Arc<MachineRecipes>,
     /// Les identifiants des types de créatures, dans l'ordre de leur numéro (`mob_kind`).
     pub mob_keys: Arc<Vec<String>>,
+    /// La dimension où se trouve le joueur (`dimension` côté script).
+    pub dimension: Arc<str>,
 }
 
 /// Ce que voient les fonctions hôtes pendant un appel : le monde, et les demandes en cours.

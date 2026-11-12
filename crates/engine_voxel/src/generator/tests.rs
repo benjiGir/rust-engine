@@ -438,3 +438,91 @@ fn biomes_have_their_vegetation() {
     assert!(count("core:desert", &["core:cactus"]) > 0);
     assert!(count("core:ocean", &["core:seaweed"]) > 10);
 }
+
+// ----- Les dimensions -----
+
+mod dimensions {
+    use super::*;
+    use crate::biome::BiomeRegistry;
+    use crate::dimension::{DimensionRegistry, WorldKind};
+
+    const SOURCE: &str = r#"[
+        (id: "test:flat", name: "Plat", generator: Flat(layers: [("core:bedrock", 1), ("core:stone", 9), ("core:gravel", 2)], biome: "core:plains")),
+        (id: "test:void", name: "Vide", generator: Void(platform: "core:stone")),
+        (id: "test:bare", name: "Nu", generator: Void()),
+        (id: "test:cold", name: "Froid", generator: Terrain(biomes: ["core:snowy_tundra"]), seed_offset: 5),
+    ]"#;
+
+    fn generator(key: &str, seed: u32) -> TerrainGenerator {
+        let registry = BlockRegistry::builtin();
+        let biomes = BiomeRegistry::builtin(&registry).unwrap();
+        let mut dimensions = DimensionRegistry::builtin();
+        dimensions
+            .add_source("test", SOURCE, "test", &registry, &biomes)
+            .unwrap();
+        TerrainGenerator::with_dimension(seed, registry, &[], dimensions.get(key).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn a_flat_world_is_layers_from_y_zero_everywhere() {
+        let g = generator("test:flat", 1);
+        let id = |k: &str| g.registry().id(k).unwrap();
+        let chunk = g.generate(IVec3::new(7, 0, -3)).expect("des blocs");
+        for (y, expected) in [
+            (0, "core:bedrock"),
+            (5, "core:stone"),
+            (9, "core:stone"),
+            (10, "core:gravel"),
+            (11, "core:gravel"),
+        ] {
+            assert_eq!(chunk.get(3, y, 4), id(expected), "y = {y}");
+        }
+        assert_eq!(chunk.get(3, 12, 4), BlockId::AIR, "au-dessus : de l'air");
+        // Au-dessus des couches, rien à stocker ; la colonne dit la hauteur du sol.
+        assert!(g.generate(IVec3::new(0, 1, 0)).is_none());
+        assert_eq!(g.column(100, -200).height, 11);
+        assert_eq!(g.find_spawn(), (0, 0));
+        // Pas de structures dans un monde plat.
+        assert!(!g.has_structures());
+    }
+
+    #[test]
+    fn a_void_world_has_only_its_platform() {
+        let g = generator("test:void", 1);
+        let stone = g.registry().id("core:stone").unwrap();
+        let chunk = g
+            .generate(IVec3::new(0, 2, 0))
+            .expect("la plateforme est dans ce chunk");
+        assert_eq!(chunk.get(8, 0, 8), stone, "y = 64 : la plateforme");
+        assert_eq!(chunk.get(8, 1, 8), BlockId::AIR);
+        assert_eq!(g.column(0, 0).height, 64);
+        assert_eq!(g.column(500, 500).height, 0);
+        // Loin de l'origine, ou à une autre hauteur : rien.
+        assert!(g.generate(IVec3::new(5, 2, 5)).is_none());
+        assert!(g.generate(IVec3::new(0, 0, 0)).is_none());
+        // Sans plateforme : le vide complet.
+        let bare = generator("test:bare", 1);
+        assert!(bare.generate(IVec3::new(0, 2, 0)).is_none());
+    }
+
+    #[test]
+    fn a_terrain_dimension_can_be_limited_to_some_biomes_and_has_its_own_map() {
+        let cold = generator("test:cold", 1);
+        let tundra = cold.biomes().id("core:snowy_tundra").unwrap();
+        // Tous les biomes de terre y sont la toundra.
+        let lands: Vec<_> = (0..40)
+            .map(|i| cold.column(i * 300, i * -170))
+            .filter(|c| cold.biome(c.biome).kind == crate::biome::BiomeKind::Land)
+            .collect();
+        assert!(!lands.is_empty());
+        assert!(lands.iter().all(|c| c.biome == tundra));
+        // La graine est celle du monde plus le décalage : une autre carte que celle de la dimension de départ.
+        let normal = TerrainGenerator::new(1);
+        assert!(
+            (0..20)
+                .any(|i| cold.column(i * 100, i * 50).height
+                    != normal.column(i * 100, i * 50).height)
+        );
+        assert!(matches!(cold.world, WorldKind::Terrain { .. }));
+    }
+}

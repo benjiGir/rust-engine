@@ -62,6 +62,10 @@ pub(crate) const STEP: i32 = 4;
 /// Points de la grille par côté de chunk (32 / 4 + 1, les deux bords compris).
 const GRID: usize = CHUNK_SIZE / STEP as usize + 1;
 
+/// Le vide : la plateforme (si elle existe) couvre de -8 à 8 en x et z, à cette hauteur.
+const VOID_PLATFORM: i32 = 8;
+const VOID_PLATFORM_Y: i32 = 64;
+
 /// Ce que le générateur sait d'une colonne (x, z) : sa hauteur et son biome.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Column {
@@ -178,6 +182,8 @@ pub struct TerrainGenerator {
     /// Villages, ruines, donjons, mines (phase O9) ; `None` si un bloc manque.
     structures: Option<StructureSet>,
     structure_blocks: Option<StructureBlocks>,
+    /// Le genre de monde : le terrain du jeu (par défaut), un monde plat, ou le vide.
+    world: crate::dimension::WorldKind,
 }
 
 impl TerrainGenerator {
@@ -204,6 +210,124 @@ impl TerrainGenerator {
         let biomes = Arc::new(BiomeRegistry::load_mods(&registry, mods)?);
         let sources = structures::mod_sources(mods)?;
         Self::build(seed, registry, biomes, &sources)
+    }
+
+    /// Le générateur d'une dimension : sa graine est celle du monde plus `seed_offset`, et son
+    /// genre de monde (terrain, plat, vide) vient de sa description.
+    pub fn with_dimension(
+        seed: u32,
+        registry: Arc<BlockRegistry>,
+        mods: &[(String, std::path::PathBuf)],
+        dimension: &crate::dimension::DimensionDef,
+    ) -> Result<Self> {
+        let mut generator =
+            Self::with_mods(seed.wrapping_add(dimension.seed_offset), registry, mods)?;
+        generator.apply_world(&dimension.kind);
+        Ok(generator)
+    }
+
+    /// Règle le genre de monde. Un monde plat ou vide n'a ni structures ni biomes à choisir ; un
+    /// terrain peut se limiter à certains biomes de terre.
+    fn apply_world(&mut self, kind: &crate::dimension::WorldKind) {
+        use crate::dimension::WorldKind;
+        match kind {
+            WorldKind::Terrain { biomes } if !biomes.is_empty() => {
+                self.land.retain(|b| biomes.contains(b));
+                if self.land.is_empty() {
+                    self.land = biomes.clone();
+                }
+            }
+            WorldKind::Terrain { .. } => {}
+            WorldKind::Flat { .. } | WorldKind::Void { .. } => {
+                self.structures = None;
+            }
+        }
+        self.world = kind.clone();
+    }
+
+    /// La colonne d'un monde plat ou vide (la même partout, sauf la plateforme du vide).
+    fn constant_column(&self, x: i32, z: i32) -> Option<Column> {
+        use crate::dimension::WorldKind;
+        let (height, biome) = match &self.world {
+            WorldKind::Terrain { .. } => return None,
+            WorldKind::Flat { layers, biome } => (
+                layers.iter().map(|(_, n)| *n as i32).sum::<i32>() - 1,
+                *biome,
+            ),
+            WorldKind::Void { platform } => (
+                if platform.is_some() && x.abs() <= VOID_PLATFORM && z.abs() <= VOID_PLATFORM {
+                    VOID_PLATFORM_Y
+                } else {
+                    0
+                },
+                self.biomes.first_of(BiomeKind::Land),
+            ),
+        };
+        let temperature = self.biomes.get(biome).temperature;
+        Some(Column {
+            height,
+            biome,
+            temperature,
+            climate_temperature: 0.0,
+        })
+    }
+
+    /// Un chunk d'un monde plat ou vide ; `None` pour le terrain (voir [`Self::generate`]).
+    fn generate_constant(&self, chunk_pos: IVec3) -> Option<Option<Chunk>> {
+        use crate::dimension::WorldKind;
+        let origin = World::chunk_origin(chunk_pos);
+        let size = CHUNK_SIZE as i32;
+        let mut chunk = Chunk::new();
+        let mut any = false;
+        match &self.world {
+            WorldKind::Terrain { .. } => return None,
+            WorldKind::Flat { layers, .. } => {
+                if !(0..WORLD_HEIGHT_CHUNKS).contains(&chunk_pos.y) {
+                    return Some(None);
+                }
+                let mut bottom = 0;
+                for &(block, count) in layers {
+                    let top = bottom + count as i32;
+                    for y in bottom.max(origin.y)..top.min(origin.y + size) {
+                        any = true;
+                        for lz in 0..CHUNK_SIZE {
+                            for lx in 0..CHUNK_SIZE {
+                                chunk.set(lx, (y - origin.y) as usize, lz, block);
+                            }
+                        }
+                    }
+                    bottom = top;
+                }
+            }
+            WorldKind::Void { platform } => {
+                let Some(block) = platform else {
+                    return Some(None);
+                };
+                let y = VOID_PLATFORM_Y;
+                if (origin.y..origin.y + size).contains(&y) {
+                    for lz in 0..size {
+                        for lx in 0..size {
+                            let (x, z) = (origin.x + lx, origin.z + lz);
+                            if x.abs() <= VOID_PLATFORM && z.abs() <= VOID_PLATFORM {
+                                any = true;
+                                chunk.set(
+                                    lx as usize,
+                                    (y - origin.y) as usize,
+                                    lz as usize,
+                                    *block,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !any {
+            return Some(None);
+        }
+        let columns = self.columns(chunk_pos);
+        chunk.set_biomes(biome_ids(&columns));
+        Some(Some(chunk))
     }
 
     /// Un générateur avec ses propres biomes. Échoue s'il manque un des blocs de base.
@@ -238,6 +362,7 @@ impl TerrainGenerator {
             .collect();
         let (structures, structure_blocks) =
             structures::load(&registry, &biomes, structure_sources)?;
+        let world = crate::dimension::WorldKind::Terrain { biomes: Vec::new() };
         Ok(Self {
             seed,
             structures,
@@ -258,6 +383,7 @@ impl TerrainGenerator {
             blocks,
             plant_blocks: PlantBlocks::resolve(&registry)?,
             tree_blocks: TreeBlocks::resolve(&registry).ok(),
+            world,
             registry,
         })
     }
@@ -312,6 +438,9 @@ impl TerrainGenerator {
 
     /// Hauteur et biome d'une colonne.
     pub fn column(&self, x: i32, z: i32) -> Column {
+        if let Some(column) = self.constant_column(x, z) {
+            return column;
+        }
         let fields = self.fields_at(x, z, |gx, gz| self.fields(gx, gz));
         self.interpret(fields)
     }
@@ -320,6 +449,9 @@ impl TerrainGenerator {
     /// évaluées une seule fois, sans interpolation. Quatre fois moins cher que [`Self::column`] :
     /// pour le terrain lointain, qui échantillonne sur cette grille.
     pub fn column_at_grid_point(&self, gx: i32, gz: i32) -> Column {
+        if let Some(column) = self.constant_column(gx * STEP, gz * STEP) {
+            return column;
+        }
         self.interpret(self.fields(gx, gz))
     }
 
@@ -444,6 +576,9 @@ impl TerrainGenerator {
     /// Un point d'apparition : la terre ferme la plus proche de l'origine (pas l'océan,
     /// ni une montagne), avec un peu de marge autour.
     pub fn find_spawn(&self) -> (i32, i32) {
+        if !matches!(self.world, crate::dimension::WorldKind::Terrain { .. }) {
+            return (0, 0);
+        }
         let ok = |c: Column| {
             self.biome(c.biome).kind == BiomeKind::Land
                 && c.height > SEA_LEVEL + 1
@@ -523,6 +658,17 @@ impl TerrainGenerator {
     /// 9 × 9 points du chunk, puis interpolées pour chaque colonne.
     pub fn columns(&self, chunk_pos: IVec3) -> Box<[[Column; CHUNK_SIZE]; CHUNK_SIZE]> {
         let origin = World::chunk_origin(chunk_pos);
+        if !matches!(self.world, crate::dimension::WorldKind::Terrain { .. }) {
+            let mut columns = Box::new([[Column::default(); CHUNK_SIZE]; CHUNK_SIZE]);
+            for (lx, row) in columns.iter_mut().enumerate() {
+                for (lz, column) in row.iter_mut().enumerate() {
+                    *column = self
+                        .constant_column(origin.x + lx as i32, origin.z + lz as i32)
+                        .unwrap_or_default();
+                }
+            }
+            return columns;
+        }
         let (g0x, g0z) = (origin.x / STEP, origin.z / STEP);
         let mut grid = [[Fields::default(); GRID]; GRID];
         for (i, row) in grid.iter_mut().enumerate() {
@@ -549,6 +695,9 @@ impl TerrainGenerator {
     /// Génère un chunk. Renvoie `None` s'il ne contient que de l'air
     /// (le ciel, ou hors de la hauteur du monde) : inutile de le stocker.
     pub fn generate(&self, chunk_pos: IVec3) -> Option<Chunk> {
+        if let Some(constant) = self.generate_constant(chunk_pos) {
+            return constant;
+        }
         if !(0..WORLD_HEIGHT_CHUNKS).contains(&chunk_pos.y) {
             return None;
         }

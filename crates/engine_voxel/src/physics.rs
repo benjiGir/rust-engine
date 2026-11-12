@@ -61,6 +61,9 @@ pub struct PlayerBody {
     /// Une poussée horizontale (un coup qui fait reculer), ajoutée à la marche ; elle
     /// s'amortit vite au sol, plus lentement en l'air.
     pub impulse: Vec3,
+    /// La gravité, en blocs par seconde au carré : [`GRAVITY`] par défaut, autre dans une dimension
+    /// à la gravité différente.
+    pub gravity: f32,
 }
 
 /// L'amortissement de la poussée, par seconde : au sol, en l'air.
@@ -77,6 +80,7 @@ impl PlayerBody {
             width: PLAYER_WIDTH,
             height: PLAYER_HEIGHT,
             impulse: Vec3::ZERO,
+            gravity: GRAVITY,
         }
     }
 
@@ -129,8 +133,8 @@ impl PlayerBody {
             self.velocity.z = walk.z * SWIM_FACTOR * drag;
             // La poussée : proportionnelle au volume immergé et à la densité du fluide
             // (un corps humain flotte à peine dans l'eau : on s'y enfonce jusqu'aux yeux).
-            let buoyancy = GRAVITY * BODY_FLOAT * (density / 1000.0) * submersion;
-            self.velocity.y += (buoyancy - GRAVITY) * SWIM_FACTOR * dt;
+            let buoyancy = self.gravity * BODY_FLOAT * (density / 1000.0) * submersion;
+            self.velocity.y += (buoyancy - self.gravity) * SWIM_FACTOR * dt;
             if jump {
                 self.velocity.y = self.velocity.y.max(SWIM_UP_SPEED * drag);
             }
@@ -143,7 +147,7 @@ impl PlayerBody {
             if jump && self.on_ground {
                 self.velocity.y = JUMP_SPEED;
             }
-            self.velocity.y = (self.velocity.y - GRAVITY * dt).max(-MAX_FALL_SPEED);
+            self.velocity.y = (self.velocity.y - self.gravity * dt).max(-MAX_FALL_SPEED);
         }
 
         let decay = if self.on_ground {

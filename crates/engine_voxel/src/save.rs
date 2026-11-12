@@ -100,6 +100,14 @@ pub struct WorldMeta {
     /// plus ancien est normal.
     #[serde(default = "normal_difficulty")]
     pub difficulty: u8,
+    /// La dimension où se trouve le joueur (`mon_mod:ma_dimension`) ; vide : la dimension de départ.
+    /// `world.ron` est toujours à la racine du monde, quelle que soit la dimension.
+    #[serde(default)]
+    pub dimension: String,
+    /// Le joueur vient de passer un portail : à son arrivée, le jeu cherche le sol à ces
+    /// coordonnées (x, z) au lieu d'utiliser la hauteur sauvegardée, qui est celle de l'autre dimension.
+    #[serde(default)]
+    pub arriving: bool,
 }
 
 fn normal_difficulty() -> u8 {
@@ -1002,6 +1010,8 @@ pub(crate) mod tests {
                 armor: vec![None; 4],
                 selected: 0,
             }),
+            dimension: "test:moon".into(),
+            arriving: true,
         };
         store.save_meta(&meta).unwrap();
         assert_eq!(store.load_meta().unwrap(), Some(meta));

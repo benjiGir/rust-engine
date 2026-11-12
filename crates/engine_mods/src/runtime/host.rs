@@ -103,6 +103,7 @@ pub(super) fn define_host_functions(linker: &mut Linker<HostState>) -> wasmtime:
     define_calls(linker)?;
     define_commands(linker)?;
     define_mobs(linker)?;
+    define_dimensions(linker)?;
     Ok(())
 }
 
@@ -984,6 +985,38 @@ fn define_mobs(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
                     mob: mob as u32,
                     value: value as u32,
                 });
+        },
+    )?;
+    Ok(())
+}
+
+/// Les dimensions : savoir où l'on est, et y emmener le joueur.
+fn define_dimensions(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        "voxel",
+        "travel_to",
+        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> HostResult<i32> {
+            if len > 64 {
+                return Ok(0);
+            }
+            let dimension = read_string(&mut caller, ptr, len)?;
+            // Le jeu vérifie que la dimension existe et que le monde est sauvegardé.
+            caller
+                .data_mut()
+                .requests
+                .actions
+                .push(MachineAction::Travel { dimension });
+            Ok(1)
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "dimension",
+        |mut caller: Caller<'_, HostState>, out_ptr: i32, cap: i32| -> HostResult<i32> {
+            let key = caller.data().content.dimension.to_string();
+            let n = key.len().min(cap.max(0) as usize);
+            write_guest(&mut caller, out_ptr, &key.as_bytes()[..n])?;
+            Ok(key.len() as i32)
         },
     )?;
     Ok(())

@@ -20,6 +20,7 @@ mod chunk;
 mod circuits;
 mod containers;
 mod crafting;
+mod dimension;
 mod far;
 mod farming;
 mod fluid_sim;
@@ -63,6 +64,7 @@ pub use crafting::{
     BrewRecipe, Brewing, Ingredient, LootEntry, LootTables, MachineRecipe, MachineRecipes, Recipe,
     Recipes, Smelting, SmeltingRecipe,
 };
+pub use dimension::{DimensionDef, DimensionRegistry, OVERWORLD, SkyDef, WorldKind};
 pub use far::{
     CELLS as FAR_CELLS, FarConfig, FarEvent, FarMesh, FarStats, FarStreamer, FarTile, build_tile,
     select_tiles,
@@ -96,7 +98,7 @@ pub use networks::{
     ENERGY_RATE, Endpoint, FLUID_RATE, Network, NetworkKind, NetworkStats, Networks,
 };
 pub use pathfind::{Path, PathRules, find_path};
-pub use physics::{PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
+pub use physics::{GRAVITY, PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
 pub use plants::{Precipitation, precipitation_at};
 pub use raycast::{RayHit, ray_aabb, raycast};
 pub use registry::{

@@ -87,6 +87,10 @@ pub enum MachineAction {
         mob: u32,
         value: u32,
     },
+    /// Faire passer le joueur dans une dimension (`mon_mod:ma_dimension`).
+    Travel {
+        dimension: String,
+    },
     /// Afficher (ou mettre à jour) la page d'options du mod.
     ShowOptions {
         mod_id: String,

@@ -18,6 +18,25 @@
         hardness: 1.5, tool: Pickaxe,
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
+    // Un portail : le joueur qui s'y tient 1,5 seconde passe dans la dimension `portal` (voir
+    // dimensions.ron). Il ne bloque pas le passage (`solid: false`) ; sa surface est translucide.
+    (
+        id: "mecanique:gate", name: "Portail de la Fonderie", color: (0.8, 0.35, 0.1), texture: "gate",
+        boxes: [(from: (0, 0, 6), to: (2, 16, 10)), (from: (14, 0, 6), to: (16, 16, 10)),
+                (from: (2, 14, 6), to: (14, 16, 10)), (from: (2, 0, 7.5), to: (14, 14, 8.5))],
+        solid: false, alpha: 0.8, light_emission: 9, portal: "mecanique:foundry",
+        hardness: 1.0, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_glass", place: "core:place_hard"),
+    ),
+    // Le portail de retour, posé par le jeu à l'arrivée dans la Fonderie.
+    (
+        id: "mecanique:return_gate", name: "Portail du retour", color: (0.2, 0.4, 0.8), texture: "return_gate",
+        boxes: [(from: (0, 0, 6), to: (2, 16, 10)), (from: (14, 0, 6), to: (16, 16, 10)),
+                (from: (2, 14, 6), to: (14, 16, 10)), (from: (2, 0, 7.5), to: (14, 14, 8.5))],
+        solid: false, alpha: 0.8, light_emission: 9, portal: "core:overworld", placeable: false,
+        hardness: 1.0, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_glass", place: "core:place_hard"),
+    ),
     // Une courroie : un conduit d'**objets** (`conduit: Items`). Elle relie les inventaires qui la
     // touchent : les machines rendent par leurs sorties, reçoivent dans leurs entrées, et les
     // coffres servent de tampon. `channel` sépare les réseaux (des courroies d'un autre canal ne

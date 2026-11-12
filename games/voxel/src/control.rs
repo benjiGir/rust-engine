@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-9 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | mods | console [texte] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | mods | travel dimension | console [texte] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -189,6 +189,8 @@ pub enum Command {
     /// La pause, la reprise, la page d'options d'un mod, et une action du joueur dans cette page.
     /// La consommation de temps de chaque mod.
     Mods,
+    /// Passe dans une dimension (`mon_mod:ma_dimension`) : le monde est rechargé.
+    Travel(String),
     /// Ouvre la console (sans texte) ou y valide une ligne.
     Console(Option<String>),
     Pause,
@@ -398,6 +400,10 @@ pub fn parse(line: &str) -> Result<Command> {
         "use" => Command::Use,
         "respawn" => Command::Respawn,
         "mods" => Command::Mods,
+        "travel" => {
+            count(&[1])?;
+            Command::Travel(args[0].to_string())
+        }
         "console" => Command::Console((!args.is_empty()).then(|| args.join(" "))),
         "pause" => Command::Pause,
         "resume" => Command::Resume,
@@ -897,6 +903,16 @@ impl VoxelGame {
                 }
                 Ok(ok())
             }
+            Command::Travel(key) => {
+                if self.travel(&key) {
+                    Ok(ok())
+                } else {
+                    bail!(
+                        "voyage impossible vers « {key} » (dimensions : {})",
+                        self.dimension_names().join(", ")
+                    )
+                }
+            }
             Command::Mods => {
                 let disabled = self.mods.disabled();
                 let rows: Vec<String> = self
@@ -1085,7 +1101,7 @@ impl VoxelGame {
         format!(
             "{{\"ok\":true,\"mode\":\"{mode}\",\"move\":\"{}\",\"pos\":{},\"on_ground\":{},\"in_liquid\":{},\"frozen\":{},\
 \"yaw\":{:.1},\"pitch\":{:.1},\"health\":[{:.1},{:.1}],\"time\":{:.3},\"clock\":{},\
-\"biome\":{},\"target\":{target},\"selected\":{selected},\"walking\":{},\
+\"dimension\":{},\"biome\":{},\"target\":{target},\"selected\":{selected},\"walking\":{},\
 \"chunks\":{{\"loaded\":{},\"queued\":{},\"idle\":{}}},\
 \"render\":{{\"drawn\":{},\"hidden\":{},\"total\":{},\"triangles\":{},\"cave_culling\":{}}},\
 \"survival\":{{\"air\":{:.2},\"burning\":{:.2},\"protection\":{},\
@@ -1105,6 +1121,7 @@ impl VoxelGame {
             health.max,
             self.day.time,
             json_str(&self.day.clock()),
+            json_str(&self.dims.current.key),
             json_str(&biome),
             self.remote.walk.is_some(),
             stats.loaded,

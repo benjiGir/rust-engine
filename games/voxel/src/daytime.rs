@@ -41,6 +41,9 @@ pub struct DayCycle {
     /// Durée d'une journée complète, en secondes réelles.
     pub day_length: f32,
     pub speed: TimeSpeed,
+    /// Le ciel d'une dimension à lumière fixe : (couleur du ciel, lumière de 0 à 1). `None` :
+    /// le cycle du jour.
+    fixed_sky: Option<(Vec3, f32)>,
 }
 
 impl DayCycle {
@@ -49,6 +52,7 @@ impl DayCycle {
             time: time.rem_euclid(1.0),
             day_length: day_length.max(1.0),
             speed: TimeSpeed::Normal,
+            fixed_sky: None,
         }
     }
 
@@ -60,6 +64,15 @@ impl DayCycle {
         };
         // `rem_euclid` : reste toujours entre 0 et 1, même après minuit.
         self.time = (self.time + dt * factor / self.day_length).rem_euclid(1.0);
+    }
+
+    /// Le ciel d'une dimension : une couleur et une lumière fixes (sans cycle), ou un seul des deux.
+    /// `None, None` : le cycle du jour habituel.
+    pub fn set_dimension_sky(&mut self, color: Option<Vec3>, daylight: Option<f32>) {
+        self.fixed_sky = match (color, daylight) {
+            (None, None) => None,
+            (color, light) => Some((color.unwrap_or(DAY_SKY), light.unwrap_or(1.0))),
+        };
     }
 
     /// Normal → accéléré → figé → normal.
@@ -84,23 +97,35 @@ impl DayCycle {
 
     /// La nuit : le soleil est sous l'horizon (on peut dormir).
     pub fn is_night(&self) -> bool {
+        if let Some((_, light)) = self.fixed_sky {
+            return light < 0.3;
+        }
         self.sun_direction().y < 0.0
     }
 
     /// L'intensité de la lumière du ciel, de [`MOONLIGHT`] (la nuit) à 1.
     pub fn daylight(&self) -> f32 {
+        if let Some((_, light)) = self.fixed_sky {
+            return light;
+        }
         MOONLIGHT + (1.0 - MOONLIGHT) * self.day_factor()
     }
 
     /// La couleur du ciel (et du brouillard) : bleu le jour, orangé au lever et
     /// au coucher, presque noir la nuit.
     pub fn sky_color(&self) -> Vec3 {
+        if let Some((color, _)) = self.fixed_sky {
+            return color;
+        }
         let base = NIGHT_SKY.lerp(DAY_SKY, self.day_factor());
         base.lerp(SUNSET_SKY, self.sunset_factor() * 0.75)
     }
 
     /// La teinte de la lumière du ciel : orangée près de l'horizon, bleutée la nuit.
     pub fn sun_color(&self) -> Vec3 {
+        if self.fixed_sky.is_some() {
+            return Vec3::ONE;
+        }
         let day = Vec3::ONE.lerp(SUNSET_LIGHT, self.sunset_factor() * 0.85);
         MOON_LIGHT.lerp(day, self.day_factor())
     }

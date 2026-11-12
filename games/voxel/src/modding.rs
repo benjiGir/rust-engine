@@ -425,8 +425,9 @@ pub fn terrain(
     seed: u32,
     registry: &Arc<BlockRegistry>,
     mods: &[(String, PathBuf)],
+    dimension: &engine_voxel::DimensionDef,
 ) -> anyhow::Result<engine_voxel::TerrainGenerator> {
-    match engine_voxel::TerrainGenerator::with_mods(seed, registry.clone(), mods) {
+    match engine_voxel::TerrainGenerator::with_dimension(seed, registry.clone(), mods, dimension) {
         Ok(generator) => Ok(generator),
         Err(err) => {
             log::error!("génération du monde des mods refusée : {err:#}");

@@ -106,6 +106,9 @@ pub struct BlockDef {
     /// Le canal d'un conduit (`mon_mod:vapeur`) : deux conduits de même sorte ne se relient que
     /// s'ils ont le même canal. Sans canal, tous les conduits de la sorte se relient.
     pub channel: Option<String>,
+    /// Un portail : le joueur qui s'y tient quelques secondes passe dans cette dimension
+    /// (`mon_mod:ma_dimension`, ou `core:overworld` pour revenir).
+    pub portal: Option<String>,
     /// Le débit d'un conduit : au plus ce nombre d'unités par passage (le plus faible du réseau
     /// l'emporte). Sans valeur : le débit par défaut de la sorte.
     pub throughput: Option<u32>,
@@ -392,6 +395,8 @@ struct BlockFileEntry {
     #[serde(default)]
     channel: Option<String>,
     #[serde(default)]
+    portal: Option<String>,
+    #[serde(default)]
     throughput: Option<u32>,
     #[serde(default)]
     ports: Option<InventoryPorts>,
@@ -463,6 +468,7 @@ impl BlockRegistry {
             states: Vec::new(),
             conduit: None,
             channel: None,
+            portal: None,
             throughput: None,
             ports: None,
             base: None,
@@ -686,6 +692,7 @@ impl BlockRegistry {
                 states: entry.states.clone(),
                 conduit: entry.conduit,
                 channel: entry.channel.as_ref().map(|c| qualify(c, namespace)),
+                portal: entry.portal.as_ref().map(|p| qualify(p, namespace)),
                 throughput: entry.throughput,
                 ports: entry.ports.clone().map(|mut p| {
                     p.accepts = p.accepts.map(|a| qualify(&a, namespace));

@@ -132,6 +132,7 @@ impl Harness {
             items: Arc::new(items),
             machine_recipes: Arc::new(recipes),
             mob_keys: mob_keys.clone(),
+            dimension: "core:overworld".into(),
         });
         host.set_settings(settings.clone());
         let world_data = Rc::new(RefCell::new(ModSettings::default().for_world()));

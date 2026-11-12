@@ -182,6 +182,10 @@ unsafe extern "C" {
     pub fn mob_attack(mob: i32, damage: f32);
     /// Pendant `on_mobs` : la mémoire de la créature (un entier de votre choix, rendu dans `state` au prochain appel).
     pub fn mob_state(mob: i32, value: i32);
+    /// Fait passer le joueur dans cette dimension (`mon_mod:ma_dimension`) : le monde est sauvegardé puis rechargé, et le joueur arrive au sol aux mêmes x et z. 1 si le voyage est lancé, 0 si la dimension est inconnue ou si le monde n'est pas sauvegardé.
+    pub fn travel_to(ptr: i32, len: i32) -> i32;
+    /// Copie l'identifiant de la dimension où se trouve le joueur (`core:overworld`, `mon_mod:ma_dimension`) ; renvoie sa taille.
+    pub fn dimension(out_ptr: i32, cap: i32) -> i32;
     /// Déclare la commande `/nom` du mod (à appeler dans `init`) avec sa ligne d'aide : le joueur la tape dans la console, et le mod la reçoit dans `on_command`.
     pub fn register_command(name_ptr: i32, name_len: i32, help_ptr: i32, help_len: i32);
     /// Appelle la fonction `name` du mod `mod` avec ces octets (64 Kio au plus) ; copie sa réponse (au plus `cap` octets) et renvoie sa taille. −1 si le mod est absent, désactivé, hors budget, déjà en cours d'appel (pas de cycle) ou s'il ne répond pas.
@@ -408,6 +412,14 @@ mod inert {
     pub unsafe fn mob_attack(_: i32, _: f32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn mob_state(_: i32, _: i32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn travel_to(_: i32, _: i32) -> i32 {
+        0
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn dimension(_: i32, _: i32) -> i32 {
+        -1
+    }
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn register_command(_: i32, _: i32, _: i32, _: i32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]

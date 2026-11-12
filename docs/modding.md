@@ -39,6 +39,7 @@ mods/example/
 ├── fluids.ron         # ses fluides (facultatif)
 ├── entities.ron       # ses créatures, avec ou sans `brain: true` (facultatif)
 ├── ores.ron, biomes.ron, structures.ron   # le monde généré (facultatifs)
+├── dimensions.ron     # ses dimensions et leurs portails (facultatif)
 ├── items.ron          # ses objets (facultatif)
 ├── machine_recipes.ron # les recettes de ses machines (facultatif)
 ├── textures/          # PNG 16×16, nommés comme dans blocks.ron
@@ -638,6 +639,13 @@ test vérifie que le jeu définit exactement ces fonctions.
 | `mob_attack(mob: i32, damage: f32)` | Pendant `on_mobs` : la créature blesse le joueur s'il est à portée de bras (3 blocs) et si elle n'a pas frappé depuis une seconde. |
 | `mob_state(mob: i32, value: i32)` | Pendant `on_mobs` : la mémoire de la créature (un entier de votre choix, rendu dans `state` au prochain appel). |
 
+*Dimensions*
+
+| Fonction | Rôle |
+|---|---|
+| `travel_to(ptr: i32, len: i32) -> i32` | Fait passer le joueur dans cette dimension (`mon_mod:ma_dimension`) : le monde est sauvegardé puis rechargé, et le joueur arrive au sol aux mêmes x et z. 1 si le voyage est lancé, 0 si la dimension est inconnue ou si le monde n'est pas sauvegardé. |
+| `dimension(out_ptr: i32, cap: i32) -> i32` | Copie l'identifiant de la dimension où se trouve le joueur (`core:overworld`, `mon_mod:ma_dimension`) ; renvoie sa taille. |
+
 *Commandes*
 
 | Fonction | Rôle |
@@ -777,6 +785,44 @@ compte dans le budget par tick du mod ; hors budget, le lot est sauté et les cr
 derniers ordres. Le gardien du mod d'exemple (`example:guard`) rôde, poursuit le joueur, frappe de
 près et fuit quand il est blessé ; son test sans fenêtre (`h.mobs(&[MobSnapshot {..}])`) vérifie
 chaque état.
+
+## Les dimensions
+
+Une dimension est un monde parallèle, décrit dans le `dimensions.ron` d'un mod : son générateur, son
+ciel, sa gravité. Chacune est **sauvegardée à part** (`saves/<monde>/dimensions/<nom>/`), et le joueur,
+lui, est un seul : inventaire, vie, faim et expérience le suivent d'une dimension à l'autre.
+
+```ron
+[(id: "mon_mod:fonderie", name: "La Fonderie",
+  generator: Terrain(biomes: ["core:desert"]), seed_offset: 777,
+  sky: (color: (0.35, 0.12, 0.08), daylight: 0.55),
+  gravity: 0.6,
+  arrival: "mon_mod:portail_retour")]
+```
+
+| Champ | Rôle |
+|---|---|
+| `generator: Terrain(biomes: [...])` | le terrain du jeu (collines, océans, grottes, structures), limité à ces biomes de terre (vide : tous) |
+| `generator: Flat(layers: [("core:stone", 40), ...], biome: ...)` | un monde plat : des couches de bas en haut depuis y = 0, 200 blocs au plus |
+| `generator: Void(platform: "core:stone")` | le vide, avec (facultatif) une plateforme de 17 blocs de côté à y = 64 autour de l'origine |
+| `seed_offset` | ajouté à la graine du monde : une autre carte dans cette dimension |
+| `sky` | `color` : le ciel et le brouillard ; `daylight` : une lumière de 0 à 1, fixe (pas de cycle jour/nuit). Absents : le ciel habituel |
+| `gravity` | un multiple de la gravité normale (0,05 à 4) ; pour le joueur et les créatures |
+| `arrival` | le bloc posé à deux blocs du joueur à son arrivée : en général le portail de retour |
+
+**Les portails** : un bloc dont `blocks.ron` dit `portal: "mon_mod:fonderie"` (ou `"core:overworld"` pour
+revenir) emmène le joueur qui s'y tient 1,5 seconde. Il n'a pas besoin d'être solide (`solid: false`) ; on
+peut le dessiner en boîtes translucides. Après une arrivée il faut sortir d'un portail avant d'en reprendre
+un. Un script voyage aussi : `travel_to("mon_mod:fonderie")` (par exemple depuis un objet ou une commande)
+et `dimension()` donne l'identifiant de celle où l'on est ; la console a `/travel <dimension>`.
+
+**Passer une dimension, c'est recharger le monde** : le jeu sauvegarde, note la destination dans
+`world.ron`, puis relance le monde par le chemin du menu ; le joueur arrive au sol aux mêmes x et z. Les
+créatures, objets au sol et scripts repartent à neuf : ce qui doit rester va dans `set_world_value`
+(les données du mod, propres au monde, se retrouvent). Les dimensions demandent un monde sauvegardé (pas
+le monde jetable). Si le mod d'une dimension est retiré, le joueur qui s'y trouvait est ramené à la
+dimension de départ. Une dimension peut aussi avoir ses propres minerais et structures (`ores.ron`,
+`structures.ron` du mod s'appliquent à toute dimension de type `Terrain`).
 
 ## Les coûts mesurés
 

@@ -46,6 +46,11 @@ const GAME_COMMANDS: &[(&str, &str, &str)] = &[
         "/summon <créature> : faire apparaître une créature",
     ),
     ("tp", "goto", "/tp <x> <y> <z> : se téléporter"),
+    (
+        "travel",
+        "travel",
+        "/travel <dimension> : changer de dimension (le monde est rechargé)",
+    ),
     ("xp", "xp", "/xp <points> : gagner de l'expérience"),
 ];
 

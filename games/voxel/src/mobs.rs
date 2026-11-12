@@ -296,6 +296,11 @@ pub fn physics(world: &mut World) {
         .unwrap_or_default();
     let shared = world.streamer();
     let streamer = shared.borrow();
+    // La gravité de la dimension (un multiple de la normale).
+    let gravity = engine_voxel::GRAVITY
+        * world
+            .get_resource::<crate::components::GravityScale>()
+            .map_or(1.0, |g| g.0);
     // Les structures mobiles, s'il y en a : une entité qui s'y tient se déplace dans leur repère.
     let subs = world
         .get_resource::<crate::shared::SharedSubGrids>()
@@ -330,6 +335,7 @@ pub fn physics(world: &mut World) {
                     );
                     body.velocity = grid.direction_to_local(velocity.0);
                     body.on_ground = collider.on_ground;
+                    body.gravity = gravity;
                     body.step(
                         grid.world(),
                         grid.direction_to_local(intent.walk),
@@ -346,6 +352,7 @@ pub fn physics(world: &mut World) {
                     PlayerBody::with_size(transform.position, collider.width, collider.height);
                 body.velocity = velocity.0;
                 body.on_ground = collider.on_ground;
+                body.gravity = gravity;
                 body.impulse = world.get::<Impulse>(entity).map_or(Vec3::ZERO, |i| i.0);
                 collider.frozen = !surroundings_ready(&streamer, &body);
                 if collider.frozen {

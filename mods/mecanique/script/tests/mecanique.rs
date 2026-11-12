@@ -208,7 +208,7 @@ fn the_generator_places_workshops_with_their_machines_and_loot() {
 fn the_commands_are_declared_and_answer() {
     let mut h = Harness::for_mod("mecanique").unwrap();
     let names: Vec<String> = h.commands().into_iter().map(|(n, _)| n).collect();
-    assert_eq!(names, ["tours", "manivelle"]);
+    assert_eq!(names, ["fonderie", "retour", "tours", "manivelle"]);
     let (reply, _) = h.command("tours", "").unwrap();
     assert!(reply.unwrap().contains("0 fois"));
     // `/manivelle 100` règle la vitesse de la manivelle, comme la page d'options.
@@ -250,4 +250,46 @@ fn belts_are_item_conduits_and_the_press_declares_its_ports() {
     assert_eq!((ports.inputs, ports.outputs), (vec![0], vec![1]));
     // Seuls les objets que ses recettes consomment entrent : le type de recette est le sien.
     assert_eq!(ports.accepts.as_deref(), Some("mecanique:press"));
+}
+
+#[test]
+fn the_foundry_dimension_and_its_portals_are_declared() {
+    use engine_voxel::{BiomeRegistry, DimensionRegistry, WorldKind};
+    let h = Harness::for_mod("mecanique").unwrap();
+    let mods = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dirs: Vec<(String, std::path::PathBuf)> = ["example", "mecanique"]
+        .iter()
+        .map(|m| (m.to_string(), mods.join(m)))
+        .collect();
+    let biomes = BiomeRegistry::load_mods(&h.registry, &dirs).unwrap();
+    let dimensions = DimensionRegistry::load_mods(&h.registry, &biomes, &dirs).unwrap();
+    let foundry = dimensions.get("mecanique:foundry").expect("la Fonderie");
+    assert_eq!(foundry.gravity, 0.6);
+    assert_eq!(foundry.seed_offset, 777);
+    assert!(matches!(&foundry.kind, WorldKind::Terrain { biomes } if biomes.len() == 1));
+    // Le portail de départ mène à la Fonderie, celui d'arrivée ramène ; les deux se traversent.
+    let gate = h.registry.def(h.block_id("mecanique:gate"));
+    assert_eq!(gate.portal.as_deref(), Some("mecanique:foundry"));
+    assert!(!gate.solid);
+    assert_eq!(foundry.arrival, Some(h.block_id("mecanique:return_gate")));
+    let back = h.registry.def(h.block_id("mecanique:return_gate"));
+    assert_eq!(back.portal.as_deref(), Some("core:overworld"));
+}
+
+#[test]
+fn the_travel_commands_ask_the_game_to_change_dimension() {
+    use engine_voxel::MachineAction;
+    let mut h = Harness::for_mod("mecanique").unwrap();
+    let (reply, requests) = h.command("fonderie", "").unwrap();
+    assert_eq!(reply.as_deref(), Some("En route…"));
+    assert_eq!(
+        requests.actions,
+        vec![MachineAction::Travel {
+            dimension: "mecanique:foundry".into()
+        }]
+    );
+    // Dans le monde de départ, `/retour` n'a rien à faire.
+    let (reply, requests) = h.command("retour", "").unwrap();
+    assert_eq!(reply.as_deref(), Some("Vous y êtes déjà."));
+    assert!(requests.actions.is_empty());
 }

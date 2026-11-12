@@ -261,6 +261,7 @@ impl VoxelGame {
                                                     seed: None,
                                                     title: false,
                                                     difficulty: None,
+                                                    dimension: None,
                                                 }));
                                             }
                                         }
@@ -342,6 +343,7 @@ impl VoxelGame {
                             seed: Some(parse_seed(&seed)),
                             title: false,
                             difficulty: Some(difficulty),
+                            dimension: None,
                         }));
                     }
                 }

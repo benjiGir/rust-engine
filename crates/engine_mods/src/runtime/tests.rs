@@ -506,6 +506,7 @@ fn content_host(streamer: &Rc<RefCell<ChunkStreamer>>) -> ScriptHost {
         items: Arc::new(items),
         machine_recipes: Arc::new(recipes),
         mob_keys: Default::default(),
+        dimension: "core:overworld".into(),
     });
     host
 }

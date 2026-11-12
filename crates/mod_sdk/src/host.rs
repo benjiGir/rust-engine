@@ -624,6 +624,25 @@ pub fn mob_state(mob: crate::mobs::MobId, value: u32) {
     unsafe { ffi::mob_state(mob.0 as i32, value as i32) }
 }
 
+/// Fait passer le joueur dans cette dimension (`"mon_mod:ma_dimension"`, ou `"core:overworld"` pour
+/// revenir) : le monde est sauvegardé puis rechargé, et le joueur arrive au sol aux mêmes x et z.
+/// Les scripts repartent à neuf après le voyage : ce qui doit rester va dans
+/// [`set_world_value`]. Renvoie `true` si le voyage est lancé.
+pub fn travel_to(dimension: &str) -> bool {
+    let (ptr, len) = addr(dimension.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `dimension`.
+    unsafe { ffi::travel_to(ptr, len) != 0 }
+}
+
+/// L'identifiant de la dimension où se trouve le joueur.
+pub fn dimension() -> String {
+    let mut buffer = vec![0u8; 64];
+    // SAFETY: l'hôte écrit au plus `cap` octets à `ptr`, qui pointent dans `buffer`.
+    let len = unsafe { ffi::dimension(buffer.as_mut_ptr() as usize as i32, buffer.len() as i32) };
+    buffer.truncate((len.max(0) as usize).min(buffer.len()));
+    String::from_utf8_lossy(&buffer).into_owned()
+}
+
 /// Au plus ce nombre d'octets pour les arguments et la réponse d'un appel entre mods.
 pub const MAX_CALL_BYTES: usize = 64 * 1024;
 

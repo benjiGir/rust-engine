@@ -68,14 +68,15 @@ pub fn check_mods(meta: &WorldMeta, registry: &BlockRegistry) {
 
 impl VoxelGame {
     /// L'état du jeu à écrire dans `world.ron`.
-    fn world_meta(&self) -> WorldMeta {
+    pub(crate) fn world_meta(&self) -> WorldMeta {
         let selected = self
             .inventory
             .selected_item()
             .map(|id| self.content.items.get(id).key.clone());
         WorldMeta {
             format_version: FORMAT_VERSION,
-            seed: self.streamer().generator().seed(),
+            // La graine du monde : celle du générateur de la dimension y ajoute son décalage.
+            seed: self.dims.base_seed,
             time_of_day: self.day.time,
             player: Some(PlayerSave {
                 position: crate::player::eye(&self.ecs, self.player, 1.0).to_array(),
@@ -95,6 +96,14 @@ impl VoxelGame {
             inventory: Vec::new(),
             items: Some(self.inventory.to_save(&self.content.items)),
             difficulty: self.difficulty,
+            // En partance pour une autre dimension : `world.ron` annonce déjà l'arrivée (le jeu se
+            // sauvegarde encore une fois en se déchargeant : il ne doit pas l'effacer).
+            dimension: self
+                .dims
+                .leaving
+                .clone()
+                .unwrap_or_else(|| self.dims.current.key.clone()),
+            arriving: self.dims.leaving.is_some(),
         }
     }
 
@@ -122,8 +131,13 @@ impl VoxelGame {
             return;
         }
         self.last_autosave = Instant::now();
-        // `world.ron` est minuscule : on l'écrit directement.
-        if let Err(err) = store.save_meta(&self.world_meta()) {
+        // `world.ron` est minuscule : on l'écrit directement, à la racine du monde.
+        let meta_store = self
+            .dims
+            .meta_store
+            .clone()
+            .unwrap_or_else(|| store.clone());
+        if let Err(err) = meta_store.save_meta(&self.world_meta()) {
             log::error!("sauvegarde de world.ron : {err:#}");
         }
         if let Err(err) = engine_voxel::save_grids(store.dir(), &self.mods.subgrids.borrow()) {
@@ -142,7 +156,12 @@ impl VoxelGame {
             return;
         };
         let start = Instant::now();
-        let meta = store.save_meta(&self.world_meta());
+        let meta_store = self
+            .dims
+            .meta_store
+            .clone()
+            .unwrap_or_else(|| store.clone());
+        let meta = meta_store.save_meta(&self.world_meta());
         if let Err(err) = engine_voxel::save_grids(store.dir(), &self.mods.subgrids.borrow()) {
             log::error!("sauvegarde des structures mobiles : {err:#}");
         }
