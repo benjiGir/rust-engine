@@ -87,7 +87,7 @@ fn extrude(pixels: &[u8]) -> Vec<CubeInstance> {
                     0.5 - (y as f32 + 0.5) / 16.0,
                     0.0,
                 ),
-                Vec3::new((x - start) as f32 / 16.0, 1.0 / 16.0, 1.5 / 16.0),
+                Vec3::new((x - start) as f32 / 16.0, 1.0 / 16.0, 1.0 / 16.0),
                 Vec3::new(linear(pixel[0]), linear(pixel[1]), linear(pixel[2])),
             ));
         }
@@ -107,7 +107,7 @@ mod tests {
         }
         let parts = extrude(&pixels);
         assert_eq!(parts.len(), 1);
-        assert_eq!(parts[0].size, [4.0 / 16.0, 1.0 / 16.0, 1.5 / 16.0]);
+        assert_eq!(parts[0].size, [4.0 / 16.0, 1.0 / 16.0, 1.0 / 16.0]);
         assert_eq!(parts[0].color, [1.0, 0.0, 0.0]);
     }
 

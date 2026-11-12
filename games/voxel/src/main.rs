@@ -51,6 +51,7 @@ mod enchanting;
 mod events;
 mod far_terrain;
 mod hand;
+mod hand_model;
 mod hot_reload;
 mod interact;
 mod launch;
@@ -1093,6 +1094,9 @@ impl VoxelGame {
             .world()
             .light(self.camera.position.floor().as_ivec3());
         let held = self.inventory.selected_item();
+        let size = ctx.window.inner_size();
+        self.hand
+            .set_aspect_ratio(size.width as f32 / size.height.max(1) as f32);
         // Mort : plus de bras.
         let arm = if matches!(self.mode, Mode::Dead(_)) {
             Vec::new()

@@ -1,0 +1,3 @@
+Appliquer le profil de référence Minecraft aux outils en main
+
+Utiliser l'origine centrée, les rotations, la translation et l'échelle du profil handheld Java, ainsi que sa trajectoire de frappe. Supprimer les prises et tailles inventées par famille, conserver les dessins originaux et vérifier les repères du rendu de référence.

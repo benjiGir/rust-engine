@@ -15,8 +15,9 @@ Cette planche utilise le thème et les images du jeu, avec un rendu CPU sans fen
   de pixels ; les détails isolés servent aux arêtes et aux cristaux.
 - Palette ramenée à 32 niveaux par canal, ombres légèrement froides, reflets chauds.
   La transparence des plantes, feuilles et objets est conservée.
-- Outils dessinés en diagonale, manche en bas à gauche. Les points de prise sont
-  définis dans `games/voxel/src/hand.rs` et vérifiés contre les icônes.
+- Outils dessinés en diagonale, manche en bas à gauche. Les repères des manches sont
+  vérifiés contre les icônes dans `games/voxel/src/hand_model.rs` ; la pose en main
+  utilise l'origine centrée du modèle.
   La pioche porte une tête transversale à deux pointes ; la hache une large lame
   à talon ; la pelle un fer de bêche et une poignée en D.
 - Les aliments ont des silhouettes dédiées. Le four conserve sa bouche aux pixels
@@ -74,6 +75,20 @@ Cette fiche s'inspire du principe de Jade, avec nos cadres, couleurs et dessins.
 Le bras porte une manche vert grisé et un poignet couleur cuir. Les habitants portent
 des tabliers et accessoires associés à leur métier ; la faune utilise des tons naturels.
 Les ciels et la lumière du soir reprennent cette palette.
+
+Les outils et armes en main utilisent le modèle extrudé commun au sol et aux
+transports : silhouette originale de l'icône, épaisseur d'un pixel et couleurs
+linéaires. Le profil d'affichage reprend les paramètres `firstperson_righthand`
+du modèle Minecraft `item/handheld` : rotation (0°, −90°, 25°), translation
+(1,13 ; 3,2 ; 1,13) en seizièmes et échelle uniforme 0,68. Il s'applique au modèle
+centré, après l'ancrage de vue (0,56 ; −0,52 ; −0,72) et la trajectoire de frappe.
+La rotation latérale et la perspective rendent la grande face oblique ; le manche
+peut sortir du cadre en bas ou à droite. Les familles n'ont plus de taille ou de
+prise artificielle propre. Le format de la fenêtre change la projection, pas ce
+profil. La main vide garde le bras. La projection de main reste à 70°, indépendante
+du champ de vision du monde. Les réglages et le cache sont dans `hand_model.rs` ;
+`hand.rs` relie les animations au joueur. Aucun dessin ni fichier graphique de
+Minecraft n'est intégré au jeu.
 
 ## Régénérer et contrôler
 

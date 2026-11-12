@@ -332,6 +332,109 @@ Le test de socket précédemment bloqué passe dans l'environnement actuel, sans
 exclusion ni modification du test. Le nouveau lancement natif a en revanche encore
 échoué sur `com.apple.hiservices-xpcservice`, avant l'ouverture du serveur de contrôle.
 
+## Lot 8 — première proposition d'outils en main, remplacée par le lot 9
+
+Comparaison : [avant](08-main-avant.png) / [après](08-main-apres.png).
+Autres contrôles : [pendant le geste](08-main-geste.png) et
+[fenêtre portrait](08-main-portrait.png), ainsi que les
+[outils de Forge](08-main-forge.png).
+
+La référence étudiée est le modèle classique `item/handheld`, décrit dans la
+[documentation des outils Fabric](https://docs.fabricmc.net/develop/items/custom-tools)
+et celle des [modèles d'objets](https://docs.fabricmc.net/develop/items/item-models).
+Il s'agit d'une silhouette d'icône épaissie, avec une translation, une rotation et
+une échelle propres à la main. Aucun fichier, dessin ou paramètre de modèle de
+Minecraft n'est importé.
+
+Les outils sont plus grands et inclinés vers la droite : tailles de 0,50 à 0,84
+selon la famille, contre 0,44 auparavant. La vue classique remplace l'avant-bras par
+l'outil ; la main vide garde son bras. La prise reste sur le manche du dessin original.
+Le format de la fenêtre déplace l'ancrage et réduit la taille sur les vues étroites.
+Les animations existantes de frappe, de marche, de changement d'objet et d'inertie
+restent actives.
+Les objets classés `Tool` mais pilotés par script reçoivent aussi cette présentation,
+notamment le marteau de bronze de Forge, sans leur ajouter de capacité de minage.
+
+La main partage maintenant le modèle 3D utilisé au sol et dans les conduits.
+L'extrusion commune est affinée à un pixel, au lieu des 1,5 pixels du modèle au sol
+et des 1,2 pixels du rendu en main précédent. Le test de profondeur attend donc
+exactement 1/16 : il vérifie ce nouveau profil commun, avec les mêmes couleurs et
+trous de transparence. Les PNG, statistiques et règles d'utilisation sont inchangés.
+Le cache et les poses sont isolés dans `hand_model.rs`, pour vérifier les vraies
+matrices indépendamment d'une fenêtre native ; `hand.rs` raccorde les animations au joueur.
+
+Les tests de prise et d'animation sont conservés. De nouveaux contrôles vérifient
+que les six familles d'outils et les quatre outils de Forge utilisent le modèle commun, restent devant la caméra,
+gardent leur tête visible et laissent le rayon du réticule libre au repos sur cinq
+formats, de 3:4 à 21:9. La main vide et l'invalidation du cache par F5 sont vérifiées.
+
+```sh
+cargo run -p voxel --example hand_review -- rest /tmp/main.png
+cargo run -p voxel --example hand_review -- swing /tmp/geste.png
+cargo run -p voxel --example hand_review -- portrait /tmp/portrait.png
+cargo run -p voxel --example hand_review -- mods /tmp/forge.png
+```
+
+Les planches rendent les instances de production avec la projection de main de 70°,
+un tampon de profondeur et le relief des faces. Le fond est uni et l'éclairage de
+contrôle constant : elles ne remplacent pas une vérification du rendu en partie.
+
+Le test multi-sorties des conduits resté en échec lors de la déconnexion est corrigé :
+son montage signale maintenant tous les nouveaux tuyaux et le voisin raccordé au
+recalcul du réseau. Il vérifie bien que l'eau sort par la face de son réservoir,
+au lieu de la face réservée à la lave. La logique de transport n'a pas changé.
+
+Les six contrôles demandés passent pour ce lot : formatage, Clippy sans avertissement,
+tests complets du workspace, architecture, hooks et documentation. Le test de
+réservoir multi-sorties passe également. La nouvelle tentative native, sur un monde
+automatique jetable sans sauvegarde, reste bloquée au démarrage par
+`com.apple.hiservices-xpcservice` : le rendu en partie reste à confirmer.
+
+## Lot 9 — profil d'affichage Minecraft de référence
+
+La demande finale précise **l'affichage exact avec les dessins originaux**. La
+référence est la définition Java 1.21.8
+[`item/handheld`](https://mcasset.cloud/1.21.8/assets/minecraft/models/item/handheld.json)
+et la chaîne de transformation du rendu en première personne. Les fichiers de
+référence ont été consultés hors du projet ; aucune texture Minecraft n'est intégrée.
+
+Comparaison : [proposition précédente](08-main-apres.png) /
+[profil de référence](09-main-reference.png).
+[Contrôle pendant la frappe](09-main-geste.png) et
+[outils de Forge](09-main-forge.png).
+
+La pose n'est plus une grande face tournée vers l'écran, articulée autour d'un pixel
+du manche. Les outils utilisent tous l'origine centrée et l'échelle **0,68** du
+profil de référence. L'orientation **(0°, −90°, 25°)** tourne le plan de l'icône
+sur le côté ; sa translation **(1,13 ; 3,2 ; 1,13) / 16** s'ajoute à l'ancrage de vue
+**(0,56 ; −0,52 ; −0,72)**. La perspective de 70° produit la vue oblique du côté droit.
+Le bord du cadre peut couper une partie de l'objet, comme avec ce profil de
+référence ; les tailles et points de prise par famille du lot 8 ne sont plus utilisés.
+
+La frappe reprend une trajectoire courbe et les rotations successives de référence,
+avec une accélération déterminée par la racine du temps de frappe. L'équipement
+abaisse l'objet de 0,6 unité. Le balancement de marche et l'inertie existants restent
+ajoutés à cette pose. Les outils pilotés par script, dont le marteau de Forge, ont
+le même profil visuel sans changement de leurs capacités de jeu.
+
+Les anciens tests qui imposaient une tête vers l'avant et entièrement dans la
+fenêtre décrivaient la proposition rejetée. Ils sont remplacés par des repères
+numériques indépendants : centre projeté du modèle, trois axes, échelle uniforme,
+retour au repos et abaissement d'équipement. Les tests vérifient aussi que le format
+de fenêtre ne change pas le profil, et que les six familles du jeu et les quatre
+outils de Forge utilisent leurs vrais modèles et couleurs. Le contrôle des manches
+dans les dessins originaux, le rechargement des assets et les tests d'animation sont
+conservés.
+
+Les planches CPU utilisent le même renderer de contrôle que le lot 8. Le rendu
+natif reste à vérifier dans l'environnement graphique macOS ; ces images ne sont
+pas des captures d'une partie.
+
+Les six contrôles passent pour ce lot : `cargo fmt --check`, Clippy sans
+avertissement, tests complets du workspace, architecture, hooks et documentation.
+Les huit tests de la main passent, y compris les repères du profil de référence et
+les modèles des outils du jeu et de Forge.
+
 ## Commits et patchs
 
 L’écriture dans `.git` est interdite par l’environnement : `git add` échoue sur

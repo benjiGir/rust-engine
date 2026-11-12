@@ -1,0 +1,3 @@
+Revoir la présentation des outils et armes en main
+
+Partager le modèle extrudé entre la main, le sol et les conduits, avec une épaisseur d’un pixel. Agrandir et incliner les outils dans une pose dédiée, adapter leur ancrage aux fenêtres étroites et vérifier leur visibilité avec les vraies matrices de rendu. Corriger le montage du test multi-sorties des conduits.

@@ -199,7 +199,12 @@ fn liquid_trace_leaves_by_the_face_of_the_tank_actually_used() {
     }
     r.networks.rebuild(
         Grids::with_subgrids(&r.world, &r.grids),
-        &[GridPos::new(id, SOURCE)],
+        &[
+            GridPos::new(id, SOURCE),
+            GridPos::new(id, ROUTE[0]),
+            GridPos::new(id, SOURCE + IVec3::Z),
+            GridPos::new(id, IVec3::Z),
+        ],
     );
     r.tick();
     let events: Vec<_> = r
