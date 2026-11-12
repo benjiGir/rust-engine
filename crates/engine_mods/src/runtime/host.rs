@@ -258,11 +258,33 @@ fn define_blocks(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
             if id < 0 || id as usize >= state.registry.len() {
                 return 0;
             }
+            // Ce qu'un bloc à inventaire contenait tombe au sol quand on le remplace (dans le monde).
+            let spilled: Vec<engine_voxel::ItemStack> = read(state, at, |e| {
+                e.caps
+                    .as_ref()
+                    .and_then(|c| c.inventory.as_ref())
+                    .map(|i| i.slots.iter().flatten().cloned().collect())
+                    .unwrap_or_default()
+            })
+            .filter(|_| {
+                at.grid == engine_voxel::GridId::WORLD
+                    && grid(state, at.grid)
+                        .is_some_and(|g| g.borrow().block(at.pos) != BlockId(id as u16))
+            })
+            .unwrap_or_default();
             let done = grid(state, at.grid).is_some_and(|grid| {
                 grid.borrow_mut()
                     .set_block_quiet(at.pos, BlockId(id as u16))
             });
             if done {
+                for stack in spilled {
+                    state.requests.actions.push(MachineAction::DropStack {
+                        pos: at.pos,
+                        item: stack.item,
+                        count: stack.count,
+                        damage: stack.damage,
+                    });
+                }
                 // Le jeu préviendra les voisins après l'appel (le mod n'a pas à y penser).
                 state.requests.notify.push(at);
             }

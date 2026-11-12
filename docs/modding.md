@@ -456,7 +456,7 @@ ci-dessous). 10 000 machines en un appel coûtent bien moins que 10 000 appels.
 |---|---|
 | `log(texte)` | écrit dans le journal du jeu |
 | `block_id("core:stone") -> Option<Block>` | le numéro d'un bloc (il dépend des mods installés) |
-| `get_block(pos)`, `set_block(pos, bloc)` | lire, poser (les voisins sont prévenus) |
+| `get_block(pos)`, `set_block(pos, bloc)` | lire, poser (les voisins sont prévenus ; le contenu d'un coffre ou d'une machine remplacé tombe au sol) |
 | `power(pos)`, `received_power(pos)`, `set_power(pos, 0..15)` | la puissance, comme la redstone |
 | `data(pos)`, `set_data(pos, octets)` | l'état libre du bloc, sauvegardé avec le monde |
 | `schedule_tick(pos, délai)` | se faire réveiller dans `délai` ticks |
@@ -588,7 +588,7 @@ test vérifie que le jeu définit exactement ces fonctions.
 | `block_drops(id: i32, ptr: i32, cap: i32) -> i32` | Ce que lâcherait ce bloc cassé : `objet*nombre;objet*nombre`, écrit à `ptr` (au plus `cap` octets) ; renvoie la taille (0 : rien), −1 si le bloc n'existe pas. Le hasard est tiré à chaque appel. |
 | `block_base(id: i32) -> i32` | Le bloc de base d'un bloc à états : `example:stairs[facing=east]` donne `example:stairs`. Un bloc ordinaire se renvoie lui-même. |
 | `get_block(g: i32, x: i32, y: i32, z: i32) -> i32` | Le bloc à cette position (0 : de l'air, ou une grille inconnue). |
-| `set_block(g: i32, x: i32, y: i32, z: i32, id: i32) -> i32` | Pose un bloc ; les voisins sont prévenus. 1 si c'est fait. |
+| `set_block(g: i32, x: i32, y: i32, z: i32, id: i32) -> i32` | Pose un bloc ; les voisins sont prévenus. Si le bloc remplacé avait un inventaire (coffre, machine), son contenu tombe au sol. 1 si c'est fait. |
 | `get_power(g: i32, x: i32, y: i32, z: i32) -> i32` | La puissance émise par ce bloc (0 à 15). |
 | `received_power(g: i32, x: i32, y: i32, z: i32) -> i32` | La plus forte puissance reçue des 6 voisins. |
 | `set_power(g: i32, x: i32, y: i32, z: i32, power: i32) -> i32` | Change la puissance émise (0 à 15) ; les voisins sont prévenus. 1 si c'est fait. |

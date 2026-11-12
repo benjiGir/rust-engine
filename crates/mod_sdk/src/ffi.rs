@@ -52,7 +52,7 @@ unsafe extern "C" {
     pub fn block_base(id: i32) -> i32;
     /// Le bloc à cette position (0 : de l'air, ou une grille inconnue).
     pub fn get_block(g: i32, x: i32, y: i32, z: i32) -> i32;
-    /// Pose un bloc ; les voisins sont prévenus. 1 si c'est fait.
+    /// Pose un bloc ; les voisins sont prévenus. Si le bloc remplacé avait un inventaire (coffre, machine), son contenu tombe au sol. 1 si c'est fait.
     pub fn set_block(g: i32, x: i32, y: i32, z: i32, id: i32) -> i32;
     /// La puissance émise par ce bloc (0 à 15).
     pub fn get_power(g: i32, x: i32, y: i32, z: i32) -> i32;

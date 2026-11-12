@@ -1487,8 +1487,7 @@ impl VoxelGame {
             return false;
         }
         let tool = self.held_tool();
-        // Un coffre ou un four cassé lâche aussi ce qu'il contient.
-        let contents = self.container_contents(pos);
+        // (`edit` fait tomber ce que contenait un coffre, un four ou une machine.)
         if !self.edit(pos, BlockId::AIR) {
             return false;
         }
@@ -1498,9 +1497,6 @@ impl VoxelGame {
         if harvest {
             let points = self.roll_range(def.xp);
             self.grant_xp(points);
-        }
-        for stack in contents {
-            self.drop_stack(pos, stack);
         }
         if tool.is_some() && def.hardness > 0.0 && self.wear_held() {
             log::info!("l'outil s'est cassé");
@@ -1718,9 +1714,18 @@ impl VoxelGame {
 
     fn edit(&mut self, pos: IVec3, block: BlockId) -> bool {
         let old = self.streamer().world().block(pos);
+        // Un bloc à inventaire (coffre, four, machine de mod) lâche son contenu quand il change.
+        let contents = if old != block {
+            self.container_contents(pos)
+        } else {
+            Vec::new()
+        };
         let start = Instant::now();
         let done = self.streamer_mut().set_block(pos, block);
         if done {
+            for stack in contents {
+                self.drop_stack(pos, stack);
+            }
             self.frame_stats.record_edit(start.elapsed());
             // Les machines voisines (et la nouvelle, si c'en est une) se réveillent.
             let actions = self.mods.block_changed(pos);
@@ -1846,6 +1851,23 @@ impl VoxelGame {
                             mobs::spawn_mob(&mut self.ecs, id, position);
                         }
                         None => log::warn!("créature inconnue demandée par un mod : {kind}"),
+                    }
+                }
+                MachineAction::DropStack {
+                    pos,
+                    item,
+                    count,
+                    damage,
+                } => {
+                    if let Some(item) = self.content.items.id(&item) {
+                        self.drop_stack(
+                            pos,
+                            inventory::ItemStack {
+                                item,
+                                count,
+                                damage,
+                            },
+                        );
                     }
                 }
                 MachineAction::BlockBroken { pos, block } => {

@@ -210,3 +210,33 @@ fn the_guard_idles_chases_attacks_and_flees() {
     };
     assert!(h.mobs(&[other]).unwrap().actions.is_empty());
 }
+
+#[test]
+fn a_chest_broken_by_a_script_spills_its_contents() {
+    use engine_mods::menu::UI_BUTTON;
+    let mut h = Harness::for_mod("example").unwrap();
+    let at = IVec3::new(0, 100, 0);
+    h.place(at, "example:breaker");
+    let chest = at + IVec3::X;
+    h.place(chest, "core:chest");
+    h.put(chest, 0, "core:iron_ingot", 5);
+    h.put(chest, 3, "core:stone", 12);
+    // « Casser maintenant » : le casseur regarde vers +X par défaut.
+    let requests = h.ui(at, UI_BUTTON, 2, 0).unwrap();
+    assert_eq!(h.block(chest), "core:air");
+    let mut spilled: Vec<(String, u32)> = requests
+        .actions
+        .iter()
+        .filter_map(|a| match a {
+            MachineAction::DropStack {
+                pos, item, count, ..
+            } if *pos == chest => Some((item.clone(), *count)),
+            _ => None,
+        })
+        .collect();
+    spilled.sort();
+    assert_eq!(
+        spilled,
+        vec![("core:iron_ingot".into(), 5), ("core:stone".into(), 12)]
+    );
+}

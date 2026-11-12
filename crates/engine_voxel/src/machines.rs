@@ -152,6 +152,14 @@ pub enum MachineAction {
         kind: String,
         position: Vec3,
     },
+    /// Laisser tomber des objets au sol à cette position du monde (le contenu d'un bloc
+    /// remplacé par un script).
+    DropStack {
+        pos: IVec3,
+        item: String,
+        count: u32,
+        damage: u32,
+    },
     /// Un bloc a été cassé par une machine (pour les événements du jeu).
     BlockBroken {
         pos: IVec3,
