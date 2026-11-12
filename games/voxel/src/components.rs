@@ -30,6 +30,8 @@ pub struct Collider {
     pub in_liquid: bool,
     /// La vitesse d'entrée si l'entité vient de plonger dans un liquide à ce pas (0 sinon).
     pub splash: f32,
+    /// Il nage contre une berge en tenant Espace : l'élan de sortie de l'eau continue au pas suivant.
+    pub exit_boost: bool,
     /// Le terrain autour n'est pas encore chargé : l'entité attend sans bouger.
     pub frozen: bool,
 }

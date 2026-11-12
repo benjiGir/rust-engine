@@ -354,6 +354,7 @@ pub fn physics(world: &mut World) {
                 body.on_ground = collider.on_ground;
                 // Pour savoir qu'elle vient d'entrer dans l'eau (éclaboussure, freinage).
                 body.in_liquid = collider.in_liquid;
+                body.exit_boost = collider.exit_boost;
                 body.gravity = gravity;
                 body.impulse = world.get::<Impulse>(entity).map_or(Vec3::ZERO, |i| i.0);
                 collider.frozen = !surroundings_ready(&streamer, &body);
@@ -370,6 +371,7 @@ pub fn physics(world: &mut World) {
                 collider.on_ground = body.on_ground;
                 collider.in_liquid = body.in_liquid;
                 collider.splash = body.splash;
+                collider.exit_boost = body.exit_boost;
             },
         );
 }

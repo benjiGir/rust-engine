@@ -129,6 +129,10 @@ sillage quand on nage à la surface, bulles sous l'eau. La physique (`PlayerBody
 (`splash` donne la vitesse d'entrée), et un **courant** emporte les corps vers les cellules d'eau
 moins remplies (`PlayerBody::current`). La lave n'est pas animée (elle émet de la lumière).
 
+**Sortir de l'eau** : un nageur qui avance contre une berge monte seul une marche de 0,6 bloc au plus
+(comme au sol) ; contre une berge plus haute (jusqu'à un bloc au-dessus de la surface), tenir Espace
+donne un élan (`EXIT_SPEED`) qui le fait passer par-dessus. Une falaise plus haute reste hors de portée.
+
 **L'écoulement** : un réservoir (source) alimente un ruisseau de 7 cellules au plus, de plus en plus
 mince, au lieu d'inonder tout ce qui est plat (`fluid_sim.rs`, « portée »). En tombant, l'eau
 retrouve toute sa portée en bas. À l'écran, la normale du dessus de l'eau suit la pente de la

@@ -42,6 +42,9 @@ const MAX_CURRENT: f32 = 2.5;
 /// La hauteur qu'un corps au sol monte sans sauter en marchant contre une marche (une dalle, un
 /// escalier de demi-blocs).
 const STEP_HEIGHT: f32 = 0.6;
+/// La vitesse verticale d'un élan pour sortir de l'eau : de quoi franchir une berge d'un bloc
+/// au-dessus de la surface (un peu plus qu'un saut).
+const EXIT_SPEED: f32 = 9.3;
 /// Ce qu'il reste de la vitesse de chute quand on entre dans l'eau : le plongeon est freiné.
 const ENTRY_DAMPING: f32 = 0.35;
 /// Plus grand pas de déplacement testé d'un coup.
@@ -66,6 +69,8 @@ pub struct PlayerBody {
     /// La vitesse d'entrée (blocs par seconde) si le corps vient de plonger dans un liquide à
     /// ce pas, sinon 0 : de quoi faire des éclaboussures.
     pub splash: f32,
+    /// Il nage contre une berge en tenant Espace : un élan l'aide à en sortir (voir `EXIT_SPEED`).
+    pub exit_boost: bool,
     /// Largeur (x et z) et hauteur de la boîte : celles du joueur par défaut. Un cochon
     /// ou un slime utilisent la même physique avec une autre taille.
     pub width: f32,
@@ -90,6 +95,7 @@ impl PlayerBody {
             in_liquid: false,
             submersion: 0.0,
             splash: 0.0,
+            exit_boost: false,
             width: PLAYER_WIDTH,
             height: PLAYER_HEIGHT,
             impulse: Vec3::ZERO,
@@ -162,12 +168,20 @@ impl PlayerBody {
             }
             // Le frottement du fluide amortit la vitesse verticale.
             self.velocity.y *= 1.0 - (2.0 * dt / drag).min(0.9);
-            self.velocity.y = self.velocity.y.clamp(-SWIM_SINK_SPEED, SWIM_UP_SPEED);
+            self.velocity.y = if self.exit_boost {
+                // Contre une berge : on ne se retient pas, on monte d'un élan.
+                self.velocity.y.max(EXIT_SPEED)
+            } else {
+                self.velocity.y.clamp(-SWIM_SINK_SPEED, SWIM_UP_SPEED)
+            };
         } else {
             self.velocity.x = walk.x + self.impulse.x;
             self.velocity.z = walk.z + self.impulse.z;
             if jump && self.on_ground {
                 self.velocity.y = JUMP_SPEED;
+            } else if jump && self.exit_boost {
+                // À la surface, le dernier élan pour passer par-dessus la berge.
+                self.velocity.y = self.velocity.y.max(EXIT_SPEED);
             }
             self.velocity.y = (self.velocity.y - self.gravity * dt).max(-MAX_FALL_SPEED);
         }
@@ -184,23 +198,31 @@ impl PlayerBody {
         let delta = self.velocity * dt;
         self.on_ground = false;
         // Y d'abord : on sait tout de suite si l'on est posé avant de glisser en X et Z.
+        let mut pushing = false;
         for axis in [1, 0, 2] {
             let before = self.position;
             self.move_axis(world, axis, delta[axis]);
-            // Arrêté par une marche basse alors qu'on est posé : on la monte, sans sauter.
-            let blocked = axis != 1 && delta[axis] != 0.0 && {
-                (self.position[axis] - before[axis]).abs() < delta[axis].abs() * 0.9
-            };
-            if blocked && self.on_ground && self.velocity.y <= 0.0 && !self.in_liquid {
-                self.step_up(world, axis, delta[axis], before);
+            let moved = |body: &Self| (body.position[axis] - before[axis]).abs();
+            let mut blocked =
+                axis != 1 && delta[axis] != 0.0 && moved(self) < delta[axis].abs() * 0.9;
+            // Arrêté par une marche basse, posé ou dans l'eau : on la monte, sans sauter.
+            let touching_water = submersion > 0.0;
+            if blocked
+                && (self.on_ground && self.velocity.y <= 0.0 || touching_water)
+                && self.step_up(world, axis, delta[axis], before)
+            {
+                blocked = false;
             }
+            pushing |= blocked;
         }
+        // Dans l'eau, contre une berge trop haute pour une marche, Espace donne un élan.
+        self.exit_boost = jump && pushing && submersion > 0.0 && !self.on_ground;
     }
 
     /// Monte une marche de `STEP_HEIGHT` au plus : la même avancée, un peu plus haut, puis on se
     /// repose sur la marche. Sans effet (le corps reste où il était) si rien ne passe, par exemple
     /// contre un mur ou sous un plafond bas.
-    fn step_up(&mut self, world: &World, axis: usize, wanted: f32, before: Vec3) {
+    fn step_up(&mut self, world: &World, axis: usize, wanted: f32, before: Vec3) -> bool {
         let stuck = self.position;
         for tenth in 1..=6 {
             let lift = tenth as f32 * 0.1;
@@ -216,10 +238,11 @@ impl PlayerBody {
                 // Posé sur la marche : on redescend du surplus.
                 self.try_move(world, 1, -lift);
                 self.on_ground = true;
-                return;
+                return true;
             }
         }
         self.position = stuck;
+        false
     }
 
     /// La boîte du corps est-elle dans un bloc plein (en tenant compte des formes) ?
@@ -710,6 +733,75 @@ mod tests {
         let mut body = PlayerBody::new(Vec3::new(0.5, 1.0, 0.5));
         run(&mut body, &world, Vec3::new(4.0, 0.0, 0.0), false, 120);
         assert!(body.position.x < 2.0, "{}", body.position.x);
+    }
+
+    /// Un bassin d'eau de 4 blocs de profondeur (x < 2) bordé d'une berge de pierre (x >= 2) dont le
+    /// dessus est à `bank` blocs au-dessus de la surface de l'eau (arrondi : 0 = à fleur).
+    fn pool_with_a_bank(bank_top: i32) -> World {
+        let mut world = pool("core:water", 4);
+        let stone = crate::registry::BlockRegistry::builtin()
+            .id("core:stone")
+            .unwrap();
+        for x in 2..8 {
+            for z in -8..8 {
+                for y in 1..bank_top {
+                    world.set_block(IVec3::new(x, y, z), stone);
+                }
+            }
+        }
+        world
+    }
+
+    fn swim_to_the_bank(world: &World) -> PlayerBody {
+        let mut body = PlayerBody::new(Vec3::new(0.5, 2.0, 0.5));
+        run(&mut body, world, Vec3::ZERO, false, 90);
+        // Il nage vers la berge (+X) en tenant Espace, comme un joueur qui veut sortir.
+        for _ in 0..240 {
+            body.step(world, Vec3::X * 4.0, true, DT);
+            // Posé sur la berge : on s'arrête là (au-delà, le petit monde de test s'arrête).
+            if body.position.x > 2.6 && body.on_ground {
+                break;
+            }
+        }
+        body
+    }
+
+    #[test]
+    fn a_swimmer_climbs_out_onto_a_bank_level_with_the_water_or_one_block_higher() {
+        // Berge dont le dessus est à 5 (la surface de l'eau est à 4,875) : à fleur.
+        let body = swim_to_the_bank(&pool_with_a_bank(5));
+        assert!(
+            body.position.x > 2.6 && body.position.y >= 4.99,
+            "reste dans l'eau : {:?}",
+            body.position
+        );
+        // Un bloc de plus (dessus à 6) : il faut monter d'un bloc entier.
+        let body = swim_to_the_bank(&pool_with_a_bank(6));
+        assert!(
+            body.position.x > 2.6 && body.position.y >= 5.99,
+            "n'arrive pas à sortir : {:?}",
+            body.position
+        );
+    }
+
+    #[test]
+    fn a_swimmer_cannot_climb_a_cliff_two_blocks_above_the_water() {
+        // Dessus à 7 : 2,1 blocs au-dessus de la surface, hors de portée de l'élan.
+        let mut body = PlayerBody::new(Vec3::new(0.5, 2.0, 0.5));
+        let world = pool_with_a_bank(7);
+        run(&mut body, &world, Vec3::ZERO, false, 90);
+        let mut highest = body.position.y;
+        for _ in 0..300 {
+            body.step(&world, Vec3::X * 4.0, true, DT);
+            highest = highest.max(body.position.y);
+        }
+        assert!(
+            body.position.x < 2.0,
+            "sur la falaise ? {:?}",
+            body.position
+        );
+        // L'élan ne fait pas voler : au plus un bloc et demi au-dessus de l'eau.
+        assert!(highest < 4.875 + 1.6, "monté jusqu'à {highest}");
     }
 
     #[test]
