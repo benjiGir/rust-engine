@@ -142,12 +142,12 @@ pub struct Network {
     pub members: Vec<IVec3>,
     pub endpoints: Vec<Endpoint>,
     /// Pour un réseau qui contient des conduits à sens unique : pour chaque machine branchée,
-    /// celles où ses objets peuvent aller en suivant les sens. `None` : tout va partout.
+    /// celles où son contenu peut aller en suivant les sens. `None` : tout va partout.
     routes: Option<HashMap<IVec3, HashSet<IVec3>>>,
 }
 
 impl Network {
-    /// Les objets de la machine `from` peuvent-ils arriver à la machine `to` ?
+    /// Ce que la machine `from` donne (objets, énergie, fluide) peut-il arriver à la machine `to` ?
     pub fn allows(&self, from: IVec3, to: IVec3) -> bool {
         self.routes
             .as_ref()
@@ -836,6 +836,90 @@ fn plan(slots: &[Slot], rate: u64) -> Vec<i64> {
     delta
 }
 
+/// L'état d'un plan routé : ce que chaque extrémité peut encore donner et recevoir.
+struct Routed {
+    avail: Vec<u64>,
+    room: Vec<u64>,
+    delta: Vec<i64>,
+    budget: u64,
+}
+
+impl Routed {
+    /// Les `from` donnent vers les `to` : chaque source répartit son don au prorata de la place
+    /// des destinations qui lui sont permises.
+    fn flow(
+        &mut self,
+        slots: &[Slot],
+        allows: &impl Fn(IVec3, IVec3) -> bool,
+        from: &[usize],
+        to: &[usize],
+    ) {
+        for &s in from {
+            let targets: Vec<usize> = to
+                .iter()
+                .copied()
+                .filter(|&t| allows(slots[s].pos, slots[t].pos))
+                .collect();
+            let rooms: Vec<u64> = targets.iter().map(|&t| self.room[t]).collect();
+            let amount = self.avail[s].min(self.budget).min(rooms.iter().sum());
+            for (&t, given) in targets.iter().zip(split(amount, &rooms)) {
+                self.delta[t] += given as i64;
+                self.room[t] -= given;
+                self.delta[s] -= given as i64;
+                self.avail[s] -= given;
+                self.budget -= given;
+            }
+        }
+    }
+}
+
+/// Comme [`plan`], pour un réseau qui a des conduits à sens unique : chaque producteur ne sert que
+/// les extrémités où ses flux peuvent aller (`allows(de, vers)`). Les sources passent dans
+/// l'ordre ; les tampons ne s'équilibrent pas entre eux (leurs trajets sont à sens unique).
+fn plan_routed(slots: &[Slot], rate: u64, allows: impl Fn(IVec3, IVec3) -> bool) -> Vec<i64> {
+    let pick = |io: Io| -> Vec<usize> { (0..slots.len()).filter(|&i| slots[i].io == io).collect() };
+    let (sources, sinks, buffers) = (pick(Io::Out), pick(Io::In), pick(Io::Both));
+    let mut state = Routed {
+        avail: slots.iter().map(|s| s.avail).collect(),
+        room: slots.iter().map(|s| s.room).collect(),
+        delta: vec![0; slots.len()],
+        budget: rate,
+    };
+    // Comme `plan` : producteurs → consommateurs, producteurs → tampons, tampons → consommateurs.
+    state.flow(slots, &allows, &sources, &sinks);
+    state.flow(slots, &allows, &sources, &buffers);
+    state.flow(slots, &allows, &buffers, &sinks);
+    // Les tampons s'équilibrent le long des trajets permis : le couple au plus grand écart.
+    if state.budget > 0 {
+        let best = buffers
+            .iter()
+            .flat_map(|&h| buffers.iter().map(move |&l| (h, l)))
+            .filter(|&(h, l)| {
+                h != l
+                    && state.avail[h] > 0
+                    && state.room[l] > 0
+                    && allows(slots[h].pos, slots[l].pos)
+                    && slots[h].level - slots[l].level > BALANCE_EPSILON
+            })
+            .max_by(|a, b| {
+                let gap = |&(h, l): &(usize, usize)| slots[h].level - slots[l].level;
+                gap(a).total_cmp(&gap(b))
+            });
+        if let Some((h, l)) = best {
+            let gap = slots[h].level - slots[l].level;
+            let half = (gap / 2.0 * slots[h].capacity.min(slots[l].capacity) as f64).ceil() as u64;
+            let amount = state
+                .budget
+                .min(state.avail[h])
+                .min(state.room[l])
+                .min(half.max(1));
+            state.delta[h] -= amount as i64;
+            state.delta[l] += amount as i64;
+        }
+    }
+    state.delta
+}
+
 fn tick_energy(grid: &mut (impl BlockAccess + ?Sized), net: &Network) -> Vec<IVec3> {
     if net.endpoints.len() < 2 {
         return Vec::new();
@@ -868,7 +952,11 @@ fn tick_energy(grid: &mut (impl BlockAccess + ?Sized), net: &Network) -> Vec<IVe
             })
         })
         .collect();
-    let delta = plan(&slots, rate);
+    let delta = if net.routes.is_some() {
+        plan_routed(&slots, rate, |a, b| net.allows(a, b))
+    } else {
+        plan(&slots, rate)
+    };
     let mut changed = Vec::new();
     for (slot, d) in slots.iter().zip(delta) {
         if d == 0 {
@@ -954,7 +1042,11 @@ fn tick_fluid(grid: &mut (impl BlockAccess + ?Sized), net: &Network) -> Vec<IVec
             })
         })
         .collect();
-    let delta = plan(&slots, rate);
+    let delta = if net.routes.is_some() {
+        plan_routed(&slots, rate, |a, b| net.allows(a, b))
+    } else {
+        plan(&slots, rate)
+    };
     let mut changed = Vec::new();
     for (slot, d) in slots.iter().zip(delta) {
         if d == 0 {
@@ -1385,6 +1477,10 @@ mod tests {
         (id: "test:sink", name: "Puits", color: (0.5, 0.5, 0.5), ports: (inputs: [0], accepts: "test:press")),
         (id: "test:machine", name: "Machine", color: (0.5, 0.5, 0.5), ports: (inputs: [0], outputs: [1])),
         (id: "test:crate", name: "Caisse", color: (0.5, 0.5, 0.5)),
+        (id: "test:diode", name: "Diode", color: (0.5, 0.5, 0.5),
+         boxes: [(from: (0, 0, 0), to: (16, 4, 16))], states: [Facing4], conduit: Energy, flow: true),
+        (id: "test:valve", name: "Clapet", color: (0.5, 0.5, 0.5),
+         boxes: [(from: (0, 0, 0), to: (16, 4, 16))], states: [Facing4], conduit: Fluid, flow: true),
         (id: "test:oneway", name: "Courroie à sens", color: (0.5, 0.5, 0.5),
          boxes: [(from: (0, 0, 0), to: (16, 4, 16))], states: [Facing4], conduit: Items, channel: "a", flow: true),
         (id: "test:sorter", name: "Trieur", color: (0.5, 0.5, 0.5), ports: (inputs: [1], filter: 0)),
@@ -1535,6 +1631,62 @@ mod tests {
         oneway(&mut rig, 3, 4, "east");
         rig.tick(ITEM_PERIOD as usize * 5);
         assert_eq!(rig.count(rig.at(5, 0), 0), 10);
+    }
+
+    #[test]
+    fn a_diode_lets_energy_through_one_way_only() {
+        for (facing, passes) in [("east", true), ("west", false)] {
+            let mut rig = Rig::items();
+            rig.place(rig.at(0, 0), "core:battery");
+            rig.charge(rig.at(0, 0), 50_000);
+            rig.place(rig.at(6, 0), "core:battery");
+            rig.charge(rig.at(6, 0), 0);
+            rig.belts(1, 5, &format!("test:diode[facing={facing}]"));
+            rig.tick(30);
+            let (full, empty) = (rig.energy(rig.at(0, 0)), rig.energy(rig.at(6, 0)));
+            assert_eq!(empty > 0, passes, "vers {facing} : {empty}");
+            assert_eq!(full < 50_000, passes, "vers {facing} : {full}");
+        }
+    }
+
+    #[test]
+    fn a_diode_keeps_a_lamp_lit_from_its_generator_but_not_the_other_way() {
+        let mut rig = Rig::items();
+        // Un panneau solaire, une diode vers la lampe : la lampe s'allume.
+        rig.place(rig.at(0, 0), "core:solar_panel");
+        rig.belts(1, 3, "test:diode[facing=east]");
+        rig.place(rig.at(4, 0), "core:power_lamp");
+        rig.tick(200);
+        assert!(rig.is(rig.at(4, 0), "core:power_lamp_on"));
+        // Retournée, la diode coupe la lampe de son panneau.
+        let mut rig = Rig::items();
+        rig.place(rig.at(0, 0), "core:solar_panel");
+        rig.belts(1, 3, "test:diode[facing=west]");
+        rig.place(rig.at(4, 0), "core:power_lamp");
+        rig.tick(200);
+        assert!(rig.is(rig.at(4, 0), "core:power_lamp"));
+    }
+
+    #[test]
+    fn a_check_valve_lets_a_fluid_through_one_way_only() {
+        for (facing, passes) in [("east", true), ("west", false)] {
+            let mut rig = Rig::items();
+            rig.place(rig.at(0, 0), "core:tank");
+            rig.with_caps(rig.at(0, 0), |c| {
+                let tank = &mut c.tanks[0];
+                tank.fluid = Some("core:water".into());
+                tank.amount = tank.capacity;
+            });
+            rig.place(rig.at(6, 0), "core:tank");
+            rig.belts(1, 5, &format!("test:valve[facing={facing}]"));
+            rig.tick(30);
+            assert_eq!(
+                rig.water(rig.at(6, 0)) > 0,
+                passes,
+                "vers {facing} : {} mB",
+                rig.water(rig.at(6, 0))
+            );
+        }
     }
 
     #[test]

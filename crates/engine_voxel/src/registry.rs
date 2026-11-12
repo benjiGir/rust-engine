@@ -118,8 +118,8 @@ pub struct BlockDef {
     /// Les cases d'inventaire que les réseaux d'objets remplissent (`inputs`) et vident
     /// (`outputs`) : sans cela, toutes les cases font les deux.
     pub ports: Option<InventoryPorts>,
-    /// Un conduit **à sens unique** (`flow: true`, avec `conduit: Items` et un état `Facing4` ou
-    /// `Facing6`) : les objets ne vont que vers l'« avant » de la variante (le nord de la forme
+    /// Un conduit **à sens unique** (`flow: true`, avec `conduit: Items`, `Energy` ou `Fluid` et un
+    /// état `Facing4` ou `Facing6`) : le contenu ne va que vers l'« avant » de la variante (le nord de la forme
     /// écrite). Posé, il pointe là où regarde le joueur. Il accepte par l'arrière et les côtés, et
     /// ne rend que par l'avant.
     pub directed: bool,
@@ -668,9 +668,16 @@ impl BlockRegistry {
                 );
             }
             if entry.flow {
-                if entry.conduit != Some(crate::networks::NetworkKind::Items) {
+                if !matches!(
+                    entry.conduit,
+                    Some(
+                        crate::networks::NetworkKind::Items
+                            | crate::networks::NetworkKind::Energy
+                            | crate::networks::NetworkKind::Fluid
+                    )
+                ) {
                     bail!(
-                        "{origin} : « {} » : `flow` (sens unique) ne va qu'avec `conduit: Items`",
+                        "{origin} : « {} » : `flow` (sens unique) va avec `conduit: Items`, `Energy` ou `Fluid` (pas `Kinetic`)",
                         entry.id
                     );
                 }
@@ -1526,14 +1533,14 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_one_way_conduit_needs_items_and_a_facing() {
+    fn a_one_way_conduit_needs_a_network_it_can_direct_and_a_facing() {
         let bad = |src: &str| {
             BlockRegistry::empty()
                 .add_source("test", src, "test")
                 .unwrap_err()
                 .to_string()
         };
-        assert!(bad(r#"[(id: "test:a", name: "A", color: (1,1,1), boxes: [(from: (0,0,0), to: (16,4,16))], states: [Facing4], conduit: Energy, flow: true)]"#).contains("conduit: Items"));
+        assert!(bad(r#"[(id: "test:a", name: "A", color: (1,1,1), boxes: [(from: (0,0,0), to: (16,4,16))], states: [Facing4], conduit: Kinetic, flow: true)]"#).contains("pas `Kinetic`"));
         assert!(bad(r#"[(id: "test:a", name: "A", color: (1,1,1), boxes: [(from: (0,0,0), to: (16,4,16))], states: [Half], conduit: Items, flow: true)]"#).contains("Facing"));
         assert!(
             bad(r#"[(id: "test:a", name: "A", color: (1,1,1), conduit: Items, flow: true)]"#)

@@ -109,4 +109,32 @@
         hardness: 0.8, tool: Pickaxe,
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
+    // Une diode : un conduit d'**énergie** à sens unique. L'énergie ne va que vers la flèche ; une
+    // batterie ou un générateur derrière elle alimente ce qui est devant, jamais l'inverse. Elle
+    // se relie aux câbles du jeu.
+    (
+        id: "mecanique:diode", name: "Diode", color: (0.1822, 0.0835, 0.0492), texture: "core:cable",
+        boxes: [
+            (from: (4, 0, 0), to: (12, 4, 16)),
+            (from: (7, 4, 9), to: (9, 7, 15)),
+            (from: (4, 4, 7), to: (12, 7, 9)),
+            (from: (6, 4, 5), to: (10, 7, 7)),
+            (from: (7, 4, 3), to: (9, 7, 5)),
+        ], states: [Facing4], conduit: Energy, flow: true,
+        hardness: 1.0, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
+    // Un clapet anti-retour : un conduit de **fluide** à sens unique, relié aux tuyaux du jeu.
+    (
+        id: "mecanique:check_valve", name: "Clapet anti-retour", color: (0.1, 0.18, 0.3), texture: "core:pipe",
+        boxes: [
+            (from: (4, 0, 0), to: (12, 8, 16)),
+            (from: (7, 8, 9), to: (9, 11, 15)),
+            (from: (4, 8, 7), to: (12, 11, 9)),
+            (from: (6, 8, 5), to: (10, 11, 7)),
+            (from: (7, 8, 3), to: (9, 11, 5)),
+        ], states: [Facing4], conduit: Fluid, flow: true,
+        hardness: 1.0, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
 ]
