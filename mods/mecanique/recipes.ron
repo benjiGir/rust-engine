@@ -7,6 +7,7 @@
         (pattern: ["s", "#"], key: {"s": "core:stick", "#": "core:cobblestone"}, result: ("crank", 1)),
         (pattern: ["lll", "ppp"], key: {"l": "core:leather", "p": "iron_plate"}, result: ("belt", 6)),
         (pattern: ["###", "#g#", "###"], key: {"#": "core:cobblestone", "g": "gear"}, result: ("press", 1)),
+        (pattern: ["b", "p"], key: {"b": "belt", "p": "iron_plate"}, result: ("conveyor", 2)),
         (pattern: ["ppp", "pgp", "ppp"], key: {"p": "iron_plate", "g": "core:glowstone"}, result: ("gate", 1)),
     ],
     shapeless: [],

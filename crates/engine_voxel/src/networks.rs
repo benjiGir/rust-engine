@@ -141,6 +141,18 @@ pub struct Network {
     pub grid: GridId,
     pub members: Vec<IVec3>,
     pub endpoints: Vec<Endpoint>,
+    /// Pour un réseau qui contient des conduits à sens unique : pour chaque machine branchée,
+    /// celles où ses objets peuvent aller en suivant les sens. `None` : tout va partout.
+    routes: Option<HashMap<IVec3, HashSet<IVec3>>>,
+}
+
+impl Network {
+    /// Les objets de la machine `from` peuvent-ils arriver à la machine `to` ?
+    pub fn allows(&self, from: IVec3, to: IVec3) -> bool {
+        self.routes
+            .as_ref()
+            .is_none_or(|r| r.get(&from).is_some_and(|set| set.contains(&to)))
+    }
 }
 
 /// Le bilan des réseaux, pour les mesures et l'inspecteur.
@@ -158,6 +170,8 @@ pub struct Networks {
     /// La classe (sorte et canal) de chaque conduit, et son débit, par numéro de bloc.
     kinds: Vec<Option<Class>>,
     throughputs: Vec<Option<u32>>,
+    /// Le sens des conduits à sens unique, par numéro de bloc.
+    flows: Vec<Option<IVec3>>,
     /// Les cases d'inventaire que les réseaux d'objets remplissent et vident, par numéro de bloc.
     ports: Vec<Option<crate::registry::InventoryPorts>>,
     /// Ce qu'il faut savoir des objets pour les réseaux d'objets (voir `set_item_rules`).
@@ -174,6 +188,7 @@ impl Networks {
     pub fn new(registry: &BlockRegistry) -> Self {
         let mut kinds: Vec<Option<Class>> = Vec::new();
         let mut throughputs: Vec<Option<u32>> = Vec::new();
+        let mut flows: Vec<Option<IVec3>> = Vec::new();
         let mut ports: Vec<Option<crate::registry::InventoryPorts>> = Vec::new();
         // Les canaux (`mon_mod:vapeur`) reçoivent un numéro à la première rencontre ; 0 : aucun.
         let mut channels: Vec<&str> = Vec::new();
@@ -194,15 +209,18 @@ impl Networks {
             if kinds.len() <= i {
                 kinds.resize(i + 1, None);
                 throughputs.resize(i + 1, None);
+                flows.resize(i + 1, None);
                 ports.resize(i + 1, None);
             }
             kinds[i] = kind.map(|k| (k, channel));
             throughputs[i] = def.throughput;
+            flows[i] = def.flow;
             ports[i] = def.ports.clone();
         }
         Self {
             kinds,
             throughputs,
+            flows,
             ports,
             ..Self::default()
         }
@@ -216,6 +234,10 @@ impl Networks {
 
     fn class_of(&self, block: BlockId) -> Option<Class> {
         self.kinds.get(block.0 as usize).copied().flatten()
+    }
+
+    fn flow_of(&self, block: BlockId) -> Option<IVec3> {
+        self.flows.get(block.0 as usize).copied().flatten()
     }
 
     fn throughput_of(&self, block: BlockId) -> Option<u32> {
@@ -338,6 +360,7 @@ impl Networks {
             .iter()
             .filter_map(|&m| self.throughput_of(grid.block(m)))
             .min();
+        let routes = self.routes(&*grid, &members, &endpoints);
         self.nets.insert(
             id,
             Network {
@@ -347,8 +370,61 @@ impl Networks {
                 grid: seed.grid,
                 members,
                 endpoints,
+                routes,
             },
         );
+    }
+
+    /// Les trajets des objets dans un réseau qui a des conduits à sens unique : de chaque machine,
+    /// ce qu'elle peut atteindre. Un objet entre dans le réseau par un conduit voisin de la
+    /// machine (sauf par l'avant d'un conduit à sens unique), avance de conduit en conduit sans
+    /// remonter un sens unique, et sort par un conduit voisin de la machine d'arrivée (par
+    /// l'avant seulement, pour un conduit à sens unique). `None` si aucun conduit n'a de sens.
+    fn routes(
+        &self,
+        grid: &(impl BlockAccess + ?Sized),
+        members: &[IVec3],
+        endpoints: &[Endpoint],
+    ) -> Option<HashMap<IVec3, HashSet<IVec3>>> {
+        let flow = |p: IVec3| self.flow_of(grid.block(p));
+        if !members.iter().any(|&m| flow(m).is_some()) {
+            return None;
+        }
+        let member_set: HashSet<IVec3> = members.iter().copied().collect();
+        // Un objet peut passer du conduit `a` au conduit voisin `b`.
+        let can_move = |a: IVec3, b: IVec3| {
+            flow(a).is_none_or(|d| a + d == b) && flow(b).is_none_or(|d| b + d != a)
+        };
+        let conduit_of = |e: &Endpoint| e.pos + FACINGS[e.face as usize];
+        let mut routes: HashMap<IVec3, HashSet<IVec3>> = HashMap::default();
+        for from in endpoints {
+            let start = conduit_of(from);
+            // Entrer par le côté d'un conduit à sens unique est permis, pas par son avant.
+            let entry = routes.entry(from.pos).or_default();
+            if flow(start).is_some_and(|d| start + d == from.pos) {
+                continue;
+            }
+            let mut reached: HashSet<IVec3> = HashSet::default();
+            reached.insert(start);
+            let mut queue = VecDeque::from([start]);
+            while let Some(c) = queue.pop_front() {
+                for d in FACINGS {
+                    let next = c + d;
+                    if member_set.contains(&next) && !reached.contains(&next) && can_move(c, next) {
+                        reached.insert(next);
+                        queue.push_back(next);
+                    }
+                }
+            }
+            for to in endpoints {
+                let end = conduit_of(to);
+                let exits = flow(end).is_none_or(|d| end + d == to.pos);
+                if to.pos != from.pos && exits && reached.contains(&end) {
+                    entry.insert(to.pos);
+                }
+            }
+        }
+        Some(routes)
     }
 
     /// Les machines voisines d'un conduit qui échangent par la face qui le touche.
@@ -559,7 +635,11 @@ fn tick_items(
                 };
                 for t in 0..targets.len() {
                     let target = &ends[targets[(t + turn as usize) % targets.len()]];
-                    if target.pos == giver.pos || budget == 0 || stack.count == 0 {
+                    if target.pos == giver.pos
+                        || budget == 0
+                        || stack.count == 0
+                        || !net.allows(giver.pos, target.pos)
+                    {
                         continue;
                     }
                     if target.only.as_ref().is_some_and(|only| *only != stack.item) {
@@ -1305,6 +1385,8 @@ mod tests {
         (id: "test:sink", name: "Puits", color: (0.5, 0.5, 0.5), ports: (inputs: [0], accepts: "test:press")),
         (id: "test:machine", name: "Machine", color: (0.5, 0.5, 0.5), ports: (inputs: [0], outputs: [1])),
         (id: "test:crate", name: "Caisse", color: (0.5, 0.5, 0.5)),
+        (id: "test:oneway", name: "Courroie à sens", color: (0.5, 0.5, 0.5),
+         boxes: [(from: (0, 0, 0), to: (16, 4, 16))], states: [Facing4], conduit: Items, channel: "a", flow: true),
         (id: "test:sorter", name: "Trieur", color: (0.5, 0.5, 0.5), ports: (inputs: [1], filter: 0)),
     ]"#;
 
@@ -1391,6 +1473,68 @@ mod tests {
         rig.tick(ITEM_PERIOD as usize * 10);
         assert_eq!(rig.count(rig.at(6, 0), 0), 30, "tout est arrivé");
         assert_eq!(rig.count(rig.at(0, 0), 0), 0);
+    }
+
+    /// Une ligne de courroies à sens unique, de `from` à `to` (en X), tournées vers `facing`.
+    fn oneway(rig: &mut Rig, from: i32, to: i32, facing: &str) {
+        rig.belts(from, to, &format!("test:oneway[facing={facing}]"));
+    }
+
+    #[test]
+    fn a_one_way_belt_carries_items_forward_only() {
+        for (facing, arrives) in [("east", true), ("west", false)] {
+            let mut rig = Rig::items();
+            rig.container(rig.at(0, 0), "test:src", 1);
+            rig.put(rig.at(0, 0), 0, "core:iron_ingot", 10);
+            rig.container(rig.at(6, 0), "test:sink", 1);
+            oneway(&mut rig, 1, 5, facing);
+            rig.tick(ITEM_PERIOD as usize * 5);
+            let got = rig.count(rig.at(6, 0), 0);
+            assert_eq!(got > 0, arrives, "vers {facing} : {got}");
+        }
+    }
+
+    #[test]
+    fn a_one_way_belt_takes_items_from_the_side_but_gives_only_by_its_front() {
+        let mut rig = Rig::items();
+        // Une source sur le flanc de la courroie, un puits au bout, un autre sur l'autre flanc.
+        rig.container(rig.at(3, 1), "test:src", 1);
+        rig.put(rig.at(3, 1), 0, "core:iron_ingot", 10);
+        rig.container(rig.at(6, 0), "test:sink", 1);
+        rig.container(rig.at(3, -1), "test:sink", 1);
+        oneway(&mut rig, 1, 5, "east");
+        rig.tick(ITEM_PERIOD as usize * 5);
+        assert_eq!(rig.count(rig.at(6, 0), 0), 10, "au bout");
+        assert_eq!(rig.count(rig.at(3, -1), 0), 0, "pas par le flanc");
+    }
+
+    #[test]
+    fn nothing_enters_a_one_way_belt_by_its_front_or_leaves_by_its_back() {
+        let mut rig = Rig::items();
+        // La source est devant la courroie, le puits derrière : rien ne passe.
+        rig.container(rig.at(6, 0), "test:src", 1);
+        rig.put(rig.at(6, 0), 0, "core:iron_ingot", 10);
+        rig.container(rig.at(0, 0), "test:sink", 1);
+        oneway(&mut rig, 1, 5, "east");
+        rig.tick(ITEM_PERIOD as usize * 5);
+        assert_eq!(rig.count(rig.at(0, 0), 0), 0);
+        assert_eq!(rig.count(rig.at(6, 0), 0), 10);
+    }
+
+    #[test]
+    fn two_one_way_belts_head_on_block_each_other() {
+        let mut rig = Rig::items();
+        rig.container(rig.at(0, 0), "test:src", 1);
+        rig.put(rig.at(0, 0), 0, "core:iron_ingot", 10);
+        rig.container(rig.at(5, 0), "test:sink", 1);
+        oneway(&mut rig, 1, 2, "east");
+        oneway(&mut rig, 3, 4, "west");
+        rig.tick(ITEM_PERIOD as usize * 5);
+        assert_eq!(rig.count(rig.at(5, 0), 0), 0);
+        // Retournée, la seconde moitié laisse passer.
+        oneway(&mut rig, 3, 4, "east");
+        rig.tick(ITEM_PERIOD as usize * 5);
+        assert_eq!(rig.count(rig.at(5, 0), 0), 10);
     }
 
     #[test]

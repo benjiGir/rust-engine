@@ -281,10 +281,10 @@ fn chunk_unloading_and_reloading_recompute_the_connection_without_saved_variants
             (fields[0].parse::<u16>().unwrap(), fields[1].to_string())
         })
         .collect();
-    assert_eq!(
-        r.iter()
-            .map(|(id, def)| (id.0, def.key.clone()))
-            .collect::<Vec<_>>(),
-        ids
+    // Les identifiants existants ne bougent jamais : les nouveaux blocs s'ajoutent à la fin.
+    let now: Vec<_> = r.iter().map(|(id, def)| (id.0, def.key.clone())).collect();
+    assert!(
+        now.len() >= ids.len() && now[..ids.len()] == ids[..],
+        "un identifiant de bloc a changé de place"
     );
 }

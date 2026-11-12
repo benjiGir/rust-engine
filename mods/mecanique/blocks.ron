@@ -92,4 +92,21 @@
         ports: (inputs: [0], outputs: [1], accepts: "press"),
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
+    // Un convoyeur : une courroie **à sens unique** (`flow: true`). Il pointe où regarde le joueur
+    // (la flèche), prend les objets par l'arrière et les côtés, et ne les rend que par l'avant.
+    // Il se relie aux courroies ordinaires du même canal.
+    (
+        id: "mecanique:conveyor", name: "Convoyeur", color: (0.1415, 0.0722, 0.0567), texture: "belt",
+        boxes: [
+            (from: (0, 0, 0), to: (16, 3, 16)),
+            (from: (0, 3, 0), to: (2, 5, 16)),
+            (from: (14, 3, 0), to: (16, 5, 16)),
+            (from: (7, 3, 8), to: (9, 6, 14)),
+            (from: (3, 3, 6), to: (13, 6, 8)),
+            (from: (5, 3, 4), to: (11, 6, 6)),
+            (from: (7, 3, 2), to: (9, 6, 4)),
+        ], states: [Facing4], conduit: Items, channel: "belt", flow: true,
+        hardness: 0.8, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
 ]

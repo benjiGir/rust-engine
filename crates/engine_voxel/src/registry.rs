@@ -118,6 +118,13 @@ pub struct BlockDef {
     /// Les cases d'inventaire que les réseaux d'objets remplissent (`inputs`) et vident
     /// (`outputs`) : sans cela, toutes les cases font les deux.
     pub ports: Option<InventoryPorts>,
+    /// Un conduit **à sens unique** (`flow: true`, avec `conduit: Items` et un état `Facing4` ou
+    /// `Facing6`) : les objets ne vont que vers l'« avant » de la variante (le nord de la forme
+    /// écrite). Posé, il pointe là où regarde le joueur. Il accepte par l'arrière et les côtés, et
+    /// ne rend que par l'avant.
+    pub directed: bool,
+    /// Pour un conduit à sens unique : la direction où vont les objets, selon la variante.
+    pub flow: Option<IVec3>,
     /// Pour une variante : le bloc de base (celui qu'on pose depuis la barre, et qui lâche
     /// son objet). `None` pour un bloc ordinaire ou la base elle-même.
     pub base: Option<BlockId>,
@@ -222,6 +229,26 @@ pub enum StateKind {
     Half,
     /// Le grand axe : Y (debout), X ou Z (couché). Posé, il suit la face visée.
     Axis,
+}
+
+/// Le sens d'un conduit à sens unique : la direction de son état d'orientation (`north` : -Z,
+/// `east` : +X, `south` : +Z, `west` : -X, `up`, `down`).
+fn flow_of(states: &[StateKind], values: &[u8], directed: bool) -> Option<IVec3> {
+    if !directed {
+        return None;
+    }
+    let (_, &value) = states
+        .iter()
+        .zip(values)
+        .find(|(s, _)| matches!(s, StateKind::Facing4 | StateKind::Facing6))?;
+    Some(match value {
+        0 => IVec3::NEG_Z,
+        1 => IVec3::X,
+        2 => IVec3::Z,
+        3 => IVec3::NEG_X,
+        4 => IVec3::Y,
+        _ => IVec3::NEG_Y,
+    })
 }
 
 impl StateKind {
@@ -409,6 +436,9 @@ struct BlockFileEntry {
     throughput: Option<u32>,
     #[serde(default)]
     ports: Option<InventoryPorts>,
+    /// Un conduit d'objets à sens unique (voir [`BlockDef::flow`]).
+    #[serde(default)]
+    flow: bool,
 }
 
 /// Une boîte dans un fichier, en seizièmes de bloc (0 à 16).
@@ -481,6 +511,8 @@ impl BlockRegistry {
             portal: None,
             throughput: None,
             ports: None,
+            directed: false,
+            flow: None,
             base: None,
             variants: Vec::new(),
             state_values: Vec::new(),
@@ -635,6 +667,24 @@ impl BlockRegistry {
                     entry.id
                 );
             }
+            if entry.flow {
+                if entry.conduit != Some(crate::networks::NetworkKind::Items) {
+                    bail!(
+                        "{origin} : « {} » : `flow` (sens unique) ne va qu'avec `conduit: Items`",
+                        entry.id
+                    );
+                }
+                if !entry
+                    .states
+                    .iter()
+                    .any(|s| matches!(s, StateKind::Facing4 | StateKind::Facing6))
+                {
+                    bail!(
+                        "{origin} : « {} » : `flow` exige un état `Facing4` ou `Facing6` (le sens)",
+                        entry.id
+                    );
+                }
+            }
             if entry.throughput == Some(0) {
                 bail!(
                     "{origin} : « {} » : `throughput` doit être d'au moins 1",
@@ -721,6 +771,8 @@ impl BlockRegistry {
                     p.accepts = p.accepts.map(|a| qualify(&a, namespace));
                     p
                 }),
+                directed: entry.flow,
+                flow: None,
                 base: None,
                 variants: Vec::new(),
                 state_values: vec![0; entry.states.len()],
@@ -775,6 +827,7 @@ impl BlockRegistry {
             let full = format!("{key}{suffix}");
             if index == 0 {
                 // La base est sa propre première variante, joignable aussi par son nom complet.
+                self.defs[base.0 as usize].flow = flow_of(&states, &values, template.directed);
                 self.defs[base.0 as usize].state_values = values;
                 self.by_key.insert(full, base);
                 continue;
@@ -799,6 +852,7 @@ impl BlockRegistry {
                     })
                 })
                 .collect();
+            def.flow = flow_of(&states, &values, template.directed);
             def.state_values = values;
             if let Some(rotation) = &mut def.rotation {
                 let axis = states.iter().zip(&def.state_values).fold(
@@ -871,8 +925,9 @@ impl BlockRegistry {
         if base.states.is_empty() {
             return block;
         }
-        // L'avant du bloc regarde le joueur : il va dans le sens opposé au regard.
-        let toward = -look;
+        // L'avant du bloc regarde le joueur : il va dans le sens opposé au regard. Un conduit à
+        // sens unique, lui, pointe là où le joueur regarde (le courant s'éloigne de lui).
+        let toward = if base.directed { look } else { -look };
         let values: Vec<u8> = base
             .states
             .iter()
@@ -1444,6 +1499,45 @@ pub(crate) mod tests {
         assert_eq!(
             name(r.placement_variant(post, Vec3::X, IVec3::Z, 0.0)),
             "test:post[axis=z]"
+        );
+    }
+
+    #[test]
+    fn a_one_way_conduit_points_where_the_player_looks() {
+        let mut r = BlockRegistry::empty();
+        r.add_source(
+            "test",
+            r#"[(id: "test:belt", name: "B", color: (1,1,1), boxes: [(from: (0,0,0), to: (16,4,16))],
+                  states: [Facing6], conduit: Items, flow: true)]"#,
+            "test",
+        )
+        .unwrap();
+        let belt = r.id("test:belt").unwrap();
+        let flow = |key: &str| r.def(r.id(key).unwrap()).flow;
+        assert_eq!(flow("test:belt"), Some(IVec3::NEG_Z), "la base : le nord");
+        assert_eq!(flow("test:belt[facing=east]"), Some(IVec3::X));
+        assert_eq!(flow("test:belt[facing=south]"), Some(IVec3::Z));
+        assert_eq!(flow("test:belt[facing=up]"), Some(IVec3::Y));
+        // Posée en regardant vers +X, elle mène vers +X (un bloc ordinaire ferait face au joueur).
+        let placed = r.placement_variant(belt, Vec3::X, IVec3::Y, 0.0);
+        assert_eq!(r.def(placed).flow, Some(IVec3::X));
+        let up = r.placement_variant(belt, Vec3::Y, IVec3::Y, 0.0);
+        assert_eq!(r.def(up).flow, Some(IVec3::Y));
+    }
+
+    #[test]
+    fn a_one_way_conduit_needs_items_and_a_facing() {
+        let bad = |src: &str| {
+            BlockRegistry::empty()
+                .add_source("test", src, "test")
+                .unwrap_err()
+                .to_string()
+        };
+        assert!(bad(r#"[(id: "test:a", name: "A", color: (1,1,1), boxes: [(from: (0,0,0), to: (16,4,16))], states: [Facing4], conduit: Energy, flow: true)]"#).contains("conduit: Items"));
+        assert!(bad(r#"[(id: "test:a", name: "A", color: (1,1,1), boxes: [(from: (0,0,0), to: (16,4,16))], states: [Half], conduit: Items, flow: true)]"#).contains("Facing"));
+        assert!(
+            bad(r#"[(id: "test:a", name: "A", color: (1,1,1), conduit: Items, flow: true)]"#)
+                .contains("Facing")
         );
     }
 

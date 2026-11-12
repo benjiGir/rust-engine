@@ -149,6 +149,16 @@ Trois réglages, tous facultatifs, pour fabriquer **ses propres types de réseau
   contient est le seul à entrer par les cases d'entrée (case vide : tout entre). Le réseau ne la vide
   jamais. C'est un trieur : le joueur y dépose un exemplaire de l'objet voulu.
 
+- `flow: true` — un conduit d'objets **à sens unique** (`conduit: Items` et un état `Facing4` ou
+  `Facing6`) : les objets ne vont que vers l'« avant » de la variante (le nord de la forme écrite),
+  et posé il **pointe là où regarde le joueur**. Il prend les objets par l'arrière et par les côtés
+  (une machine ou un autre convoyeur peut le rejoindre de côté), et ne les rend que par l'avant : une
+  machine sur son flanc ne reçoit rien. Deux sens unique face à face se bloquent. Il se relie aux
+  courroies ordinaires du même canal (un tronçon peut être à sens unique, le reste libre). Dessinez
+  la flèche avec les boîtes (elles tournent avec l'orientation ; une texture ne tourne pas). Pour le
+  moment le sens ne vaut que pour les objets : `flow` est refusé sur l'énergie, les fluides et la
+  rotation.
+
 **Les réseaux d'objets** passent 5 fois par seconde et déplacent au plus 8 objets par passage (ou le
 `throughput`), chacun son tour. Dans l'ordre : des producteurs (sorties d'une machine, inventaires
 « sortie seule ») vers les consommateurs (entrées, inventaires « entrée seule »), puis le surplus des
@@ -754,7 +764,7 @@ document. Il contient :
 
 Ce qu'il a fallu ajouter à l'API pour l'écrire : les conduits de mods (`conduit:`), la lecture et
 l'écriture d'une case d'inventaire (`slot`, `set_slot`), et les réseaux d'objets pour ses **courroies**
-(`conduit: Items`, `channel`, `ports` sur la presse).
+(`conduit: Items`, `channel`, `ports` sur la presse), puis le **sens unique** (`flow`) pour son convoyeur.
 
 ## Un mod de référence : Entrepôt
 
