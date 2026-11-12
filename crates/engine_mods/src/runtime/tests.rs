@@ -512,6 +512,7 @@ fn content_host(streamer: &Rc<RefCell<ChunkStreamer>>) -> ScriptHost {
     host.set_content(ModContent {
         items: Arc::new(items),
         machine_recipes: Arc::new(recipes),
+        loot: Default::default(),
         mob_keys: Default::default(),
         dimension: "core:overworld".into(),
     });

@@ -1,0 +1,45 @@
+// Les blocs de l'entrepôt. Tous sont des machines dont le comportement est dans le script ; leur
+// inventaire est créé à la pose. Les `ports` disent ce que les conduits d'objets peuvent y
+// déposer (`inputs`) et en retirer (`outputs`) : sans `ports`, le coffre est un tampon où tout
+// entre et d'où tout sort.
+[
+    // Le grand coffre : 54 cases. Comme un coffre, il sert de tampon aux réseaux d'objets.
+    (
+        id: "entrepot:vault", name: "Grand coffre", color: (0.47, 0.33, 0.19),
+        textures: (top: "vault_top", side: "vault_side", bottom: "vault_top"),
+        behavior: "vault",
+        hardness: 2.5, tool: Axe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
+    // Le trieur : la case 0 est son modèle (on y dépose un exemplaire de l'objet voulu), les 8
+    // autres reçoivent ce qui arrive des conduits. Seul l'objet du modèle entre ; sans modèle,
+    // tout entre. Un grand coffre voisin lui donne ce qui correspond.
+    (
+        id: "entrepot:sorter", name: "Trieur", color: (0.27, 0.55, 0.78),
+        textures: (top: "sorter_top", side: "sorter_side", bottom: "sorter_top"),
+        behavior: "sorter",
+        ports: (inputs: [1, 2, 3, 4, 5, 6, 7, 8], filter: 0),
+        hardness: 2.5, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
+    // La moissonneuse : récolte les cultures mûres autour d'elle (au même niveau, à 3 blocs) et
+    // les replante. Elle garde la récolte dans ses 9 cases, d'où les conduits la retirent.
+    (
+        id: "entrepot:harvester", name: "Moissonneuse", color: (0.3, 0.45, 0.2),
+        textures: (top: "harvester_top", side: "harvester_side", bottom: "harvester_top"),
+        behavior: "harvester",
+        ports: (outputs: [0, 1, 2, 3, 4, 5, 6, 7, 8]),
+        hardness: 2.0, tool: Axe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
+    // La foreuse : alimentée (un levier voisin suffit), elle creuse un puits droit sous elle,
+    // un bloc à la fois, et garde ce qu'elle trouve dans ses 9 cases.
+    (
+        id: "entrepot:drill", name: "Foreuse", color: (0.55, 0.45, 0.2),
+        textures: (top: "drill_top", side: "drill_side", bottom: "drill_top"),
+        behavior: "drill",
+        ports: (outputs: [0, 1, 2, 3, 4, 5, 6, 7, 8]),
+        hardness: 3.0, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
+]

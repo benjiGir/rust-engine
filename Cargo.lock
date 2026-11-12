@@ -1218,6 +1218,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "entrepot_mod"
+version = "0.1.0"
+dependencies = [
+ "engine_mods",
+ "engine_voxel",
+ "glam",
+ "mod_sdk",
+]
+
+[[package]]
 name = "env_filter"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

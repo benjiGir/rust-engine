@@ -35,6 +35,52 @@ pub fn block_id(key: &str) -> Option<Block> {
     (id >= 0).then_some(Block(id as u16))
 }
 
+/// L'identifiant texte d'un bloc (`"core:stone"`), qui est aussi le nom de l'objet qu'il donne.
+pub fn block_key(block: Block) -> Option<String> {
+    let mut buffer = vec![0u8; 64];
+    loop {
+        let (ptr, cap) = (buffer.as_mut_ptr() as usize as i32, buffer.len() as i32);
+        // SAFETY: l'hôte écrit au plus `cap` octets à `ptr`, qui pointent dans `buffer`.
+        let len = unsafe { ffi::block_key(block.0 as i32, ptr, cap) };
+        if len < 0 {
+            return None;
+        }
+        if len as usize > buffer.len() {
+            buffer = vec![0u8; len as usize];
+            continue;
+        }
+        return Some(String::from_utf8_lossy(&buffer[..len as usize]).into_owned());
+    }
+}
+
+/// Ce que lâcherait ce bloc cassé : des (objet, nombre), tirés au hasard selon les tables de
+/// butin du jeu et des mods (une culture mûre donne du blé et des graines, un minerai son
+/// produit...).
+pub fn block_drops(block: Block) -> Vec<(String, u32)> {
+    let mut buffer = vec![0u8; 128];
+    loop {
+        let (ptr, cap) = (buffer.as_mut_ptr() as usize as i32, buffer.len() as i32);
+        // SAFETY: l'hôte écrit au plus `cap` octets à `ptr`, qui pointent dans `buffer`.
+        let len = unsafe { ffi::block_drops(block.0 as i32, ptr, cap) };
+        if len < 0 {
+            return Vec::new();
+        }
+        if len as usize > buffer.len() {
+            // Le tirage a eu lieu : on le relit plus grand, il sera différent ; sans importance.
+            buffer = vec![0u8; len as usize];
+            continue;
+        }
+        let text = String::from_utf8_lossy(&buffer[..len as usize]).into_owned();
+        return text
+            .split(';')
+            .filter_map(|part| {
+                let (item, count) = part.rsplit_once('*')?;
+                Some((item.to_string(), count.parse().ok()?))
+            })
+            .collect();
+    }
+}
+
 /// Le bloc de base d'un bloc à états (voir `docs/modding.md`) : un escalier orienté vers l'est
 /// donne l'escalier de base. Un bloc ordinaire se renvoie lui-même.
 pub fn block_base(block: Block) -> Block {
@@ -373,6 +419,14 @@ pub fn item_id(key: &str) -> Option<Item> {
     // SAFETY: l'hôte lit `len` octets à `ptr`, dans `key`.
     let id = unsafe { ffi::item_id(ptr, len) };
     (id >= 0).then_some(Item(id as u16))
+}
+
+/// Combien d'exemplaires de cet objet tiennent dans une case (1 pour un outil) ; 0 si l'objet
+/// n'existe pas.
+pub fn item_max_stack(key: &str) -> u32 {
+    let (ptr, len) = addr(key.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `key`.
+    unsafe { ffi::item_max_stack(ptr, len) as u32 }
 }
 
 /// Donne `count` objets au joueur (contrairement à [`give_item`], l'objet n'a pas besoin

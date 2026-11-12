@@ -422,6 +422,8 @@ struct ItemPort {
     take: Vec<usize>,
     /// Le type de recette dont elle n'accepte que les ingrédients.
     accepts: Option<String>,
+    /// Le seul objet qu'elle reçoit (d'après sa case-modèle), s'il y en a un.
+    only: Option<String>,
     producer: bool,
     consumer: bool,
     buffer: bool,
@@ -516,6 +518,11 @@ fn tick_items(
             consumer: !take.is_empty() && (declared.is_some() || io == Io::In),
             buffer: declared.is_none() && io == Io::Both,
             accepts: declared.and_then(|p| p.accepts.clone()),
+            only: declared
+                .and_then(|p| p.filter)
+                .and_then(|f| inventory.slots.get(f))
+                .and_then(|s| s.as_ref())
+                .map(|s| s.item.clone()),
             give,
             take,
         });
@@ -553,6 +560,9 @@ fn tick_items(
                 for t in 0..targets.len() {
                     let target = &ends[targets[(t + turn as usize) % targets.len()]];
                     if target.pos == giver.pos || budget == 0 || stack.count == 0 {
+                        continue;
+                    }
+                    if target.only.as_ref().is_some_and(|only| *only != stack.item) {
                         continue;
                     }
                     // Une machine n'accepte que ce que ses recettes consomment.
@@ -1295,6 +1305,7 @@ mod tests {
         (id: "test:sink", name: "Puits", color: (0.5, 0.5, 0.5), ports: (inputs: [0], accepts: "test:press")),
         (id: "test:machine", name: "Machine", color: (0.5, 0.5, 0.5), ports: (inputs: [0], outputs: [1])),
         (id: "test:crate", name: "Caisse", color: (0.5, 0.5, 0.5)),
+        (id: "test:sorter", name: "Trieur", color: (0.5, 0.5, 0.5), ports: (inputs: [1], filter: 0)),
     ]"#;
 
     impl Rig {
@@ -1431,6 +1442,32 @@ mod tests {
         rig.put(rig.at(0, 0), 0, "core:iron_ingot", 10);
         rig.tick(ITEM_PERIOD as usize * 5);
         assert_eq!(rig.count(rig.at(6, 0), 0), 10);
+    }
+
+    #[test]
+    fn a_filter_slot_lets_only_its_item_in() {
+        let mut rig = Rig::items();
+        rig.container(rig.at(0, 0), "test:src", 1);
+        rig.put(rig.at(0, 0), 0, "core:stone", 10);
+        rig.container(rig.at(6, 0), "test:sorter", 2);
+        rig.belts(1, 5, "test:belt");
+        // Sans modèle, tout entre : la pierre passe.
+        rig.tick(ITEM_PERIOD as usize * 3);
+        assert_eq!(rig.count(rig.at(6, 0), 1), 10, "sans modèle, tout entre");
+        // Avec un modèle de fer, la pierre reste chez la source.
+        rig.put(rig.at(0, 0), 0, "core:stone", 10);
+        rig.put(rig.at(6, 0), 0, "core:iron_ingot", 1);
+        rig.put(rig.at(6, 0), 1, "core:iron_ingot", 0);
+        rig.with_caps(rig.at(6, 0), |c| {
+            c.inventory.as_mut().unwrap().slots[1] = None
+        });
+        rig.tick(ITEM_PERIOD as usize * 3);
+        assert_eq!(rig.count(rig.at(6, 0), 1), 0, "la pierre est refusée");
+        assert_eq!(rig.count(rig.at(0, 0), 0), 10);
+        assert_eq!(rig.count(rig.at(6, 0), 0), 1, "le modèle reste intact");
+        rig.put(rig.at(0, 0), 0, "core:iron_ingot", 10);
+        rig.tick(ITEM_PERIOD as usize * 3);
+        assert_eq!(rig.count(rig.at(6, 0), 1), 10);
     }
 
     #[test]

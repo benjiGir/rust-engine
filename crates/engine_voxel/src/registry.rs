@@ -141,6 +141,10 @@ pub struct InventoryPorts {
     /// entrent par les cases d'entrée. Sans cela, tout entre.
     #[serde(default)]
     pub accepts: Option<String>,
+    /// Une case-modèle de l'inventaire : l'objet qu'elle contient est le seul à entrer par les
+    /// cases d'entrée (un trieur). Vide : tout entre. Elle n'est jamais vidée par le réseau.
+    #[serde(default)]
+    pub filter: Option<usize>,
 }
 
 /// Une boîte alignée sur les axes, en coordonnées de bloc (0 à 1 sur chaque axe).

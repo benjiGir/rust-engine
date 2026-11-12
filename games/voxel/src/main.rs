@@ -484,6 +484,7 @@ impl VoxelGame {
             engine_mods::ModContent {
                 items: content.items.clone(),
                 machine_recipes: content.machine_recipes.clone(),
+                loot: content.loot.clone(),
                 mob_keys: Arc::new(mob_registry.keys()),
                 dimension: dims.current.key.as_str().into(),
             },

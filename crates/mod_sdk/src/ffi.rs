@@ -44,6 +44,10 @@ unsafe extern "C" {
     pub fn spawn_entity(ptr: i32, len: i32, x: f32, y: f32, z: f32);
     /// Le numéro d'un bloc à partir de son identifiant (`core:stone`) ; −1 s'il n'existe pas.
     pub fn block_id(ptr: i32, len: i32) -> i32;
+    /// L'identifiant texte d'un bloc (`core:stone`), écrit à `ptr` (au plus `cap` octets) ; renvoie sa taille, −1 si le bloc n'existe pas. C'est aussi le nom de l'objet qu'il donne en inventaire.
+    pub fn block_key(id: i32, ptr: i32, cap: i32) -> i32;
+    /// Ce que lâcherait ce bloc cassé : `objet*nombre;objet*nombre`, écrit à `ptr` (au plus `cap` octets) ; renvoie la taille (0 : rien), −1 si le bloc n'existe pas. Le hasard est tiré à chaque appel.
+    pub fn block_drops(id: i32, ptr: i32, cap: i32) -> i32;
     /// Le bloc de base d'un bloc à états : `example:stairs[facing=east]` donne `example:stairs`. Un bloc ordinaire se renvoie lui-même.
     pub fn block_base(id: i32) -> i32;
     /// Le bloc à cette position (0 : de l'air, ou une grille inconnue).
@@ -227,6 +231,8 @@ unsafe extern "C" {
     pub fn mod_loaded(ptr: i32, len: i32) -> i32;
     /// Le numéro d'un objet (bloc ou non) à partir de son identifiant (`example:ruby`) ; −1 s'il n'existe pas.
     pub fn item_id(ptr: i32, len: i32) -> i32;
+    /// Combien d'exemplaires de cet objet tiennent dans une case (1 pour un outil) ; 0 s'il n'existe pas.
+    pub fn item_max_stack(ptr: i32, len: i32) -> i32;
     /// Donne `count` objets de numéro `id` (voir `item_id`) au joueur.
     pub fn give_stack(id: i32, count: i32);
     /// Cherche une recette du type donné (`example:press`) faisable avec les objets `cle*nombre,cle*nombre` de l'entrée. Écrit `ticks;énergie;entrées;sorties` (même format) dans la sortie ; renvoie sa taille, −1 sans recette.
@@ -258,6 +264,14 @@ mod inert {
     pub unsafe fn spawn_entity(_: i32, _: i32, _: f32, _: f32, _: f32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn block_id(_: i32, _: i32) -> i32 {
+        -1
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn block_key(_: i32, _: i32, _: i32) -> i32 {
+        -1
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn block_drops(_: i32, _: i32, _: i32) -> i32 {
         -1
     }
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
@@ -483,6 +497,10 @@ mod inert {
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn item_id(_: i32, _: i32) -> i32 {
         -1
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn item_max_stack(_: i32, _: i32) -> i32 {
+        0
     }
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn give_stack(_: i32, _: i32) {}

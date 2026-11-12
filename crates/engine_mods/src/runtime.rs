@@ -180,6 +180,8 @@ impl Requests {
 pub struct ModContent {
     pub items: Arc<ItemRegistry>,
     pub machine_recipes: Arc<MachineRecipes>,
+    /// Les tables de butin des blocs (`block_drops`).
+    pub loot: Arc<engine_voxel::LootTables>,
     /// Les identifiants des types de créatures, dans l'ordre de leur numéro (`mob_kind`).
     pub mob_keys: Arc<Vec<String>>,
     /// La dimension où se trouve le joueur (`dimension` côté script).

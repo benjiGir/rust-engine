@@ -154,6 +154,8 @@ pub enum Command {
     /// `None` : l'objet tenu sur le bloc visé, comme un clic droit.
     Place(Option<(IVec3, String)>),
     Give(String, u32),
+    /// Pour les essais : met des objets dans une case de l'inventaire d'un bloc (`count` 0 : la vide).
+    Stock(IVec3, usize, String, u32),
     /// Case de la barre, de 0 à 8.
     Select(usize),
     Inventory,
@@ -320,6 +322,15 @@ pub fn parse(line: &str) -> Result<Command> {
                 None
             };
             Command::Place(target)
+        }
+        "stock" => {
+            count(&[6])?;
+            Command::Stock(
+                block_pos(0)?,
+                args[3].parse().context("stock : case invalide")?,
+                qualified(args[4]),
+                args[5].parse().context("stock : nombre invalide")?,
+            )
         }
         "give" => {
             count(&[1, 2])?;
@@ -670,6 +681,24 @@ impl VoxelGame {
                 }
                 Ok(format!("{{\"ok\":true,\"pos\":{}}}", ivec3(pos)))
             }
+            Command::Stock(pos, slot, key, amount) => {
+                let mut streamer = self.streamer_mut();
+                let inventory = streamer
+                    .block_entity_mut(pos)
+                    .and_then(|e| e.caps.as_mut())
+                    .and_then(|c| c.inventory.as_mut())
+                    .with_context(|| format!("stock : pas d'inventaire en {}", ivec3(pos)))?;
+                let cell = inventory
+                    .slots
+                    .get_mut(slot)
+                    .with_context(|| format!("stock : pas de case {slot}"))?;
+                *cell = (amount > 0).then_some(engine_voxel::ItemStack {
+                    item: key,
+                    count: amount,
+                    damage: 0,
+                });
+                Ok("{\"ok\":true}".to_string())
+            }
             Command::Give(key, amount) => {
                 let item = self
                     .content
@@ -761,9 +790,21 @@ impl VoxelGame {
                         k.speed, k.stress_capacity, k.stress_impact
                     )
                 });
+                // Les cases occupées : `[case, objet, nombre]`.
+                let inventory: Vec<String> = caps.inventory.as_ref().map_or_else(Vec::new, |i| {
+                    i.slots
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(n, s)| {
+                            s.as_ref()
+                                .map(|s| format!("[{n},{},{}]", json_str(&s.item), s.count))
+                        })
+                        .collect()
+                });
                 Ok(format!(
-                    "{{\"ok\":true,\"block\":{block},\"power\":{power},\"energy\":{energy},\"tanks\":[{}],\"kinetic\":{kinetic}}}",
-                    tanks.join(",")
+                    "{{\"ok\":true,\"block\":{block},\"power\":{power},\"energy\":{energy},\"tanks\":[{}],\"kinetic\":{kinetic},\"items\":[{}]}}",
+                    tanks.join(","),
+                    inventory.join(",")
                 ))
             }
             Command::Assemble(pos) => {

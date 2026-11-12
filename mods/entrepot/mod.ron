@@ -1,0 +1,13 @@
+// Entrepôt : stockage et automatisation. Un grand coffre qui se range, un trieur à filtre, une
+// moissonneuse qui récolte et replante les cultures, une foreuse qui creuse un puits. Les
+// objets circulent entre eux par les courroies de Mécanique (ou tout conduit `Items`).
+// Écrit uniquement avec l'API publique des mods.
+(
+    id: "entrepot",
+    name: "Entrepôt",
+    version: "0.1.0",
+    authors: ["benji"],
+    description: "Grand coffre, trieur à filtre, moissonneuse et foreuse : de quoi automatiser une ferme et une mine.",
+    dependencies: [(id: "core", version: "^0.1")],
+    script: "entrepot.wasm",
+)

@@ -1,0 +1,10 @@
+// L'artisanat de l'entrepôt (les objets du jeu de base s'écrivent en entier : `core:...`).
+(
+    shaped: [
+        (pattern: ["ppp", "pcp", "ppp"], key: {"p": "#planks", "c": "core:chest"}, result: ("vault", 1)),
+        (pattern: ["iii", "ici", "iii"], key: {"i": "core:iron_ingot", "c": "core:chest"}, result: ("sorter", 1)),
+        (pattern: ["sss", "ici", "ppp"], key: {"s": "core:seeds", "i": "core:iron_ingot", "c": "core:chest", "p": "#planks"}, result: ("harvester", 1)),
+        (pattern: ["iii", "ipi", "ici"], key: {"i": "core:iron_ingot", "p": "core:iron_pickaxe", "c": "core:chest"}, result: ("drill", 1)),
+    ],
+    shapeless: [],
+)

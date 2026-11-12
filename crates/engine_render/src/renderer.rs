@@ -1158,7 +1158,7 @@ impl Renderer {
     /// modifications).
     fn prepare_ui(&mut self, ui: &mut Option<UiFrame>) {
         let Some(ui) = ui else { return };
-        let textures = std::mem::take(&mut ui.textures);
+        let mut textures = std::mem::take(&mut ui.textures);
         for (id, deltas) in &textures.set {
             for delta in deltas {
                 self.egui
@@ -1166,6 +1166,8 @@ impl Renderer {
             }
         }
         self.egui_free.extend(textures.free.iter().copied());
+        // Tout est appliqué : egui (en debug) panique si on jette des modifications non vidées.
+        textures.clear();
     }
 
     /// Dessine une image hors de l'écran et renvoie ses pixels.

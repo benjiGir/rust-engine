@@ -99,6 +99,15 @@ impl Harness {
             }
         }
 
+        let mut loot = engine_voxel::LootTables::builtin(&registry, &items)?;
+        for (ns, dir) in &dirs {
+            let path = dir.join("loot.ron");
+            if path.exists() {
+                let text = std::fs::read_to_string(&path)?;
+                loot.add_source(ns, &text, &path.display().to_string(), &registry, &items)?;
+            }
+        }
+
         let generator = TerrainGenerator::with_mods(1, registry.clone(), &dirs)?;
         let mut streamer = ChunkStreamer::new(
             generator,
@@ -133,6 +142,7 @@ impl Harness {
         host.set_content(ModContent {
             items: items.clone(),
             machine_recipes: Arc::new(recipes),
+            loot: Arc::new(loot),
             mob_keys: mob_keys.clone(),
             dimension: "core:overworld".into(),
         });
@@ -229,6 +239,14 @@ impl Harness {
             .get(slot)?
             .as_ref()?;
         Some((stack.item.clone(), stack.count))
+    }
+
+    /// Fait émettre de la puissance (0 à 15) au bloc, comme un levier allumé : ses voisins la
+    /// reçoivent (`received_power`).
+    pub fn set_power(&mut self, pos: IVec3, power: u8) {
+        if let Some(e) = self.streamer.borrow_mut().ensure_block_entity(pos) {
+            e.power = power;
+        }
     }
 
     /// Impose la vitesse de rotation du bloc, comme le ferait un réseau qui lui en donne.

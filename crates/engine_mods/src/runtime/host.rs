@@ -189,6 +189,49 @@ fn define_blocks(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
     )?;
     linker.func_wrap(
         "voxel",
+        "block_key",
+        |mut caller: Caller<'_, HostState>, id: i32, ptr: i32, cap: i32| -> HostResult<i32> {
+            if id < 0 || id as usize >= caller.data().registry.len() {
+                return Ok(-1);
+            }
+            let key = caller.data().registry.def(BlockId(id as u16)).key.clone();
+            let n = key.len().min(cap.max(0) as usize);
+            write_guest(&mut caller, ptr, &key.as_bytes()[..n])?;
+            Ok(key.len() as i32)
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "block_drops",
+        |mut caller: Caller<'_, HostState>, id: i32, ptr: i32, cap: i32| -> HostResult<i32> {
+            if id < 0 || id as usize >= caller.data().registry.len() {
+                return Ok(-1);
+            }
+            let state = caller.data_mut();
+            state.rng ^= state.rng << 13;
+            state.rng ^= state.rng >> 7;
+            state.rng ^= state.rng << 17;
+            let mut rng = engine_voxel::Rng64::new(state.rng);
+            // À la main d'une machine : sans outil, mais le butin est toujours récolté.
+            let rolled = state.content.loot.roll(
+                BlockId(id as u16),
+                None,
+                true,
+                &state.content.items,
+                &mut rng,
+            );
+            let text = rolled
+                .iter()
+                .map(|(item, count)| format!("{}*{count}", state.content.items.get(*item).key))
+                .collect::<Vec<_>>()
+                .join(";");
+            let n = text.len().min(cap.max(0) as usize);
+            write_guest(&mut caller, ptr, &text.as_bytes()[..n])?;
+            Ok(text.len() as i32)
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
         "block_base",
         |caller: Caller<'_, HostState>, id: i32| -> i32 {
             if id < 0 || id as usize >= caller.data().registry.len() {
@@ -836,6 +879,17 @@ fn define_ui(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
 }
 
 fn define_content(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        "voxel",
+        "item_max_stack",
+        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> HostResult<i32> {
+            let key = read_string(&mut caller, ptr, len)?;
+            let items = &caller.data().content.items;
+            Ok(items
+                .id(&key)
+                .map_or(0, |id| items.get(id).max_stack as i32))
+        },
+    )?;
     linker.func_wrap(
         "voxel",
         "item_id",

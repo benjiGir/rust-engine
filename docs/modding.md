@@ -138,6 +138,9 @@ Trois réglages, tous facultatifs, pour fabriquer **ses propres types de réseau
   d'une machine : les cases que le réseau remplit (`inputs`), celles qu'il vide (`outputs`), et le type de
   recette (`machine_recipes.ron`) dont elle n'accepte que les ingrédients. Sans `ports`, toutes les
   cases d'un inventaire font les deux (un coffre).
+- `ports: (inputs: [1, 2, 3], filter: 0)` — un **filtre** : la case 0 est un modèle ; l'objet qu'elle
+  contient est le seul à entrer par les cases d'entrée (case vide : tout entre). Le réseau ne la vide
+  jamais. C'est un trieur : le joueur y dépose un exemplaire de l'objet voulu.
 
 **Les réseaux d'objets** passent 5 fois par seconde et déplacent au plus 8 objets par passage (ou le
 `throughput`), chacun son tour. Dans l'ordre : des producteurs (sorties d'une machine, inventaires
@@ -581,6 +584,8 @@ test vérifie que le jeu définit exactement ces fonctions.
 | Fonction | Rôle |
 |---|---|
 | `block_id(ptr: i32, len: i32) -> i32` | Le numéro d'un bloc à partir de son identifiant (`core:stone`) ; −1 s'il n'existe pas. |
+| `block_key(id: i32, ptr: i32, cap: i32) -> i32` | L'identifiant texte d'un bloc (`core:stone`), écrit à `ptr` (au plus `cap` octets) ; renvoie sa taille, −1 si le bloc n'existe pas. C'est aussi le nom de l'objet qu'il donne en inventaire. |
+| `block_drops(id: i32, ptr: i32, cap: i32) -> i32` | Ce que lâcherait ce bloc cassé : `objet*nombre;objet*nombre`, écrit à `ptr` (au plus `cap` octets) ; renvoie la taille (0 : rien), −1 si le bloc n'existe pas. Le hasard est tiré à chaque appel. |
 | `block_base(id: i32) -> i32` | Le bloc de base d'un bloc à états : `example:stairs[facing=east]` donne `example:stairs`. Un bloc ordinaire se renvoie lui-même. |
 | `get_block(g: i32, x: i32, y: i32, z: i32) -> i32` | Le bloc à cette position (0 : de l'air, ou une grille inconnue). |
 | `set_block(g: i32, x: i32, y: i32, z: i32, id: i32) -> i32` | Pose un bloc ; les voisins sont prévenus. 1 si c'est fait. |
@@ -681,6 +686,7 @@ test vérifie que le jeu définit exactement ces fonctions.
 | Fonction | Rôle |
 |---|---|
 | `item_id(ptr: i32, len: i32) -> i32` | Le numéro d'un objet (bloc ou non) à partir de son identifiant (`example:ruby`) ; −1 s'il n'existe pas. |
+| `item_max_stack(ptr: i32, len: i32) -> i32` | Combien d'exemplaires de cet objet tiennent dans une case (1 pour un outil) ; 0 s'il n'existe pas. |
 | `give_stack(id: i32, count: i32)` | Donne `count` objets de numéro `id` (voir `item_id`) au joueur. |
 | `recipe_find(kind_ptr: i32, kind_len: i32, in_ptr: i32, in_len: i32, out_ptr: i32, out_cap: i32) -> i32` | Cherche une recette du type donné (`example:press`) faisable avec les objets `cle*nombre,cle*nombre` de l'entrée. Écrit `ticks;énergie;entrées;sorties` (même format) dans la sortie ; renvoie sa taille, −1 sans recette. |
 
@@ -702,6 +708,27 @@ document. Il contient :
 Ce qu'il a fallu ajouter à l'API pour l'écrire : les conduits de mods (`conduit:`), la lecture et
 l'écriture d'une case d'inventaire (`slot`, `set_slot`), et les réseaux d'objets pour ses **courroies**
 (`conduit: Items`, `channel`, `ports` sur la presse).
+
+## Un mod de référence : Entrepôt
+
+`mods/entrepot` : le stockage et l'automatisation, toujours avec l'API publique.
+- un **grand coffre** (54 cases, comme un coffre pour les réseaux d'objets) avec un bouton « Ranger »
+  qui regroupe les piles et trie par objet (`item_max_stack` : les objets qui ne s'empilent pas, outils
+  et armures, ne bougent pas) ;
+- un **trieur** : `ports` avec un `filter` (voir plus haut) ; un grand coffre voisin lui donne ce qui
+  correspond, le reste passe au coffre ;
+- une **moissonneuse** : toutes les 2 secondes, elle cueille les cultures mûres à 3 blocs et les replante.
+  Elle reconnaît une culture mûre sans rien savoir de chaque plante : `block_key` donne `core:wheat_3`,
+  et `block_drops` tire le butin des tables du jeu (blé et graines, carottes...) ; si tout ne tient pas dans
+  ses 9 cases, elle ne casse rien ;
+- une **foreuse** : alimentée (un levier voisin), elle creuse un puits droit, un bloc par seconde, et
+  garde le butin (`block_drops` : la pierre donne des pavés). Elle s'arrête sur la roche mère, l'eau,
+  la lave, ou quand ses cases sont pleines.
+
+Les objets circulent par les courroies de Mécanique (ou tout conduit `Items`) : harvester ou foreuse
+*produisent* (leurs `outputs`), trieurs et coffres *reçoivent*. Un réseau envoie d'abord aux machines
+(trieur), puis aux coffres : la moissonneuse + trieur de graines + grand coffre trie donc la récolte
+toute seule. Tests : `cargo xtask test-mod entrepot`.
 
 ## La génération du monde
 
