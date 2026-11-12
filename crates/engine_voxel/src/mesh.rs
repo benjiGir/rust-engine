@@ -29,7 +29,7 @@ use glam::{IVec3, Vec3};
 use crate::biome::{BiomeId, BiomeRegistry};
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
-use crate::registry::{BlockDef, BlockRegistry, Shape, Tint};
+use crate::registry::{BlockDef, BlockRegistry, RotationAxis, Shape, Tint};
 use crate::world::World;
 
 const SIZE: i32 = CHUNK_SIZE as i32;
@@ -52,14 +52,14 @@ const FLUID_SURFACE: f32 = 0.875;
 pub struct MeshVertex {
     /// Position dans le chunk, en 1/1024 de bloc à partir de -8 (voir
     /// [`MeshVertex::local_position`]) : les coins entiers restent exacts, donc pas de
-    /// fente entre deux faces voisines. Le 4e nombre ne sert pas (alignement).
+    /// fente entre deux faces voisines. Le 4e nombre est l'index du bloc animé (pivot).
     pub position: [u16; 4],
-    /// Normale, de -127 à 127 par axe ; le 4e ne sert pas.
+    /// Normale, de -127 à 127 par axe ; w : vitesse de rotation × 8 (rad/s).
     pub normal: [i8; 4],
     /// Couleur du bloc et opacité (alpha), de 0 à 255.
     pub color: [u8; 4],
-    /// Lumière du ciel, lumière des blocs et occlusion ambiante, de 0 à 255 ; le 4e ne
-    /// sert pas.
+    /// Lumière du ciel, lumière des blocs et occlusion ambiante, de 0 à 255 ; w :
+    /// axe de rotation (0 : X, 1 : Y, 2 : Z).
     pub light: [u8; 4],
     /// Couche de la texture (0 = pas de texture) dans les 16 bits du bas, et des
     /// drapeaux au-dessus ([`FLAG_CUTOUT`], [`FLAG_SWAY`]). Les coordonnées de texture,
@@ -129,6 +129,12 @@ pub const FLAG_SWAY: u32 = 1 << 17;
 /// Les pixels transparents de la texture sont remplis d'un vert sombre : une feuille au
 /// cœur du feuillage, dessinée opaque (culling des feuilles).
 pub const FLAG_FILLED: u32 = 1 << 18;
+/// Rotation d'une boîte autour du centre de son bloc (métadonnées dans les w inutilisés).
+pub const FLAG_ROTATE: u32 = 1 << 19;
+/// Flammes dans la bouche du four, seulement pendant la combustion.
+pub const FLAG_FURNACE_FIRE: u32 = 1 << 20;
+/// Variation continue de l'herbe à l'échelle du terrain, indépendante des blocs.
+pub const FLAG_GROUND: u32 = 1 << 21;
 /// Les bits de la couche de texture dans [`MeshVertex::texture`].
 pub const TEXTURE_MASK: u32 = 0xFFFF;
 
@@ -182,13 +188,36 @@ impl ChunkMesh {
     /// Plus serrée que le chunk entier : idéal pour le frustum culling.
     pub fn bounds(&self) -> Option<(Vec3, Vec3)> {
         // `fold` réduit l'itérateur à une seule valeur, ici la paire (min, max).
-        self.vertices.iter().map(|v| self.world_position(v)).fold(
-            None,
-            |acc: Option<(Vec3, Vec3)>, p| match acc {
-                None => Some((p, p)),
-                Some((min, max)) => Some((min.min(p), max.max(p))),
-            },
-        )
+        self.vertices
+            .iter()
+            .map(|v| {
+                let p = self.world_position(v);
+                if v.texture & FLAG_ROTATE == 0 {
+                    return (p, p);
+                }
+                // L'orbite entière, pour qu'un engrenage ne disparaisse pas en tournant
+                // au bord de l'écran. Même codage du pivot que dans le shader.
+                let index = usize::from(v.position[3]);
+                let pivot = self.origin.as_vec3()
+                    + Vec3::new(
+                        (index % CHUNK_SIZE) as f32,
+                        (index / (CHUNK_SIZE * CHUNK_SIZE)) as f32,
+                        ((index / CHUNK_SIZE) % CHUNK_SIZE) as f32,
+                    )
+                    + Vec3::splat(0.5);
+                let axis = usize::from(v.light[3]);
+                let mut radial = p - pivot;
+                radial[axis] = 0.0;
+                let mut radius = Vec3::splat(radial.length());
+                radius[axis] = 0.0;
+                let mut center = pivot;
+                center[axis] = p[axis];
+                (center - radius, center + radius)
+            })
+            .fold(None, |acc: Option<(Vec3, Vec3)>, (lo, hi)| match acc {
+                None => Some((lo, hi)),
+                Some((min, max)) => Some((min.min(lo), max.max(hi))),
+            })
     }
 
     /// Ajoute un rectangle sur la face `face` d'une boîte de blocs.
@@ -617,16 +646,33 @@ impl Neighbourhood {
         } else {
             [0; 4]
         };
+        let fire = if face.axis != 1
+            && def.behavior.as_deref() == Some("core:furnace")
+            && self.chunks[13]
+                .as_ref()
+                .and_then(|chunk| chunk.block_entity(p.x as usize, p.y as usize, p.z as usize))
+                .is_some_and(|entity| crate::FurnaceState::read(entity).burning())
+        {
+            FLAG_FURNACE_FIRE
+        } else {
+            0
+        };
         FaceLook {
             block,
             texture,
             drops,
             // Une feuille opaque : ses trous sont remplis, plus découpés.
-            flags: if self.enclosed_leaf(p) {
-                (block_flags(def) & !FLAG_CUTOUT) | FLAG_FILLED
-            } else {
-                block_flags(def)
-            },
+            flags: fire
+                | if def.tint == Tint::Grass && face.axis == 1 && face.positive {
+                    FLAG_GROUND
+                } else {
+                    0
+                }
+                | if self.enclosed_leaf(p) {
+                    (block_flags(def) & !FLAG_CUTOUT) | FLAG_FILLED
+                } else {
+                    block_flags(def)
+                },
             color: [
                 rgb[0] * tint[0],
                 rgb[1] * tint[1],
@@ -802,7 +848,11 @@ fn model_boxes(
     flags: u32,
 ) {
     let (_, own_sky, own_light) = hood.cell(p);
-    for b in &def.boxes {
+    for (box_index, b) in def.boxes.iter().enumerate() {
+        let rotation = def
+            .rotation
+            .as_ref()
+            .filter(|r| r.boxes.is_empty() || r.boxes.contains(&box_index));
         for face in Face::ALL {
             let a = face.axis;
             let on_edge = if face.positive {
@@ -811,7 +861,7 @@ fn model_boxes(
                 b.min[a] <= 0.0
             };
             let (neighbour, sky, light) = hood.cell(p + face.normal());
-            if on_edge && !hood.registry.is_transparent(neighbour) {
+            if rotation.is_none() && on_edge && !hood.registry.is_transparent(neighbour) {
                 continue;
             }
             // Le bloc plein est noir de l'intérieur : la lumière est celle de l'air à côté.
@@ -842,6 +892,18 @@ fn model_boxes(
             let normal = face.normal().as_vec3().to_array();
             for corner in corners {
                 mesh.push_vertex(base + corner, normal, color, vertex_light, layer | flags);
+                if let Some(rotation) = rotation {
+                    let vertex = mesh.vertices.last_mut().expect("sommet ajouté");
+                    vertex.texture |= FLAG_ROTATE;
+                    vertex.position[3] =
+                        Chunk::index(p.x as usize, p.y as usize, p.z as usize) as u16;
+                    vertex.normal[3] = (rotation.speed * 8.0).round() as i8;
+                    vertex.light[3] = match rotation.axis {
+                        RotationAxis::X => 0,
+                        RotationAxis::Y => 1,
+                        RotationAxis::Z => 2,
+                    };
+                }
             }
             let list = if def.alpha < 1.0 {
                 &mut mesh.translucent_indices
@@ -1029,6 +1091,91 @@ mod tests {
     use super::*;
     use crate::generator::TerrainGenerator;
     use crate::registry::test_blocks::{grass, stone};
+
+    #[test]
+    fn rotating_parts_keep_their_pivot_at_chunk_edges_and_expand_render_bounds() {
+        let mut registry = BlockRegistry::empty();
+        registry
+            .add_source(
+                "test",
+                r#"[(
+            id: "test:rotor", name: "Rotor", color: (1.0, 1.0, 1.0),
+            boxes: [(from: (0, 0, 0), to: (16, 4, 16)), (from: (1, 6, 1), to: (15, 10, 15))],
+            rotation: (axis: Y, speed: 1.5, boxes: [1]),
+        )]"#,
+                "test",
+            )
+            .unwrap();
+        let rotor = registry.id("test:rotor").unwrap();
+        let mut world = World::with_registry(Arc::new(registry));
+        world.set_block(IVec3::new(-1, 5, -1), rotor);
+        for mesher in [Mesher::Culling, Mesher::Greedy] {
+            let hood = Neighbourhood::from_world(&world, IVec3::new(-1, 0, -1)).unwrap();
+            let mesh = mesher.mesh(&hood);
+            let rotating: Vec<_> = mesh
+                .vertices
+                .iter()
+                .filter(|v| v.texture & FLAG_ROTATE != 0)
+                .collect();
+            assert_eq!(rotating.len(), 24, "seule la deuxième boîte tourne");
+            for vertex in rotating {
+                assert_eq!(vertex.position[3], Chunk::index(31, 5, 31) as u16);
+                assert_eq!(vertex.normal[3], 12);
+                assert_eq!(vertex.light[3], 1);
+            }
+            let (min, max) = mesh.bounds().unwrap();
+            assert!(min.x < -1.1 && max.x > 0.1);
+            assert!(min.z < -1.1 && max.z > 0.1);
+            assert_eq!(std::mem::size_of::<MeshVertex>(), 24);
+        }
+    }
+
+    #[test]
+    fn furnace_fire_only_marks_the_sides_of_a_burning_furnace_even_after_reload() {
+        let mut world = World::new();
+        let furnace = id("core:furnace");
+        let hot = IVec3::new(2, 3, 2);
+        world.set_block(hot, furnace);
+        world.set_block(IVec3::new(5, 3, 2), furnace);
+        let mut entity = crate::BlockEntity::default();
+        crate::FurnaceState {
+            burn_left: 3,
+            burn_total: 100,
+            ..Default::default()
+        }
+        .write(&mut entity);
+        let saved = postcard::to_stdvec(&entity).unwrap();
+        let loaded = postcard::from_bytes(&saved).unwrap();
+        world
+            .chunk_mut(IVec3::ZERO)
+            .set_block_entity(2, 3, 2, Some(loaded));
+        for mesh in [
+            mesh_greedy(&world, IVec3::ZERO),
+            mesh_culled(&world, IVec3::ZERO),
+        ] {
+            let fire: Vec<_> = mesh
+                .vertices
+                .iter()
+                .filter(|v| v.texture & FLAG_FURNACE_FIRE != 0)
+                .collect();
+            assert_eq!(
+                fire.len(),
+                16,
+                "quatre côtés allumés, aucun dessus ni dessous"
+            );
+            assert!(
+                fire.iter()
+                    .all(|v| v.normal().y == 0.0 && v.local_position().x <= 3.0)
+            );
+        }
+        world.chunk_mut(IVec3::ZERO).set_block_entity(2, 3, 2, None);
+        assert!(
+            mesh_greedy(&world, IVec3::ZERO)
+                .vertices
+                .iter()
+                .all(|v| v.texture & FLAG_FURNACE_FIRE == 0)
+        );
+    }
 
     fn terrain(chunks: i32) -> World {
         TerrainGenerator::new(42).generate_region(chunks, chunks)

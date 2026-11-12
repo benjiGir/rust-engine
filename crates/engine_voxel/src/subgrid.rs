@@ -157,6 +157,9 @@ impl SubGrid {
 }
 
 impl BlockAccess for SubGrid {
+    fn invalidate_visuals(&mut self, _pos: IVec3) {
+        self.revision += 1;
+    }
     fn registry(&self) -> &Arc<BlockRegistry> {
         self.world.registry()
     }

@@ -28,3 +28,24 @@ pub use egui;
 pub fn wgpu_color(r: f64, g: f64, b: f64) -> wgpu::Color {
     wgpu::Color { r, g, b, a: 1.0 }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn animated_chunk_shader_is_valid_wgsl() {
+        for source in [
+            super::CHUNK_SHADER_SOURCE,
+            include_str!("shader.wgsl"),
+            include_str!("hand.wgsl"),
+        ] {
+            let module = wgpu::naga::front::wgsl::parse_str(source)
+                .unwrap_or_else(|error| panic!("{}", error.emit_to_string(source)));
+            wgpu::naga::valid::Validator::new(
+                wgpu::naga::valid::ValidationFlags::all(),
+                wgpu::naga::valid::Capabilities::empty(),
+            )
+            .validate(&module)
+            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(source)));
+        }
+    }
+}

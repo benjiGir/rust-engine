@@ -7,12 +7,12 @@
     // La texture vient de `mods/example/textures/ruby.png` ; les sons réutilisent ceux
     // du jeu (`core:...`). Un mod peut aussi fournir les siens dans `sounds/`.
     (
-        id: "example:ruby", name: "Rubis", color: (0.7, 0.05, 0.12), texture: "ruby",
+        id: "example:ruby", name: "Rubis", color: (0.2349, 0.0060, 0.0210), texture: "ruby",
         sounds: (step: "core:step_hard", break: "core:break_glass", place: "core:place_hard"),
     ),
     // Une machine : son comportement est écrit dans le script du mod (`script/src/lib.rs`).
     (
-        id: "example:breaker", name: "Casseur", color: (0.45, 0.45, 0.5), texture: "breaker",
+        id: "example:breaker", name: "Casseur", color: (0.1866, 0.1971, 0.2384), texture: "breaker",
         behavior: "breaker",
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
@@ -21,18 +21,18 @@
     // valeur (moitié basse, avant au nord, axe Y) et le jeu en déduit les autres par rotation.
     // Posée, la variante suit le regard et la face visée ; cassée, elle rend le bloc de base.
     (
-        id: "example:ruby_slab", name: "Dalle de rubis", color: (0.7, 0.05, 0.12), texture: "ruby",
+        id: "example:ruby_slab", name: "Dalle de rubis", color: (0.2349, 0.0060, 0.0210), texture: "ruby",
         boxes: [(from: (0, 0, 0), to: (16, 8, 16))], states: [Half],
         sounds: (step: "core:step_hard", break: "core:break_glass", place: "core:place_hard"),
     ),
     (
-        id: "example:ruby_stairs", name: "Escalier de rubis", color: (0.7, 0.05, 0.12), texture: "ruby",
+        id: "example:ruby_stairs", name: "Escalier de rubis", color: (0.2349, 0.0060, 0.0210), texture: "ruby",
         boxes: [(from: (0, 0, 0), to: (16, 8, 16)), (from: (0, 8, 0), to: (16, 16, 8))],
         states: [Facing4, Half],
         sounds: (step: "core:step_hard", break: "core:break_glass", place: "core:place_hard"),
     ),
     (
-        id: "example:ruby_pillar", name: "Pilier de rubis", color: (0.7, 0.05, 0.12), texture: "ruby",
+        id: "example:ruby_pillar", name: "Pilier de rubis", color: (0.2349, 0.0060, 0.0210), texture: "ruby",
         boxes: [(from: (4, 0, 4), to: (12, 16, 12))], states: [Axis],
         sounds: (step: "core:step_hard", break: "core:break_glass", place: "core:place_hard"),
     ),

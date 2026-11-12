@@ -53,6 +53,8 @@ mod hand;
 mod hot_reload;
 mod interact;
 mod inventory;
+mod item_art;
+mod item_models;
 mod menus;
 mod mob_brains;
 mod mobs;
@@ -67,6 +69,7 @@ mod screenshots;
 mod settings;
 mod shared;
 mod ships;
+mod skin;
 mod soundscape;
 mod spawning;
 mod stats;
@@ -1078,15 +1081,17 @@ impl VoxelGame {
         let mut mob_boxes = mobs::instances(&self.ecs, alpha);
         projectiles::instances(&self.ecs, alpha, &mut mob_boxes);
         self.weather.instances(self.camera.position, &mut mob_boxes);
-        // Les objets au sol : de petits cubes qui tournent.
+        // Les objets au sol : leurs modèles et textures, en rotation.
         mob_boxes.extend(drops::instances(
             &self.ecs,
             &self.content.items,
+            &self.registry,
             alpha,
             self.renderer.time,
         ));
         self.direction_hint(&mut mob_boxes);
-        self.renderer.set_instances(&mob_boxes);
+        self.renderer
+            .set_instances_at(&mob_boxes, self.camera.position);
         // Le bras, éclairé par la lumière là où se tient le joueur.
         let (sky, block) = self
             .streamer()
@@ -1313,46 +1318,6 @@ impl VoxelGame {
             .normalize_or_zero()
     }
 
-    fn handle_keys(&mut self, ctx: &Context) {
-        let input = &ctx.input;
-        if input.key_pressed(self.settings.keys.key(Action::Time)) {
-            self.day.cycle_speed();
-            log::info!("temps {} ({})", self.day.speed.name(), self.day.clock());
-        }
-        if input.key_pressed(self.settings.keys.key(Action::Fly)) {
-            player::toggle_mode(&mut self.ecs, self.player);
-            log::info!("mode {}", player::mode(&self.ecs, self.player).name());
-        }
-        for (i, key) in HOTBAR_KEYS.iter().enumerate() {
-            if input.key_pressed(*key) {
-                self.inventory.selected = i;
-            }
-        }
-        if input.key_pressed(KeyCode::F3) {
-            self.ui.inspector_open = !self.ui.inspector_open;
-        }
-        if input.key_pressed(KeyCode::F4) {
-            self.hand.visible = !self.hand.visible;
-        }
-        if input.key_pressed(KeyCode::F1) {
-            let mesher = self.streamer().config().mesher.other();
-            log::info!("maillage {} : on remaille tout", mesher.name());
-            self.streamer_mut().set_mesher(mesher);
-        }
-        if input.key_pressed(KeyCode::F6) {
-            self.toggle_cave_culling();
-        }
-        if input.key_pressed(KeyCode::F2) {
-            self.renderer.frustum_culling = !self.renderer.frustum_culling;
-            let state = if self.renderer.frustum_culling {
-                "activé"
-            } else {
-                "désactivé"
-            };
-            log::info!("frustum culling {state}");
-        }
-    }
-
     /// Recharge ce qui a changé sur le disque. Une erreur est affichée dans les logs,
     /// et l'ancienne version reste en place : le jeu ne plante jamais pour un asset.
     fn reload(&mut self, changes: hot_reload::Changes) {
@@ -1393,6 +1358,9 @@ impl VoxelGame {
             self.block_textures = assets::load_textures(&self.registry);
             self.renderer.set_block_textures(&self.block_textures);
             self.ui.clear_icons();
+            drops::clear_models(&self.ecs);
+            self.hand
+                .reload_assets(hand::ArmColors::load(&assets_dir()));
             log::info!("{} textures rechargées", self.registry.textures().len());
         }
     }

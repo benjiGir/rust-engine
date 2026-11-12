@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::shared::StreamerExt;
+use crate::skin;
 use engine_core::winit::window::Window;
 use engine_ecs::{Entity, World};
 use engine_inspect::Inspect;
@@ -104,6 +105,7 @@ pub enum Screen {
 impl GameUi {
     pub fn new(window: &Window) -> Self {
         let ctx = egui::Context::default();
+        skin::apply(&ctx);
         let state = egui_winit::State::new(
             ctx.clone(),
             egui::ViewportId::ROOT,
@@ -171,17 +173,26 @@ impl GameUi {
             .entry(item)
             .or_insert_with(|| {
                 let def = items.get(item);
-                let size = TEXTURE_SIZE as usize;
+                let mut size = TEXTURE_SIZE as usize;
                 let plain = |color: [f32; 3]| {
                     let [r, g, b] = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
                     [r, g, b, 255].repeat(size * size)
                 };
                 let pixels = match &def.icon {
                     Icon::Block(block) => {
-                        let layer = blocks.def(*block).face_textures[1] as usize;
-                        match layer.checked_sub(1).and_then(|i| textures.get(i)) {
-                            Some(pixels) => pixels.clone(),
-                            None => plain(blocks.def(*block).color),
+                        let block = blocks.def(*block);
+                        if matches!(
+                            block.shape,
+                            engine_voxel::Shape::Cube | engine_voxel::Shape::Model
+                        ) {
+                            size = crate::item_art::ICON_SIZE;
+                            crate::item_art::block_icon(block, textures)
+                        } else {
+                            let layer = block.face_textures[1] as usize;
+                            match layer.checked_sub(1).and_then(|i| textures.get(i)) {
+                                Some(pixels) => pixels.clone(),
+                                None => plain(block.color),
+                            }
                         }
                     }
                     Icon::Texture(key) => blocks
@@ -249,13 +260,7 @@ impl VoxelGame {
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(SLOT_SIZE, SLOT_SIZE), egui::Sense::click());
         let painter = ui.painter().clone();
-        painter.rect_filled(rect, 4.0, Color32::from_black_alpha(150));
-        let stroke = if highlighted {
-            egui::Stroke::new(3.0, Color32::WHITE)
-        } else {
-            egui::Stroke::new(1.0, Color32::from_gray(90))
-        };
-        painter.rect_stroke(rect, 4.0, stroke, egui::StrokeKind::Inside);
+        skin::slot(&painter, rect, highlighted, response.hovered());
         if let Some(stack) = stack {
             self.paint_stack(&painter, rect, stack);
         }
@@ -306,22 +311,32 @@ impl VoxelGame {
             &self.block_textures,
         );
         let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        painter.image(icon, rect.shrink(8.0), uv, Color32::WHITE);
+        // 32 points : 2× les sprites 16 px et 1× les miniatures de blocs, sans pas inégal.
+        painter.image(icon, rect.shrink(6.0), uv, Color32::WHITE);
         if stack.count > 1 {
+            let at = rect.right_bottom() - egui::vec2(4.0, 2.0);
+            let font = egui::FontId::monospace(14.0);
             painter.text(
-                rect.right_bottom() - egui::vec2(4.0, 2.0),
+                at + egui::vec2(1.0, 1.0),
                 egui::Align2::RIGHT_BOTTOM,
                 stack.count.to_string(),
-                egui::FontId::proportional(14.0),
-                Color32::WHITE,
+                font.clone(),
+                skin::DARK,
+            );
+            painter.text(
+                at,
+                egui::Align2::RIGHT_BOTTOM,
+                stack.count.to_string(),
+                font,
+                skin::TEXT,
             );
         }
         // Un objet enchanté a un liseré violet.
         if crate::enchanting::enchantment_of(stack.damage).is_some() {
             painter.rect_stroke(
                 rect.shrink(2.0),
-                3.0,
-                egui::Stroke::new(2.0, Color32::from_rgb(170, 90, 240)),
+                0.0,
+                egui::Stroke::new(2.0, skin::MAGIC),
                 egui::StrokeKind::Inside,
             );
         }
@@ -337,7 +352,13 @@ impl VoxelGame {
             painter.rect_filled(bar, 0.0, Color32::BLACK);
             let mut fill = bar;
             fill.set_width(bar.width() * left);
-            let color = Color32::from_rgb(((1.0 - left) * 255.0) as u8, (left * 220.0) as u8, 40);
+            let color = if left > 0.5 {
+                skin::SAGE
+            } else if left > 0.2 {
+                skin::GOLD
+            } else {
+                skin::RED
+            };
             painter.rect_filled(fill, 0.0, color);
         }
     }
@@ -461,11 +482,10 @@ impl VoxelGame {
                 .show(ctx, |ui| {
                     let (rect, _) =
                         ui.allocate_exact_size(egui::vec2(60.0, 6.0), egui::Sense::hover());
-                    ui.painter()
-                        .rect_filled(rect, 2.0, Color32::from_black_alpha(160));
+                    ui.painter().rect_filled(rect, 0.0, skin::INSET);
                     let mut fill = rect.shrink(1.0);
                     fill.set_width(fill.width() * progress.clamp(0.0, 1.0));
-                    ui.painter().rect_filled(fill, 1.0, Color32::from_gray(230));
+                    ui.painter().rect_filled(fill, 0.0, skin::COPPER);
                 });
         }
         // Ce que contient le bloc visé (réseaux : énergie, fluides, rotation).
@@ -475,14 +495,13 @@ impl VoxelGame {
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 60.0))
                 .show(ctx, |ui| {
                     egui::Frame::new()
-                        .fill(Color32::from_black_alpha(150))
-                        .corner_radius(4.0)
+                        .fill(skin::PANEL)
+                        .stroke(egui::Stroke::new(1.0, skin::BORDER))
+                        .corner_radius(0)
                         .inner_margin(egui::Margin::symmetric(8, 4))
                         .show(ui, |ui| {
                             for line in &lines {
-                                ui.label(
-                                    egui::RichText::new(line).size(14.0).color(Color32::WHITE),
-                                );
+                                ui.label(egui::RichText::new(line).size(14.0).color(skin::TEXT));
                             }
                         });
                 });
@@ -500,7 +519,7 @@ impl VoxelGame {
                                 active.left as u32 / 60,
                                 active.left as u32 % 60
                             ))
-                            .color(Color32::from_rgb(200, 170, 255))
+                            .color(skin::MAGIC)
                             .size(15.0),
                         );
                     }
@@ -534,31 +553,23 @@ impl VoxelGame {
                             ui.painter()
                                 .circle_filled(center, 5.5, Color32::from_black_alpha(140));
                             if fill > 0.0 {
-                                ui.painter().circle_filled(
-                                    center,
-                                    4.5 * fill,
-                                    Color32::from_rgb(90, 170, 240),
-                                );
+                                ui.painter().circle_filled(center, 4.5 * fill, skin::WATER);
                             }
                         }
                     }
-                    // La vie : un carré rouge par tranche de 2 points (la police d'egui n'a
-                    // pas de cœur ♥ : on dessine des formes au lieu d'écrire un symbole).
+                    // La vitalité : un losange par tranche de 2 points ; la réserve, des grains.
                     // Orange quand le joueur brûle.
-                    let heart = if burning {
-                        Color32::from_rgb(240, 130, 20)
-                    } else {
-                        Color32::from_rgb(220, 40, 40)
-                    };
-                    // À droite, la faim : même dessin, en brun doré.
+                    let heart = if burning { skin::GOLD } else { skin::RED };
+                    // À droite, la réserve de nourriture, couleur blé.
                     let squares = (health.max / 2.0).ceil() as usize;
                     let food_squares = (self.hunger_rules.max_food / 2.0).ceil() as usize;
-                    let gap = 24.0;
+                    let hotbar_width = HOTBAR as f32 * SLOT_SIZE + (HOTBAR - 1) as f32 * 6.0;
+                    let gap = (hotbar_width - (squares + food_squares) as f32 * 16.0).max(24.0);
                     let (rect, _) = ui.allocate_exact_size(
                         egui::vec2((squares + food_squares) as f32 * 16.0 + gap, 14.0),
                         egui::Sense::hover(),
                     );
-                    let food = Color32::from_rgb(205, 135, 55);
+                    let food = skin::GOLD;
                     let rows = [
                         (0.0, squares, health.current, heart),
                         (
@@ -575,25 +586,17 @@ impl VoxelGame {
                                 rect.min + egui::vec2(x + i as f32 * 16.0, 0.0),
                                 egui::vec2(13.0, 13.0),
                             );
-                            ui.painter()
-                                .rect_filled(cell, 2.0, Color32::from_black_alpha(160));
-                            if fill > 0.0 {
-                                let mut part = cell.shrink(1.5);
-                                part.set_width(part.width() * fill);
-                                ui.painter().rect_filled(part, 1.5, color);
-                            }
+                            skin::meter(ui.painter(), cell, fill, color, x > 0.0);
                         }
                     }
                     // L'expérience : une barre verte, le niveau par-dessus.
                     let (level, _) = self.experience.level();
                     let (bar, _) =
                         ui.allocate_exact_size(egui::vec2(rect.width(), 7.0), egui::Sense::hover());
-                    ui.painter()
-                        .rect_filled(bar, 2.0, Color32::from_black_alpha(160));
+                    ui.painter().rect_filled(bar, 0.0, skin::INSET);
                     let mut fill = bar.shrink(1.0);
                     fill.set_width(fill.width() * self.experience.progress());
-                    ui.painter()
-                        .rect_filled(fill, 1.5, Color32::from_rgb(120, 220, 60));
+                    ui.painter().rect_filled(fill, 0.0, skin::SAGE);
                     if level > 0 {
                         // Dans l'espace entre la vie et la faim, juste au-dessus de la barre.
                         // Un contour sombre (le texte décalé dans 4 directions), puis le
@@ -610,28 +613,29 @@ impl VoxelGame {
                                 Color32::BLACK,
                             );
                         }
-                        ui.painter().text(
-                            at,
-                            egui::Align2::CENTER_CENTER,
-                            text,
-                            font,
-                            Color32::from_rgb(170, 255, 90),
-                        );
+                        ui.painter()
+                            .text(at, egui::Align2::CENTER_CENTER, text, font, skin::SAGE);
                     }
-                    ui.horizontal(|ui| {
-                        for i in 0..HOTBAR {
-                            let selected = i == self.inventory.selected;
-                            if self.stack_widget(ui, self.inventory.slots[i], selected)
-                                == Some(Press::Primary)
-                            {
-                                self.inventory.selected = i;
-                            }
-                        }
-                    });
+                    egui::Frame::new()
+                        .fill(skin::PANEL)
+                        .stroke(egui::Stroke::new(1.0, skin::BORDER))
+                        .inner_margin(5)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                for i in 0..HOTBAR {
+                                    let selected = i == self.inventory.selected;
+                                    if self.stack_widget(ui, self.inventory.slots[i], selected)
+                                        == Some(Press::Primary)
+                                    {
+                                        self.inventory.selected = i;
+                                    }
+                                }
+                            });
+                        });
                     if let Some(item) = self.inventory.selected_item() {
                         ui.label(
                             egui::RichText::new(&self.content.items.get(item).name)
-                                .color(Color32::WHITE),
+                                .color(skin::TEXT),
                         );
                     }
                 });
@@ -1052,8 +1056,9 @@ impl VoxelGame {
                 };
                 ui.add(
                     egui::ProgressBar::new(burn)
+                        .corner_radius(0)
                         .desired_width(SLOT_SIZE)
-                        .fill(Color32::from_rgb(240, 120, 30)),
+                        .fill(skin::COPPER),
                 );
                 ui.label("Combustible");
                 changed |= self.container_slot(ui, pos, engine_voxel::FURNACE_FUEL);
@@ -1067,6 +1072,7 @@ impl VoxelGame {
                 };
                 ui.add(
                     egui::ProgressBar::new(cook)
+                        .corner_radius(0)
                         .desired_width(90.0)
                         .show_percentage(),
                 );
@@ -1110,8 +1116,9 @@ impl VoxelGame {
                 };
                 ui.add(
                     egui::ProgressBar::new(progress)
+                        .corner_radius(0)
                         .desired_width(90.0)
-                        .fill(Color32::from_rgb(120, 80, 200)),
+                        .fill(skin::MAGIC),
                 );
             });
             ui.vertical(|ui| {

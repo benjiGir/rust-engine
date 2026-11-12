@@ -100,7 +100,8 @@ pub use physics::{PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
 pub use plants::{Precipitation, precipitation_at};
 pub use raycast::{RayHit, ray_aabb, raycast};
 pub use registry::{
-    BlockBox, BlockDef, BlockRegistry, BlockSounds, CORE_NAMESPACE, Shape, StateKind, Support, Tint,
+    BlockBox, BlockDef, BlockRegistry, BlockRotation, BlockSounds, CORE_NAMESPACE, RotationAxis,
+    Shape, StateKind, Support, Tint,
 };
 pub use save::{
     ChunkToSave, FORMAT_VERSION, LoadedChunk, PlayerSave, REGION_SIZE, SaveReport, SaveStore,

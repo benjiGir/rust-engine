@@ -47,16 +47,24 @@ use glam::IVec3;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use crate::block::BlockId;
-use crate::capabilities::{Capabilities, Face, Io, Sides};
+use crate::capabilities::{Capabilities, Face, Inventory, Io, ItemStack, Sides};
 use crate::circuits::FACINGS;
 use crate::grid::{BlockAccess, GridId, GridPos, Grids};
 use crate::machines::{BlockBehavior, MachineContext};
+use std::sync::Arc;
+
+use crate::crafting::MachineRecipes;
+use crate::items::ItemRegistry;
 use crate::registry::BlockRegistry;
 
 /// Un réseau plus grand que cela n'est pas parcouru jusqu'au bout.
 const MAX_NETWORK: usize = 200_000;
 /// Débit maximal d'un réseau d'énergie, par tick.
 pub const ENERGY_RATE: u64 = 4_000;
+/// Les réseaux d'objets passent un tick sur ce nombre (5 fois par seconde), et déplacent au plus
+/// [`ITEM_RATE`] objets par passage.
+pub const ITEM_PERIOD: u64 = 4;
+pub const ITEM_RATE: u32 = 8;
 /// Débit maximal d'un réseau de fluide, en mB par tick.
 pub const FLUID_RATE: u64 = 500;
 /// Au-dessous de cet écart de remplissage, deux tampons sont considérés à l'équilibre.
@@ -68,6 +76,8 @@ pub enum NetworkKind {
     Energy,
     Fluid,
     Kinetic,
+    /// Des objets, d'un inventaire à l'autre (des courroies, des tuyaux à objets).
+    Items,
 }
 
 impl NetworkKind {
@@ -86,6 +96,7 @@ impl NetworkKind {
             Self::Energy => "énergie",
             Self::Fluid => "fluide",
             Self::Kinetic => "rotation",
+            Self::Items => "objets",
         }
     }
 
@@ -103,6 +114,7 @@ impl NetworkKind {
                 Some(Sides(bits).with_io(first.sides.io()))
             }
             Self::Kinetic => caps.kinetic.as_ref().map(|k| k.sides),
+            Self::Items => caps.inventory.as_ref().map(|i| i.sides),
         }
     }
 }
@@ -114,10 +126,18 @@ pub struct Endpoint {
     pub face: Face,
 }
 
+/// La « classe » d'un conduit : sa sorte et son canal. Deux conduits ne se relient que si leur
+/// classe est la même.
+type Class = (NetworkKind, u16);
+
 /// Une composante connexe de conduits de même sorte.
 #[derive(Debug, Clone)]
 pub struct Network {
     pub kind: NetworkKind,
+    /// Le canal commun de ses conduits (0 : aucun).
+    pub channel: u16,
+    /// Le débit demandé par le plus lent de ses conduits (`throughput`), s'il y en a un.
+    pub rate: Option<u32>,
     pub grid: GridId,
     pub members: Vec<IVec3>,
     pub endpoints: Vec<Endpoint>,
@@ -135,8 +155,15 @@ pub struct NetworkStats {
 
 #[derive(Debug, Default)]
 pub struct Networks {
-    /// La sorte de conduit de chaque bloc, par numéro de bloc.
-    kinds: Vec<Option<NetworkKind>>,
+    /// La classe (sorte et canal) de chaque conduit, et son débit, par numéro de bloc.
+    kinds: Vec<Option<Class>>,
+    throughputs: Vec<Option<u32>>,
+    /// Les cases d'inventaire que les réseaux d'objets remplissent et vident, par numéro de bloc.
+    ports: Vec<Option<crate::registry::InventoryPorts>>,
+    /// Ce qu'il faut savoir des objets pour les réseaux d'objets (voir `set_item_rules`).
+    rules: Option<(Arc<ItemRegistry>, Arc<MachineRecipes>)>,
+    /// Les ticks écoulés : les réseaux d'objets passent un tick sur [`ITEM_PERIOD`].
+    ticks: u64,
     nets: HashMap<u32, Network>,
     index: HashMap<GridPos, u32>,
     next_id: u32,
@@ -145,27 +172,54 @@ pub struct Networks {
 
 impl Networks {
     pub fn new(registry: &BlockRegistry) -> Self {
-        let mut kinds: Vec<Option<NetworkKind>> = Vec::new();
+        let mut kinds: Vec<Option<Class>> = Vec::new();
+        let mut throughputs: Vec<Option<u32>> = Vec::new();
+        let mut ports: Vec<Option<crate::registry::InventoryPorts>> = Vec::new();
+        // Les canaux (`mon_mod:vapeur`) reçoivent un numéro à la première rencontre ; 0 : aucun.
+        let mut channels: Vec<&str> = Vec::new();
         for (id, def) in registry.iter() {
             // Un bloc de mod se déclare conduit dans `blocks.ron` (`conduit: Kinetic`) ; ceux du jeu
             // de base le sont par leur comportement natif.
             let kind = def
                 .conduit
                 .or_else(|| def.behavior.as_deref().and_then(NetworkKind::of_behavior));
+            let channel = def.channel.as_deref().map_or(0, |c| {
+                let index = channels.iter().position(|k| *k == c).unwrap_or_else(|| {
+                    channels.push(c);
+                    channels.len() - 1
+                });
+                index as u16 + 1
+            });
             let i = id.0 as usize;
             if kinds.len() <= i {
                 kinds.resize(i + 1, None);
+                throughputs.resize(i + 1, None);
+                ports.resize(i + 1, None);
             }
-            kinds[i] = kind;
+            kinds[i] = kind.map(|k| (k, channel));
+            throughputs[i] = def.throughput;
+            ports[i] = def.ports.clone();
         }
         Self {
             kinds,
+            throughputs,
+            ports,
             ..Self::default()
         }
     }
 
-    fn kind_of(&self, block: BlockId) -> Option<NetworkKind> {
+    /// Les objets et les recettes de machines que connaissent les réseaux d'objets : sans eux,
+    /// un réseau d'objets déplace tout, sans filtre de recette.
+    pub fn set_item_rules(&mut self, items: Arc<ItemRegistry>, recipes: Arc<MachineRecipes>) {
+        self.rules = Some((items, recipes));
+    }
+
+    fn class_of(&self, block: BlockId) -> Option<Class> {
         self.kinds.get(block.0 as usize).copied().flatten()
+    }
+
+    fn throughput_of(&self, block: BlockId) -> Option<u32> {
+        self.throughputs.get(block.0 as usize).copied().flatten()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -215,7 +269,7 @@ impl Networks {
             }
             let Some(kind) = grids
                 .get(seed.grid)
-                .and_then(|g| self.kind_of(g.borrow().block(seed.pos)))
+                .and_then(|g| self.class_of(g.borrow().block(seed.pos)))
             else {
                 continue;
             };
@@ -237,7 +291,8 @@ impl Networks {
 
     /// Le parcours en largeur d'un réseau neuf à partir de `seed`. Il absorbe les réseaux
     /// existants qu'il rencontre (une fusion).
-    fn flood(&mut self, grids: Grids, seed: GridPos, kind: NetworkKind) {
+    fn flood(&mut self, grids: Grids, seed: GridPos, class: Class) {
+        let (kind, channel) = class;
         let Some(cell) = grids.get(seed.grid) else {
             return;
         };
@@ -255,7 +310,7 @@ impl Networks {
             }
             for d in FACINGS {
                 let n = cell_pos + d;
-                if seen.contains(&n) || self.kind_of(grid.block(n)) != Some(kind) {
+                if seen.contains(&n) || self.class_of(grid.block(n)) != Some(class) {
                     continue;
                 }
                 seen.insert(n);
@@ -278,10 +333,17 @@ impl Networks {
             self.index.insert(GridPos::new(seed.grid, m), id);
         }
         let endpoints = self.find_endpoints(&*grid, kind, &members, &seen);
+        // Le plus lent des conduits qui annoncent un débit fixe le débit du réseau.
+        let rate = members
+            .iter()
+            .filter_map(|&m| self.throughput_of(grid.block(m)))
+            .min();
         self.nets.insert(
             id,
             Network {
                 kind,
+                channel,
+                rate,
                 grid: seed.grid,
                 members,
                 endpoints,
@@ -325,6 +387,8 @@ impl Networks {
     /// les réveille (une lampe qui reçoit de l'énergie, un ventilateur qui se met à tourner).
     pub fn tick(&mut self, grids: Grids) -> Vec<GridPos> {
         let mut woken = Vec::new();
+        self.ticks += 1;
+        let items_pass = self.ticks.is_multiple_of(ITEM_PERIOD);
         for net in self.nets.values() {
             let Some(cell) = grids.get(net.grid) else {
                 continue;
@@ -334,11 +398,211 @@ impl Networks {
                 NetworkKind::Energy => tick_energy(&mut *grid, net),
                 NetworkKind::Fluid => tick_fluid(&mut *grid, net),
                 NetworkKind::Kinetic => tick_kinetic(&mut *grid, net),
+                NetworkKind::Items if items_pass => tick_items(
+                    &mut *grid,
+                    net,
+                    &self.ports,
+                    self.rules.as_ref(),
+                    self.ticks / ITEM_PERIOD,
+                ),
+                NetworkKind::Items => Vec::new(),
             };
             woken.extend(changed.into_iter().map(|p| GridPos::new(net.grid, p)));
         }
         woken
     }
+}
+
+// ----- Les objets -----
+
+/// Une extrémité d'un réseau d'objets : les cases dont elle donne et celles qu'elle reçoit.
+struct ItemPort {
+    pos: IVec3,
+    give: Vec<usize>,
+    take: Vec<usize>,
+    /// Le type de recette dont elle n'accepte que les ingrédients.
+    accepts: Option<String>,
+    producer: bool,
+    consumer: bool,
+    buffer: bool,
+}
+
+/// Y a-t-il de la place pour cet objet dans ces cases ? (au plus `count`)
+fn room_for(inventory: &Inventory, slots: &[usize], item: &str, count: u32) -> u32 {
+    let mut room = 0;
+    for &i in slots {
+        match inventory.slots.get(i) {
+            Some(Some(stack)) if stack.item == item => {
+                room += crate::capabilities::MAX_STACK.saturating_sub(stack.count);
+            }
+            Some(None) => room += crate::capabilities::MAX_STACK,
+            _ => {}
+        }
+    }
+    room.min(count)
+}
+
+/// Range `count` objets (dont on a vérifié la place) dans ces cases : les piles du même objet
+/// d'abord, puis les cases vides.
+fn put_into(inventory: &mut Inventory, slots: &[usize], item: &str, mut count: u32) {
+    for &i in slots {
+        if count == 0 {
+            return;
+        }
+        if let Some(Some(stack)) = inventory.slots.get_mut(i)
+            && stack.item == item
+        {
+            let n = count.min(crate::capabilities::MAX_STACK.saturating_sub(stack.count));
+            stack.count += n;
+            count -= n;
+        }
+    }
+    for &i in slots {
+        if count == 0 {
+            return;
+        }
+        if let Some(slot @ None) = inventory.slots.get_mut(i) {
+            let n = count.min(crate::capabilities::MAX_STACK);
+            *slot = Some(ItemStack {
+                item: item.to_string(),
+                count: n,
+                damage: 0,
+            });
+            count -= n;
+        }
+    }
+}
+
+/// Un passage d'un réseau d'objets : des producteurs vers les consommateurs, puis le surplus des
+/// producteurs vers les tampons (les coffres), puis les tampons vers les consommateurs. Au plus
+/// `rate` objets par passage ; `turn` fait tourner qui passe en premier (chacun son tour).
+fn tick_items(
+    grid: &mut (impl BlockAccess + ?Sized),
+    net: &Network,
+    ports: &[Option<crate::registry::InventoryPorts>],
+    rules: Option<&(Arc<ItemRegistry>, Arc<MachineRecipes>)>,
+    turn: u64,
+) -> Vec<IVec3> {
+    if net.endpoints.len() < 2 {
+        return Vec::new();
+    }
+    // Les extrémités (une machine peut toucher le réseau par plusieurs faces : une seule fois).
+    let mut seen: HashSet<IVec3> = HashSet::default();
+    let mut ends: Vec<ItemPort> = Vec::new();
+    for e in &net.endpoints {
+        if !seen.insert(e.pos) {
+            continue;
+        }
+        let block = grid.block(e.pos);
+        let Some(inventory) = grid
+            .block_entity(e.pos)
+            .and_then(|b| b.caps.as_deref())
+            .and_then(|c| c.inventory.as_ref())
+        else {
+            continue;
+        };
+        let io = inventory.sides.io();
+        let declared = ports.get(block.0 as usize).and_then(Option::as_ref);
+        let all: Vec<usize> = (0..inventory.slots.len()).collect();
+        let (give, take) = match declared {
+            Some(p) => (p.outputs.clone(), p.inputs.clone()),
+            None => (all.clone(), all),
+        };
+        let give = if io == Io::In { Vec::new() } else { give };
+        let take = if io == Io::Out { Vec::new() } else { take };
+        ends.push(ItemPort {
+            pos: e.pos,
+            producer: !give.is_empty() && (declared.is_some() || io == Io::Out),
+            consumer: !take.is_empty() && (declared.is_some() || io == Io::In),
+            buffer: declared.is_none() && io == Io::Both,
+            accepts: declared.and_then(|p| p.accepts.clone()),
+            give,
+            take,
+        });
+    }
+    let mut budget = net.rate.unwrap_or(ITEM_RATE);
+    let mut changed: Vec<IVec3> = Vec::new();
+    type Role = fn(&ItemPort) -> bool;
+    let producers: Role = |p| p.producer;
+    let consumers: Role = |p| p.consumer;
+    let buffers: Role = |p| p.buffer;
+    for (from, to) in [
+        (producers, consumers),
+        (producers, buffers),
+        (buffers, consumers),
+    ] {
+        let givers: Vec<usize> = (0..ends.len()).filter(|&i| from(&ends[i])).collect();
+        let targets: Vec<usize> = (0..ends.len()).filter(|&i| to(&ends[i])).collect();
+        if givers.is_empty() || targets.is_empty() {
+            continue;
+        }
+        for g in 0..givers.len() {
+            let giver = &ends[givers[(g + turn as usize) % givers.len()]];
+            for &slot in &giver.give {
+                if budget == 0 {
+                    break;
+                }
+                let Some(stack) = grid
+                    .block_entity(giver.pos)
+                    .and_then(|b| b.caps.as_deref())
+                    .and_then(|c| c.inventory.as_ref())
+                    .and_then(|i| i.slots.get(slot).cloned().flatten())
+                else {
+                    continue;
+                };
+                for t in 0..targets.len() {
+                    let target = &ends[targets[(t + turn as usize) % targets.len()]];
+                    if target.pos == giver.pos || budget == 0 || stack.count == 0 {
+                        continue;
+                    }
+                    // Une machine n'accepte que ce que ses recettes consomment.
+                    if let (Some(kind), Some((items, recipes))) = (&target.accepts, rules)
+                        && !items
+                            .id(&stack.item)
+                            .is_some_and(|id| recipes.accepts(kind, id))
+                    {
+                        continue;
+                    }
+                    let room = grid
+                        .block_entity(target.pos)
+                        .and_then(|b| b.caps.as_deref())
+                        .and_then(|c| c.inventory.as_ref())
+                        .map_or(0, |i| {
+                            room_for(i, &target.take, &stack.item, budget.min(stack.count))
+                        });
+                    if room == 0 {
+                        continue;
+                    }
+                    // Retirer chez l'un, ranger chez l'autre.
+                    if let Some(inv) = grid
+                        .block_entity_mut(giver.pos)
+                        .and_then(|b| b.caps.as_mut())
+                        .and_then(|c| c.inventory.as_mut())
+                        && let Some(Some(s)) = inv.slots.get_mut(slot)
+                    {
+                        s.count -= room.min(s.count);
+                        if s.count == 0 {
+                            inv.slots[slot] = None;
+                        }
+                    }
+                    if let Some(inv) = grid
+                        .block_entity_mut(target.pos)
+                        .and_then(|b| b.caps.as_mut())
+                        .and_then(|c| c.inventory.as_mut())
+                    {
+                        put_into(inv, &target.take, &stack.item, room);
+                    }
+                    budget -= room;
+                    changed.push(giver.pos);
+                    changed.push(target.pos);
+                    break;
+                }
+            }
+        }
+    }
+    changed.sort_by_key(|p| p.to_array());
+    changed.dedup();
+    changed
 }
 
 // ----- Le comportement des conduits -----
@@ -486,6 +750,7 @@ fn tick_energy(grid: &mut (impl BlockAccess + ?Sized), net: &Network) -> Vec<IVe
     if net.endpoints.len() < 2 {
         return Vec::new();
     }
+    let rate = net.rate.map_or(ENERGY_RATE, u64::from);
     let slots: Vec<Slot> = net
         .endpoints
         .iter()
@@ -503,17 +768,17 @@ fn tick_energy(grid: &mut (impl BlockAccess + ?Sized), net: &Network) -> Vec<IVe
                 avail: if io == Io::In {
                     0
                 } else {
-                    store.clone().extract(Some(e.face), ENERGY_RATE, true)
+                    store.clone().extract(Some(e.face), rate, true)
                 },
                 room: if io == Io::Out {
                     0
                 } else {
-                    store.clone().insert(Some(e.face), ENERGY_RATE, true)
+                    store.clone().insert(Some(e.face), rate, true)
                 },
             })
         })
         .collect();
-    let delta = plan(&slots, ENERGY_RATE);
+    let delta = plan(&slots, rate);
     let mut changed = Vec::new();
     for (slot, d) in slots.iter().zip(delta) {
         if d == 0 {
@@ -540,6 +805,7 @@ fn tick_fluid(grid: &mut (impl BlockAccess + ?Sized), net: &Network) -> Vec<IVec
     if net.endpoints.len() < 2 {
         return Vec::new();
     }
+    let rate = net.rate.map_or(FLUID_RATE, u64::from);
     // Le fluide du réseau : celui du plus gros producteur (ou tampon) non vide.
     let mut best: Option<(String, u32)> = None;
     for e in &net.endpoints {
@@ -585,25 +851,20 @@ fn tick_fluid(grid: &mut (impl BlockAccess + ?Sized), net: &Network) -> Vec<IVec
                 avail: if io == Io::In || !has {
                     0
                 } else {
-                    u64::from(tank.clone().drain(
-                        Some(e.face),
-                        Some(&fluid),
-                        FLUID_RATE as u32,
-                        true,
-                    ))
+                    u64::from(
+                        tank.clone()
+                            .drain(Some(e.face), Some(&fluid), rate as u32, true),
+                    )
                 },
                 room: if io == Io::Out {
                     0
                 } else {
-                    u64::from(
-                        tank.clone()
-                            .fill(Some(e.face), &fluid, FLUID_RATE as u32, true),
-                    )
+                    u64::from(tank.clone().fill(Some(e.face), &fluid, rate as u32, true))
                 },
             })
         })
         .collect();
-    let delta = plan(&slots, FLUID_RATE);
+    let delta = plan(&slots, rate);
     let mut changed = Vec::new();
     for (slot, d) in slots.iter().zip(delta) {
         if d == 0 {
@@ -748,9 +1009,13 @@ mod tests {
 
     use std::cell::RefCell;
 
+    use crate::capabilities::{Inventory, ItemStack};
+    use crate::crafting::MachineRecipes;
+    use crate::items::ItemRegistry;
     use crate::machines::Machines;
     use crate::machines::tests::loaded_streamer;
     use crate::streaming::ChunkStreamer;
+    use std::sync::Arc;
 
     struct Rig {
         s: RefCell<ChunkStreamer>,
@@ -1018,5 +1283,190 @@ mod tests {
         let per_tick = start.elapsed().as_secs_f64() * 1000.0 / 100.0;
         println!("200 câbles + 9 lampes : {per_tick:.3} ms par tick");
         assert!(per_tick < 5.0, "{per_tick:.2} ms par tick");
+    }
+
+    // ----- Les réseaux d'objets et les canaux -----
+
+    const ITEM_BLOCKS: &str = r#"[
+        (id: "test:belt", name: "Courroie", color: (0.5, 0.5, 0.5), conduit: Items, channel: "a"),
+        (id: "test:belt_b", name: "Courroie B", color: (0.5, 0.5, 0.5), conduit: Items, channel: "b"),
+        (id: "test:slow", name: "Courroie lente", color: (0.5, 0.5, 0.5), conduit: Items, channel: "a", throughput: 2),
+        (id: "test:src", name: "Source", color: (0.5, 0.5, 0.5), ports: (outputs: [0])),
+        (id: "test:sink", name: "Puits", color: (0.5, 0.5, 0.5), ports: (inputs: [0], accepts: "test:press")),
+        (id: "test:machine", name: "Machine", color: (0.5, 0.5, 0.5), ports: (inputs: [0], outputs: [1])),
+        (id: "test:crate", name: "Caisse", color: (0.5, 0.5, 0.5)),
+    ]"#;
+
+    impl Rig {
+        /// Un banc avec les blocs de test des réseaux d'objets, et un type de recette `test:press`
+        /// qui consomme du fer.
+        fn items() -> Self {
+            let mut registry = (*BlockRegistry::builtin()).clone();
+            registry.add_source("test", ITEM_BLOCKS, "test").unwrap();
+            let registry = Arc::new(registry);
+            let items = Arc::new(ItemRegistry::builtin(&registry).unwrap());
+            let mut recipes = MachineRecipes::default();
+            recipes
+                .add_source(
+                    "test",
+                    r#"(machines: {"press": [(inputs: [("core:iron_ingot", 1)], outputs: [("core:gold_ingot", 1)])]})"#,
+                    "test",
+                    &items,
+                )
+                .unwrap();
+            let s = loaded_streamer();
+            s.borrow_mut().replace_registry(registry.clone());
+            let mut machines = Machines::with_natives(&registry);
+            machines.set_item_rules(items, Arc::new(recipes));
+            let rig = Self { s, machines };
+            let stone = rig.id("core:stone");
+            for x in -2..60 {
+                for z in -2..8 {
+                    for y in -2..10 {
+                        let block = if y < 0 { stone } else { BlockId::AIR };
+                        rig.s
+                            .borrow_mut()
+                            .set_block(ORIGIN + IVec3::new(x, y, z), block);
+                    }
+                }
+            }
+            rig
+        }
+
+        /// Pose un bloc à inventaire (créé avant les conduits, pour être vu comme extrémité).
+        fn container(&mut self, pos: IVec3, key: &str, slots: usize) {
+            self.place(pos, key);
+            Grids::new(&self.s).write_or_create(GridPos::world(pos), |e| {
+                e.caps_mut().inventory = Some(Inventory::new(slots));
+            });
+        }
+
+        fn put(&self, pos: IVec3, slot: usize, item: &str, count: u32) {
+            self.with_caps(pos, |c| {
+                c.inventory.as_mut().unwrap().slots[slot] = Some(ItemStack {
+                    item: item.into(),
+                    count,
+                    damage: 0,
+                });
+            });
+        }
+
+        fn count(&self, pos: IVec3, slot: usize) -> u32 {
+            self.with_caps(pos, |c| {
+                c.inventory.as_ref().unwrap().slots[slot]
+                    .as_ref()
+                    .map_or(0, |s| s.count)
+            })
+            .unwrap_or(0)
+        }
+
+        fn belts(&mut self, from: i32, to: i32, key: &str) {
+            for x in from..=to {
+                self.place(self.at(x, 0), key);
+            }
+        }
+    }
+
+    #[test]
+    fn items_travel_from_a_source_to_a_sink_a_few_at_a_time() {
+        let mut rig = Rig::items();
+        rig.container(rig.at(0, 0), "test:src", 1);
+        rig.put(rig.at(0, 0), 0, "core:iron_ingot", 30);
+        rig.container(rig.at(6, 0), "test:sink", 1);
+        rig.belts(1, 5, "test:belt");
+        // Un passage tous les 4 ticks, 8 objets au plus par passage.
+        rig.tick(ITEM_PERIOD as usize);
+        assert_eq!(rig.count(rig.at(6, 0), 0), 8, "un passage");
+        rig.tick(ITEM_PERIOD as usize * 10);
+        assert_eq!(rig.count(rig.at(6, 0), 0), 30, "tout est arrivé");
+        assert_eq!(rig.count(rig.at(0, 0), 0), 0);
+    }
+
+    #[test]
+    fn a_throughput_limits_the_whole_network_to_its_slowest_conduit() {
+        let mut rig = Rig::items();
+        rig.container(rig.at(0, 0), "test:src", 1);
+        rig.put(rig.at(0, 0), 0, "core:iron_ingot", 40);
+        rig.container(rig.at(6, 0), "test:sink", 1);
+        rig.belts(1, 5, "test:belt");
+        rig.place(rig.at(3, 0), "test:slow");
+        rig.tick(ITEM_PERIOD as usize);
+        assert_eq!(rig.count(rig.at(6, 0), 0), 2, "2 objets par passage");
+    }
+
+    #[test]
+    fn conduits_of_different_channels_do_not_connect() {
+        let mut rig = Rig::items();
+        rig.container(rig.at(0, 0), "test:src", 1);
+        rig.put(rig.at(0, 0), 0, "core:iron_ingot", 10);
+        rig.container(rig.at(6, 0), "test:sink", 1);
+        rig.belts(1, 2, "test:belt");
+        rig.belts(3, 5, "test:belt_b");
+        rig.tick(ITEM_PERIOD as usize * 5);
+        assert_eq!(rig.count(rig.at(6, 0), 0), 0, "deux réseaux séparés");
+        assert_eq!(rig.count(rig.at(0, 0), 0), 10);
+        // Relier : remplacer une courroie B par une courroie A les réunit.
+        rig.belts(3, 5, "test:belt");
+        rig.tick(ITEM_PERIOD as usize * 5);
+        assert_eq!(rig.count(rig.at(6, 0), 0), 10);
+    }
+
+    #[test]
+    fn a_machine_only_accepts_what_its_recipes_consume() {
+        let mut rig = Rig::items();
+        rig.container(rig.at(0, 0), "test:src", 2);
+        // La première case a du fer (accepté), la seconde de la pierre (refusée).
+        rig.with_caps(rig.at(0, 0), |c| {
+            c.inventory.as_mut().unwrap().slots.truncate(1);
+        });
+        rig.put(rig.at(0, 0), 0, "core:stone", 10);
+        rig.container(rig.at(6, 0), "test:sink", 1);
+        rig.belts(1, 5, "test:belt");
+        rig.tick(ITEM_PERIOD as usize * 5);
+        assert_eq!(
+            rig.count(rig.at(6, 0), 0),
+            0,
+            "la pierre n'est pas une entrée de recette"
+        );
+        rig.put(rig.at(0, 0), 0, "core:iron_ingot", 10);
+        rig.tick(ITEM_PERIOD as usize * 5);
+        assert_eq!(rig.count(rig.at(6, 0), 0), 10);
+    }
+
+    #[test]
+    fn a_machine_receives_in_its_inputs_and_gives_from_its_outputs() {
+        let mut rig = Rig::items();
+        rig.container(rig.at(0, 0), "test:src", 1);
+        rig.put(rig.at(0, 0), 0, "core:iron_ingot", 5);
+        rig.container(rig.at(6, 0), "test:machine", 2);
+        // Un produit fini attend dans la sortie, et une caisse attend les produits.
+        rig.put(rig.at(6, 0), 1, "core:gold_ingot", 3);
+        rig.container(rig.at(6, 1), "test:crate", 3);
+        rig.belts(1, 5, "test:belt");
+        rig.place(rig.at(5, 1), "test:belt");
+        rig.tick(ITEM_PERIOD as usize * 10);
+        // Le fer entre dans la case 0, jamais dans la sortie (case 1) ; l'or sort vers la caisse.
+        assert_eq!(rig.count(rig.at(6, 0), 0), 5);
+        assert_eq!(rig.count(rig.at(6, 0), 1), 0, "la sortie est vidée");
+        let crate_gold: u32 = (0..3).map(|s| rig.count(rig.at(6, 1), s)).sum();
+        assert_eq!(crate_gold, 3);
+    }
+
+    #[test]
+    fn a_chest_is_a_buffer_between_producers_and_consumers() {
+        let mut rig = Rig::items();
+        rig.container(rig.at(0, 0), "test:src", 1);
+        rig.put(rig.at(0, 0), 0, "core:iron_ingot", 12);
+        rig.container(rig.at(4, 0), "test:crate", 3);
+        rig.belts(1, 3, "test:belt");
+        // Sans consommateur, la production se range dans la caisse.
+        rig.tick(ITEM_PERIOD as usize * 5);
+        let stored: u32 = (0..3).map(|s| rig.count(rig.at(4, 0), s)).sum();
+        assert_eq!(stored, 12);
+        // Un consommateur arrive : la caisse le sert.
+        rig.container(rig.at(6, 0), "test:sink", 1);
+        rig.belts(5, 5, "test:belt");
+        rig.tick(ITEM_PERIOD as usize * 5);
+        assert_eq!(rig.count(rig.at(6, 0), 0), 12);
     }
 }

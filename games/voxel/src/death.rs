@@ -153,11 +153,12 @@ impl VoxelGame {
             .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 60.0))
             .show(ctx, |ui| {
                 egui::Frame::new()
-                    .fill(Color32::from_black_alpha(170))
-                    .corner_radius(6.0)
+                    .fill(crate::skin::PANEL)
+                    .stroke(egui::Stroke::new(1.0, crate::skin::COPPER))
+                    .corner_radius(0)
                     .inner_margin(egui::Margin::symmetric(14, 8))
                     .show(ui, |ui| {
-                        ui.label(RichText::new(text).size(17.0).color(Color32::WHITE));
+                        ui.label(RichText::new(text).size(17.0).color(crate::skin::TEXT));
                     });
             });
     }
@@ -172,7 +173,7 @@ impl VoxelGame {
         let mut respawn = false;
         let mut quit = false;
         Self::menu_window(ctx, "Vous êtes mort", |ui| {
-            ui.label(RichText::new(message).size(18.0).color(Color32::LIGHT_GRAY));
+            ui.label(RichText::new(message).size(18.0).color(crate::skin::MUTED));
             ui.add_space(12.0);
             respawn = button(ui, "Réapparaître");
             let label = if self.store.is_some() {

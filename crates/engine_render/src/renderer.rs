@@ -43,6 +43,13 @@ pub struct CubeInstance {
     pub yaw: f32,
     /// Lumière du ciel et des blocs à cet endroit, de 0 à 1.
     pub light: [f32; 2],
+    pub opacity: f32,
+    /// Dessus, côtés, dessous ; 0 : couleur unie.
+    pub textures: [u32; 3],
+    pub cutout: u32,
+    /// Coordonnées du fragment de bloc représenté par cette boîte.
+    pub uv_min: [f32; 3],
+    pub uv_max: [f32; 3],
 }
 
 impl CubeInstance {
@@ -54,7 +61,28 @@ impl CubeInstance {
             color: color.to_array(),
             yaw: 0.0,
             light: [1.0, 0.0],
+            opacity: 1.0,
+            textures: [0; 3],
+            cutout: 0,
+            uv_min: [0.0; 3],
+            uv_max: [1.0; 3],
         }
+    }
+
+    pub fn with_surface(
+        mut self,
+        textures: [u32; 3],
+        min: Vec3,
+        max: Vec3,
+        cutout: bool,
+        opacity: f32,
+    ) -> Self {
+        self.textures = textures;
+        self.uv_min = min.to_array();
+        self.uv_max = max.to_array();
+        self.cutout = u32::from(cutout);
+        self.opacity = opacity;
+        self
     }
 
     pub fn with_yaw(mut self, yaw: f32) -> Self {
@@ -248,6 +276,8 @@ pub struct Renderer {
     pub sun: Sun,
     /// Le temps en secondes, pour animer le vent dans les feuilles et les herbes.
     pub time: f32,
+    translucent_cubes: wgpu::RenderPipeline,
+    opaque_instances: u32,
     hand_pipeline: wgpu::RenderPipeline,
     hand_buffer: wgpu::Buffer,
     hand_uniform: wgpu::Buffer,
@@ -359,19 +389,11 @@ impl Renderer {
                 array_stride: size_of::<CubeInstance>() as u64,
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &wgpu::vertex_attr_array![
-                    2 => Float32x3, 3 => Float32x3, 4 => Float32x3, 5 => Float32, 6 => Float32x2
+                    2 => Float32x3, 3 => Float32x3, 4 => Float32x3, 5 => Float32, 6 => Float32x2,
+                    7 => Float32, 8 => Uint32x3, 9 => Uint32, 10 => Float32x3, 11 => Float32x3
                 ],
             }),
         ];
-        let pipeline = create_pipeline(
-            &device,
-            &[Some(&camera_layout)],
-            format,
-            &device.create_shader_module(wgpu::include_wgsl!("shader.wgsl")),
-            &cube_layouts,
-            "cubes",
-            false,
-        );
 
         // Les textures des blocs : un « tableau de textures » (une couche par texture)
         // et un échantillonneur, liés au groupe 1 des shaders de chunks.
@@ -397,6 +419,27 @@ impl Renderer {
             ],
         });
         let texture_bind_group = create_texture_bind_group(&device, &queue, &texture_layout, &[]);
+        let cube_shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+        let cube_groups = [Some(&camera_layout), Some(&texture_layout)];
+        let pipeline = create_pipeline(
+            &device,
+            &cube_groups,
+            format,
+            &cube_shader,
+            &cube_layouts,
+            "cubes",
+            false,
+        );
+        let translucent_cubes = create_pipeline(
+            &device,
+            &cube_groups,
+            format,
+            &cube_shader,
+            &cube_layouts,
+            "translucent cubes",
+            true,
+        );
+
         let (chunk_pipeline, translucent_pipeline) = create_chunk_pipelines(
             &device,
             &camera_layout,
@@ -503,6 +546,8 @@ impl Renderer {
             fog: None,
             sun: Sun::default(),
             time: 0.0,
+            translucent_cubes,
+            opaque_instances: 0,
             hand_pipeline,
             hand_buffer,
             hand_uniform,
@@ -568,6 +613,26 @@ impl Renderer {
 
     /// Remplace la liste des cubes à dessiner. Le tampon GPU grandit si besoin.
     pub fn set_instances(&mut self, instances: &[CubeInstance]) {
+        self.set_instances_at(instances, Vec3::ZERO);
+    }
+
+    /// Les opaques d'abord, les transparents du plus loin au plus proche.
+    pub fn set_instances_at(&mut self, instances: &[CubeInstance], eye: Vec3) {
+        let mut ordered = instances.to_vec();
+        ordered.sort_by(|a, b| {
+            let transparent = |v: &CubeInstance| v.opacity < 1.0;
+            transparent(a).cmp(&transparent(b)).then_with(|| {
+                if transparent(a) {
+                    Vec3::from_array(b.center)
+                        .distance_squared(eye)
+                        .total_cmp(&Vec3::from_array(a.center).distance_squared(eye))
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+        });
+        self.opaque_instances = ordered.iter().take_while(|v| v.opacity >= 1.0).count() as u32;
+        let instances = ordered.as_slice();
         if instances.len() > self.instance_capacity {
             self.instance_capacity = instances.len().next_power_of_two();
             self.instance_buffer = create_instance_buffer(&self.device, self.instance_capacity);
@@ -917,14 +982,15 @@ impl Renderer {
             // La caméra est partagée par les deux pipelines (même bind group).
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
-            if self.instance_count > 0 {
+            if self.opaque_instances > 0 {
                 pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(1, &self.texture_bind_group, &[]);
                 pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                 pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
                 pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 // Un seul appel pour tous les cubes : c'est l'instanciation.
-                pass.draw_indexed(0..self.index_count, 0, 0..self.instance_count);
-                stats.triangles += (self.index_count / 3 * self.instance_count) as usize;
+                pass.draw_indexed(0..self.index_count, 0, 0..self.opaque_instances);
+                stats.triangles += (self.index_count / 3 * self.opaque_instances) as usize;
             }
 
             // `filter` saute les chunks hors champ : ils ne coûtent alors rien au GPU.
@@ -980,6 +1046,21 @@ impl Renderer {
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 let start = mesh.opaque_count;
                 pass.draw_indexed(start..start + mesh.translucent_count, 0, 0..1);
+            }
+
+            if self.opaque_instances < self.instance_count {
+                pass.set_pipeline(&self.translucent_cubes);
+                pass.set_bind_group(1, &self.texture_bind_group, &[]);
+                pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+                pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                pass.draw_indexed(
+                    0..self.index_count,
+                    0,
+                    self.opaque_instances..self.instance_count,
+                );
+                stats.triangles +=
+                    (self.index_count / 3 * (self.instance_count - self.opaque_instances)) as usize;
             }
 
             // En dernier, par-dessus le décor.

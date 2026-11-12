@@ -231,8 +231,10 @@ fn sample(generator: &TerrainGenerator, x: i32, z: i32, step: i32) -> Sample {
     };
     let biome = generator.biome(column.biome);
     let def = generator.registry().def(biome.surface);
+    let (grass_ref, _, water_ref) = generator.biomes().tint_reference();
     let mut color = if def.tint == Tint::Grass {
-        biome.grass_color
+        // Même palette linéaire et mêmes multiplicateurs que les chunks texturés.
+        std::array::from_fn(|c| def.color[c] * biome.grass_color[c] / grass_ref[c].max(0.01))
     } else {
         def.color
     };
@@ -244,21 +246,39 @@ fn sample(generator: &TerrainGenerator, x: i32, z: i32, step: i32) -> Sample {
     // La roche des montagnes, la neige du froid et des sommets.
     if matches!(biome.kind, BiomeKind::Mountains | BiomeKind::Peaks) {
         let rock = ((top - 92.0) / 30.0).clamp(0.0, 1.0);
-        color = lerp(color, [0.5, 0.5, 0.53], rock);
+        color = lerp(
+            color,
+            palette(generator, "core:stone", [0.23, 0.26, 0.26]),
+            rock,
+        );
     }
     if (column.height >= SEA_LEVEL && column.temperature < FREEZING) || top > 150.0 {
-        color = [0.94, 0.95, 0.98];
+        color = palette(generator, "core:snow", [0.80, 0.87, 0.87]);
     }
     // Sous la mer, le fond s'assombrit avec la profondeur.
     if column.height < SEA_LEVEL {
         let depth = ((SEA_LEVEL - column.height) as f32 / 30.0).clamp(0.0, 1.0);
-        color = lerp([0.72, 0.66, 0.46], [0.18, 0.2, 0.28], depth);
+        color = lerp(
+            generator.registry().def(biome.underwater).color,
+            [0.035, 0.055, 0.075],
+            depth,
+        );
     }
     Sample {
         height: top,
         color,
-        water: biome.water_color,
+        water: {
+            let base = palette(generator, "core:water", [0.05, 0.20, 0.34]);
+            std::array::from_fn(|c| base[c] * biome.water_color[c] / water_ref[c].max(0.01))
+        },
     }
+}
+
+fn palette(generator: &TerrainGenerator, key: &str, fallback: [f32; 3]) -> [f32; 3] {
+    generator
+        .registry()
+        .id(key)
+        .map_or(fallback, |id| generator.registry().def(id).color)
 }
 
 fn lerp(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
@@ -267,6 +287,7 @@ fn lerp(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
 
 /// Construit le maillage d'une tuile à partir du générateur.
 pub fn build_tile(generator: &TerrainGenerator, tile: FarTile) -> FarMesh {
+    let stone = palette(generator, "core:stone", [0.23, 0.26, 0.26]);
     let step = tile.step();
     let (ox, oz) = tile.origin_blocks();
     // Les échantillons de -1 à CELLS + 1 : la bordure sert aux normales.
@@ -314,7 +335,7 @@ pub fn build_tile(generator: &TerrainGenerator, tile: FarTile) -> FarMesh {
             let normal = Vec3::new(-dx, 1.0, -dz).normalize();
             // Une pente forte devient de la roche.
             let steep = ((0.75 - normal.y) / 0.25).clamp(0.0, 1.0);
-            let color = lerp(at(i, j).color, [0.46, 0.45, 0.46], steep * 0.7);
+            let color = lerp(at(i, j).color, stone, steep * 0.7);
             vertices.push(MeshVertex::new(
                 Vec3::new(i as f32, local_y(height(i, j)), j as f32),
                 normal.to_array(),

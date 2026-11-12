@@ -15,7 +15,7 @@ use std::f32::consts::PI;
 use std::path::Path;
 
 use engine_render::HandInstance;
-use engine_voxel::{BlockRegistry, Icon, ItemId, ItemRegistry};
+use engine_voxel::{BlockRegistry, Icon, ItemId, ItemRegistry, ToolKind};
 use glam::{Mat4, Quat, Vec2, Vec3};
 use serde::Deserialize;
 
@@ -31,8 +31,8 @@ impl Default for ArmColors {
     fn default() -> Self {
         Self {
             skin: (0.86, 0.66, 0.52),
-            sleeve: (0.22, 0.42, 0.62),
-            cuff: (0.85, 0.85, 0.82),
+            sleeve: (0.24, 0.36, 0.33),
+            cuff: (0.68, 0.49, 0.31),
         }
     }
 }
@@ -115,6 +115,12 @@ impl Hand {
             sprites: HashMap::new(),
             frozen: false,
         }
+    }
+
+    /// Invalide les icônes extrudées et recharge les couleurs sans interrompre la pose.
+    pub fn reload_assets(&mut self, colors: ArmColors) {
+        self.colors = colors;
+        self.sprites.clear();
     }
 
     /// Un coup de bras (on vient de poser un bloc, de frapper).
@@ -232,7 +238,8 @@ impl Hand {
         ];
         let Some(item) = held else { return out };
         let def = items.get(item);
-        // L'objet est tenu au bout de la main.
+        // Les blocs et petits objets sont présentés devant les doigts. Un outil, lui,
+        // doit être saisi par son manche, au centre de la main.
         let grip = pose * Mat4::from_translation(Vec3::new(-0.02, 0.07, -0.3));
         match def.icon {
             // Un bloc : un petit cube texturé, tourné pour montrer deux faces.
@@ -251,16 +258,17 @@ impl Hand {
                 let sprite = self
                     .sprites
                     .entry(item)
-                    .or_insert_with(|| load_sprite(key, blocks))
-                    .clone();
-                let size = 0.38;
+                    .or_insert_with(|| load_sprite(key, blocks));
+                let size = if def.tool.is_some() { 0.44 } else { 0.38 };
                 let pixel = size / 16.0;
-                // L'icône est tenue de profil, inclinée vers l'avant comme un outil en main.
-                let plane = grip
-                    * Mat4::from_rotation_y(-0.5)
-                    * Mat4::from_rotation_z(0.15)
-                    * Mat4::from_translation(Vec3::new(0.0, size * 0.25, 0.0));
-                for (x, y, rgb) in sprite {
+                let plane = if let Some(tool) = def.tool {
+                    tool_pose(pose, tool.kind, size)
+                } else {
+                    grip * Mat4::from_rotation_y(-0.5)
+                        * Mat4::from_rotation_z(0.15)
+                        * Mat4::from_translation(Vec3::new(0.0, size * 0.25, 0.0))
+                };
+                for &(x, y, rgb) in sprite.iter() {
                     let center = Vec3::new(
                         (x as f32 + 0.5) / 16.0 - 0.5,
                         0.5 - (y as f32 + 0.5) / 16.0,
@@ -275,6 +283,35 @@ impl Hand {
         }
         out
     }
+}
+
+/// Point de prise en coordonnées de l'icône 16 × 16 (origine en haut à gauche).
+/// Les outils longs sont dessinés du bas-gauche (manche) vers le haut-droit (tête).
+fn tool_grip(kind: ToolKind) -> Vec2 {
+    match kind {
+        ToolKind::Sword => Vec2::new(4.5, 12.5),
+        ToolKind::Shovel => Vec2::new(5.5, 11.5),
+        ToolKind::Hoe => Vec2::new(2.5, 11.5),
+        ToolKind::Shears => Vec2::new(9.5, 10.5),
+        _ => Vec2::new(3.5, 11.5),
+    }
+}
+
+fn sprite_point(pixel: Vec2, size: f32) -> Vec3 {
+    Vec3::new(pixel.x / 16.0 - 0.5, 0.5 - pixel.y / 16.0, 0.0) * size
+}
+
+fn tool_pose(arm: Mat4, kind: ToolKind, size: f32) -> Mat4 {
+    let diagonal = if kind == ToolKind::Shears {
+        0.0
+    } else {
+        PI / 4.0
+    };
+    arm * Mat4::from_translation(Vec3::new(-0.015, 0.015, -0.17))
+        * Mat4::from_rotation_y(-0.55)
+        * Mat4::from_rotation_x(-0.55)
+        * Mat4::from_rotation_z(diagonal)
+        * Mat4::from_translation(-sprite_point(tool_grip(kind), size))
 }
 
 /// Les pixels opaques d'une icône d'objet (`items/<nom>.png`), en couleurs linéaires.
@@ -304,6 +341,71 @@ fn load_sprite(key: &str, blocks: &BlockRegistry) -> Sprite {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redesigned_tools_have_pixels_at_their_grip() {
+        let registry = crate::test_registry();
+        let items = ItemRegistry::builtin(&registry).unwrap();
+        for (name, kind) in [
+            ("stone_pickaxe", ToolKind::Pickaxe),
+            ("stone_axe", ToolKind::Axe),
+            ("copper_shovel", ToolKind::Shovel),
+            ("golden_hoe", ToolKind::Hoe),
+            ("iron_sword", ToolKind::Sword),
+            ("shears", ToolKind::Shears),
+        ] {
+            let item = items.get(items.id(&format!("core:{name}")).unwrap());
+            let Icon::Texture(key) = &item.icon else {
+                panic!("icône d'outil attendue")
+            };
+            let sprite = load_sprite(key, &registry);
+            let grip = tool_grip(kind);
+            assert!(
+                sprite
+                    .iter()
+                    .any(|(x, y, _)| *x == grip.x as u8 && *y == grip.y as u8),
+                "{name} : le manche doit traverser la main"
+            );
+        }
+    }
+
+    #[test]
+    fn tools_are_gripped_by_the_handle_and_point_up_and_forward() {
+        let hand = Hand::new(ArmColors::default());
+        for kind in [
+            ToolKind::Pickaxe,
+            ToolKind::Axe,
+            ToolKind::Shovel,
+            ToolKind::Hoe,
+            ToolKind::Sword,
+            ToolKind::Shears,
+        ] {
+            for swing in [None, Some(0.25), Some(0.5), Some(0.75)] {
+                let hand = Hand {
+                    swing,
+                    ..Hand::new(hand.colors)
+                };
+                let arm = hand.arm_pose();
+                let model = tool_pose(arm, kind, 0.44);
+                let held = model.transform_point3(sprite_point(tool_grip(kind), 0.44));
+                let palm = arm.transform_point3(Vec3::new(-0.015, 0.015, -0.17));
+                assert!(
+                    held.distance(palm) < 1e-5,
+                    "{kind:?} : le manche doit rester dans la main"
+                );
+                let direction = if kind == ToolKind::Shears {
+                    Vec3::Y
+                } else {
+                    Vec3::new(1.0, 1.0, 0.0).normalize()
+                };
+                let forward = (arm.inverse() * model).transform_vector3(direction);
+                assert!(
+                    forward.y > 0.0 && forward.z < 0.0,
+                    "{kind:?} : la tête doit dépasser vers le haut et l'avant"
+                );
+            }
+        }
+    }
 
     fn input(dt: f32) -> HandInput {
         HandInput {

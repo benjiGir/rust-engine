@@ -252,11 +252,14 @@ fn place(grid: &SubGrid, chunk_origin: IVec3) -> (Vec3, Aabb) {
     let mut min = Vec3::splat(f32::MAX);
     let mut max = Vec3::splat(f32::MIN);
     for corner in 0..8 {
+        // Une pièce peut dépasser de son cube pendant sa rotation (au plus
+        // sqrt(0.5) - 0.5 bloc). Garder cette marge aussi sur les structures mobiles.
         let offset = Vec3::new(
             (corner & 1) as f32,
             ((corner >> 1) & 1) as f32,
             ((corner >> 2) & 1) as f32,
-        ) * size;
+        ) * (size + 0.5)
+            - Vec3::splat(0.25);
         let p = grid.to_world(base + offset);
         min = min.min(p);
         max = max.max(p);

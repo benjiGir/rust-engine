@@ -20,12 +20,13 @@ pub enum Action {
     Descend,
     Sprint,
     Inventory,
+    Drop,
     Fly,
     Time,
 }
 
 impl Action {
-    pub const ALL: [Action; 10] = [
+    pub const ALL: [Action; 11] = [
         Action::Forward,
         Action::Back,
         Action::Left,
@@ -34,6 +35,7 @@ impl Action {
         Action::Descend,
         Action::Sprint,
         Action::Inventory,
+        Action::Drop,
         Action::Fly,
         Action::Time,
     ];
@@ -48,6 +50,7 @@ impl Action {
             Self::Descend => "Descendre (vol)",
             Self::Sprint => "Courir",
             Self::Inventory => "Inventaire",
+            Self::Drop => "Jeter un objet",
             Self::Fly => "Voler",
             Self::Time => "Vitesse du temps",
         }
@@ -66,6 +69,7 @@ pub struct Keys {
     pub descend: String,
     pub sprint: String,
     pub inventory: String,
+    pub drop: String,
     pub fly: String,
     pub time: String,
 }
@@ -82,6 +86,7 @@ impl Default for Keys {
             descend: "ShiftLeft".into(),
             sprint: "ControlLeft".into(),
             inventory: "KeyE".into(),
+            drop: "KeyQ".into(),
             fly: "KeyF".into(),
             time: "KeyT".into(),
         }
@@ -99,6 +104,7 @@ impl Keys {
             Action::Descend => &mut self.descend,
             Action::Sprint => &mut self.sprint,
             Action::Inventory => &mut self.inventory,
+            Action::Drop => &mut self.drop,
             Action::Fly => &mut self.fly,
             Action::Time => &mut self.time,
         }
@@ -114,6 +120,7 @@ impl Keys {
             Action::Descend => &self.descend,
             Action::Sprint => &self.sprint,
             Action::Inventory => &self.inventory,
+            Action::Drop => &self.drop,
             Action::Fly => &self.fly,
             Action::Time => &self.time,
         }

@@ -4,6 +4,76 @@
 use super::*;
 
 impl VoxelGame {
+    pub(crate) fn handle_keys(&mut self, ctx: &Context) {
+        let input = &ctx.input;
+        if self.mouse_captured
+            && !self.ui.inventory_open
+            && input.key_pressed(self.settings.keys.key(Action::Drop))
+        {
+            self.throw_selected();
+        }
+        if input.key_pressed(self.settings.keys.key(Action::Time)) {
+            self.day.cycle_speed();
+            log::info!("temps {} ({})", self.day.speed.name(), self.day.clock());
+        }
+        if input.key_pressed(self.settings.keys.key(Action::Fly)) {
+            player::toggle_mode(&mut self.ecs, self.player);
+            log::info!("mode {}", player::mode(&self.ecs, self.player).name());
+        }
+        for (i, key) in HOTBAR_KEYS.iter().enumerate() {
+            if input.key_pressed(*key) {
+                self.inventory.selected = i;
+            }
+        }
+        if input.key_pressed(KeyCode::F3) {
+            self.ui.inspector_open = !self.ui.inspector_open;
+        }
+        if input.key_pressed(KeyCode::F4) {
+            self.hand.visible = !self.hand.visible;
+        }
+        if input.key_pressed(KeyCode::F1) {
+            let mesher = self.streamer().config().mesher.other();
+            log::info!("maillage {} : on remaille tout", mesher.name());
+            self.streamer_mut().set_mesher(mesher);
+        }
+        if input.key_pressed(KeyCode::F6) {
+            self.toggle_cave_culling();
+        }
+        if input.key_pressed(KeyCode::F2) {
+            self.renderer.frustum_culling = !self.renderer.frustum_culling;
+            let state = if self.renderer.frustum_culling {
+                "activé"
+            } else {
+                "désactivé"
+            };
+            log::info!("frustum culling {state}");
+        }
+    }
+
+    /// Jette un exemplaire en conservant son usure et son enchantement.
+    fn throw_selected(&mut self) {
+        let Some(stack) = self.inventory.selected_stack() else {
+            return;
+        };
+        let direction = self.camera.forward();
+        let center = self.camera.position + direction * 0.45;
+        if self.streamer().world().is_solid(center.floor().as_ivec3()) {
+            return;
+        }
+        self.inventory.consume_selected();
+        let seed = self.next_random();
+        let entity = drops::spawn(
+            &mut self.ecs,
+            inventory::ItemStack { count: 1, ..stack },
+            center,
+            seed,
+        );
+        if let Some(mut velocity) = self.ecs.get_mut::<components::Velocity>(entity) {
+            velocity.0 = direction * 3.5 + Vec3::Y;
+        }
+        self.hand.punch();
+    }
+
     /// Pose le bloc de la case choisie contre la face visée. Renvoie sa position si c'est fait.
     /// Une flèche sur le bloc visé s'il est orienté (piston, inverseur, répéteur) : une barre
     /// claire dans sa direction, avec un bout plus vif devant.

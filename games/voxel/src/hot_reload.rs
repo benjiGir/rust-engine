@@ -198,7 +198,14 @@ mod tests {
         let current =
             BlockRegistry::load(&temp_assets("base", source).join("assets"), None).unwrap();
 
-        let recoloured = source.replace("(0.5, 0.5, 0.52)", "(0.9, 0.1, 0.1)");
+        let line = source
+            .lines()
+            .find(|line| line.contains(r#"id: "core:stone""#))
+            .unwrap();
+        let start = line.find("color: (").unwrap();
+        let end = start + line[start..].find(')').unwrap() + 1;
+        let changed = line.replace(&line[start..end], "color: (0.9, 0.1, 0.1)");
+        let recoloured = source.replace(line, &changed);
         let root = temp_assets("recoloured", &recoloured);
         match reload_registry(&current, &root.join("assets"), &[]) {
             RegistryReload::Applied(fresh) => {

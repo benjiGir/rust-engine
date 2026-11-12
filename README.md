@@ -2,6 +2,9 @@
 
 Un moteur de jeu en Rust, écrit pour apprendre le langage : d'abord un moteur voxel façon Minecraft, puis un city builder ferroviaire.
 
+Direction visuelle originale : [terre, ardoise et cuivre](docs/art-direction.md) — textures,
+objets, miniatures isométriques et thème commun aux menus et au HUD.
+
 Plan complet : https://claude.ai/artifact/8Sw3uqhzc4MZboC8xzEF25
 
 ## Démarrer

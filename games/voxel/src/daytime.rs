@@ -13,10 +13,10 @@ const FAST_FACTOR: f32 = 40.0;
 const MOONLIGHT: f32 = 0.1;
 
 const NIGHT_SKY: Vec3 = Vec3::new(0.008, 0.012, 0.035);
-const DAY_SKY: Vec3 = Vec3::new(0.45, 0.65, 0.9);
-const SUNSET_SKY: Vec3 = Vec3::new(0.95, 0.42, 0.18);
-const SUNSET_LIGHT: Vec3 = Vec3::new(1.0, 0.62, 0.38);
-const MOON_LIGHT: Vec3 = Vec3::new(0.55, 0.65, 1.0);
+const DAY_SKY: Vec3 = Vec3::new(0.40, 0.62, 0.78);
+const SUNSET_SKY: Vec3 = Vec3::new(0.82, 0.40, 0.23);
+const SUNSET_LIGHT: Vec3 = Vec3::new(1.0, 0.73, 0.49);
+const MOON_LIGHT: Vec3 = Vec3::new(0.60, 0.73, 0.91);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimeSpeed {

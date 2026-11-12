@@ -295,7 +295,17 @@ impl BlockBehavior for Furnace {
 
     fn scheduled_tick(&self, ctx: &mut MachineContext, positions: &[GridPos]) {
         for &at in positions {
-            if ctx.grids.write(at, |e| self.step(e)) == Some(true) {
+            let result = ctx.grids.write(at, |e| {
+                let was_burning = FurnaceState::read(e).burning();
+                let active = self.step(e);
+                (active, was_burning != FurnaceState::read(e).burning())
+            });
+            if let Some((_, true)) = result
+                && let Some(grid) = ctx.grids.get(at.grid)
+            {
+                grid.borrow_mut().invalidate_visuals(at.pos);
+            }
+            if matches!(result, Some((true, _))) {
                 ctx.schedule(at, 1);
             }
         }
@@ -335,6 +345,70 @@ pub fn container_slots(blocks: &BlockRegistry, block: BlockId) -> Option<usize> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn furnace_visuals_are_invalidated_only_at_ignition_and_extinction_on_a_ship() {
+        use crate::{
+            BlockAccess, ChunkStreamer, Grids, StreamingConfig, SubGrids, TerrainGenerator,
+        };
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let registry = BlockRegistry::builtin();
+        let (furnace, _) = furnace();
+        let block = registry.id("core:furnace").unwrap();
+        let streamer = RefCell::new(ChunkStreamer::new(
+            TerrainGenerator::new(7),
+            StreamingConfig::default(),
+        ));
+        let mut subs = SubGrids::new(registry);
+        let id = subs.create();
+        let at = GridPos::new(id, glam::IVec3::new(-1, 3, -1));
+        let cell = subs.get(id).unwrap();
+        cell.borrow_mut().set_block(at.pos, block);
+        let mut entity = BlockEntity::default();
+        let mut inventory = Inventory::new(3);
+        inventory.slots[FURNACE_INPUT] = stack("core:raw_iron", 1);
+        inventory.slots[FURNACE_FUEL] = stack("core:stick", 1);
+        entity.caps_mut().inventory = Some(inventory);
+        cell.borrow_mut().set_block_entity(at.pos, Some(entity));
+        let initial_revision = cell.borrow().revision();
+        let mut machines = Machines::new();
+        machines.register(block, Rc::new(furnace));
+        let grids = Grids::with_subgrids(&streamer, &subs);
+        machines.grid_blocks_loaded(grids, &[at], &mut Vec::new());
+        machines.run_grids_tick(grids, &mut Vec::new());
+        assert_eq!(cell.borrow().revision(), initial_revision + 1);
+        for _ in 0..20 {
+            machines.run_grids_tick(grids, &mut Vec::new());
+        }
+        assert_eq!(
+            cell.borrow().revision(),
+            initial_revision + 1,
+            "pas de remaillage pendant la combustion"
+        );
+        for _ in 0..100 {
+            machines.run_grids_tick(grids, &mut Vec::new());
+        }
+        let grid = cell.borrow();
+        assert_eq!(grid.revision(), initial_revision + 2);
+        assert_eq!(grid.block(at.pos), block);
+        let entity = grid.block_entity(at.pos).unwrap();
+        assert!(!FurnaceState::read(entity).burning());
+        assert_eq!(
+            entity
+                .caps
+                .as_ref()
+                .unwrap()
+                .inventory
+                .as_ref()
+                .unwrap()
+                .slots[FURNACE_INPUT]
+                .as_ref()
+                .unwrap()
+                .count,
+            1
+        );
+    }
 
     fn furnace() -> (Furnace, Arc<ItemRegistry>) {
         let blocks = BlockRegistry::builtin();

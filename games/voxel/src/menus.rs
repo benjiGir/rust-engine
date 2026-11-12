@@ -146,11 +146,7 @@ pub fn parse_seed(text: &str) -> u32 {
 
 /// Un gros bouton de menu.
 pub(crate) fn button(ui: &mut egui::Ui, text: &str) -> bool {
-    ui.add_sized(
-        [260.0, 36.0],
-        egui::Button::new(RichText::new(text).size(18.0)),
-    )
-    .clicked()
+    crate::skin::menu_button(ui, text)
 }
 
 impl VoxelGame {
@@ -166,6 +162,7 @@ impl VoxelGame {
 
     pub(crate) fn menu_window(ctx: &egui::Context, title: &str, add: impl FnOnce(&mut egui::Ui)) {
         egui::Window::new(title)
+            .frame(crate::skin::panel())
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .resizable(false)
             .collapsible(false)
@@ -173,11 +170,13 @@ impl VoxelGame {
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
+                    crate::skin::mark(ui);
+                    ui.add_space(8.0);
                     ui.label(
                         RichText::new(title)
                             .size(30.0)
                             .strong()
-                            .color(Color32::WHITE),
+                            .color(crate::skin::TEXT),
                     );
                     ui.add_space(12.0);
                     add(ui);
@@ -189,6 +188,12 @@ impl VoxelGame {
     fn draw_title(&mut self, ctx: &egui::Context, page: TitlePage) {
         match page {
             TitlePage::Main => Self::menu_window(ctx, "Voxel", |ui| {
+                ui.label(
+                    RichText::new("TERRES SAUVAGES · ATELIERS · AVENTURES")
+                        .size(11.0)
+                        .color(crate::skin::MUTED),
+                );
+                ui.add_space(12.0);
                 if button(ui, "Jouer") {
                     self.worlds = saved_worlds();
                     self.mode = Mode::Title(TitlePage::Worlds { confirm: None });
@@ -237,7 +242,7 @@ impl VoxelGame {
                                             if ui
                                                 .button(
                                                     RichText::new("Supprimer définitivement")
-                                                        .color(Color32::LIGHT_RED),
+                                                        .color(crate::skin::RED),
                                                 )
                                                 .clicked()
                                             {
@@ -302,7 +307,7 @@ impl VoxelGame {
                         _ => "Le jeu tel qu'il est prévu.",
                     });
                     if let Some(error) = &error {
-                        ui.label(RichText::new(error).color(Color32::LIGHT_RED));
+                        ui.label(RichText::new(error).color(crate::skin::RED));
                     }
                     ui.add_space(8.0);
                     create = button(ui, "Créer");

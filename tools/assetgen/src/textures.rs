@@ -1,4 +1,5 @@
-//! Les textures 16 × 16 : une couleur de base, du bruit, et un motif par bloc.
+//! Direction « terre, ardoise et cuivre » : motifs originaux 16 × 16, aplats groupés,
+//! ombres froides et accents chauds. Aucune ressource graphique externe.
 
 use std::fs::File;
 use std::io::BufWriter;
@@ -7,6 +8,9 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 
 use crate::Rng;
+
+mod items;
+use items::item_icons;
 
 const SIZE: usize = 16;
 
@@ -45,12 +49,14 @@ impl Image {
         }
     }
 
-    /// Chaque pixel varie un peu en luminosité : l'aspect « naturel ».
+    /// Des groupes de pixels, plutôt qu'un bruit blanc qui brouille les matières.
     fn noise(mut self, base: [f32; 3], amount: f32, seed: u64) -> Self {
-        let mut rng = Rng::new(seed);
         for y in 0..SIZE {
             for x in 0..SIZE {
-                let shade = 1.0 + rng.signed() * amount;
+                let broad = (texel_hash(x / 4, y / 4, seed) % 5) as f32 - 2.0;
+                let cluster = (texel_hash(x / 2, y / 2, seed + 17) % 5) as f32 - 2.0;
+                let grain = (texel_hash(x, y, seed + 41) % 3) as f32 - 1.0;
+                let shade = 1.0 + (broad * 0.25 + cluster * 0.35 + grain * 0.12) * amount;
                 self.set(x, y, scale(base, shade));
             }
         }
@@ -80,10 +86,41 @@ impl Image {
         );
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
-        let bytes: Vec<u8> = self.pixels.iter().flatten().copied().collect();
+        let bytes: Vec<u8> = self
+            .pixels
+            .iter()
+            .flat_map(|&pixel| finish_pixel(pixel))
+            .collect();
         encoder.write_header()?.write_image_data(&bytes)?;
         Ok(())
     }
+}
+
+fn texel_hash(x: usize, y: usize, seed: u64) -> u64 {
+    let mut n = seed ^ (x as u64).wrapping_mul(0x9e37_79b9) ^ (y as u64).wrapping_mul(0x85eb_ca6b);
+    n = (n ^ (n >> 16)).wrapping_mul(0x7feb_352d);
+    n ^ (n >> 15)
+}
+
+/// Même palette pour le terrain, les objets et les machines. L'alpha est conservé.
+fn finish_pixel([r, g, b, a]: [u8; 4]) -> [u8; 4] {
+    if a == 0 {
+        return [0; 4];
+    }
+    let rgb = [r, g, b].map(|c| c as f32 / 255.0);
+    let luma = rgb[0] * 0.25 + rgb[1] * 0.6 + rgb[2] * 0.15;
+    let shadow = (0.35 - luma).max(0.0) * 0.18;
+    let highlight = (luma - 0.65).max(0.0) * 0.12;
+    let shifts = [
+        -shadow * 0.25 + highlight,
+        shadow * 0.25 + highlight * 0.65,
+        shadow - highlight * 0.4,
+    ];
+    let graded: [u8; 3] = std::array::from_fn(|i| {
+        let c = (rgb[i] * 0.94 + luma * 0.06 + shifts[i]).clamp(0.0, 1.0);
+        ((c * 31.0).round() / 31.0 * 255.0).round() as u8
+    });
+    [graded[0], graded[1], graded[2], a]
 }
 
 fn rgba(color: [f32; 3]) -> [u8; 4] {
@@ -95,22 +132,61 @@ fn scale(color: [f32; 3], factor: f32) -> [f32; 3] {
     color.map(|c| c * factor)
 }
 
-const GRASS: [f32; 3] = [0.38, 0.62, 0.26];
-const DIRT: [f32; 3] = [0.47, 0.33, 0.21];
-const STONE: [f32; 3] = [0.52, 0.52, 0.54];
+const GRASS: [f32; 3] = [0.46, 0.64, 0.32];
+const DIRT: [f32; 3] = [0.48, 0.34, 0.24];
+const STONE: [f32; 3] = [0.52, 0.55, 0.55];
+const COPPER: [f32; 3] = [0.76, 0.48, 0.29];
+const IRON: [f32; 3] = [0.64, 0.72, 0.73];
+const INK: [f32; 3] = [0.12, 0.16, 0.18];
+
+/// Bruit périodique interpolé : les deux bords ont les mêmes valeurs, sans cadre
+/// ni gros îlot contrasté qui dessine une case à chaque répétition.
+fn periodic_noise(x: f32, y: f32, cells: i32, seed: u64) -> f32 {
+    let ix = x.floor() as i32;
+    let iy = y.floor() as i32;
+    let smooth = |v: f32| v * v * (3.0 - 2.0 * v);
+    let u = smooth(x.fract());
+    let v = smooth(y.fract());
+    let sample = |dx: i32, dy: i32| {
+        (texel_hash(
+            (ix + dx).rem_euclid(cells) as usize,
+            (iy + dy).rem_euclid(cells) as usize,
+            seed,
+        ) % 1024) as f32
+            / 1023.0
+    };
+    let a = sample(0, 0) * (1.0 - u) + sample(1, 0) * u;
+    let b = sample(0, 1) * (1.0 - u) + sample(1, 1) * u;
+    a * (1.0 - v) + b * v
+}
+
+fn seamless_ground(base: [f32; 3], seed: u64, contrast: f32) -> Image {
+    let mut image = Image::filled(base);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let u = x as f32 / (SIZE - 1) as f32;
+            let v = y as f32 / (SIZE - 1) as f32;
+            let grain = periodic_noise(u * 8.0, v * 8.0, 8, seed);
+            let fine = periodic_noise(u * 12.0, v * 12.0, 12, seed + 89);
+            image.set(
+                x,
+                y,
+                scale(
+                    base,
+                    1.0 + ((grain - 0.5) * 1.4 + (fine - 0.5) * 0.6) * contrast,
+                ),
+            );
+        }
+    }
+    image
+}
 
 fn grass_top() -> Image {
-    Image::filled(GRASS)
-        .noise(GRASS, 0.12, 1)
-        .speckles([0.3, 0.52, 0.2], 0.12, 2)
-        .speckles([0.48, 0.7, 0.32], 0.08, 3)
+    seamless_ground(GRASS, 1, 0.075)
 }
 
 fn dirt() -> Image {
-    Image::filled(DIRT)
-        .noise(DIRT, 0.12, 4)
-        .speckles([0.36, 0.25, 0.16], 0.15, 5)
-        .speckles([0.58, 0.45, 0.32], 0.05, 6)
+    seamless_ground(DIRT, 4, 0.14)
 }
 
 /// Le dessus de la terre labourée : des sillons, plus sombres quand elle est humide.
@@ -212,35 +288,47 @@ fn brewing_side() -> Image {
 
 /// Une fiole : un verre rond à col étroit ; `liquid` colore son contenu.
 fn flask(liquid: Option<[f32; 3]>) -> Image {
-    let glass = [0.78, 0.9, 0.96];
+    let glass = [0.64, 0.80, 0.81];
     let mut image = Image::transparent();
-    // Le col et le bouchon.
-    for y in 2..5 {
+    for y in 1..6 {
         for x in 6..10 {
-            image.set(x, y, if y == 2 { [0.55, 0.38, 0.2] } else { glass });
+            image.set(
+                x,
+                y,
+                if y < 3 {
+                    [0.56, 0.38, 0.23]
+                } else if y == 3 {
+                    COPPER
+                } else {
+                    glass
+                },
+            );
         }
     }
-    // Le ventre.
-    for y in 5..14 {
-        let half = match y {
-            5 => 3,
-            6 => 4,
-            13 => 4,
-            _ => 5,
-        };
-        for x in (8 - half)..(8 + half) {
-            let edge = x == 8 - half || x == 8 + half - 1 || y == 13;
-            let inside = !edge;
-            let color = match liquid {
-                Some(l) if inside && y >= 8 => l,
-                _ if edge => scale(glass, 0.8),
-                _ => glass,
+    for y in 5..15 {
+        for x in 2..14 {
+            let dx = x as f32 - 7.5;
+            let dy = y as f32 - 9.5;
+            let r = dx * dx + dy * dy;
+            if r > 25.0 {
+                continue;
+            }
+            let color = if r > 17.5 {
+                scale(glass, if x < 8 { 1.12 } else { 0.76 })
+            } else if y >= 9 {
+                liquid.map_or(scale(glass, 0.86), |l| {
+                    scale(l, if x < 7 { 1.14 } else { 0.88 })
+                })
+            } else {
+                glass
             };
-            image.set(x as usize, y, color);
+            image.set(x, y, color);
         }
     }
-    image.set(6, 7, [1.0, 1.0, 1.0]);
-    image
+    for (x, y) in [(5, 7), (4, 8), (4, 9)] {
+        image.set(x, y, [0.94, 0.98, 0.93]);
+    }
+    items::outlined(image)
 }
 
 /// Les blocs des réseaux et leurs machines (phase 9c) : un fond de métal et un motif.
@@ -631,53 +719,63 @@ fn piston_head() -> Image {
 fn grass_side() -> Image {
     let mut image = dirt();
     let top = grass_top();
-    let mut rng = Rng::new(7);
     for x in 0..SIZE {
-        // Entre 2 et 4 pixels d'herbe qui « débordent » sur la terre.
-        let depth = 2 + (rng.next_u64() % 3) as usize;
+        let t = x as f32 / (SIZE - 1) as f32 * std::f32::consts::TAU;
+        let depth = (3.0 + t.cos() * 0.6 + (t * 3.0).cos() * 0.55).round() as usize;
         for y in 0..depth {
             image.pixels[x + y * SIZE] = top.pixels[x + y * SIZE];
         }
+        image.set(x, depth, scale(DIRT, 0.94));
     }
     image
 }
 
 fn stone() -> Image {
-    let mut image = Image::filled(STONE).noise(STONE, 0.08, 8);
-    // Des fissures sombres : de courtes marches aléatoires.
-    let mut rng = Rng::new(9);
-    for _ in 0..5 {
-        let (mut x, mut y) = ((rng.next_u64() % 16) as i32, (rng.next_u64() % 16) as i32);
-        for _ in 0..4 {
-            image.set(x as usize, y as usize, scale(STONE, 0.72));
-            x = (x + (rng.next_u64() % 3) as i32 - 1).rem_euclid(16);
-            y = (y + 1).rem_euclid(16);
+    let mut image = Image::filled(STONE).noise(STONE, 0.13, 8);
+    // Éclats plats : l'arête du haut claire et une ombre courte au-dessous.
+    for (x, y, length) in [(1, 3, 4), (9, 1, 3), (6, 7, 5), (0, 12, 3), (11, 12, 4)] {
+        for k in 0..length {
+            image.set((x + k) % SIZE, y, scale(STONE, 1.12));
+            image.set((x + k) % SIZE, (y + 2) % SIZE, scale(STONE, 0.86));
         }
+        image.set((x + length) % SIZE, (y + 1) % SIZE, scale(STONE, 0.90));
     }
     image
 }
 
 fn sand() -> Image {
-    let base = [0.87, 0.8, 0.56];
-    Image::filled(base)
-        .noise(base, 0.05, 10)
-        .speckles([0.78, 0.7, 0.48], 0.12, 11)
+    let base = [0.84, 0.75, 0.54];
+    let mut image = Image::filled(base).noise(base, 0.06, 10);
+    for (x, y, length) in [(0, 3, 6), (9, 6, 5), (3, 11, 7), (13, 14, 4)] {
+        for k in 0..length {
+            image.set((x + k) % SIZE, y, [0.90, 0.82, 0.62]);
+            image.set((x + k + 1) % SIZE, (y + 1) % SIZE, [0.77, 0.68, 0.49]);
+        }
+    }
+    image
 }
 
 fn snow() -> Image {
-    let base = [0.95, 0.96, 1.0];
-    Image::filled(base)
-        .noise(base, 0.025, 12)
-        .speckles([0.85, 0.9, 1.0], 0.08, 13)
+    let base = [0.88, 0.94, 0.94];
+    let mut image = Image::filled(base).noise(base, 0.035, 12);
+    for (x, y) in [(2, 4), (9, 1), (6, 12), (13, 9)] {
+        image.set(x, y, [0.98, 0.99, 0.95]);
+        image.set((x + 1) % SIZE, y, [0.98, 0.99, 0.95]);
+        image.set(x, (y + 1) % SIZE, [0.78, 0.87, 0.91]);
+    }
+    image
 }
 
 /// L'eau : un bleu uni avec quelques vaguelettes plus claires.
 fn water() -> Image {
-    let base = [0.2, 0.4, 0.8];
-    let mut image = Image::filled(base).noise(base, 0.05, 14);
-    for (y, offset) in [(3, 2), (8, 9), (13, 4)] {
-        for x in 0..5 {
-            image.set((offset + x) % SIZE, y, [0.45, 0.65, 0.95]);
+    let base = [0.24, 0.49, 0.62];
+    let mut image = Image::filled(base).noise(base, 0.07, 14);
+    for (start, y, length) in [(1, 2, 6), (10, 5, 5), (4, 9, 7), (13, 13, 6)] {
+        for k in 0..length {
+            image.set((start + k) % SIZE, y, [0.36, 0.62, 0.69]);
+            if k > 1 && k < length - 1 {
+                image.set((start + k) % SIZE, (y + 1) % SIZE, [0.27, 0.54, 0.65]);
+            }
         }
     }
     image
@@ -685,38 +783,85 @@ fn water() -> Image {
 
 /// Le verre : presque blanc, avec un cadre et deux reflets en diagonale.
 fn glass() -> Image {
-    let mut image = Image::filled([0.85, 0.93, 0.98]);
-    for i in 0..SIZE {
-        for (x, y) in [(i, 0), (i, SIZE - 1), (0, i), (SIZE - 1, i)] {
-            image.set(x, y, [0.6, 0.75, 0.85]);
-        }
+    let mut image = Image::filled([0.76, 0.88, 0.86]);
+    for k in 0..SIZE {
+        image.set(k, 0, [0.59, 0.72, 0.70]);
+        image.set(0, k, [0.59, 0.72, 0.70]);
+        image.set(k, 15, [0.44, 0.60, 0.60]);
+        image.set(15, k, [0.44, 0.60, 0.60]);
     }
-    for i in 3..7 {
-        image.set(i, 9 - i, [1.0, 1.0, 1.0]);
-        image.set(i + 4, 13 - i, [1.0, 1.0, 1.0]);
+    for (x, y) in [(2, 2), (13, 2), (2, 13), (13, 13)] {
+        image.set(x, y, COPPER);
+    }
+    for k in 0..5 {
+        image.set(3 + k, 7 - k, [0.93, 0.97, 0.93]);
+    }
+    for k in 0..3 {
+        image.set(9 + k, 13 - k, [0.86, 0.94, 0.90]);
     }
     image
 }
 
 /// La torche : un bois sombre avec un cœur lumineux.
 fn torch() -> Image {
-    let mut image = Image::filled([0.42, 0.28, 0.15]).noise([0.42, 0.28, 0.15], 0.1, 15);
-    for y in 3..13 {
-        for x in 5..11 {
-            let d = ((x as f32 - 7.5).powi(2) + (y as f32 - 7.5).powi(2)).sqrt();
-            let glow = (1.0 - d / 6.0).clamp(0.0, 1.0);
-            image.set(x, y, [1.0, 0.65 + 0.3 * glow, 0.2 + 0.5 * glow]);
+    let wood = [0.38, 0.27, 0.20];
+    let mut image = Image::filled(wood).noise(wood, 0.14, 15);
+    for y in 0..SIZE {
+        image.set(5, y, scale(wood, 0.72));
+        image.set(10, y, scale(wood, 1.22));
+    }
+    for y in 2..12 {
+        for x in 4..12 {
+            let edge = x == 4 || x == 11 || y == 2 || y == 11;
+            image.set(
+                x,
+                y,
+                if edge {
+                    COPPER
+                } else if y < 5 {
+                    [0.98, 0.90, 0.57]
+                } else {
+                    [0.94, 0.65, 0.26]
+                },
+            );
         }
+    }
+    for x in 4..12 {
+        image.set(x, 7, scale(COPPER, 0.65));
     }
     image
 }
 
 fn glowstone() -> Image {
-    let base = [0.95, 0.8, 0.45];
-    Image::filled(base)
-        .noise(base, 0.1, 16)
-        .speckles([1.0, 0.95, 0.75], 0.25, 17)
-        .speckles([0.75, 0.55, 0.25], 0.1, 18)
+    let mut image = Image::filled([0.54, 0.36, 0.22]);
+    for (cx, cy, radius) in [
+        (3i32, 3i32, 4i32),
+        (12, 1, 3),
+        (9, 8, 5),
+        (1, 12, 4),
+        (13, 14, 4),
+    ] {
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                if dx.abs() + dy.abs() > radius {
+                    continue;
+                }
+                let color = if dy < -1 {
+                    [0.98, 0.91, 0.66]
+                } else if dx + dy < 2 {
+                    [0.92, 0.75, 0.39]
+                } else {
+                    [0.74, 0.52, 0.24]
+                };
+                image.set(
+                    (cx + dx).rem_euclid(16) as usize,
+                    (cy + dy).rem_euclid(16) as usize,
+                    color,
+                );
+            }
+        }
+    }
+    image
 }
 
 /// L'horloge : un cadran rouge avec deux aiguilles.
@@ -790,18 +935,129 @@ fn ruby() -> Image {
     image
 }
 
+/// Les textures du mod de référence partagent les matériaux du jeu.
+fn mechanism(kind: &str) -> Image {
+    let mut image = Image::filled(INK).noise(INK, 0.15, 150);
+    match kind {
+        "shaft" => {
+            image = log_side([0.48, 0.35, 0.24], 151);
+            for x in [0, 7, 15] {
+                for y in 0..SIZE {
+                    image.set(x, y, IRON);
+                }
+            }
+        }
+        "gear" => {
+            for y in 0..SIZE {
+                for x in 0..SIZE {
+                    let dx = x as f32 - 7.5;
+                    let dy = y as f32 - 7.5;
+                    let r = dx.hypot(dy);
+                    let tooth = (dy.atan2(dx) * 6.0).cos() > 0.0;
+                    if (3.0..5.6).contains(&r) || ((5.6..7.8).contains(&r) && tooth) {
+                        image.set(x, y, scale(COPPER, if x + y < 15 { 1.20 } else { 0.80 }));
+                    } else if r < 2.2 {
+                        image.set(x, y, IRON);
+                    }
+                }
+            }
+        }
+        "belt" => {
+            for y in 0..SIZE {
+                for x in 0..SIZE {
+                    let factor = if y % 4 == 0 { 1.7 } else { 1.0 };
+                    image.set(
+                        x,
+                        y,
+                        if !(2..=13).contains(&x) {
+                            COPPER
+                        } else {
+                            scale(INK, factor)
+                        },
+                    );
+                }
+            }
+        }
+        "crank" | "press" => {
+            image = plate(152);
+            for y in 2..14 {
+                for x in 2..14 {
+                    image.set(x, y, INK);
+                }
+            }
+            if kind == "press" {
+                for y in 3..10 {
+                    for x in 6..10 {
+                        image.set(x, y, COPPER);
+                    }
+                }
+                for y in [9, 10, 13] {
+                    for x in 3..13 {
+                        image.set(x, y, IRON);
+                    }
+                }
+            } else {
+                for y in 5..9 {
+                    for x in 6..10 {
+                        image.set(x, y, IRON);
+                    }
+                }
+                for x in 8..14 {
+                    image.set(x, 7, COPPER);
+                    image.set(x, 8, COPPER);
+                }
+                for y in 3..8 {
+                    image.set(13, y, [0.61, 0.41, 0.26]);
+                }
+            }
+            for (x, y) in [(1, 1), (14, 1), (1, 14), (14, 14)] {
+                image.set(x, y, COPPER);
+            }
+        }
+        _ => {}
+    }
+    image
+}
+
+fn metal_plate(color: [f32; 3]) -> Image {
+    let mut image = Image::transparent();
+    for y in 4..13 {
+        for x in 2..14 {
+            let edge = x == 2 || y == 12;
+            image.set(
+                x,
+                y,
+                scale(
+                    color,
+                    if edge {
+                        0.65
+                    } else if y == 4 {
+                        1.2
+                    } else {
+                        1.0
+                    },
+                ),
+            );
+        }
+    }
+    for (x, y) in [(4, 6), (11, 10)] {
+        image.set(x, y, scale(color, 0.5));
+    }
+    image
+}
+
 // ----- Le terrain (phase O1) -----
 
-const DEEPSTONE: [f32; 3] = [0.3, 0.3, 0.34];
+const DEEPSTONE: [f32; 3] = [0.30, 0.35, 0.39];
 
 /// La pierre profonde : plus sombre, bleutée, avec des stries horizontales.
 fn deepstone() -> Image {
-    let mut image = Image::filled(DEEPSTONE).noise(DEEPSTONE, 0.07, 30);
-    let mut rng = Rng::new(31);
-    for y in [2, 6, 10, 14] {
-        let start = (rng.next_u64() % 8) as usize;
-        for x in start..(start + 6 + (rng.next_u64() % 6) as usize).min(SIZE) {
-            image.set(x, y, scale(DEEPSTONE, 0.75));
+    let base = DEEPSTONE;
+    let mut image = Image::filled(base).noise(base, 0.18, 30);
+    for (x, y, len) in [(0, 2, 8), (10, 5, 6), (3, 9, 10), (12, 14, 7)] {
+        for k in 0..len {
+            image.set((x + k) % SIZE, y, scale(base, 0.75));
+            image.set((x + k) % SIZE, (y + 1) % SIZE, scale(base, 1.12));
         }
     }
     image
@@ -818,18 +1074,20 @@ fn bedrock() -> Image {
 
 /// Le gravier : des cailloux de plusieurs gris.
 fn gravel() -> Image {
-    let base = [0.5, 0.48, 0.47];
-    let mut image = Image::filled(base).noise(base, 0.1, 35);
-    let mut rng = Rng::new(36);
-    for _ in 0..14 {
-        let (x, y) = (
-            (rng.next_u64() % 15) as usize,
-            (rng.next_u64() % 15) as usize,
-        );
-        let shade = [0.35, 0.62, 0.45, 0.55][(rng.next_u64() % 4) as usize];
-        let color = [shade, shade * 0.97, shade * 0.95];
-        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-            image.set(x + dx, y + dy, color);
+    let base = [0.49, 0.49, 0.45];
+    let mut image = Image::filled(scale(base, 0.68));
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let offset = (y / 3 % 2) * 2;
+            let gx = (x + offset) % SIZE;
+            let shade = 0.80 + (texel_hash(gx / 3, y / 3, 36) % 5) as f32 * 0.08;
+            if !gx.is_multiple_of(3) && y % 3 != 0 {
+                image.set(
+                    x,
+                    y,
+                    scale(base, shade + if y % 3 == 1 { 0.12 } else { 0.0 }),
+                );
+            }
         }
     }
     image
@@ -873,28 +1131,43 @@ fn ice() -> Image {
 }
 
 fn lava() -> Image {
-    let base = [0.95, 0.4, 0.05];
-    Image::filled(base)
-        .noise(base, 0.12, 43)
-        .speckles([1.0, 0.75, 0.2], 0.2, 44)
-        .speckles([0.7, 0.15, 0.02], 0.12, 45)
+    let mut image = Image::filled([0.70, 0.23, 0.10]);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let bend = [0, 1, 2, 2, 1, 0, -1, -1][y % 8];
+            let channel = (x as i32 + bend).rem_euclid(8);
+            let color = match channel {
+                0 | 1 => [0.98, 0.77, 0.31],
+                2 | 3 => [0.94, 0.49, 0.16],
+                4 | 5 => [0.82, 0.30, 0.10],
+                _ => [0.60, 0.19, 0.12],
+            };
+            image.set(x, y, color);
+        }
+    }
+    image
 }
 
 /// Un minerai : de la pierre (ou de la pierre profonde) et des grains colorés en amas.
 fn ore(color: [f32; 3], seed: u64) -> Image {
     let mut image = stone();
+    // Chaque gisement possède sa disposition ; les amas sont de petits cristaux biseautés.
     let mut rng = Rng::new(seed);
-    for _ in 0..5 {
-        let (cx, cy) = (
-            2 + (rng.next_u64() % 12) as i32,
-            2 + (rng.next_u64() % 12) as i32,
-        );
-        for _ in 0..4 {
-            let x = (cx + (rng.next_u64() % 3) as i32 - 1).clamp(0, 15) as usize;
-            let y = (cy + (rng.next_u64() % 3) as i32 - 1).clamp(0, 15) as usize;
-            let shade = 0.85 + rng.next_f32() * 0.3;
-            image.set(x, y, scale(color, shade));
+    for (cx, cy) in [(3, 3), (10, 2), (6, 9), (12, 12)] {
+        let x = cx + (rng.next_u64() % 2) as usize;
+        let y = cy + (rng.next_u64() % 2) as usize;
+        for (dx, dy, shade) in [
+            (0, 0, 1.2),
+            (1, 0, 1.1),
+            (0, 1, 1.0),
+            (1, 1, 0.92),
+            (2, 1, 0.8),
+            (1, 2, 0.7),
+        ] {
+            image.set(x + dx, y + dy, scale(color, shade));
         }
+        image.set(x, y + 2, scale(STONE, 0.63));
+        image.set(x + 2, y + 2, scale(STONE, 0.72));
     }
     image
 }
@@ -903,16 +1176,23 @@ fn ore(color: [f32; 3], seed: u64) -> Image {
 
 /// L'écorce : des stries verticales irrégulières.
 fn log_side(base: [f32; 3], seed: u64) -> Image {
-    let mut image = Image::filled(base).noise(base, 0.08, seed);
-    let mut rng = Rng::new(seed + 1);
-    for x in 0..SIZE {
-        if rng.next_f32() < 0.45 {
-            let start = (rng.next_u64() % 16) as usize;
-            let length = 3 + (rng.next_u64() % 8) as usize;
-            for y in start..(start + length).min(SIZE) {
-                image.set(x, y, scale(base, 0.72));
+    let mut image = Image::filled(base).noise(base, 0.17, seed);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let bend = ((y / 4 + x / 5) % 3) as i32 - 1;
+            let lane = (x as i32 + bend).rem_euclid(5);
+            if lane == 0 {
+                image.set(x, y, scale(base, 0.66));
+            } else if lane == 1 {
+                image.set(x, y, scale(base, 1.18));
             }
         }
+    }
+    for (x, y) in [(3, 5), (11, 11)] {
+        for dy in 0..3 {
+            image.set(x, y + dy, scale(base, 0.55));
+        }
+        image.set(x + 1, y + 1, scale(base, 0.82));
     }
     image
 }
@@ -936,28 +1216,61 @@ fn birch_side() -> Image {
 
 /// Le dessus d'une bûche : des cernes autour du cœur.
 fn log_top(bark: [f32; 3], wood: [f32; 3]) -> Image {
-    let mut image = Image::filled(bark);
-    for y in 1..SIZE - 1 {
-        for x in 1..SIZE - 1 {
-            let d = ((x as f32 - 7.5).powi(2) + (y as f32 - 7.5).powi(2)).sqrt();
-            let ring = if (d as i32) % 3 == 0 { 0.82 } else { 1.0 };
-            image.set(x, y, scale(wood, ring));
+    let mut image = Image::filled(bark).noise(bark, 0.10, 89);
+    for y in 1..15 {
+        for x in 1..15 {
+            let dx = (x as i32 - 7).abs();
+            let dy = (y as i32 - 8).abs();
+            let radius = dx.max(dy) + dx.min(dy) / 2;
+            let factor = if radius % 3 == 0 {
+                0.78
+            } else if radius % 3 == 1 {
+                1.08
+            } else {
+                0.97
+            };
+            if radius < 8 {
+                image.set(x, y, scale(wood, factor));
+            }
         }
+    }
+    for (x, y) in [(7, 8), (8, 8), (8, 9)] {
+        image.set(x, y, scale(wood, 0.62));
     }
     image
 }
 
 /// Des planches : quatre lattes horizontales.
 fn planks(wood: [f32; 3], seed: u64) -> Image {
-    let mut image = Image::filled(wood).noise(wood, 0.06, seed);
-    for x in 0..SIZE {
-        for y in [3, 7, 11, 15] {
-            image.set(x, y, scale(wood, 0.7));
+    let mut image = Image::filled(wood).noise(wood, 0.08, seed);
+    for y in 0..SIZE {
+        let (course, yy, height) = if y < 5 {
+            (0, y, 5)
+        } else if y < 11 {
+            (1, y - 5, 6)
+        } else {
+            (2, y - 11, 5)
+        };
+        let joint = [6, 12, 3][course];
+        for x in 0..SIZE {
+            let factor = if yy == height - 1 {
+                0.67
+            } else if yy == 0 {
+                1.15
+            } else if x == joint {
+                0.78
+            } else {
+                1.0
+            };
+            if factor != 1.0 {
+                image.set(x, y, scale(wood, factor));
+            }
         }
-    }
-    for (y0, x) in [(0, 5), (4, 12), (8, 3), (12, 9)] {
-        for y in y0..y0 + 3 {
-            image.set(x, y, scale(wood, 0.75));
+        if yy == 2 {
+            let start = (texel_hash(course, 0, seed) % 12) as usize;
+            for dx in 0..3 {
+                image.set((start + dx) % SIZE, y, scale(wood, 0.90));
+            }
         }
     }
     image
@@ -965,14 +1278,44 @@ fn planks(wood: [f32; 3], seed: u64) -> Image {
 
 /// Des feuilles : la couleur avec du bruit, et des trous transparents.
 fn leaves(base: [f32; 3], seed: u64) -> Image {
-    let mut image = Image::filled(base).noise(base, 0.18, seed);
-    let mut rng = Rng::new(seed + 1);
+    let base = base.map(|c| (c * 1.08 + 0.035).min(1.0));
+    let mut image = Image::filled(scale(base, 0.64));
+    // Des bouquets décalés et imbriqués, sans grille visible entre les feuilles.
+    for (cx, cy) in [
+        (1, 2),
+        (6, 1),
+        (12, 3),
+        (4, 6),
+        (10, 7),
+        (15, 8),
+        (0, 11),
+        (6, 12),
+        (12, 13),
+        (3, 15),
+    ] {
+        let light = 0.94 + (texel_hash(cx, cy, seed) % 4) as f32 * 0.09;
+        for dy in -2i32..=2 {
+            for dx in -3i32..=3 {
+                if dx.abs() + dy.abs() * 2 > 5 {
+                    continue;
+                }
+                let x = (cx as i32 + dx).rem_euclid(16) as usize;
+                let y = (cy as i32 + dy).rem_euclid(16) as usize;
+                let bevel = if dy < 0 {
+                    0.10
+                } else if dy > 1 {
+                    -0.18
+                } else {
+                    0.0
+                };
+                image.set(x, y, scale(base, light + bevel));
+            }
+        }
+    }
     for y in 0..SIZE {
         for x in 0..SIZE {
-            if rng.next_f32() < 0.22 {
+            if texel_hash(x, y, seed + 71).is_multiple_of(11) {
                 image.clear(x, y);
-            } else if rng.next_f32() < 0.15 {
-                image.set(x, y, scale(base, 0.7));
             }
         }
     }
@@ -1287,17 +1630,37 @@ fn cactus_top() -> Image {
 // ----- Objets et artisanat (phase O3) -----
 
 fn cobblestone() -> Image {
-    let mut image = Image::filled(scale(STONE, 0.9)).noise(scale(STONE, 0.9), 0.1, 110);
-    // Des pierres arrondies séparées par des joints sombres.
-    let mut rng = Rng::new(111);
+    let mortar = [0.29, 0.34, 0.35];
+    let mut image = Image::filled(mortar);
     for y in 0..SIZE {
+        let (row, yy, height) = if y < 5 {
+            (0, y, 5)
+        } else if y < 11 {
+            (1, y - 5, 6)
+        } else {
+            (2, y - 11, 5)
+        };
         for x in 0..SIZE {
-            let cell = ((x / 4) + (y / 4) * 7 + (rng.next_u64() % 2) as usize) % 3;
-            if x % 4 == 0 || y % 4 == ((x / 4) % 2) * 2 {
-                image.set(x, y, scale(STONE, 0.6));
-            } else if cell == 0 {
-                image.set(x, y, scale(STONE, 1.05));
+            let xx = (x + [0, 3, 8][row]) % SIZE;
+            let (col, dx, width) = if xx < 6 {
+                (0, xx, 6)
+            } else if xx < 11 {
+                (1, xx - 6, 5)
+            } else {
+                (2, xx - 11, 5)
+            };
+            if dx == width - 1 || yy == height - 1 || (dx == 0 && yy == 0) {
+                continue;
             }
+            let factor = 0.89 + (texel_hash(col, row, 110) % 3) as f32 * 0.07;
+            let bevel = if yy == 0 || dx == 0 {
+                0.12
+            } else if yy == height - 2 {
+                -0.10
+            } else {
+                0.0
+            };
+            image.set(x, y, scale(STONE, factor + bevel));
         }
     }
     image
@@ -1313,19 +1676,31 @@ fn volcanic_rock() -> Image {
 }
 
 fn workbench_top() -> Image {
-    let wood = [0.62, 0.45, 0.27];
+    let wood = [0.61, 0.44, 0.29];
     let mut image = planks(wood, 112);
-    for i in 0..SIZE {
-        for (x, y) in [(i, 0), (i, 15), (0, i), (15, i)] {
-            image.set(x, y, scale(wood, 0.6));
+    // Une planche de travail marquée, une règle et deux fixations en cuivre.
+    for y in 2..14 {
+        for x in 3..13 {
+            image.set(x, y, [0.74, 0.60, 0.41]);
         }
     }
-    // Une grille de 3 × 3 cases gravée sur le plateau.
-    for i in 2..14 {
-        for k in [5, 10] {
-            image.set(k, i, scale(wood, 0.55));
-            image.set(i, k, scale(wood, 0.55));
+    for y in 2..14 {
+        image.set(3, y, scale(wood, 0.65));
+    }
+    for x in 3..13 {
+        image.set(x, 13, scale(wood, 0.65));
+    }
+    for x in 5..12 {
+        image.set(x, 4, INK);
+        if x % 2 == 0 {
+            image.set(x, 5, INK);
         }
+    }
+    for k in 0..5 {
+        image.set(6 + k, 11 - k, scale(wood, 0.8));
+    }
+    for (x, y) in [(1, 1), (14, 14)] {
+        image.set(x, y, COPPER);
     }
     image
 }
@@ -1348,17 +1723,28 @@ fn workbench_side() -> Image {
 
 fn furnace_front() -> Image {
     let mut image = cobblestone();
-    // La bouche du four : un trou sombre avec des braises.
-    for y in 8..14 {
+    for y in 1..6 {
         for x in 4..12 {
-            image.set(x, y, [0.12, 0.1, 0.1]);
+            image.set(x, y, INK);
         }
     }
-    for x in [5, 7, 9, 10] {
-        image.set(x, 13, [0.95, 0.5, 0.1]);
+    for x in [5, 8, 11] {
+        for y in 2..5 {
+            image.set(x, y, scale(IRON, 0.65));
+        }
     }
     for x in 3..13 {
-        image.set(x, 7, scale(STONE, 0.5));
+        image.set(x, 7, COPPER);
+        image.set(x, 14, scale(STONE, 0.64));
+    }
+    for y in 8..14 {
+        for x in 4..12 {
+            image.set(x, y, [0.10, 0.12, 0.13]);
+        }
+    }
+    // La bouche garde exactement ses coordonnées : le shader anime les flammes ici.
+    for (x, y) in [(2, 7), (13, 7)] {
+        image.set(x, y, scale(IRON, 1.05));
     }
     image
 }
@@ -1369,40 +1755,54 @@ fn furnace_top() -> Image {
 }
 
 fn chest_side() -> Image {
-    let wood = [0.62, 0.43, 0.22];
+    let wood = [0.51, 0.36, 0.23];
     let mut image = planks(wood, 115);
-    for i in 0..SIZE {
-        for (x, y) in [(i, 0), (i, 15), (0, i), (15, i), (i, 5)] {
-            image.set(x, y, scale(wood, 0.55));
+    for x in 0..SIZE {
+        image.set(x, 5, INK);
+        image.set(x, 6, scale(wood, 1.20));
+    }
+    for x in [2, 12] {
+        for y in 0..SIZE {
+            image.set(x, y, scale(COPPER, 0.72));
+            image.set(x + 1, y, COPPER);
         }
     }
-    // La serrure.
-    for (x, y) in [(7, 5), (8, 5), (7, 6), (8, 6), (7, 7), (8, 7)] {
-        image.set(x, y, [0.8, 0.8, 0.82]);
+    // Fermoir en losange, décentré des sangles.
+    for y in 5..10 {
+        for x in 6..10 {
+            if (x as i32 - 7).abs() + (y as i32 - 7).abs() <= 2 {
+                image.set(x, y, [0.87, 0.68, 0.36]);
+            }
+        }
     }
+    image.set(7, 7, INK);
     image
 }
 
 fn chest_top() -> Image {
-    let wood = [0.62, 0.43, 0.22];
+    let wood = [0.56, 0.40, 0.26];
     let mut image = planks(wood, 116);
-    for i in 0..SIZE {
-        for (x, y) in [(i, 0), (i, 15), (0, i), (15, i)] {
-            image.set(x, y, scale(wood, 0.55));
+    for x in [2, 12] {
+        for y in 0..SIZE {
+            image.set(x, y, scale(COPPER, 0.72));
+            image.set(x + 1, y, COPPER);
         }
+    }
+    for (x, y) in [(3, 2), (13, 2), (3, 13), (13, 13)] {
+        image.set(x, y, scale(IRON, 1.15));
     }
     image
 }
 
 /// Le matelas du lit de feuillage : un vert tacheté.
 fn mattress_pixel(x: usize, y: usize) -> [f32; 3] {
-    let green = [0.34, 0.56, 0.24];
-    if (x * 7 + y * 13 + x * y).is_multiple_of(5) {
-        scale(green, 0.78)
-    } else if (x * 3 + y * 11).is_multiple_of(7) {
-        scale(green, 1.15)
+    let base = [0.30, 0.49, 0.47];
+    if y.is_multiple_of(6) {
+        [0.75, 0.70, 0.49]
+    } else if (x / 2 + y / 2).is_multiple_of(2) {
+        scale(base, 1.08)
     } else {
-        green
+        base
     }
 }
 
@@ -1447,493 +1847,6 @@ fn bed_side() -> Image {
         }
     }
     image
-}
-
-/// Une icône dessinée à partir d'un masque de 16 lignes de 16 caractères. Chaque
-/// caractère choisit une couleur dans `palette` ; « . » est transparent. Un contour
-/// sombre est ajouté autour, pour que l'icône se détache du fond.
-fn icon(mask: &[&str; 16], palette: &[(char, [f32; 3])]) -> Image {
-    let mut image = Image::transparent();
-    for (y, row) in mask.iter().enumerate() {
-        for (x, c) in row.chars().enumerate().take(SIZE) {
-            if let Some((_, color)) = palette.iter().find(|(k, _)| *k == c) {
-                image.set(x, y, *color);
-            }
-        }
-    }
-    let opaque = |img: &Image, x: i32, y: i32| {
-        (0..16).contains(&x)
-            && (0..16).contains(&y)
-            && img.pixels[x as usize + y as usize * SIZE][3] > 0
-    };
-    let copy = Image {
-        pixels: image.pixels,
-    };
-    for y in 0..16i32 {
-        for x in 0..16i32 {
-            if !opaque(&copy, x, y)
-                && [(1, 0), (-1, 0), (0, 1), (0, -1)]
-                    .iter()
-                    .any(|(dx, dy)| opaque(&copy, x + dx, y + dy))
-            {
-                image.set(x as usize, y as usize, [0.08, 0.06, 0.05]);
-            }
-        }
-    }
-    image
-}
-
-const HANDLE: [f32; 3] = [0.5, 0.35, 0.18];
-
-/// Les cinq outils, dessinés en diagonale : la tête (H, h plus sombre) et le manche (S).
-fn tool(kind: &str, head: [f32; 3]) -> Image {
-    let mask: [&str; 16] = match kind {
-        "pickaxe" => [
-            "................",
-            "....hHHHHHh.....",
-            "...HHHHHHHHH....",
-            "..hHH....SHHh...",
-            "..HH....SS.HH...",
-            "..H....SS...H...",
-            "......SS........",
-            ".....SS.........",
-            "....SS..........",
-            "...SS...........",
-            "..SS............",
-            ".SS.............",
-            "SS..............",
-            "S...............",
-            "................",
-            "................",
-        ],
-        "axe" => [
-            "................",
-            ".......hHH......",
-            "......hHHHH.....",
-            ".....hHHHHH.....",
-            ".....HHHSHH.....",
-            "......HSSH......",
-            "......SS........",
-            ".....SS.........",
-            "....SS..........",
-            "...SS...........",
-            "..SS............",
-            ".SS.............",
-            "SS..............",
-            "S...............",
-            "................",
-            "................",
-        ],
-        "shovel" => [
-            "................",
-            "..........hHh...",
-            ".........hHHHh..",
-            "........hHHHHH..",
-            ".........HHHHh..",
-            "........SHHHh...",
-            ".......SS.......",
-            "......SS........",
-            ".....SS.........",
-            "....SS..........",
-            "...SS...........",
-            "..SS............",
-            ".SS.............",
-            "SS..............",
-            "S...............",
-            "................",
-        ],
-        "hoe" => [
-            "................",
-            "......hHHHHh....",
-            "......HHHHHH....",
-            "...........SH...",
-            "..........SS....",
-            ".........SS.....",
-            "........SS......",
-            ".......SS.......",
-            "......SS........",
-            ".....SS.........",
-            "....SS..........",
-            "...SS...........",
-            "..SS............",
-            ".SS.............",
-            "SS..............",
-            "................",
-        ],
-        _ => [
-            "...............h",
-            "..............hH",
-            ".............hHh",
-            "............hHh.",
-            "...........hHh..",
-            "..........hHh...",
-            ".........hHh....",
-            "........hHh.....",
-            "...SS..hHh......",
-            "....SShHh.......",
-            ".....SSh........",
-            ".....SSS........",
-            "....SS.SS.......",
-            "...SS...........",
-            "..S.............",
-            "................",
-        ],
-    };
-    icon(
-        &mask,
-        &[('H', head), ('h', scale(head, 0.7)), ('S', HANDLE)],
-    )
-}
-
-fn shears() -> Image {
-    let metal = [0.78, 0.78, 0.82];
-    let mask = [
-        "................",
-        ".........h.....h",
-        "........hH....hH",
-        ".......hH....hH.",
-        "......hH....hH..",
-        ".....hH....hH...",
-        "......hH..hH....",
-        ".......hHhH.....",
-        "........hH......",
-        ".......RR.RR....",
-        "......R..R..R...",
-        ".....R..R....R..",
-        ".....R..R....R..",
-        "......RR......R.",
-        "...............R",
-        "................",
-    ];
-    icon(
-        &mask,
-        &[
-            ('H', metal),
-            ('h', scale(metal, 0.7)),
-            ('R', [0.7, 0.15, 0.12]),
-        ],
-    )
-}
-
-/// Un seau, vide ou plein d'un fluide (la couleur du contenu).
-fn bucket(content: Option<[f32; 3]>) -> Image {
-    let metal = [0.72, 0.72, 0.76];
-    let mask = [
-        "................",
-        "................",
-        "................",
-        "...h........h...",
-        "....h......h....",
-        "...HHHHHHHHHH...",
-        "...HFFFFFFFFH...",
-        "...HFFFFFFFFH...",
-        "....HHHHHHHH....",
-        "....HHHHHHHH....",
-        "....hHHHHHHh....",
-        ".....HHHHHH.....",
-        ".....hHHHHh.....",
-        "................",
-        "................",
-        "................",
-    ];
-    let inside = content.unwrap_or([0.35, 0.35, 0.38]);
-    icon(
-        &mask,
-        &[('H', metal), ('h', scale(metal, 0.7)), ('F', inside)],
-    )
-}
-
-/// Une côtelette : la viande, un bord de gras et l'os. `meat` et `fat` : ses couleurs
-/// (rose cru, brun grillé ; plus rouge pour le bœuf).
-fn chop(meat: [f32; 3], fat: [f32; 3]) -> Image {
-    let mask = [
-        "................",
-        "................",
-        "................",
-        ".....MMMMM......",
-        "...MMMMMMMMM....",
-        "..MMMmMMMMMMF...",
-        "..MMMMMMmMMMF...",
-        ".MMMMMMMMMMMF...",
-        ".MMmMMMMMMMF....",
-        ".MMMMMMMMMFB....",
-        "..MMMMMMMF..BB..",
-        "...FFFFFF....BBb",
-        ".............bb.",
-        "................",
-        "................",
-        "................",
-    ];
-    let bone = [0.94, 0.92, 0.85];
-    icon(
-        &mask,
-        &[
-            ('M', meat),
-            ('m', scale(meat, 0.78)),
-            ('F', fat),
-            ('B', bone),
-            ('b', scale(bone, 0.8)),
-        ],
-    )
-}
-
-/// Une peau tannée : un cuir aux bords irréguliers, avec des coutures.
-fn leather() -> Image {
-    let mask = [
-        "................",
-        "................",
-        "...HH......HH...",
-        "...HHHHHHHHHH...",
-        "....HHhHHhHHH...",
-        "....HHHHHHHH....",
-        "...HHHhHHHhHH...",
-        "...HHHHHHHHHH...",
-        "....HhHHHHhH....",
-        "....HHHHHHHH....",
-        "...HHHHhHHHHH...",
-        "...HH......HH...",
-        "................",
-        "................",
-        "................",
-        "................",
-    ];
-    let hide = [0.58, 0.36, 0.2];
-    icon(&mask, &[('H', hide), ('h', scale(hide, 0.65))])
-}
-
-/// Une pomme rouge, sa queue et une feuille.
-fn apple() -> Image {
-    let mask = [
-        "................",
-        "........s.......",
-        "........sLL.....",
-        ".......s.LL.....",
-        "....RRRsRRR.....",
-        "...RRRRRRRRR....",
-        "..RRRRRRRRRRR...",
-        "..RrRRRRRRRRR...",
-        "..RrRRRRRRRRR...",
-        "..RRRRRRRRRRR...",
-        "..RRRRRRRRRRd...",
-        "...RRRRRRRRd....",
-        "....RRRdRRd.....",
-        ".....dd.dd......",
-        "................",
-        "................",
-    ];
-    let red = [0.82, 0.12, 0.1];
-    icon(
-        &mask,
-        &[
-            ('R', red),
-            ('r', [0.98, 0.55, 0.5]),
-            ('d', scale(red, 0.65)),
-            ('s', [0.4, 0.28, 0.15]),
-            ('L', [0.3, 0.62, 0.2]),
-        ],
-    )
-}
-
-/// Les pièces d'armure.
-fn armor(piece: &str, color: [f32; 3]) -> Image {
-    let mask: [&str; 16] = match piece {
-        "helmet" => [
-            "................",
-            "................",
-            "................",
-            "....HHHHHHHH....",
-            "...HHHHHHHHHH...",
-            "..HHhhhhhhhhHH..",
-            "..HHh......hHH..",
-            "..HHh......hHH..",
-            "..HH........HH..",
-            "..HH........HH..",
-            "................",
-            "................",
-            "................",
-            "................",
-            "................",
-            "................",
-        ],
-        "chestplate" => [
-            "................",
-            "..HHH......HHH..",
-            ".HHHHH....HHHHH.",
-            ".HHHHHHHHHHHHHH.",
-            ".HHHHHHHHHHHHHH.",
-            "..hHHHHHHHHHHh..",
-            "....HHHHHHHH....",
-            "....HHHHHHHH....",
-            "....hHHHHHHh....",
-            "....HHHHHHHH....",
-            "....HHHHHHHH....",
-            "....hHHHHHHh....",
-            "................",
-            "................",
-            "................",
-            "................",
-        ],
-        "leggings" => [
-            "................",
-            "....HHHHHHHH....",
-            "....hhhhhhhh....",
-            "....HHHHHHHH....",
-            "....HHH..HHH....",
-            "....HHH..HHH....",
-            "....HHH..HHH....",
-            "....HHH..HHH....",
-            "....HHH..HHH....",
-            "....hHH..HHh....",
-            "....HHH..HHH....",
-            "................",
-            "................",
-            "................",
-            "................",
-            "................",
-        ],
-        _ => [
-            "................",
-            "................",
-            "................",
-            "................",
-            "................",
-            "................",
-            "...HHH....HHH...",
-            "...HHH....HHH...",
-            "...HHH....HHH...",
-            "..HHHH....HHHH..",
-            ".HHHHH....HHHHH.",
-            ".hhhhh....hhhhh.",
-            "................",
-            "................",
-            "................",
-            "................",
-        ],
-    };
-    icon(&mask, &[('H', color), ('h', scale(color, 0.7))])
-}
-
-/// Un objet « matière » : lingot, minerai brut, gemme, poudre, bâton...
-fn material(kind: &str, color: [f32; 3]) -> Image {
-    let mask: [&str; 16] = match kind {
-        "ingot" => [
-            "................",
-            "................",
-            "................",
-            "................",
-            "................",
-            "......LLLLLLL...",
-            ".....LLLLLLLLL..",
-            "....LHHHHHHHL...",
-            "...LHHHHHHHH....",
-            "..hHHHHHHHHh....",
-            "..hhhhhhhhh.....",
-            "................",
-            "................",
-            "................",
-            "................",
-            "................",
-        ],
-        "raw" => [
-            "................",
-            "................",
-            "................",
-            "......HHH.......",
-            ".....HLHHH......",
-            "....HHHHhHH.....",
-            "...HHLHHHHHH....",
-            "...HHHHHhHHHH...",
-            "...HHHhHHHLHH...",
-            "....HHHHHHHh....",
-            ".....hHHHhH.....",
-            ".......hh.......",
-            "................",
-            "................",
-            "................",
-            "................",
-        ],
-        "gem" => [
-            "................",
-            "................",
-            "................",
-            "......LLLL......",
-            ".....LLHHHH.....",
-            "....LHHHHHHH....",
-            "...HHHHHHHHHh...",
-            "...hHHHHHHHhh...",
-            "....hHHHHHhh....",
-            ".....hHHHhh.....",
-            "......hHhh......",
-            ".......hh.......",
-            "................",
-            "................",
-            "................",
-            "................",
-        ],
-        "dust" => [
-            "................",
-            "................",
-            "................",
-            "................",
-            "................",
-            "................",
-            ".......H........",
-            "......HHL.......",
-            ".....HHHHH......",
-            "....HHLHHHH.....",
-            "...HHHHHHHHH....",
-            "..hhhhhhhhhhh...",
-            "................",
-            "................",
-            "................",
-            "................",
-        ],
-        "seeds" => [
-            "................",
-            "................",
-            "................",
-            "................",
-            ".....H....H.....",
-            "....HH...HH.....",
-            "..........h.....",
-            "...H...H........",
-            "..HH..HH...H....",
-            "......h...HH....",
-            "....H.......H...",
-            "...HH......HH...",
-            "................",
-            "................",
-            "................",
-            "................",
-        ],
-        _ => [
-            "................",
-            "..............hS",
-            ".............hS.",
-            "............hS..",
-            "...........hS...",
-            "..........hS....",
-            ".........hS.....",
-            "........hS......",
-            ".......hS.......",
-            "......hS........",
-            ".....hS.........",
-            "....hS..........",
-            "...hS...........",
-            "..hS............",
-            "................",
-            "................",
-        ],
-    };
-    icon(
-        &mask,
-        &[
-            ('H', color),
-            ('h', scale(color, 0.7)),
-            ('L', scale(color, 1.3)),
-            ('S', color),
-        ],
-    )
 }
 
 /// Écrit toutes les textures ; renvoie les chemins.
@@ -2171,85 +2084,53 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
     ];
     let mut textures = textures;
     textures.extend(item_icons(&root.join("assets/core/items")));
+    for kind in ["shaft", "gear", "crank", "press", "belt"] {
+        textures.push((
+            root.join(format!("mods/mecanique/textures/{kind}.png")),
+            mechanism(kind),
+        ));
+    }
+    for (name, color) in [("iron_plate", IRON), ("copper_plate", COPPER)] {
+        textures.push((
+            root.join(format!("mods/mecanique/items/{name}.png")),
+            metal_plate(color),
+        ));
+    }
     for (path, image) in &textures {
         image.save(path)?;
     }
     Ok(textures.into_iter().map(|(path, _)| path).collect())
 }
 
-/// Les icônes des objets (`assets/core/items/`).
-fn item_icons(dir: &Path) -> Vec<(PathBuf, Image)> {
-    let mut out = Vec::new();
-    let mut add = |name: &str, image: Image| out.push((dir.join(format!("{name}.png")), image));
-    for (name, kind, color) in [
-        ("stick", "stick", HANDLE),
-        ("coal", "raw", [0.18, 0.18, 0.2]),
-        ("charcoal", "raw", [0.25, 0.2, 0.17]),
-        ("raw_iron", "raw", [0.75, 0.62, 0.52]),
-        ("raw_copper", "raw", [0.82, 0.5, 0.3]),
-        ("raw_gold", "raw", [0.95, 0.78, 0.3]),
-        ("iron_ingot", "ingot", [0.8, 0.8, 0.84]),
-        ("copper_ingot", "ingot", [0.85, 0.5, 0.3]),
-        ("gold_ingot", "ingot", [0.98, 0.82, 0.25]),
-        ("sapphire", "gem", [0.3, 0.5, 1.0]),
-        ("malachite", "gem", [0.2, 0.7, 0.45]),
-        ("jade", "gem", [0.4, 0.9, 0.6]),
-        ("cinnabar_dust", "dust", [0.85, 0.15, 0.12]),
-        ("flint", "gem", [0.3, 0.3, 0.33]),
-        ("seeds", "seeds", [0.6, 0.65, 0.3]),
-    ] {
-        add(name, material(kind, color));
-    }
-    for (material, color) in [
-        ("wooden", [0.62, 0.46, 0.28]),
-        ("stone", [0.55, 0.55, 0.57]),
-        ("copper", [0.85, 0.52, 0.32]),
-        ("iron", [0.82, 0.82, 0.86]),
-        ("golden", [0.98, 0.82, 0.25]),
-        ("sapphire", [0.3, 0.52, 1.0]),
-    ] {
-        for kind in ["pickaxe", "axe", "shovel", "hoe", "sword"] {
-            add(&format!("{material}_{kind}"), tool(kind, color));
-        }
-        if !matches!(material, "wooden" | "stone") {
-            for piece in ["helmet", "chestplate", "leggings", "boots"] {
-                add(&format!("{material}_{piece}"), armor(piece, color));
+#[cfg(test)]
+mod seam_tests {
+    use super::*;
+
+    #[test]
+    fn ground_edges_match_after_palette_quantization() {
+        for image in [grass_top(), dirt()] {
+            for i in 0..SIZE {
+                assert_eq!(
+                    finish_pixel(image.pixels[i * SIZE]),
+                    finish_pixel(image.pixels[i * SIZE + SIZE - 1])
+                );
+                assert_eq!(
+                    finish_pixel(image.pixels[i]),
+                    finish_pixel(image.pixels[i + SIZE * (SIZE - 1)])
+                );
             }
+            assert_ne!(
+                image.pixels[0],
+                image.pixels[5 + 5 * SIZE],
+                "la matière ne doit pas être un aplat"
+            );
+        }
+        let side = grass_side();
+        for y in 0..SIZE {
+            assert_eq!(
+                finish_pixel(side.pixels[y * SIZE]),
+                finish_pixel(side.pixels[y * SIZE + SIZE - 1])
+            );
         }
     }
-    add("shears", shears());
-    add("bucket", bucket(None));
-    add("water_bucket", bucket(Some([0.25, 0.45, 0.95])));
-    add("lava_bucket", bucket(Some([1.0, 0.5, 0.1])));
-    add("raw_pork", chop([0.9, 0.5, 0.5], [0.98, 0.88, 0.85]));
-    add("cooked_pork", chop([0.55, 0.32, 0.16], [0.82, 0.62, 0.38]));
-    add("raw_beef", chop([0.75, 0.22, 0.2], [0.95, 0.85, 0.8]));
-    add("cooked_beef", chop([0.42, 0.24, 0.13], [0.7, 0.5, 0.3]));
-    add("leather", leather());
-    add("shadow_dust", material("dust", [0.3, 0.22, 0.42]));
-    add("spores", material("seeds", [0.78, 0.82, 0.35]));
-    add("apple", apple());
-    add("wheat", material("seeds", [0.88, 0.74, 0.3]));
-    add("bread", chop([0.75, 0.5, 0.22], [0.92, 0.75, 0.45]));
-    add("carrot", material("dust", [0.95, 0.5, 0.1]));
-    add("potato", material("raw", [0.72, 0.56, 0.32]));
-    add("baked_potato", material("raw", [0.85, 0.62, 0.25]));
-    add("cabbage", material("gem", [0.45, 0.75, 0.38]));
-    add("melon_slice", material("gem", [0.9, 0.25, 0.3]));
-    add("melon_seeds", material("seeds", [0.2, 0.22, 0.12]));
-    add("pear", material("gem", [0.72, 0.82, 0.25]));
-    add("nut", material("raw", [0.5, 0.36, 0.2]));
-    add("flask", flask(None));
-    add("water_flask", flask(Some([0.25, 0.5, 0.95])));
-    for (name, color) in [
-        ("potion_healing", [0.95, 0.2, 0.25]),
-        ("potion_regeneration", [0.95, 0.5, 0.7]),
-        ("potion_speed", [0.45, 0.85, 0.95]),
-        ("potion_strength", [0.65, 0.15, 0.15]),
-        ("potion_fire_resistance", [1.0, 0.6, 0.15]),
-    ] {
-        add(name, flask(Some(color)));
-    }
-    add("fertilizer", material("dust", [0.5, 0.4, 0.25]));
-    out
 }

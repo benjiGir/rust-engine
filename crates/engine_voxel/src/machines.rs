@@ -531,6 +531,15 @@ impl Machines {
         &self.networks
     }
 
+    /// Les objets et les recettes de machines que connaissent les réseaux d'objets.
+    pub fn set_item_rules(
+        &mut self,
+        items: std::sync::Arc<crate::items::ItemRegistry>,
+        recipes: std::sync::Arc<crate::crafting::MachineRecipes>,
+    ) {
+        self.networks.set_item_rules(items, recipes);
+    }
+
     pub fn has_behavior(&self, block: BlockId) -> bool {
         self.active_blocks.contains(&block)
     }

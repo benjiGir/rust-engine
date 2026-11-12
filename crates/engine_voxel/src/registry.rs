@@ -81,6 +81,8 @@ pub struct BlockDef {
     pub tint: Tint,
     /// Se balance au vent (feuilles, herbes).
     pub sway: bool,
+    /// Rotation visuelle des boîtes du modèle, autour du centre du bloc.
+    pub rotation: Option<BlockRotation>,
     /// Secondes de minage à la main (avant les bonus d'outil). Négatif : incassable.
     pub hardness: f32,
     /// L'outil adapté, qui va plus vite.
@@ -101,6 +103,15 @@ pub struct BlockDef {
     /// Ce bloc est un conduit d'un réseau (câble, tuyau, arbre) : il relie ses voisins de la
     /// même sorte, et le jeu répartit énergie, fluide ou rotation entre les machines branchées.
     pub conduit: Option<crate::networks::NetworkKind>,
+    /// Le canal d'un conduit (`mon_mod:vapeur`) : deux conduits de même sorte ne se relient que
+    /// s'ils ont le même canal. Sans canal, tous les conduits de la sorte se relient.
+    pub channel: Option<String>,
+    /// Le débit d'un conduit : au plus ce nombre d'unités par passage (le plus faible du réseau
+    /// l'emporte). Sans valeur : le débit par défaut de la sorte.
+    pub throughput: Option<u32>,
+    /// Les cases d'inventaire que les réseaux d'objets remplissent (`inputs`) et vident
+    /// (`outputs`) : sans cela, toutes les cases font les deux.
+    pub ports: Option<InventoryPorts>,
     /// Pour une variante : le bloc de base (celui qu'on pose depuis la barre, et qui lâche
     /// son objet). `None` pour un bloc ordinaire ou la base elle-même.
     pub base: Option<BlockId>,
@@ -112,11 +123,59 @@ pub struct BlockDef {
     pub source: String,
 }
 
+/// Quelles cases de l'inventaire d'un bloc un réseau d'objets (`conduit: Items`) peut remplir
+/// et vider : une machine reçoit dans ses entrées et rend par ses sorties.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InventoryPorts {
+    /// Les cases qui reçoivent des objets du réseau.
+    #[serde(default)]
+    pub inputs: Vec<usize>,
+    /// Les cases d'où le réseau retire des objets.
+    #[serde(default)]
+    pub outputs: Vec<usize>,
+    /// Un type de recette (`mon_mod:presse`) : seuls les objets qu'une de ses recettes consomme
+    /// entrent par les cases d'entrée. Sans cela, tout entre.
+    #[serde(default)]
+    pub accepts: Option<String>,
+}
+
 /// Une boîte alignée sur les axes, en coordonnées de bloc (0 à 1 sur chaque axe).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BlockBox {
     pub min: Vec3,
     pub max: Vec3,
+}
+
+/// Axe dans le repère du bloc, avant ses états d'orientation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum RotationAxis {
+    X,
+    Y,
+    Z,
+}
+
+impl RotationAxis {
+    pub fn vector(self) -> Vec3 {
+        match self {
+            Self::X => Vec3::X,
+            Self::Y => Vec3::Y,
+            Self::Z => Vec3::Z,
+        }
+    }
+}
+
+/// Une animation décorative, calculée par le GPU sans remailler à chaque image.
+/// Les collisions et la sélection conservent les boîtes déclarées.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRotation {
+    pub axis: RotationAxis,
+    /// Radians par seconde, arrondis au huitième, de -15,875 à 15,875.
+    pub speed: f32,
+    /// Indices des boîtes animées ; vide : toutes les boîtes.
+    #[serde(default)]
+    pub boxes: Vec<usize>,
 }
 
 impl BlockBox {
@@ -307,6 +366,8 @@ struct BlockFileEntry {
     tint: Tint,
     #[serde(default)]
     sway: bool,
+    #[serde(default)]
+    rotation: Option<BlockRotation>,
     #[serde(default = "one")]
     hardness: f32,
     #[serde(default)]
@@ -328,6 +389,12 @@ struct BlockFileEntry {
     /// `conduit: Kinetic` (ou `Energy`, `Fluid`) : le bloc est un conduit de réseau.
     #[serde(default)]
     conduit: Option<crate::networks::NetworkKind>,
+    #[serde(default)]
+    channel: Option<String>,
+    #[serde(default)]
+    throughput: Option<u32>,
+    #[serde(default)]
+    ports: Option<InventoryPorts>,
 }
 
 /// Une boîte dans un fichier, en seizièmes de bloc (0 à 16).
@@ -385,6 +452,7 @@ impl BlockRegistry {
             cutout: false,
             tint: Tint::None,
             sway: false,
+            rotation: None,
             hardness: 0.0,
             tool: None,
             tier: 0,
@@ -394,6 +462,9 @@ impl BlockRegistry {
             boxes: Vec::new(),
             states: Vec::new(),
             conduit: None,
+            channel: None,
+            throughput: None,
+            ports: None,
             base: None,
             variants: Vec::new(),
             state_values: Vec::new(),
@@ -542,7 +613,31 @@ impl BlockRegistry {
                     entry.id
                 );
             }
+            if (entry.channel.is_some() || entry.throughput.is_some()) && entry.conduit.is_none() {
+                bail!(
+                    "{origin} : « {} » : `channel` et `throughput` ne vont qu'avec `conduit`",
+                    entry.id
+                );
+            }
+            if entry.throughput == Some(0) {
+                bail!(
+                    "{origin} : « {} » : `throughput` doit être d'au moins 1",
+                    entry.id
+                );
+            }
             let boxes = parse_boxes(&entry, origin)?;
+            if let Some(rotation) = &entry.rotation
+                && (boxes.is_empty()
+                    || !rotation.speed.is_finite()
+                    || rotation.speed.abs() > 15.875
+                    || rotation.boxes.iter().any(|&i| i >= boxes.len())
+                    || entry.sway)
+            {
+                bail!(
+                    "{origin} : « {} » : rotation exige un modèle, une vitesse finie entre -15.875 et 15.875, des indices de boîtes valides et aucun sway",
+                    entry.id
+                );
+            }
             let model = !boxes.is_empty();
             // Par défaut, un bloc transparent laisse passer la lumière, un opaque l'arrête.
             // Une forme à boîtes se juge sur `solid` : une dalle pleine arrête la lumière.
@@ -575,6 +670,7 @@ impl BlockRegistry {
                 cutout: entry.cutout,
                 tint: entry.tint,
                 sway: entry.sway,
+                rotation: entry.rotation.clone(),
                 // Le socle incassable : une dureté négative.
                 hardness: if entry.unbreakable {
                     -1.0
@@ -589,6 +685,12 @@ impl BlockRegistry {
                 boxes: boxes.clone(),
                 states: entry.states.clone(),
                 conduit: entry.conduit,
+                channel: entry.channel.as_ref().map(|c| qualify(c, namespace)),
+                throughput: entry.throughput,
+                ports: entry.ports.clone().map(|mut p| {
+                    p.accepts = p.accepts.map(|a| qualify(&a, namespace));
+                    p
+                }),
                 base: None,
                 variants: Vec::new(),
                 state_values: vec![0; entry.states.len()],
@@ -668,6 +770,33 @@ impl BlockRegistry {
                 })
                 .collect();
             def.state_values = values;
+            if let Some(rotation) = &mut def.rotation {
+                let axis = states.iter().zip(&def.state_values).fold(
+                    rotation.axis.vector(),
+                    |axis, (state, &value)| {
+                        let mapped = state.apply(value, axis);
+                        // Half et Axis utilisent une réflexion : une vitesse angulaire
+                        // est un pseudovecteur (son sens s'inverse avec le repère).
+                        if matches!(
+                            (state, value),
+                            (StateKind::Half, 1) | (StateKind::Axis, 1 | 2)
+                        ) {
+                            -mapped
+                        } else {
+                            mapped
+                        }
+                    },
+                );
+                let (axis, sign) = if axis.x.abs() > 0.5 {
+                    (RotationAxis::X, axis.x)
+                } else if axis.y.abs() > 0.5 {
+                    (RotationAxis::Y, axis.y)
+                } else {
+                    (RotationAxis::Z, axis.z)
+                };
+                rotation.axis = axis;
+                rotation.speed *= sign;
+            }
             self.by_key.insert(full, id);
             self.defs.push(def);
             ids.push(id);
@@ -931,6 +1060,65 @@ pub(crate) mod tests {
     use std::path::PathBuf;
 
     use super::*;
+
+    #[test]
+    fn oriented_rotation_matches_the_transformed_model() {
+        for state in [
+            StateKind::Facing4,
+            StateKind::Facing6,
+            StateKind::Axis,
+            StateKind::Half,
+        ] {
+            let mut registry = BlockRegistry::empty();
+            registry
+                .add_source(
+                    "test",
+                    &format!(
+                        r#"[(
+                id: "test:rotor", name: "Rotor", color: (1.0, 1.0, 1.0),
+                boxes: [(from: (6, 0, 6), to: (10, 16, 10))], states: [{state:?}],
+                rotation: (axis: Y, speed: 1.5),
+            )]"#
+                    ),
+                    "test",
+                )
+                .unwrap();
+            let rotor = registry.id("test:rotor").unwrap();
+            for value in 0..state.values().len() {
+                let variant = registry.variant(rotor, &[value as u8]);
+                let rotation = registry.def(variant).rotation.as_ref().unwrap();
+                let point = Vec3::new(0.2, 0.3, 0.4);
+                let expected = state.apply(value as u8, glam::Quat::from_rotation_y(0.75) * point);
+                let actual =
+                    glam::Quat::from_axis_angle(rotation.axis.vector(), rotation.speed * 0.5)
+                        * state.apply(value as u8, point);
+                assert!(actual.distance(expected) < 1e-5, "{state:?} / {value}");
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_rotations_are_rejected() {
+        for fields in [
+            "rotation: (axis: Y, speed: 1.0)",
+            "boxes: [(from: (0, 0, 0), to: (16, 16, 16))], rotation: (axis: Y, speed: 16.0)",
+            "boxes: [(from: (0, 0, 0), to: (16, 16, 16))], rotation: (axis: X, speed: 1.0, boxes: [1])",
+            "boxes: [(from: (0, 0, 0), to: (16, 16, 16))], sway: true, rotation: (axis: Z, speed: 1.0)",
+        ] {
+            let mut registry = BlockRegistry::empty();
+            assert!(
+                registry
+                    .add_source(
+                        "test",
+                        &format!(
+                            r#"[(id: "test:bad", name: "Bad", color: (1.0, 1.0, 1.0), {fields})]"#
+                        ),
+                        "test"
+                    )
+                    .is_err()
+            );
+        }
+    }
 
     /// La racine du dépôt, où sont `assets/` et `mods/`.
     fn repo() -> PathBuf {
@@ -1274,5 +1462,41 @@ pub(crate) mod tests {
             )
             .unwrap_err();
         assert!(err.to_string().contains("conduit"), "{err}");
+    }
+
+    #[test]
+    fn channels_throughput_and_ports_are_read_and_checked() {
+        let mut r = BlockRegistry::empty();
+        r.add_source(
+            "test",
+            r#"[
+                (id: "test:belt", name: "B", color: (1,1,1), conduit: Items, channel: "belts", throughput: 4),
+                (id: "test:press", name: "P", color: (1,1,1), ports: (inputs: [0], outputs: [1], accepts: "press")),
+            ]"#,
+            "test",
+        )
+        .unwrap();
+        let belt = r.def(r.id("test:belt").unwrap());
+        assert_eq!(belt.conduit, Some(crate::networks::NetworkKind::Items));
+        assert_eq!(
+            (belt.channel.as_deref(), belt.throughput),
+            (Some("test:belts"), Some(4))
+        );
+        let ports = r.def(r.id("test:press").unwrap()).ports.clone().unwrap();
+        assert_eq!((ports.inputs, ports.outputs), (vec![0], vec![1]));
+        assert_eq!(ports.accepts.as_deref(), Some("test:press"));
+        let bad = |src: &str| {
+            BlockRegistry::empty()
+                .add_source("test", src, "test")
+                .unwrap_err()
+                .to_string()
+        };
+        assert!(
+            bad(r#"[(id: "test:a", name: "A", color: (1,1,1), channel: "x")]"#).contains("conduit")
+        );
+        assert!(
+            bad(r#"[(id: "test:a", name: "A", color: (1,1,1), conduit: Items, throughput: 0)]"#)
+                .contains("au moins 1")
+        );
     }
 }

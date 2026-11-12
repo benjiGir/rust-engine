@@ -479,6 +479,12 @@ impl ChunkStreamer {
         self.remesh_pending.extend(loaded);
     }
 
+    /// Une propriété visuelle de l'entité a changé (allumage d'un four, par exemple).
+    /// Seul son chunk est à remailler ; le numéro du bloc et son inventaire restent en place.
+    pub fn invalidate_block_visuals(&mut self, pos: IVec3) {
+        self.remesh_pending.insert(World::split(pos).0);
+    }
+
     /// La quantité de fluide d'une cellule, en 4096e de bloc (`None` : rien d'enregistré,
     /// donc un réservoir plein si c'est un bloc de fluide).
     pub fn fluid_amount(&self, pos: IVec3) -> Option<u16> {
@@ -1539,9 +1545,10 @@ pub(crate) mod tests {
         let mut s = streamer();
         let first = pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
         // Même blocs, propriétés changées : la pierre devient une source de lumière.
-        let text = include_str!("../../../assets/core/blocks.ron").replace(
-            r#"id: "core:stone", name: "Pierre", color: (0.5, 0.5, 0.52), texture: "stone","#,
-            r#"id: "core:stone", name: "Pierre", color: (0.5, 0.5, 0.52), texture: "stone", light_emission: 5,"#,
+        let text = include_str!("../../../assets/core/blocks.ron").replacen(
+            r#"id: "core:stone","#,
+            r#"id: "core:stone", light_emission: 5,"#,
+            1,
         );
         let mut registry = BlockRegistry::empty();
         registry.add_source("core", &text, "test").unwrap();

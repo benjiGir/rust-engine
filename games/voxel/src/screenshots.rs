@@ -56,6 +56,8 @@ enum Scene {
     /// pioche, en tenant un bloc.
     ArmWalk,
     ArmMine,
+    ArmTool,
+    ArmSword,
     ArmBlock,
     /// Les menus, par-dessus le monde.
     Menu(MenuShot),
@@ -129,7 +131,7 @@ const fn fluid(name: &'static str, which: FluidShot) -> Shot {
     }
 }
 
-const SHOTS: [Shot; 41] = [
+const SHOTS: [Shot; 43] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -214,6 +216,16 @@ const SHOTS: [Shot; 41] = [
         name: "14-bras-bloc",
         time: 0.3,
         scene: Scene::ArmBlock,
+    },
+    Shot {
+        name: "14-bras-outil-repos",
+        time: 0.45,
+        scene: Scene::ArmTool,
+    },
+    Shot {
+        name: "14-bras-epee",
+        time: 0.45,
+        scene: Scene::ArmSword,
     },
     menu("15-menu-principal", MenuShot::Main),
     menu("16-menu-mondes", MenuShot::Worlds),
@@ -319,7 +331,11 @@ impl VoxelGame {
                 // Le bras n'apparaît que dans ses propres captures.
                 let arm = matches!(
                     shot.scene,
-                    Scene::ArmWalk | Scene::ArmMine | Scene::ArmBlock
+                    Scene::ArmWalk
+                        | Scene::ArmMine
+                        | Scene::ArmBlock
+                        | Scene::ArmTool
+                        | Scene::ArmSword
                 );
                 self.hand.visible = arm;
                 self.hand.frozen = false;
@@ -517,7 +533,11 @@ impl VoxelGame {
                 let g = self.ground(0, 0) as f32;
                 (Vec3::new(0.5, g + 30.0, 0.5), 200.0, -15.0)
             }
-            Scene::ArmWalk | Scene::ArmMine | Scene::ArmBlock => {
+            Scene::ArmWalk
+            | Scene::ArmMine
+            | Scene::ArmBlock
+            | Scene::ArmTool
+            | Scene::ArmSword => {
                 let g = self.ground(0, 0) as f32;
                 (Vec3::new(0.5, g + 22.0, 0.5), 30.0, -15.0)
             }
@@ -632,7 +652,11 @@ impl VoxelGame {
             }
             Scene::Underground => self.dig_pit(),
             Scene::Fluid(which) => self.build_fluid(which),
-            Scene::ArmWalk | Scene::ArmMine | Scene::ArmBlock => self.pose_arm(scene),
+            Scene::ArmWalk
+            | Scene::ArmMine
+            | Scene::ArmBlock
+            | Scene::ArmTool
+            | Scene::ArmSword => self.pose_arm(scene),
             Scene::Spawn
             | Scene::Sunset
             | Scene::Lake
@@ -885,7 +909,8 @@ impl VoxelGame {
     fn pose_arm(&mut self, scene: Scene) {
         let items = self.content.items.clone();
         let wanted = match scene {
-            Scene::ArmMine => items.id("core:stone_pickaxe"),
+            Scene::ArmMine | Scene::ArmTool => items.id("core:stone_pickaxe"),
+            Scene::ArmSword => items.id("core:iron_sword"),
             Scene::ArmBlock => items.id("core:oak_log"),
             _ => None,
         };
@@ -895,6 +920,9 @@ impl VoxelGame {
             .unwrap_or(0);
         if wanted.is_none() {
             self.inventory.slots[8] = None;
+        } else {
+            self.inventory.slots[slot] =
+                wanted.map(|item| crate::inventory::ItemStack::new(item, 1));
         }
         self.inventory.selected = if wanted.is_none() { 8 } else { slot };
         self.hand.equip = 0.0;

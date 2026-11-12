@@ -88,6 +88,8 @@ pub trait BlockAccess {
     fn block_entity(&self, pos: IVec3) -> Option<&BlockEntity>;
     fn block_entity_mut(&mut self, pos: IVec3) -> Option<&mut BlockEntity>;
     fn set_block_entity(&mut self, pos: IVec3, entity: Option<BlockEntity>) -> bool;
+    /// Refaire le maillage après un changement visuel de l'entité, sans remplacer le bloc.
+    fn invalidate_visuals(&mut self, pos: IVec3);
 
     /// L'état actif du bloc, créé vide s'il n'existe pas encore.
     fn ensure_block_entity(&mut self, pos: IVec3) -> Option<&mut BlockEntity> {
@@ -101,6 +103,9 @@ pub trait BlockAccess {
 }
 
 impl BlockAccess for ChunkStreamer {
+    fn invalidate_visuals(&mut self, pos: IVec3) {
+        self.invalidate_block_visuals(pos);
+    }
     fn registry(&self) -> &Arc<BlockRegistry> {
         self.world().registry()
     }

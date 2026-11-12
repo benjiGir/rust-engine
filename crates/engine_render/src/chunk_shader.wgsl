@@ -24,12 +24,12 @@ var block_textures: texture_2d_array<f32>;
 var block_sampler: sampler;
 
 struct VertexIn {
-    // Position dans le chunk : (p + 8) × 1024, en entiers (le 4e ne sert pas).
+    // Position dans le chunk : (p + 8) × 1024 ; w : index du bloc animé (x + 32z + 1024y).
     @location(0) position: vec4<u32>,
-    // Déjà ramenée de -127..127 à -1..1 par le GPU (`Snorm8x4`).
+    // Déjà ramenée de -127..127 à -1..1 par le GPU (`Snorm8x4`) ; w : vitesse × 8 / 127.
     @location(1) normal: vec4<f32>,
     @location(2) color: vec4<f32>,
-    // x : lumière du ciel, y : lumière des blocs, z : occlusion ambiante (1 = dégagé).
+    // x : ciel, y : blocs, z : AO ; w : axe de rotation / 255 (X = 0, Y = 1, Z = 2).
     @location(3) light: vec4<f32>,
     // Les 16 bits du bas : la couche de texture ; au-dessus, des drapeaux.
     @location(4) texture: u32,
@@ -51,6 +51,9 @@ const POSITION_BIAS: f32 = 8.0;
 const FLAG_CUTOUT: u32 = 65536u;   // 1 << 16 : pixels transparents découpés
 const FLAG_SWAY: u32 = 131072u;    // 1 << 17 : se balance au vent
 const FLAG_FILLED: u32 = 262144u;  // 1 << 18 : pixels transparents remplis (feuille opaque)
+const FLAG_ROTATE: u32 = 524288u;
+const FLAG_FURNACE_FIRE: u32 = 1048576u;
+const FLAG_GROUND: u32 = 2097152u;
 const TEXTURE_MASK: u32 = 65535u;
 
 struct VertexOut {
@@ -74,6 +77,11 @@ fn rotate_y(v: vec3<f32>, yaw: f32) -> vec3<f32> {
     return vec3<f32>(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
 }
 
+fn rotate_axis(v: vec3<f32>, axis: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    return v * c + cross(axis, v) * sin(angle) + axis * dot(axis, v) * (1.0 - c);
+}
+
 @vertex
 fn vs_main(vertex: VertexIn) -> VertexOut {
     var out: VertexOut;
@@ -81,8 +89,20 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
     if vertex.uv_base.w > 1.0 {
         local = local * vertex.uv_base.w;
     }
-    var world = vertex.origin.xyz + local;
+    // Les UV restent dans le repère de repos : la texture tourne avec la pièce.
+    let tex_position = vertex.uv_base.xyz + local;
     var normal = vertex.normal.xyz;
+    if (vertex.texture & FLAG_ROTATE) != 0u {
+        let index = vertex.position.w;
+        let pivot = vec3<f32>(f32(index & 31u), f32(index >> 10u), f32((index >> 5u) & 31u)) + vec3<f32>(0.5);
+        let axis_index = u32(round(vertex.light.w * 255.0));
+        var axis = vec3<f32>(0.0);
+        axis[axis_index] = 1.0;
+        let angle = camera.sun_color.w * vertex.normal.w * (127.0 / 8.0);
+        local = pivot + rotate_axis(local - pivot, axis, angle);
+        normal = rotate_axis(normal, axis, angle);
+    }
+    var world = vertex.origin.xyz + local;
     if vertex.origin.w != 0.0 {
         world = vertex.origin.xyz + rotate_y(local, vertex.origin.w);
         normal = rotate_y(normal, vertex.origin.w);
@@ -102,7 +122,7 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
     out.color = vertex.color;
     out.normal = normal;
     out.world_position = world;
-    out.tex_position = vertex.uv_base.xyz + local;
+    out.tex_position = tex_position;
     out.tex_normal = vertex.normal.xyz;
     // Interpolée entre les sommets : c'est ce qui rend la lumière « douce ».
     out.light = vertex.light.xyz;
@@ -145,6 +165,19 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         discard;
     }
     var albedo = in.color * texel;
+    if (in.flags & FLAG_GROUND) != 0u {
+        // Variation douce sur plusieurs blocs, sans changement d'UV aux limites des
+        // blocs ou des quads greedy. Le motif 16×16 n'impose plus une grille au terrain.
+        let p = in.tex_position.xz * 0.13;
+        let cell = floor(p);
+        let f = fract(p);
+        let u = f * f * (vec2<f32>(3.0) - 2.0 * f);
+        let a = fract(sin(dot(cell, vec2<f32>(127.1, 311.7))) * 43758.5453);
+        let b = fract(sin(dot(cell + vec2<f32>(1.0, 0.0), vec2<f32>(127.1, 311.7))) * 43758.5453);
+        let c = fract(sin(dot(cell + vec2<f32>(0.0, 1.0), vec2<f32>(127.1, 311.7))) * 43758.5453);
+        let d = fract(sin(dot(cell + vec2<f32>(1.0), vec2<f32>(127.1, 311.7))) * 43758.5453);
+        albedo = vec4<f32>(albedo.rgb * (0.96 + 0.08 * mix(mix(a, b, u.x), mix(c, d, u.x), u.y)), albedo.a);
+    }
     if (in.flags & FLAG_CUTOUT) != 0u {
         albedo.a = in.color.a;
     }
@@ -164,7 +197,18 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     var light = max(sky, torch) + ambient;
     // Occlusion ambiante : un coin enfermé descend à 45 % de la lumière.
     light *= 0.45 + 0.55 * in.light.z;
-    let lit = albedo.rgb * light;
+    var lit = albedo.rgb * light;
+    if (in.flags & FLAG_FURNACE_FIRE) != 0u {
+        // Même bouche 8 × 6 que furnace_front.png. Animation pixel art à 10 images/s,
+        // calculée sur place : aucune texture transférée ni chunk remaillé par image.
+        let pixel = floor(fract(face_uv(in.tex_position, in.tex_normal)) * 16.0);
+        let frame = floor(camera.sun_color.w * 10.0);
+        let height = 2.0 + floor(3.0 * fract(sin(pixel.x * 12.9898 + frame * 4.1414) * 43758.5453));
+        if pixel.x >= 4.0 && pixel.x < 12.0 && pixel.y >= 14.0 - height && pixel.y < 14.0 {
+            // Les flammes éclairent leur propre surface, même dans une grotte.
+            lit = select(vec3<f32>(1.0, 0.22, 0.015), vec3<f32>(1.0, 0.72, 0.12), pixel.y >= 12.0);
+        }
+    }
 
     // Brouillard : distance horizontale, le brouillard forme un cylindre comme le
     // rayon de chargement. `smoothstep` : 0 avant le début, 1 après la fin.

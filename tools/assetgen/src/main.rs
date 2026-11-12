@@ -1,6 +1,6 @@
 //! `cargo run -p assetgen` : génère les textures et les sons de base du jeu.
 //!
-//! Le jeu n'a pas encore d'artiste : ce petit outil dessine des textures pixel-art
+//! Cet outil dessine les textures originales « terre, ardoise et cuivre » en pixel-art
 //! 16 × 16 et synthétise des sons courts. Tout est déterministe (même résultat à
 //! chaque lancement) grâce à un générateur pseudo-aléatoire maison à partir d'une graine.
 //! Les fichiers produits sont versionnés dans le dépôt ; on ne relance l'outil que
@@ -16,10 +16,15 @@ use anyhow::Result;
 fn main() -> Result<()> {
     // La racine du dépôt, connue à la compilation (`tools/assetgen/../..`).
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let written = textures::generate(&root)?
-        .into_iter()
-        .chain(sounds::generate(&root)?)
-        .collect::<Vec<PathBuf>>();
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    anyhow::ensure!(
+        args.is_empty() || args == ["--textures-only"],
+        "usage : cargo run -p assetgen -- [--textures-only]"
+    );
+    let mut written: Vec<PathBuf> = textures::generate(&root)?;
+    if args.is_empty() {
+        written.extend(sounds::generate(&root)?);
+    }
     for path in &written {
         println!(
             "écrit : {}",

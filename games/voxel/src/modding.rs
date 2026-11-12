@@ -112,6 +112,7 @@ impl ModSystem {
             .map(|m| (m.id().to_string(), m.manifest.name.clone()))
             .collect();
         let mut machines = Machines::with_natives(&registry);
+        machines.set_item_rules(content.items.clone(), content.machine_recipes.clone());
         let mut runtime = ModRuntime::default();
         let host = ScriptHost::new()
             .map_err(|err| log::error!("WebAssembly indisponible, scripts désactivés : {err:#}"))

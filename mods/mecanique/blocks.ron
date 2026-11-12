@@ -3,30 +3,46 @@
 // et `states: [Axis]` leur donne les trois orientations (posés selon la face visée).
 [
     (
-        id: "mecanique:shaft", name: "Arbre de transmission", color: (0.55, 0.4, 0.22), texture: "shaft",
+        id: "mecanique:shaft", name: "Arbre de transmission", color: (0.2159, 0.1641, 0.1272), texture: "shaft",
         boxes: [(from: (6, 0, 6), to: (10, 16, 10))], states: [Axis], conduit: Kinetic,
+        // Rotation décorative continue (rad/s), indépendante du réseau cinétique.
+        rotation: (axis: Y, speed: 1.5),
         hardness: 1.0, tool: Axe,
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
     (
-        id: "mecanique:gear", name: "Engrenage", color: (0.6, 0.6, 0.65), texture: "gear",
+        id: "mecanique:gear", name: "Engrenage", color: (0.2599, 0.1304, 0.0814), texture: "gear",
         boxes: [(from: (6, 0, 6), to: (10, 16, 10)), (from: (1, 6, 1), to: (15, 10, 15))],
         states: [Axis], conduit: Kinetic,
+        rotation: (axis: Y, speed: 1.5),
         hardness: 1.5, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
+    // Une courroie : un conduit d'**objets** (`conduit: Items`). Elle relie les inventaires qui la
+    // touchent : les machines rendent par leurs sorties, reçoivent dans leurs entrées, et les
+    // coffres servent de tampon. `channel` sépare les réseaux (des courroies d'un autre canal ne
+    // s'y relient pas) ; `throughput` plafonne le débit du réseau (objets par passage).
+    (
+        id: "mecanique:belt", name: "Courroie", color: (0.1415, 0.0722, 0.0567), texture: "belt",
+        boxes: [(from: (0, 0, 0), to: (16, 4, 16))], conduit: Items, channel: "belt",
+        hardness: 0.8, tool: Pickaxe,
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
     // Une source : un clic droit la fait tourner quelques secondes.
     (
-        id: "mecanique:crank", name: "Manivelle", color: (0.35, 0.35, 0.37), texture: "crank",
+        id: "mecanique:crank", name: "Manivelle", color: (0.1214, 0.1068, 0.1156), texture: "crank",
         boxes: [(from: (2, 0, 2), to: (14, 6, 14)), (from: (7, 6, 7), to: (9, 14, 9)), (from: (4, 12, 7), to: (12, 14, 9))],
         behavior: "crank", hardness: 1.5, tool: Pickaxe,
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
     // Une machine : elle consomme de la rotation pour transformer ce qu'on met dedans.
     (
-        id: "mecanique:press", name: "Presse", color: (0.45, 0.45, 0.5), texture: "press",
+        id: "mecanique:press", name: "Presse", color: (0.1657, 0.1442, 0.1462), texture: "press",
         boxes: [(from: (0, 0, 0), to: (16, 6, 16)), (from: (2, 6, 2), to: (14, 16, 14))],
         behavior: "press", hardness: 2.0, tool: Pickaxe,
+        // Pour les courroies : la case 0 reçoit (seulement ce que ses recettes consomment), la
+        // case 1 rend.
+        ports: (inputs: [0], outputs: [1], accepts: "press"),
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
 ]

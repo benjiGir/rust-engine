@@ -110,15 +110,73 @@ choisie à la pose, et une variante cassée lâche l'objet (et le butin) de sa b
 besoin d'un bloc précis le retrouve par son identifiant complet (`block_id("example:ruby_stairs[facing=east,half=top]")`),
 et `block_base(bloc)` ramène une variante à sa base (par exemple dans l'événement `BlockPlaced`).
 
-**Conduits** : `conduit: Kinetic` (ou `Energy`, `Fluid`) fait d'un bloc un conduit de réseau : le jeu
-relie ceux qui se touchent et répartit rotation, énergie ou fluide entre les machines branchées
-(celles qui ont la capacité correspondante, par leurs faces ouvertes). Un conduit n'a pas de
-`behavior` ; ses variantes sont des conduits aussi. Un arbre de transmission est donc une simple
-ligne de `blocks.ron` : `boxes` pour sa forme, `states: [Axis]` pour ses orientations, `conduit: Kinetic`.
+**Conduits et réseaux** : `conduit:` fait d'un bloc un conduit de réseau ; le jeu relie ceux qui se
+touchent et répartit le contenu entre les machines branchées (celles qui ont la capacité
+correspondante, par leurs faces ouvertes). Un conduit n'a pas de `behavior` ; ses variantes sont des
+conduits aussi. Quatre sortes :
+
+| `conduit:` | Ce qui circule | Les machines branchées |
+|---|---|---|
+| `Energy` | de l'énergie | un stock d'énergie (`add_energy`) |
+| `Fluid` | un fluide (un par réseau) | un réservoir (`add_tank`) |
+| `Kinetic` | de la rotation | une rotation (`add_kinetic`) : sources et consommateurs |
+| `Items` | des objets | un inventaire (`add_inventory`) |
+
+Trois réglages, tous facultatifs, pour fabriquer **ses propres types de réseau** :
+- `channel: "vapeur"` — le **canal** : deux conduits de même sorte ne se relient que s'ils ont le même
+  canal. Des tuyaux de vapeur et des tuyaux d'eau (tous deux `Fluid`) forment ainsi deux réseaux
+  séparés, même côte à côte. Le canal est à l'espace de noms du mod (`mon_mod:vapeur`).
+- `throughput: 4` — le **débit** : le plus lent des conduits d'un réseau le plafonne. Des courroies
+  de bois et d'acier sont deux blocs de même sorte, l'un avec un débit plus faible.
+- `ports: (inputs: [0], outputs: [1], accepts: "presse")` — pour les réseaux d'**objets**, sur le bloc
+  d'une machine : les cases que le réseau remplit (`inputs`), celles qu'il vide (`outputs`), et le type de
+  recette (`machine_recipes.ron`) dont elle n'accepte que les ingrédients. Sans `ports`, toutes les
+  cases d'un inventaire font les deux (un coffre).
+
+**Les réseaux d'objets** passent 5 fois par seconde et déplacent au plus 8 objets par passage (ou le
+`throughput`), chacun son tour. Dans l'ordre : des producteurs (sorties d'une machine, inventaires
+« sortie seule ») vers les consommateurs (entrées, inventaires « entrée seule »), puis le surplus des
+producteurs vers les **tampons** (les coffres, qui reçoivent et rendent), puis des tampons vers les
+consommateurs. Deux coffres côte à côte ne se renvoient donc pas les objets. Le calcul est natif,
+sans passage par le script.
 
 À savoir : un bloc à boîtes est « transparent » pour ses voisins (ils gardent leurs faces) ; sa
 lumière est arrêtée par défaut s'il est `solid`, et passe sinon (`light_opacity` pour régler).
 Les créatures le traitent encore comme un cube plein.
+
+## Les animations de blocs
+
+Un modèle à boîtes peut déclarer une rotation visuelle continue, calculée par le GPU :
+
+```ron
+(
+    id: "example:rotor", name: "Rotor", color: (0.6, 0.6, 0.65),
+    boxes: [
+        (from: (6, 0, 6), to: (10, 16, 10)),
+        (from: (1, 6, 1), to: (15, 10, 15)),
+    ],
+    states: [Axis],
+    rotation: (axis: Y, speed: 1.5, boxes: [1]),
+)
+```
+
+`axis` vaut `X`, `Y` ou `Z` dans le modèle de base ; les états d'orientation tournent
+aussi cet axe. `speed` est en radians par seconde, positif ou négatif, arrondi au
+huitième, dans l'intervalle `-15.875..=15.875`. `boxes` choisit les indices des boîtes
+animées (à partir de 0) ; absent ou vide, toutes tournent. Le pivot est le centre du
+bloc `(8, 8, 8)` en seizièmes. Le pied du rotor ci-dessus reste donc fixe.
+
+Les textures suivent la pièce et les limites de rendu couvrent toute son orbite.
+Cette animation est décorative : elle tourne en continu, indépendamment de la vitesse
+du réseau cinétique ; collision et sélection conservent les boîtes de repos. Elle ne
+se combine pas avec `sway`. Les arbres et engrenages de Mécanique en donnent un exemple.
+
+Le four (`behavior: "core:furnace"`) a aussi un effet de flammes dans la bouche de
+`furnace_front.png` : il s'affiche uniquement si `FurnaceState::burning()` vaut vrai.
+Le shader l'anime à 10 images par seconde et rend les flammes lumineuses, sans ajouter
+de lumière aux blocs voisins. L'allumage et l'extinction invalident le maillage du chunk
+(ou de la structure mobile), sans remplacer le bloc ni perdre son inventaire. La
+combustion sauvegardée détermine le même affichage après rechargement du monde.
 
 ## Les blocs actifs (« machines »)
 
@@ -611,8 +669,9 @@ document. Il contient :
 - des objets (`items.ron`), des recettes d'artisanat (`recipes.ron`) et ses tests sans fenêtre
   (`cargo xtask test-mod mecanique`).
 
-Ce qu'il a fallu ajouter à l'API pour l'écrire : les conduits de mods (`conduit:`), et la lecture et
-l'écriture d'une case d'inventaire (`slot`, `set_slot`).
+Ce qu'il a fallu ajouter à l'API pour l'écrire : les conduits de mods (`conduit:`), la lecture et
+l'écriture d'une case d'inventaire (`slot`, `set_slot`), et les réseaux d'objets pour ses **courroies**
+(`conduit: Items`, `channel`, `ports` sur la presse).
 
 ## La génération du monde
 

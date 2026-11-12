@@ -163,6 +163,7 @@ fn draw_range(
             Widget::Bar { text, value } => {
                 ui.add(
                     egui::ProgressBar::new(*value)
+                        .corner_radius(0)
                         .text(text.as_str())
                         .desired_width(200.0),
                 );

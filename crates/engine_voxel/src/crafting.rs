@@ -504,6 +504,16 @@ impl MachineRecipes {
         })
     }
 
+    /// Une recette de ce type consomme-t-elle cet objet ? (Pour les réseaux d'objets : une
+    /// machine n'accepte que ce qu'elle sait transformer.)
+    pub fn accepts(&self, kind: &str, item: ItemId) -> bool {
+        self.recipes(kind).iter().any(|r| {
+            r.inputs
+                .iter()
+                .any(|(ingredient, _)| ingredient.matches(item))
+        })
+    }
+
     pub fn recipes(&self, kind: &str) -> &[MachineRecipe] {
         self.by_kind.get(kind).map_or(&[], Vec::as_slice)
     }

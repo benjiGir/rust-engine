@@ -234,3 +234,20 @@ fn the_commands_are_declared_and_answer() {
     );
     assert_eq!(h.command("inconnue", "").unwrap().0, None);
 }
+
+#[test]
+fn belts_are_item_conduits_and_the_press_declares_its_ports() {
+    let h = Harness::for_mod("mecanique").unwrap();
+    let belt = h.registry.def(h.block_id("mecanique:belt"));
+    assert_eq!(belt.conduit, Some(engine_voxel::NetworkKind::Items));
+    assert_eq!(belt.channel.as_deref(), Some("mecanique:belt"));
+    let ports = h
+        .registry
+        .def(h.block_id("mecanique:press"))
+        .ports
+        .clone()
+        .unwrap();
+    assert_eq!((ports.inputs, ports.outputs), (vec![0], vec![1]));
+    // Seuls les objets que ses recettes consomment entrent : le type de recette est le sien.
+    assert_eq!(ports.accepts.as_deref(), Some("mecanique:press"));
+}

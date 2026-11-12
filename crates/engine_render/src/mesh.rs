@@ -16,8 +16,8 @@ pub struct Vertex {
 
 /// Un sommet de maillage coloré et éclairé, pour les chunks, en 24 octets. Le même
 /// format que `engine_voxel::MeshVertex` (le shader `chunk_shader.wgsl` le décode) :
-/// - position relative à l'origine du chunk, `(p + 8) × 1024` en `u16` (le 4e ne sert pas) ;
-/// - normale de -127 à 127 ; couleur et lumière (ciel, blocs, AO) de 0 à 255 ;
+/// - position relative au chunk, `(p + 8) × 1024` en `u16` ; w : pivot d'animation ;
+/// - normale de -127 à 127 (w : vitesse × 8) ; couleur et lumière de 0 à 255 (w : axe) ;
 /// - couche de texture et drapeaux.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
