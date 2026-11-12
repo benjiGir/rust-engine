@@ -1,0 +1,14 @@
+// Les alliages du four (type `forge:alloy`, `time` en secondes) et les pièces de l'enclume : un type
+// de recette par bouton (`forge:anvil_plate`, `forge:anvil_pickaxe`...).
+(
+    machines: {
+        "alloy": [
+            (inputs: [("core:iron_ingot", 2), ("core:coal", 1)], outputs: [("forge:steel_ingot", 1)], time: 10.0),
+            (inputs: [("core:copper_ingot", 3), ("core:malachite", 1)], outputs: [("forge:bronze_ingot", 3)], time: 8.0),
+        ],
+        "anvil_plate": [(inputs: [("forge:steel_ingot", 2)], outputs: [("forge:steel_plate", 1)])],
+        "anvil_pickaxe": [(inputs: [("forge:steel_ingot", 3)], outputs: [("forge:pickaxe_head", 1)])],
+        "anvil_axe": [(inputs: [("forge:steel_ingot", 3)], outputs: [("forge:axe_head", 1)])],
+        "anvil_sword": [(inputs: [("forge:steel_ingot", 2)], outputs: [("forge:sword_blade", 1)])],
+    },
+)

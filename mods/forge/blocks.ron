@@ -1,0 +1,23 @@
+// Les deux machines de la forge ; leur comportement est dans le script.
+[
+    // Le four à alliages : trois cases d'entrée, du combustible, une sortie. Il brûle du charbon.
+    (
+        id: "forge:alloy_furnace", name: "Four à alliages", color: (0.4, 0.4, 0.42),
+        textures: (top: "alloy_furnace_top", side: "alloy_furnace_side", bottom: "alloy_furnace_top"),
+        behavior: "alloy_furnace",
+        // Un réseau d'objets remplit les trois entrées et vide la sortie (pas le combustible).
+        ports: (inputs: [0, 1, 2], outputs: [4]),
+        light_emission: 4,
+        hardness: 3.0, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
+    // L'enclume : deux cases, un marteau, une sortie. On choisit la pièce à forger par un bouton.
+    (
+        id: "forge:anvil", name: "Enclume", color: (0.3, 0.31, 0.34),
+        textures: (top: "anvil_top", side: "anvil_side", bottom: "anvil_top"),
+        behavior: "anvil",
+        boxes: [(from: (2, 0, 2), to: (14, 4, 14)), (from: (4, 4, 4), to: (12, 10, 12)), (from: (0, 10, 2), to: (16, 16, 14))],
+        hardness: 4.0, tool: Pickaxe,
+        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+    ),
+]

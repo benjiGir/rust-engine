@@ -1,0 +1,17 @@
+// L'artisanat de la forge : les machines et le marteau, puis outils et armures d'acier à partir des
+// pièces forgées.
+(
+    shaped: [
+        (pattern: ["###", "#f#", "###"], key: {"#": "core:cobblestone", "f": "core:furnace"}, result: ("alloy_furnace", 1)),
+        (pattern: ["iii", " i ", "iii"], key: {"i": "core:iron_ingot"}, result: ("anvil", 1)),
+        (pattern: ["bb", "bs", " s"], key: {"b": "bronze_ingot", "s": "core:stick"}, result: ("bronze_hammer", 1)),
+        (pattern: ["h", "s", "s"], key: {"h": "pickaxe_head", "s": "core:stick"}, result: ("steel_pickaxe", 1)),
+        (pattern: ["h", "s", "s"], key: {"h": "axe_head", "s": "core:stick"}, result: ("steel_axe", 1)),
+        (pattern: ["b", "s"], key: {"b": "sword_blade", "s": "core:stick"}, result: ("steel_sword", 1)),
+        (pattern: ["ppp", "p p"], key: {"p": "steel_plate"}, result: ("steel_helmet", 1)),
+        (pattern: ["p p", "ppp", "ppp"], key: {"p": "steel_plate"}, result: ("steel_chestplate", 1)),
+        (pattern: ["ppp", "p p", "p p"], key: {"p": "steel_plate"}, result: ("steel_leggings", 1)),
+        (pattern: ["p p", "p p"], key: {"p": "steel_plate"}, result: ("steel_boots", 1)),
+    ],
+    shapeless: [],
+)

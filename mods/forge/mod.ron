@@ -1,0 +1,12 @@
+// Forge : de l'artisanat en chaîne. Minerais → lingots → alliages (four à alliages, au charbon) →
+// pièces forgées (enclume, avec un marteau de bronze) → outils et armures d'acier.
+// Écrit uniquement avec l'API publique des mods.
+(
+    id: "forge",
+    name: "Forge",
+    version: "0.1.0",
+    authors: ["benji"],
+    description: "Four à alliages, enclume, bronze et acier : outils et armures en plusieurs étapes.",
+    dependencies: [(id: "core", version: "^0.1")],
+    script: "forge.wasm",
+)

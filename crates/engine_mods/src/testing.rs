@@ -226,6 +226,20 @@ impl Harness {
         });
     }
 
+    /// Vide une case de l'inventaire du bloc.
+    pub fn clear_slot(&mut self, pos: IVec3, slot: usize) {
+        if let Some(cell) = self
+            .streamer
+            .borrow_mut()
+            .block_entity_mut(pos)
+            .and_then(|e| e.caps.as_mut())
+            .and_then(|c| c.inventory.as_mut())
+            .and_then(|i| i.slots.get_mut(slot))
+        {
+            *cell = None;
+        }
+    }
+
     /// Le contenu d'une case de l'inventaire du bloc : (objet, nombre).
     pub fn slot_of(&self, pos: IVec3, slot: usize) -> Option<(String, u32)> {
         let streamer = self.streamer.borrow();

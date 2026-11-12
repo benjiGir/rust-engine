@@ -730,6 +730,24 @@ Les objets circulent par les courroies de Mécanique (ou tout conduit `Items`) :
 (trieur), puis aux coffres : la moissonneuse + trieur de graines + grand coffre trie donc la récolte
 toute seule. Tests : `cargo xtask test-mod entrepot`.
 
+## Un mod de référence : Forge
+
+`mods/forge` : l'artisanat en chaîne, toujours avec l'API publique. Minerais → lingots → **alliages**
+→ **pièces forgées** → outils et armures.
+- un **four à alliages** : trois cases d'entrée, une de combustible, une de sortie. Il lit ses recettes
+  dans `machine_recipes.ron` (type `forge:alloy` : fer + charbon donne de l'acier, cuivre + malachite
+  du bronze) avec `find_recipe`, qui accepte plusieurs ingrédients ; il brûle du charbon (ou des
+  bâtons) et la recette n'avance que tant que le feu tient. Ses données (feu restant, progression)
+  sont dans `set_data`. Il se réveille à chaque tick seulement quand il travaille ;
+- une **enclume** : un **marteau de bronze** (catalyseur, jamais consommé), deux cases de lingots et
+  une sortie. Un bouton par pièce ; chaque bouton est **un type de recette** (`forge:anvil_plate`,
+  `forge:anvil_pickaxe`...), donc ajouter une pièce = une ligne de données et un bouton ;
+- des outils et armures d'acier (`items.ron`) que l'on assemble à l'établi (`recipes.ron`) à partir
+  des pièces : tête de pioche + 2 bâtons, plaques d'acier pour l'armure.
+Le four et l'enclume ont des `ports`, donc un réseau d'objets (Mécanique, Entrepôt) peut les alimenter
+et vider leur sortie. Limites : le marteau ne s'use pas (une case d'inventaire ne garde pas la
+durabilité côté script) et il n'y a pas de réparation. Tests : `cargo xtask test-mod forge`.
+
 ## La génération du monde
 
 Un mod enrichit le terrain de trois façons, de la plus simple à la plus libre. Tout est calculé par

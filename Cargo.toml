@@ -12,6 +12,7 @@ members = [
     "crates/mod_sdk",
     "tools/xtask",
     "mods/example/script",
+    "mods/forge/script",
     "mods/entrepot/script",
     "mods/mecanique/script",
     "mods/magie/script",
