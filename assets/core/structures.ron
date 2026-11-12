@@ -13,7 +13,7 @@
 (
     structures: [
         (id: "core:village", kind: Village, spacing: 14, chance: 0.6,
-         biomes: ["core:plains", "core:forest", "core:birch_forest", "core:taiga", "core:savanna", "core:desert", "core:snowy_tundra"],
+         biomes: ["core:plains", "core:forest", "core:birch_forest", "core:taiga", "core:savanna", "core:desert", "core:snowy_tundra", "core:flower_meadow", "core:steppe", "core:shrubland", "core:snowy_taiga", "core:mixed_forest"],
          loot: "village"),
         (id: "core:ruin", kind: Ruin, spacing: 10, chance: 0.4, biomes: [], loot: "ruin"),
         (id: "core:dungeon", kind: Dungeon, spacing: 8, chance: 0.5, biomes: [], loot: "dungeon"),

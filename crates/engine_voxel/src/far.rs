@@ -43,7 +43,7 @@ use std::thread::JoinHandle;
 use crossbeam_channel::{Receiver, Sender};
 use glam::{Vec2, Vec3};
 
-use crate::biome::BiomeKind;
+use crate::biome::{BiomeKind, BiomeRegistry};
 use crate::generator::{FREEZING, SEA_LEVEL, STEP, TerrainGenerator};
 use crate::mesh::MeshVertex;
 use crate::registry::Tint;
@@ -234,7 +234,8 @@ fn sample(generator: &TerrainGenerator, x: i32, z: i32, step: i32) -> Sample {
     let (grass_ref, _, water_ref) = generator.biomes().tint_reference();
     let mut color = if def.tint == Tint::Grass {
         // Même palette linéaire et mêmes multiplicateurs que les chunks texturés.
-        std::array::from_fn(|c| def.color[c] * biome.grass_color[c] / grass_ref[c].max(0.01))
+        let tint = BiomeRegistry::tint_factor(biome.grass_color, grass_ref);
+        std::array::from_fn(|c| def.color[c] * tint[c])
     } else {
         def.color
     };
@@ -269,7 +270,8 @@ fn sample(generator: &TerrainGenerator, x: i32, z: i32, step: i32) -> Sample {
         color,
         water: {
             let base = palette(generator, "core:water", [0.05, 0.20, 0.34]);
-            std::array::from_fn(|c| base[c] * biome.water_color[c] / water_ref[c].max(0.01))
+            let tint = BiomeRegistry::tint_factor(biome.water_color, water_ref);
+            std::array::from_fn(|c| base[c] * tint[c])
         },
     }
 }

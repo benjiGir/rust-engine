@@ -33,11 +33,15 @@ pub enum BiomeKind {
     Peaks,
 }
 
-/// Le relief propre à un biome : un décalage de hauteur et l'amplitude des collines.
+/// Le relief propre à un biome : un décalage de hauteur, l'amplitude des collines, et des
+/// terrasses (de 0 : pentes douces, à 1 : des paliers plats séparés de petites falaises, comme
+/// des mesas).
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 pub struct Relief {
     pub offset: f64,
     pub scale: f64,
+    #[serde(default)]
+    pub terraces: f64,
 }
 
 impl Default for Relief {
@@ -45,6 +49,7 @@ impl Default for Relief {
         Self {
             offset: 0.0,
             scale: 1.0,
+            terraces: 0.0,
         }
     }
 }
@@ -57,11 +62,17 @@ struct BiomeEntry {
     kind: BiomeKind,
     #[serde(default)]
     climate: (f64, f64),
+    #[serde(default)]
+    variety: f64,
     temperature: f32,
     surface: String,
     subsurface: String,
     #[serde(default = "three")]
     subsurface_depth: i32,
+    #[serde(default)]
+    ground_patches: Vec<(String, f32)>,
+    #[serde(default)]
+    bands: Vec<String>,
     underwater: String,
     #[serde(default)]
     rock_above: Option<i32>,
@@ -74,8 +85,10 @@ struct BiomeEntry {
     trees: Vec<(TreeKind, f32)>,
     #[serde(default)]
     tree_density: f32,
+    #[serde(default = "default_groves")]
+    groves: f32,
     #[serde(default)]
-    plants: Vec<(String, f32)>,
+    plants: Vec<PlantEntry>,
     #[serde(default)]
     seaweed: f32,
     #[serde(default)]
@@ -86,6 +99,32 @@ fn three() -> i32 {
     3
 }
 
+fn default_groves() -> f32 {
+    0.6
+}
+
+/// Une plante dans `biomes.ron` : `("poppy", 0.01)`, ou `("poppy", 0.01, 0.9)` pour dire
+/// à quel point elle pousse en taches (0 : partout pareil, 1 : seulement en taches).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+enum PlantEntry {
+    Patchy(String, f32, f32),
+    Plain(String, f32),
+}
+
+/// Les fleurs et champignons poussent en taches par défaut.
+const DEFAULT_PATCHES: f32 = 0.85;
+
+/// Une plante d'un biome.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlantDef {
+    pub block: BlockId,
+    /// La probabilité moyenne par colonne.
+    pub chance: f32,
+    /// De 0 (répartie au hasard) à 1 (seulement en taches, plus denses).
+    pub patches: f32,
+}
+
 /// Un biome, ses blocs déjà traduits en numéros.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BiomeDef {
@@ -94,11 +133,19 @@ pub struct BiomeDef {
     pub kind: BiomeKind,
     /// (température, humidité) du biome, entre -1 et 1 : sa place dans le climat.
     pub climate: (f64, f64),
+    /// La variété du biome, entre -1 et 1 (0 : le biome « normal » de son climat) : elle
+    /// départage les variantes d'un même climat.
+    pub variety: f64,
     /// En dessous de 0,15, il neige et l'eau gèle.
     pub temperature: f32,
     pub surface: BlockId,
     pub subsurface: BlockId,
     pub subsurface_depth: i32,
+    /// Des taches d'un autre sol en surface : (bloc, part du sol couverte, de 0 à 1).
+    pub ground_patches: Vec<(BlockId, f32)>,
+    /// Si non vide, le sous-sol est fait de ces blocs en strates horizontales (falaises
+    /// rayées des plateaux arides), à la place de `subsurface`.
+    pub bands: Vec<BlockId>,
     pub underwater: BlockId,
     pub rock_above: Option<i32>,
     pub relief: Relief,
@@ -109,8 +156,10 @@ pub struct BiomeDef {
     pub trees: Vec<(TreeKind, f32)>,
     /// Le nombre moyen d'arbres par colonne de chunk (32 × 32 blocs).
     pub tree_density: f32,
-    /// Les plantes posées sur le sol : (bloc, probabilité par colonne).
-    pub plants: Vec<(BlockId, f32)>,
+    /// De 0 (arbres répartis au hasard) à 1 (bosquets serrés et clairières).
+    pub groves: f32,
+    /// Les plantes posées sur le sol.
+    pub plants: Vec<PlantDef>,
     /// La probabilité d'algues par colonne sous l'eau, et de nénuphars en surface.
     pub seaweed: f32,
     pub lily_pads: f32,
@@ -225,7 +274,7 @@ impl BiomeRegistry {
             let id =
                 BiomeId(u8::try_from(self.biomes.len()).context("trop de biomes (256 au plus)")?);
             let color = |(r, g, b): (f32, f32, f32)| [r, g, b];
-            let def = BiomeDef {
+            let mut def = BiomeDef {
                 surface: block(&e.surface, &e.id)?,
                 subsurface: block(&e.subsurface, &e.id)?,
                 underwater: block(&e.underwater, &e.id)?,
@@ -233,8 +282,19 @@ impl BiomeRegistry {
                 name: e.name,
                 kind: e.kind,
                 climate: e.climate,
+                variety: e.variety,
                 temperature: e.temperature,
                 subsurface_depth: e.subsurface_depth,
+                ground_patches: e
+                    .ground_patches
+                    .iter()
+                    .map(|(name, part)| Ok((block(name, &e.id)?, part.clamp(0.0, 1.0))))
+                    .collect::<Result<Vec<_>>>()?,
+                bands: e
+                    .bands
+                    .iter()
+                    .map(|name| block(name, &e.id))
+                    .collect::<Result<Vec<_>>>()?,
                 rock_above: e.rock_above,
                 relief: e.relief,
                 grass_color: color(e.grass_color),
@@ -243,13 +303,28 @@ impl BiomeRegistry {
                 plants: e
                     .plants
                     .iter()
-                    .map(|(name, p)| Ok((block(name, &e.id)?, *p)))
+                    .map(|entry| {
+                        let (name, chance, patches) = match entry {
+                            PlantEntry::Plain(name, chance) => (name, *chance, DEFAULT_PATCHES),
+                            PlantEntry::Patchy(name, chance, patches) => {
+                                (name, *chance, patches.clamp(0.0, 1.0))
+                            }
+                        };
+                        Ok(PlantDef {
+                            block: block(name, &e.id)?,
+                            chance,
+                            patches,
+                        })
+                    })
                     .collect::<Result<Vec<_>>>()?,
                 trees: e.trees,
                 tree_density: e.tree_density,
+                groves: e.groves.clamp(0.0, 1.0),
                 seaweed: e.seaweed,
                 lily_pads: e.lily_pads,
             };
+            // Les plantes les plus rares d'abord : la végétation les tire dans cet ordre.
+            def.plants.sort_by(|a, b| a.chance.total_cmp(&b.chance));
             self.by_key.insert(e.id, id);
             self.biomes.push(def);
         }
@@ -354,6 +429,16 @@ impl BiomeRegistry {
         plains.map_or(([1.0; 3], [1.0; 3], [1.0; 3]), |b| {
             (b.grass_color, b.foliage_color, b.water_color)
         })
+    }
+
+    /// Le multiplicateur de teinte d'une couleur de biome, par rapport à sa référence. Les
+    /// sommets stockent leur couleur entre 0 et 1 : un canal au-dessus de 1 serait coupé et la
+    /// teinte perdrait sa nuance (une savane presque aussi verte qu'une plaine). On ramène alors
+    /// le plus fort canal à 1 en gardant les proportions : même nuance, un peu plus sombre.
+    pub fn tint_factor(color: [f32; 3], reference: [f32; 3]) -> [f32; 3] {
+        let ratio: [f32; 3] = std::array::from_fn(|c| color[c] / reference[c].max(0.01));
+        let top = ratio.iter().copied().fold(1.0, f32::max);
+        ratio.map(|r| r / top)
     }
 
     pub fn ores(&self) -> &[OreDef] {

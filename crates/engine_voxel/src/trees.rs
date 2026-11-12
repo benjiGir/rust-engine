@@ -30,6 +30,10 @@ pub enum TreeKind {
     /// Un chêne de marais, large et couvert de lianes.
     Swamp,
     Cactus,
+    /// Un buisson bas : une bûche et une petite boule de feuilles de chêne.
+    Bush,
+    /// Un grand sapin des vieilles forêts : haut et étroit.
+    TallSpruce,
 }
 
 /// Ce qu'est un bloc d'arbre : il décide de ce qu'il a le droit de remplacer.
@@ -87,9 +91,9 @@ impl TreeBlocks {
     /// L'essence d'une forme d'arbre.
     pub fn wood(&self, kind: TreeKind) -> Wood {
         match kind {
-            TreeKind::Oak | TreeKind::BigOak | TreeKind::Swamp => self.oak,
+            TreeKind::Oak | TreeKind::BigOak | TreeKind::Swamp | TreeKind::Bush => self.oak,
             TreeKind::Birch => self.birch,
-            TreeKind::Spruce => self.spruce,
+            TreeKind::Spruce | TreeKind::TallSpruce => self.spruce,
             TreeKind::Acacia => self.acacia,
             TreeKind::Jungle | TreeKind::JungleBush => self.jungle,
             TreeKind::Cactus => Wood {
@@ -161,7 +165,13 @@ pub fn grow(
         TreeKind::Oak => round_tree(base, rng.range(4, 6), 2, wood, put),
         TreeKind::Birch => round_tree(base, rng.range(5, 7), 2, wood, put),
         TreeKind::BigOak => big_oak(base, rng, wood, put),
-        TreeKind::Spruce => spruce(base, rng, wood, put),
+        TreeKind::Spruce => spruce(base, rng.range(7, 12), rng, wood, put),
+        TreeKind::TallSpruce => spruce(base, rng.range(15, 21), rng, wood, put),
+        TreeKind::Bush => {
+            put(base, wood.log, Part::Log);
+            let r = 1.4 + rng.below(3) as f32 * 0.3;
+            blob(base + IVec3::Y, r, wood.leaves, put);
+        }
         TreeKind::Acacia => acacia(base, rng, wood, put),
         TreeKind::Jungle => jungle(base, rng, wood, blocks.vine, put),
         TreeKind::JungleBush => {
@@ -265,8 +275,13 @@ fn big_oak(base: IVec3, rng: &mut Rng64, wood: Wood, put: &mut impl FnMut(IVec3,
 }
 
 /// Le sapin : un tronc droit et des couches de feuilles en cône, larges puis étroites.
-fn spruce(base: IVec3, rng: &mut Rng64, wood: Wood, put: &mut impl FnMut(IVec3, BlockId, Part)) {
-    let height = rng.range(7, 12);
+fn spruce(
+    base: IVec3,
+    height: i32,
+    rng: &mut Rng64,
+    wood: Wood,
+    put: &mut impl FnMut(IVec3, BlockId, Part),
+) {
     for y in 0..height {
         put(base + IVec3::Y * y, wood.log, Part::Log);
     }

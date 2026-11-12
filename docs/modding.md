@@ -846,6 +846,13 @@ structures et filons, et rien ne ralentit l'image.
 taille d'un filon, nombre par chunk, biomes). Le mod d'exemple y met des filons de rubis.
 
 **2. Des biomes** — `biomes.ron` du mod (même format que `assets/core/biomes.ron`).
+Dans chaque famille (`kind`), le biome retenu est celui dont le point (`climate`, `variety`) est le
+plus proche du climat de la colonne : un biome de mod avec une `variety` forte devient une variante rare
+d'un climat existant. `groves` règle le regroupement des arbres en bosquets, et une plante peut
+s'écrire `("poppy", 0.01, 0.9)` pour dire à quel point elle pousse en taches.
+`ground_patches: [("podzol", 0.3)]` sème des taches d'un autre sol en surface, `bands: [...]` remplace
+le sous-sol par des strates horizontales, et `relief: (offset: 18.0, scale: 2.8, terraces: 1.0)` découpe
+le relief en paliers (des mesas).
 
 **3. Des structures** — `structures.ron` du mod. Les sortes du jeu (villages, ruines, donjons, mines)
 ont leur dessin dans le moteur ; un mod ajoute ses propres **plans**, décrits en texte :

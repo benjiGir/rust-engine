@@ -749,9 +749,10 @@ fn tints(biomes: &BiomeRegistry, chunk: &Chunk) -> [Vec<[f32; 3]>; 3] {
                 }
             }
             if k > 0.0 {
-                grass[x + z * n] = std::array::from_fn(|c| g[c] / k / grass_ref[c].max(0.01));
-                foliage[x + z * n] = std::array::from_fn(|c| f[c] / k / foliage_ref[c].max(0.01));
-                water[x + z * n] = std::array::from_fn(|c| w[c] / k / water_ref[c].max(0.01));
+                let mean = |v: [f32; 3]| v.map(|c| c / k);
+                grass[x + z * n] = BiomeRegistry::tint_factor(mean(g), grass_ref);
+                foliage[x + z * n] = BiomeRegistry::tint_factor(mean(f), foliage_ref);
+                water[x + z * n] = BiomeRegistry::tint_factor(mean(w), water_ref);
             }
         }
     }

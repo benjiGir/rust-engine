@@ -15,10 +15,22 @@
 //! croissante, puis dans l'ordre du tirage), et les règles d'écriture ne dépendent que
 //! du chunk lui-même : un tronc remplace l'air, les feuilles et les plantes ; des feuilles
 //! ne remplacent que l'air.
+//!
+//! # Bosquets, clairières et taches de fleurs
+//!
+//! Tirer chaque arbre et chaque fleur au hasard, indépendamment, donne une végétation
+//! uniforme, « semée à la machine ». Dans la nature, les arbres se groupent en bosquets
+//! séparés de clairières, et les fleurs poussent en taches. On module donc la probabilité
+//! par un bruit lent ([`value_noise`]) : forte dans les bosquets et les taches, faible
+//! ailleurs, avec la même moyenne. Les arbres gardent en plus un écart minimal entre eux
+//! (comme un échantillonnage « de Poisson ») : pas deux troncs collés.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use glam::IVec3;
 
-use super::{Column, SEA_LEVEL, TerrainGenerator, hash3};
+use super::{Column, SEA_LEVEL, TerrainGenerator, hash3, value_noise};
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
 use crate::registry::Shape;
@@ -27,8 +39,11 @@ use crate::world::World;
 use crate::{FREEZING, LAVA_LEVEL};
 
 /// Emplacements tirés par colonne de chunks ; un emplacement devient un arbre avec la
-/// probabilité `densité / CANDIDATES`. La densité d'un biome reste donc sous 16.
-const CANDIDATES: u32 = 16;
+/// probabilité `densité × bosquet / CANDIDATES` (le facteur de bosquet monte à 2,2) : la
+/// densité d'un biome, multipliée par son facteur de bosquet maximal, reste donc sous 24.
+const CANDIDATES: u32 = 24;
+/// Le facteur de bosquet maximal (au cœur d'un bosquet).
+const MAX_GROVE: f32 = 1.0 / 0.45;
 /// Les arbres s'arrêtent à cette distance (en blocs) du centre d'un village.
 const VILLAGE_CLEARING: i32 = 40;
 
@@ -46,17 +61,93 @@ fn roll(seed: u32, x: i32, z: i32, salt: u64) -> f32 {
     (hash3(seed, x, 0, z, salt) >> 40) as f32 / (1u64 << 24) as f32
 }
 
+/// Le facteur de bosquet en (x, z) : de 0 (clairière) à 2,2 (cœur d'un bosquet), 1 en
+/// moyenne. `groves` (0 à 1) dose l'effet : à 0, le facteur vaut 1 partout.
+fn grove_factor(seed: u32, x: i32, z: i32, groves: f32) -> f32 {
+    let n = 0.7 * value_noise(seed, x, z, 28, 501) + 0.3 * value_noise(seed, x, z, 9, 502);
+    // La moyenne de ce smoothstep sur le bruit est d'environ 0,45 : on la ramène à 1.
+    let grove = smoothstep(0.35, 0.7, n) * MAX_GROVE;
+    1.0 - groves + groves * grove
+}
+
+/// Le facteur de tache d'une plante en (x, z) : chaque plante a ses propres taches (le sel
+/// vient de son bloc). 1 en moyenne ; `patches` (0 à 1) dose l'effet.
+fn patch_factor(seed: u32, x: i32, z: i32, plant: BlockId, patches: f32) -> f32 {
+    if patches <= 0.0 {
+        return 1.0;
+    }
+    let salt = 610 + plant.0 as u64 * 2;
+    let n = 0.65 * value_noise(seed, x, z, 10, salt) + 0.35 * value_noise(seed, x, z, 4, salt + 1);
+    // Moyenne d'environ 0,2 : les taches sont 5 fois plus denses que la moyenne.
+    let patch = smoothstep(0.55, 0.75, n) / 0.2;
+    1.0 - patches + patches * patch
+}
+
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// L'écart minimal entre deux troncs, selon la forme : les grands arbres se gênent plus.
+fn spacing(kind: TreeKind) -> i32 {
+    match kind {
+        TreeKind::Cactus | TreeKind::Bush | TreeKind::JungleBush => 2,
+        TreeKind::Oak | TreeKind::Birch | TreeKind::Spruce | TreeKind::TallSpruce => 3,
+        TreeKind::Swamp | TreeKind::Acacia => 5,
+        TreeKind::BigOak | TreeKind::Jungle => 6,
+    }
+}
+
+/// Les emplacements d'arbres déjà calculés, par colonne de chunks.
+///
+/// Chaque chunk a besoin des arbres des 9 colonnes autour de lui, et une colonne compte 6
+/// chunks en hauteur : sans mémoire, les arbres d'une colonne seraient tirés 54 fois. Le
+/// résultat ne dépend que de la graine et de la colonne : le garder ne change rien au monde.
+/// Le verrou n'est tenu que le temps d'une recherche ou d'une insertion.
+#[derive(Debug, Default)]
+pub(super) struct TreeCache(Mutex<HashMap<(i32, i32), TreeSites>>);
+
+/// Les arbres d'une colonne de chunks, partagés sans copie.
+pub type TreeSites = Arc<[TreeSite]>;
+
+/// Au-delà, on vide le cache (un monde parcouru en garde surtout les colonnes récentes).
+const TREE_CACHE_LIMIT: usize = 8192;
+
 impl TerrainGenerator {
-    /// Les arbres plantés dans la colonne de chunks (cx, cz).
-    pub fn tree_sites(&self, cx: i32, cz: i32) -> Vec<TreeSite> {
+    /// Les arbres plantés dans la colonne de chunks (cx, cz), depuis le cache si possible.
+    pub fn tree_sites(&self, cx: i32, cz: i32) -> TreeSites {
+        let lock = || self.tree_cache.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(sites) = lock().get(&(cx, cz)) {
+            return sites.clone();
+        }
+        let sites: TreeSites = self.compute_tree_sites(cx, cz).into();
+        let mut cache = lock();
+        if cache.len() >= TREE_CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert((cx, cz), sites.clone());
+        sites
+    }
+
+    /// Le tirage des arbres d'une colonne de chunks.
+    fn compute_tree_sites(&self, cx: i32, cz: i32) -> Vec<TreeSite> {
         if self.tree_blocks.is_none() {
             return Vec::new();
         }
         let mut rng = Rng64::new(hash3(self.seed, cx, 0, cz, 500));
         let size = CHUNK_SIZE as u32;
-        let mut sites = Vec::new();
+        let mut sites: Vec<TreeSite> = Vec::new();
         // Pas d'arbres dans un village : on les cherche une fois pour la colonne de chunks.
         let villages = self.village_clearings(cx, cz);
+        // La plus forte chance d'arbre, tous biomes confondus : un tirage au-dessus est rejeté
+        // sans évaluer la colonne (le plus cher).
+        let best = self
+            .biomes
+            .iter()
+            .filter(|(_, b)| !b.trees.is_empty())
+            .map(|(_, b)| b.tree_density * (1.0 - b.groves + b.groves * MAX_GROVE))
+            .fold(0.0, f32::max)
+            / CANDIDATES as f32;
         for _ in 0..CANDIDATES {
             // Tous les tirages d'abord, quoi qu'il arrive : la suite reste la même pour
             // chaque emplacement, que les précédents soient retenus ou non.
@@ -66,6 +157,9 @@ impl TerrainGenerator {
             let pick = rng.next_f32();
             let seed = rng.next_u64();
 
+            if accept >= best {
+                continue;
+            }
             if villages.iter().any(|&(vx, vz)| {
                 (x - vx).abs() <= VILLAGE_CLEARING && (z - vz).abs() <= VILLAGE_CLEARING
             }) {
@@ -73,7 +167,11 @@ impl TerrainGenerator {
             }
             let column = self.column(x, z);
             let biome = self.biomes.get(column.biome);
-            if biome.trees.is_empty() || accept >= biome.tree_density / CANDIDATES as f32 {
+            if biome.trees.is_empty() {
+                continue;
+            }
+            let grove = grove_factor(self.seed, x, z, biome.groves);
+            if accept >= biome.tree_density * grove / CANDIDATES as f32 {
                 continue;
             }
             if column.height < SEA_LEVEL {
@@ -90,15 +188,22 @@ impl TerrainGenerator {
                     target < 0.0
                 })
                 .map_or(biome.trees[0].0, |(k, _)| *k);
+            // Pas trop près d'un arbre déjà planté dans cette colonne de chunks.
+            let crowded = sites.iter().any(|s| {
+                let gap = spacing(kind).max(spacing(s.kind));
+                let (dx, dz) = (s.base.x - x, s.base.z - z);
+                dx * dx + dz * dz < gap * gap
+            });
+            if crowded {
+                continue;
+            }
             // Le sol doit convenir : du sable pour le cactus, de la terre ou de l'herbe
             // (éventuellement enneigée) pour les autres.
             let ground = self.layer(x, column.height, z, column);
             let ok = if kind == TreeKind::Cactus {
-                ground == self.blocks.sand
+                ground == self.blocks.sand || ground == self.plant_blocks.red_sand
             } else {
-                ground == self.plant_blocks.grass
-                    || ground == self.plant_blocks.dirt
-                    || ground == self.blocks.snow
+                self.plant_blocks.is_soil(ground) || ground == self.blocks.snow
             };
             if ok {
                 sites.push(TreeSite {
@@ -121,7 +226,7 @@ impl TerrainGenerator {
         // Un arbre fait au plus 30 blocs de haut.
         for cx in chunk_pos.x - 1..=chunk_pos.x + 1 {
             for cz in chunk_pos.z - 1..=chunk_pos.z + 1 {
-                for site in self.tree_sites(cx, cz) {
+                for &site in self.tree_sites(cx, cz).iter() {
                     let near = |a: i32, o: i32| {
                         a + trees::MAX_RADIUS >= o && a - trees::MAX_RADIUS < o + size
                     };
@@ -182,27 +287,32 @@ impl TerrainGenerator {
                 let biome = self.biomes.get(column.biome);
                 let r = roll(self.seed, x, z, 600);
                 if column.height >= SEA_LEVEL {
-                    // Sur la terre : au plus une plante par colonne, tirée parmi celles du biome.
+                    // Sur la terre : au plus une plante par colonne. Chaque plante du biome a
+                    // son propre tirage, modulé par ses taches ; les plus rares passent
+                    // d'abord (le registre les trie), pour que l'herbe ne les étouffe pas.
                     let y = column.height + 1;
                     if !inside(y) || biome.plants.is_empty() {
                         continue;
                     }
                     let ground = self.layer(x, column.height, z, column);
-                    let mut target = r;
-                    for &(plant, p) in &biome.plants {
-                        target -= p;
-                        if target < 0.0 {
-                            let ok = if plant == b.dead_bush {
-                                ground == self.blocks.sand
-                            } else {
-                                ground == b.grass || ground == b.dirt
-                            };
-                            let ly = (y - origin.y) as usize;
-                            if ok && chunk.get(lx, ly, lz).is_air() {
-                                chunk.set(lx, ly, lz, plant);
-                            }
-                            break;
+                    for (i, plant) in biome.plants.iter().enumerate() {
+                        let chance = plant.chance
+                            * patch_factor(self.seed, x, z, plant.block, plant.patches);
+                        if roll(self.seed, x, z, 620 + i as u64) >= chance {
+                            continue;
                         }
+                        let ok = if plant.block == b.dead_bush {
+                            ground == self.blocks.sand
+                                || ground == b.coarse_dirt
+                                || self.registry.def(ground).gravity
+                        } else {
+                            b.is_soil(ground)
+                        };
+                        let ly = (y - origin.y) as usize;
+                        if ok && chunk.get(lx, ly, lz).is_air() {
+                            chunk.set(lx, ly, lz, plant.block);
+                        }
+                        break;
                     }
                 } else {
                     let depth = SEA_LEVEL - column.height;
@@ -276,6 +386,9 @@ impl TerrainGenerator {
 pub(super) struct PlantBlocks {
     pub grass: BlockId,
     pub dirt: BlockId,
+    pub podzol: BlockId,
+    pub coarse_dirt: BlockId,
+    pub red_sand: BlockId,
     pub dead_bush: BlockId,
     pub seaweed: BlockId,
     pub lily_pad: BlockId,
@@ -284,6 +397,11 @@ pub(super) struct PlantBlocks {
 }
 
 impl PlantBlocks {
+    /// Un sol où poussent les plantes et les arbres : herbe, terre, podzol, terre grossière.
+    pub fn is_soil(&self, block: BlockId) -> bool {
+        [self.grass, self.dirt, self.podzol, self.coarse_dirt].contains(&block)
+    }
+
     pub fn resolve(registry: &crate::registry::BlockRegistry) -> anyhow::Result<Self> {
         use anyhow::Context as _;
         let id = |key: &str| {
@@ -294,6 +412,9 @@ impl PlantBlocks {
         Ok(Self {
             grass: id("core:grass")?,
             dirt: id("core:dirt")?,
+            podzol: id("core:podzol")?,
+            coarse_dirt: id("core:coarse_dirt")?,
+            red_sand: id("core:red_sand")?,
             dead_bush: id("core:dead_bush")?,
             seaweed: id("core:seaweed")?,
             lily_pad: id("core:lily_pad")?,

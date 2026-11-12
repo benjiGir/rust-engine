@@ -117,14 +117,15 @@ fn a_large_area_has_every_biome() {
     assert!(highest > SEA_LEVEL + 90, "pas de hauts sommets : {highest}");
     assert!(lowest < SEA_LEVEL - 25, "pas d'océan profond : {lowest}");
     // Les océans couvrent une part raisonnable du monde.
-    let ocean = [BiomeKind::Ocean, BiomeKind::DeepOcean]
+    let ocean = counts
         .iter()
-        .map(|&k| {
-            counts
-                .get(&generator.biomes().first_of(k))
-                .copied()
-                .unwrap_or(0)
+        .filter(|(id, _)| {
+            matches!(
+                generator.biome(**id).kind,
+                BiomeKind::Ocean | BiomeKind::DeepOcean
+            )
         })
+        .map(|(_, n)| n)
         .sum::<usize>() as f64
         / total as f64;
     assert!(
@@ -346,7 +347,7 @@ fn trees_are_complete_across_chunk_borders() {
     let world = generator.generate_area(IVec3::new(home.x - 1, 0, home.z - 1), 3, 3);
     let blocks = crate::trees::TreeBlocks::resolve(generator.registry()).unwrap();
     let mut border_trees = 0;
-    for site in generator.tree_sites(home.x, home.z) {
+    for site in generator.tree_sites(home.x, home.z).iter() {
         let local = site.base - World::chunk_origin(World::split(site.base).0);
         let near_border = [local.x, local.z].iter().any(|&v| !(4..28).contains(&v));
         let mut rng = crate::trees::Rng64::new(site.seed);
@@ -408,8 +409,19 @@ fn biomes_have_their_vegetation() {
     let generator = TerrainGenerator::new(42);
     let count = |biome: &str, keys: &[&str]| -> usize {
         let id = generator.biomes().id(biome).unwrap();
+        // Au cœur du biome : le chunk entier en est (pas une bordure).
         let (x, z) = generator
             .find_column(0, 0, 32, 20_000, |c| c.biome == id)
+            .and_then(|(x, z)| {
+                let inside = |px: i32, pz: i32| {
+                    [(0, 0), (32, 0), (-32, 0), (0, 32), (0, -32)]
+                        .iter()
+                        .all(|(dx, dz)| generator.column(px + dx, pz + dz).biome == id)
+                };
+                (-40..=40)
+                    .flat_map(|i| (-40..=40).map(move |j| (x + i * 16, z + j * 16)))
+                    .find(|&(px, pz)| inside(px, pz))
+            })
             .unwrap_or_else(|| panic!("pas de {biome}"));
         let home = World::split(IVec3::new(x, 0, z)).0;
         let world = generator.generate_area(IVec3::new(home.x, 0, home.z), 1, 1);

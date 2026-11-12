@@ -51,7 +51,7 @@ mod trees;
 mod visibility;
 mod world;
 
-pub use biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry, OreDef, Relief};
+pub use biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry, OreDef, PlantDef, Relief};
 pub use block::BlockId;
 pub use block_rules::{Settled, is_supported, settle};
 pub use capabilities::{

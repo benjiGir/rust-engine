@@ -354,6 +354,89 @@ fn stone() -> Image {
     nature::mineral("stone")
 }
 
+const PODZOL: [f32; 3] = [0.47, 0.31, 0.17];
+
+/// Le sol des vieilles forêts de conifères : un tapis brun-roux d'aiguilles tombées.
+fn podzol_top() -> Image {
+    let mut image = seamless_ground(PODZOL, 1701, 0.15);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            // Des aiguilles : de courts traits clairs ou sombres, en diagonale.
+            let h = texel_hash(x, y, 1702) % 23;
+            if h == 0 {
+                image.set(x, y, scale(PODZOL, 1.35));
+                image.set((x + 1) % SIZE, (y + 1) % SIZE, scale(PODZOL, 1.25));
+            } else if h == 1 {
+                image.set(x, y, scale(PODZOL, 0.7));
+            }
+        }
+    }
+    image
+}
+
+/// Le côté du podzol : de la terre, avec une bordure d'aiguilles en haut.
+fn podzol_side() -> Image {
+    let mut image = dirt();
+    let top = podzol_top();
+    for x in 0..SIZE {
+        let depth = 2 + (texel_hash(x, 0, 1703) % 2) as usize;
+        for y in 0..depth {
+            image.pixels[x + y * SIZE] = top.pixels[x + y * SIZE];
+        }
+    }
+    image
+}
+
+/// La terre grossière des pays secs : plus pâle que la terre, semée de cailloux.
+fn coarse_dirt() -> Image {
+    let base = [0.53, 0.39, 0.27];
+    let mut image = seamless_ground(base, 1711, 0.12);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            match texel_hash(x, y, 1712) % 13 {
+                0 => image.set(x, y, scale(STONE, 0.95)),
+                1 => image.set(x, y, scale(STONE, 0.75)),
+                2 => image.set(x, y, scale(base, 0.75)),
+                _ => {}
+            }
+        }
+    }
+    image
+}
+
+/// Le sable rouge des plateaux arides, avec les mêmes rides que le sable.
+fn red_sand() -> Image {
+    let base = [0.76, 0.44, 0.24];
+    let mut image = seamless_ground(base, 1721, 0.07);
+    for y in 0..SIZE {
+        let v = y as f32 / (SIZE - 1) as f32;
+        for x in 0..SIZE {
+            let u = x as f32 / (SIZE - 1) as f32;
+            let ripple = 1.0 + (std::f32::consts::TAU * (v * 2.0 + u)).sin() * 0.03;
+            let pixel = image.pixels[x + y * SIZE];
+            image.set(
+                x,
+                y,
+                scale(
+                    [
+                        pixel[0] as f32 / 255.0,
+                        pixel[1] as f32 / 255.0,
+                        pixel[2] as f32 / 255.0,
+                    ],
+                    ripple,
+                ),
+            );
+        }
+    }
+    image
+}
+
+/// La terre cuite des falaises arides : une argile durcie, presque unie. Trois teintes, empilées
+/// en strates par le générateur.
+fn terracotta(base: [f32; 3], seed: u64) -> Image {
+    seamless_ground(base, seed, 0.045)
+}
+
 fn sand() -> Image {
     nature::mineral("sand")
 }
@@ -1135,6 +1218,22 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("grass_top.png"), grass_top()),
         (core.join("grass_side.png"), grass_side()),
         (core.join("dirt.png"), dirt()),
+        (core.join("podzol_top.png"), podzol_top()),
+        (core.join("podzol_side.png"), podzol_side()),
+        (core.join("coarse_dirt.png"), coarse_dirt()),
+        (core.join("red_sand.png"), red_sand()),
+        (
+            core.join("terracotta.png"),
+            terracotta([0.66, 0.38, 0.26], 1731),
+        ),
+        (
+            core.join("terracotta_pale.png"),
+            terracotta([0.82, 0.66, 0.52], 1732),
+        ),
+        (
+            core.join("terracotta_dark.png"),
+            terracotta([0.44, 0.27, 0.21], 1733),
+        ),
         (core.join("stone.png"), stone()),
         (core.join("sand.png"), sand()),
         (core.join("snow.png"), snow()),

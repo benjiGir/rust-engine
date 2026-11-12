@@ -1137,4 +1137,37 @@
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 4.0, tool: Pickaxe, tier: 1,
     ),
+    // Les sols des biomes : podzol des vieilles forêts, terre grossière des pays secs, sable rouge
+    // et terre cuite (en strates) des plateaux arides.
+    (
+        id: "core:podzol", name: "Podzol", color: (0.1943, 0.0845, 0.0309),
+        textures: (top: "podzol_top", side: "podzol_side", bottom: "dirt"),
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.5, tool: Shovel,
+    ),
+    (
+        id: "core:coarse_dirt", name: "Terre grossière", color: (0.2167, 0.1368, 0.0865), texture: "coarse_dirt",
+        sounds: (step: "step_sand", break: "break_soft", place: "place_soft"),
+        hardness: 0.5, tool: Shovel,
+    ),
+    (
+        id: "core:red_sand", name: "Sable rouge", color: (0.508, 0.1635, 0.0528), texture: "red_sand",
+        sounds: (step: "step_sand", break: "break_soft", place: "place_soft"),
+        hardness: 0.5, tool: Shovel, gravity: true,
+    ),
+    (
+        id: "core:terracotta", name: "Terre cuite", color: (0.3769, 0.1248, 0.0562), texture: "terracotta",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.25, tool: Pickaxe, tier: 1,
+    ),
+    (
+        id: "core:terracotta_pale", name: "Terre cuite pâle", color: (0.6346, 0.4023, 0.2414), texture: "terracotta_pale",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.25, tool: Pickaxe, tier: 1,
+    ),
+    (
+        id: "core:terracotta_dark", name: "Terre cuite sombre", color: (0.1531, 0.063, 0.0423), texture: "terracotta_dark",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.25, tool: Pickaxe, tier: 1,
+    ),
 ]

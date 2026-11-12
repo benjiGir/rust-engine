@@ -1070,9 +1070,20 @@ pub(crate) mod tests {
         let position = world.get::<Transform>(mob).unwrap().position;
         let collider = *world.get::<Collider>(mob).unwrap();
         assert!(collider.on_ground);
-        // Les grottes peuvent percer la surface : le sol est au plus à la hauteur du terrain.
+        // Les grottes peuvent percer la surface, et un arbre ou un buisson peut le couvrir : le
+        // cochon est au plus sur le bloc solide le plus haut de la colonne.
+        let top = (ground..ground + 32)
+            .rev()
+            .find(|&y| {
+                world
+                    .streamer()
+                    .borrow()
+                    .world()
+                    .is_solid(glam::IVec3::new(x, y, z))
+            })
+            .unwrap_or(ground);
         assert!(
-            position.y <= ground as f32 + 1.01 && position.y > 1.0,
+            position.y <= top as f32 + 1.01 && position.y > 1.0,
             "y = {}",
             position.y
         );

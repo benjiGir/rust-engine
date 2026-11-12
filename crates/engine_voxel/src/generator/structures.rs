@@ -888,13 +888,14 @@ impl Builder<'_> {
 
     fn style(&self, biome: &str) -> Style {
         let (planks, log, wall, roof) = match biome {
-            "core:taiga" | "core:snowy_tundra" => (
+            "core:taiga" | "core:snowy_tundra" | "core:snowy_taiga" | "core:mixed_forest"
+            | "core:steppe" => (
                 "core:spruce_planks",
                 "core:spruce_log",
                 "core:spruce_planks",
                 "core:spruce_planks",
             ),
-            "core:savanna" => (
+            "core:savanna" | "core:shrubland" => (
                 "core:acacia_planks",
                 "core:acacia_log",
                 "core:acacia_planks",
@@ -1252,7 +1253,12 @@ impl Builder<'_> {
 
     /// Une salle de donjon enterrée : quatre murs de pierre, du gravier, des coffres.
     fn dungeon(&mut self, x: i32, z: i32) {
-        let surface = self.height(x, z);
+        // Sous le point le plus bas de la salle : sur une pente, elle reste enterrée.
+        let surface = [(0, 0), (-5, -5), (5, -5), (-5, 5), (5, 5)]
+            .iter()
+            .map(|&(dx, dz)| self.height(x + dx, z + dz))
+            .min()
+            .unwrap_or(0);
         let y = (surface - 12 - self.rng.below(10) as i32).max(LAVA_LEVEL + 6);
         if surface - y < 8 {
             return;

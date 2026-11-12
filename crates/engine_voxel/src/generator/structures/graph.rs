@@ -362,12 +362,43 @@ impl Layout {
     }
 }
 
+/// Le plancher d'un donjon : `depth` blocs sous le sol **le plus bas** de toute son emprise
+/// (salles et couloirs), pas seulement sous l'entrée. Sinon, un donjon posé sur une colline
+/// dont les salles s'étendent au-dessus d'une vallée ou d'une rivière en sort à l'air libre.
+pub(super) fn floor_y(
+    def: &GraphDef,
+    layout: &Layout,
+    sx: i32,
+    sz: i32,
+    mut height: impl FnMut(i32, i32) -> i32,
+) -> i32 {
+    let center = |n: &Node| (sx + n.grid.0 * def.cell, sz + n.grid.1 * def.cell);
+    let mut lowest = height(sx, sz);
+    for node in &layout.nodes {
+        let (cx, cz) = center(node);
+        let t = &def.rooms[node.room].1;
+        // Le centre et les quatre coins de la salle (avec un bloc de marge).
+        let (hw, hd) = (t.w / 2 + 1, t.d / 2 + 1);
+        for (dx, dz) in [(0, 0), (-hw, -hd), (hw, -hd), (-hw, hd), (hw, hd)] {
+            lowest = lowest.min(height(cx + dx, cz + dz));
+        }
+    }
+    for (parent, child) in layout.edges() {
+        let (a, b) = (center(&layout.nodes[parent]), center(&layout.nodes[child]));
+        let steps = (b.0 - a.0).abs().max((b.1 - a.1).abs());
+        let (dx, dz) = ((b.0 - a.0).signum(), (b.1 - a.1).signum());
+        for s in (0..=steps).step_by(4) {
+            lowest = lowest.min(height(a.0 + dx * s, a.1 + dz * s));
+        }
+    }
+    (lowest - def.depth).max(12)
+}
+
 impl Builder<'_> {
     /// Construit un donjon centré (en x, z) sur le point du site.
     pub(super) fn graph(&mut self, sx: i32, sz: i32, def: &GraphDef, set: &StructureSet) {
         let layout = layout(def, &mut self.rng);
-        let surface = self.height(sx, sz);
-        let y0 = (surface - def.depth).max(12);
+        let y0 = floor_y(def, &layout, sx, sz, |x, z| self.height(x, z));
         let center = |n: &Node| (sx + n.grid.0 * def.cell, sz + n.grid.1 * def.cell);
         // La demi-longueur d'une salle sur un axe (pas de rotation : le plan est tel qu'écrit).
         let half = |n: &Node, axis_x: bool| {
@@ -502,7 +533,9 @@ impl Builder<'_> {
             let floor = y0 + step;
             let ground = self.height(x, z);
             // Sorti de terre : la dernière case reste une marche pleine, à fleur de sol.
-            let last = floor >= ground || step > def.depth + 12;
+            // (Le plancher peut être bien plus bas que le sol de l'entrée : il suit le point le
+            // plus bas de l'emprise. La limite ne sert qu'à ne jamais boucler sans fin.)
+            let last = floor >= ground || step > 200;
             let steps = def.stairs.filter(|_| !last).map(|s| s[facing]);
             // Avec des demi-marches, le sol de la case est un bloc plus haut : le bloc d'escalier.
             let rise = i32::from(steps.is_some());
@@ -717,8 +750,7 @@ mod tests {
         }
         // Le donjon est enterré : tout son plancher est sous la surface, et l'escalier en sort
         // (de l'air jusqu'au sol, à une colonne où la surface est atteinte).
-        let surface = generator.column(x, z).height;
-        let floor_y = (surface - def.depth).max(12);
+        let floor_y = floor_y(&def, &lay, x, z, |px, pz| generator.column(px, pz).height);
         let lowest = plan.blocks().iter().map(|(p, _)| p.y).min().unwrap();
         assert!(
             lowest >= floor_y - 1,
@@ -738,8 +770,7 @@ mod tests {
         let (plan, (x, z)) = build(&set, &generator, 11);
         let lay = layout(&def, &mut Rng64::new(11));
         let air = generator.registry().id("core:air").unwrap();
-        let surface = generator.column(x, z).height;
-        let floor_y = (surface - def.depth).max(12);
+        let floor_y = floor_y(&def, &lay, x, z, |px, pz| generator.column(px, pz).height);
         // Le dernier ordre posé à une case l'emporte : on rejoue le plan.
         let mut cells = std::collections::HashMap::new();
         for &(p, b) in plan.blocks() {
