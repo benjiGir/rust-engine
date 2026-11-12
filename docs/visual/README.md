@@ -265,11 +265,78 @@ hooks et documentation passent. La suite complète rencontre uniquement l'interd
 de socket déjà décrite ; les autres tests passent avec ce seul test exclu explicitement.
 Les mondes, recettes, règles du jeu, scripts et WASM sont inchangés par cette passe.
 
+## Lot 7 — contenu visible dans les conduits
+
+![Eau, gaz et objets en circulation](07-transports.gif)
+
+[Planche fixe](07-transports.png). Les scènes de contrôle contiennent un producteur,
+un coude et un récepteur. La vapeur est un fluide gazeux déclaré uniquement dans la
+fixture de contrôle ; aucun nouveau bloc ou fluide du jeu n'est ajouté.
+
+Les transferts de fluides et d'objets émettent maintenant des traces de dessin.
+Les tuyaux de fluides et les transporteurs d'objets fermés ont un cadre métallique
+et des fenêtres translucides. Les collisions et la sélection conservent les boîtes
+antérieures. Les courroies montrent les objets au-dessus du tapis, avec leurs vrais
+modèles : pixels extrudés des objets et textures des blocs.
+
+Les liquides utilisent un volume coloré et des reflets mobiles. Un fluide dont la
+densité est négative utilise une brume colorée et des particules. La couleur et la
+lumière propre proviennent du registre des fluides. Les instances reçoivent la
+lumière du voisinage des fenêtres ; la lumière propre reste un effet sur le contenu,
+sans modifier la propagation lumineuse du monde.
+
+Les traces reprennent les paires et les quantités de la répartition existante. Le
+trajet visuel suit les faces raccordées, les coudes, les sens uniques et le canal,
+sans traverser de machine intermédiaire. Les fluides conservent les faces exactes
+des réservoirs utilisés. Les chemins sont mis en cache et invalidés après un
+changement de réseau. Le contenu est masqué si son trajet a été cassé ou retourné.
+Il suit la position et la rotation des structures mobiles. F5 vide aussi le cache
+des modèles transportés.
+
+Les objets se déplacent à environ quatre blocs par seconde, avec une animation
+plafonnée à huit secondes pour les longues lignes. Les flux de fluides s'effacent
+en 0,4 seconde sans nouveau transfert. Ce sont des animations de la livraison
+instantanée existante : les inventaires, réserves, débits et délais logiques ne
+changent pas. Les limites de dessin sont détaillées dans
+[la documentation des conduits](../modding.md#le-contenu-visible-des-conduits).
+
+La référence étudiée est la présentation des transports de Mekanism :
+[Mechanical Pipe](https://wiki.aidancbrady.com/wiki/Mechanical_Pipe),
+[Logistical Transporter](https://wiki.aidancbrady.com/wiki/Logistical_Transporter) et
+[Pressurized Tube](https://wiki.aidancbrady.com/wiki/Pressurized_Tube).
+Le dessin et les ressources restent ceux du projet.
+
+```sh
+cargo run -p voxel --example transit_review -- /tmp/transports
+ffmpeg -framerate 10 -i /tmp/transports-%02d.png -filter_complex \
+  '[0:v]split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=none' \
+  /tmp/transports.gif
+```
+
+Le rendu CPU compose les mêmes boîtes, fenêtres, modèles et effets que le jeu,
+avec les transferts calculés dans trois sous-grilles en mémoire. Il ne simule pas
+le shader ou l'éclairage nocturne. Le lancement natif reste bloqué par les services
+macOS décrits plus haut : rendu GPU des transparences, éclairage en partie et clics
+sur les fenêtres restent à confirmer. Aucun monde du propriétaire n'a été utilisé.
+
+Neuf tests supplémentaires vérifient les traces d'objets, d'eau et de gaz, les
+quantités reçues, les coudes, la casse, les récepteurs pleins, les changements de sens,
+les faces des réservoirs multiples, les fenêtres et les limites de mémoire. Ils vérifient aussi les modèles en mouvement,
+l'extinction des flux, les transformations mobiles, la distance et le budget de dessin.
+Les tests existants des réseaux et des collisions restent inchangés.
+
+Les six contrôles demandés passent pour ce lot : `cargo fmt --check`,
+`cargo clippy --workspace --all-targets` sans avertissement, `cargo test --workspace`,
+`cargo xtask check-arch`, `cargo xtask hooks --check` et `cargo xtask docs --check`.
+Le test de socket précédemment bloqué passe dans l'environnement actuel, sans
+exclusion ni modification du test. Le nouveau lancement natif a en revanche encore
+échoué sur `com.apple.hiservices-xpcservice`, avant l'ouverture du serveur de contrôle.
+
 ## Commits et patchs
 
 L’écriture dans `.git` est interdite par l’environnement : `git add` échoue sur
 `index.lock` avec `Operation not permitted`. Aucun commit n’a donc été créé.
-Les lots sont fournis sous forme de patchs successifs dans `patches/`, avec leurs
+Les six premiers lots sont fournis sous forme de patchs successifs dans `patches/`, avec leurs
 messages de commit français dans les fichiers `*-message.txt`.
 Ces patchs décrivent les changements déjà présents dans l’arbre de travail ; ne pas
 les réappliquer à cet arbre. Ils permettent de reproduire les lots sur la révision

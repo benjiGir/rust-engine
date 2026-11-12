@@ -41,6 +41,7 @@
 //! il tourne sur le thread des machines, et reste sous la milliseconde pour des milliers de câbles
 //! (voir les tests).
 
+use crate::network_visual::{Movement, TransferVisuals, TransitContent, pair_flows};
 use std::collections::VecDeque;
 
 use glam::IVec3;
@@ -182,6 +183,7 @@ pub struct Networks {
     index: HashMap<GridPos, u32>,
     next_id: u32,
     last_rebuilt: usize,
+    visuals: TransferVisuals,
 }
 
 impl Networks {
@@ -273,6 +275,7 @@ impl Networks {
         if dirty.is_empty() {
             return;
         }
+        self.visuals.invalidate();
         let mut seeds: Vec<GridPos> = dirty.to_vec();
         let mut dropped: HashSet<u32> = HashSet::default();
         for at in dirty {
@@ -461,6 +464,10 @@ impl Networks {
 
     /// Un bilan de tous les réseaux. Renvoie les machines dont le contenu a changé : le jeu
     /// les réveille (une lampe qui reçoit de l'énergie, un ventilateur qui se met à tourner).
+    pub fn take_visual_transfers(&mut self) -> Vec<crate::VisualTransfer> {
+        self.visuals.take()
+    }
+
     pub fn tick(&mut self, grids: Grids) -> Vec<GridPos> {
         let mut woken = Vec::new();
         self.ticks += 1;
@@ -470,9 +477,10 @@ impl Networks {
                 continue;
             };
             let mut grid = cell.borrow_mut();
+            let mut movements = Vec::new();
             let changed = match net.kind {
                 NetworkKind::Energy => tick_energy(&mut *grid, net),
-                NetworkKind::Fluid => tick_fluid(&mut *grid, net),
+                NetworkKind::Fluid => tick_fluid(&mut *grid, net, &mut movements),
                 NetworkKind::Kinetic => tick_kinetic(&mut *grid, net),
                 NetworkKind::Items if items_pass => tick_items(
                     &mut *grid,
@@ -480,9 +488,13 @@ impl Networks {
                     &self.ports,
                     self.rules.as_ref(),
                     self.ticks / ITEM_PERIOD,
+                    &mut movements,
                 ),
                 NetworkKind::Items => Vec::new(),
             };
+            for movement in movements {
+                self.visuals.record(net, &*grid, movement);
+            }
             woken.extend(changed.into_iter().map(|p| GridPos::new(net.grid, p)));
         }
         woken
@@ -560,6 +572,7 @@ fn tick_items(
     ports: &[Option<crate::registry::InventoryPorts>],
     rules: Option<&(Arc<ItemRegistry>, Arc<MachineRecipes>)>,
     turn: u64,
+    movements: &mut Vec<Movement>,
 ) -> Vec<IVec3> {
     if net.endpoints.len() < 2 {
         return Vec::new();
@@ -682,6 +695,14 @@ fn tick_items(
                     {
                         put_into(inv, &target.take, &stack.item, room);
                     }
+                    movements.push(Movement {
+                        from: giver.pos,
+                        to: target.pos,
+                        from_face: None,
+                        to_face: None,
+                        content: TransitContent::Item(stack.item.clone()),
+                        amount: u64::from(room),
+                    });
                     budget -= room;
                     changed.push(giver.pos);
                     changed.push(target.pos);
@@ -763,6 +784,13 @@ fn split(total: u64, weights: &[u64]) -> Vec<u64> {
 
 /// Le plan d'un tick : pour chaque extrémité, ce qu'elle donne (négatif) ou reçoit (positif).
 fn plan(slots: &[Slot], rate: u64) -> Vec<i64> {
+    plan_traced(slots, rate, None)
+}
+fn plan_traced(
+    slots: &[Slot],
+    rate: u64,
+    mut transfers: Option<&mut Vec<(usize, usize, u64)>>,
+) -> Vec<i64> {
     let mut delta = vec![0i64; slots.len()];
     let pick = |io: Io| -> Vec<usize> { (0..slots.len()).filter(|&i| slots[i].io == io).collect() };
     let (sources, sinks, buffers) = (pick(Io::Out), pick(Io::In), pick(Io::Both));
@@ -773,12 +801,15 @@ fn plan(slots: &[Slot], rate: u64) -> Vec<i64> {
     let mut budget = rate;
 
     // Déplace `amount` des `from` vers les `to`, au prorata.
-    let flow = |amount: u64,
-                from: (&[usize], &mut Vec<u64>),
-                to: (&[usize], &mut Vec<u64>),
-                delta: &mut Vec<i64>| {
+    let mut flow = |amount: u64,
+                    from: (&[usize], &mut Vec<u64>),
+                    to: (&[usize], &mut Vec<u64>),
+                    delta: &mut Vec<i64>| {
         let taken = split(amount, from.1);
         let given = split(amount, to.1);
+        if let Some(transfers) = transfers.as_deref_mut() {
+            pair_flows(from.0, &taken, to.0, &given, transfers);
+        }
         for ((&slot, left), t) in from.0.iter().zip(from.1.iter_mut()).zip(&taken) {
             delta[slot] -= *t as i64;
             *left -= t;
@@ -828,6 +859,9 @@ fn plan(slots: &[Slot], rate: u64) -> Vec<i64> {
             if gap > BALANCE_EPSILON {
                 let half = (gap / 2.0 * sh.capacity.min(sl.capacity) as f64).ceil() as u64;
                 let amount = budget.min(buf_avail[h]).min(buf_room[l]).min(half.max(1));
+                if let Some(transfers) = transfers {
+                    transfers.push((buffers[h], buffers[l], amount));
+                }
                 delta[buffers[h]] -= amount as i64;
                 delta[buffers[l]] += amount as i64;
             }
@@ -842,6 +876,8 @@ struct Routed {
     room: Vec<u64>,
     delta: Vec<i64>,
     budget: u64,
+    transfers: Vec<(usize, usize, u64)>,
+    observe: bool,
 }
 
 impl Routed {
@@ -863,6 +899,12 @@ impl Routed {
             let rooms: Vec<u64> = targets.iter().map(|&t| self.room[t]).collect();
             let amount = self.avail[s].min(self.budget).min(rooms.iter().sum());
             for (&t, given) in targets.iter().zip(split(amount, &rooms)) {
+                if self.observe
+                    && given > 0
+                    && self.transfers.len() < crate::network_visual::MAX_VISUAL_TRANSFERS
+                {
+                    self.transfers.push((s, t, given));
+                }
                 self.delta[t] += given as i64;
                 self.room[t] -= given;
                 self.delta[s] -= given as i64;
@@ -877,6 +919,14 @@ impl Routed {
 /// les extrémités où ses flux peuvent aller (`allows(de, vers)`). Les sources passent dans
 /// l'ordre ; les tampons ne s'équilibrent pas entre eux (leurs trajets sont à sens unique).
 fn plan_routed(slots: &[Slot], rate: u64, allows: impl Fn(IVec3, IVec3) -> bool) -> Vec<i64> {
+    plan_routed_traced(slots, rate, allows, None)
+}
+fn plan_routed_traced(
+    slots: &[Slot],
+    rate: u64,
+    allows: impl Fn(IVec3, IVec3) -> bool,
+    transfers: Option<&mut Vec<(usize, usize, u64)>>,
+) -> Vec<i64> {
     let pick = |io: Io| -> Vec<usize> { (0..slots.len()).filter(|&i| slots[i].io == io).collect() };
     let (sources, sinks, buffers) = (pick(Io::Out), pick(Io::In), pick(Io::Both));
     let mut state = Routed {
@@ -884,6 +934,8 @@ fn plan_routed(slots: &[Slot], rate: u64, allows: impl Fn(IVec3, IVec3) -> bool)
         room: slots.iter().map(|s| s.room).collect(),
         delta: vec![0; slots.len()],
         budget: rate,
+        transfers: Vec::new(),
+        observe: transfers.is_some(),
     };
     // Comme `plan` : producteurs → consommateurs, producteurs → tampons, tampons → consommateurs.
     state.flow(slots, &allows, &sources, &sinks);
@@ -913,9 +965,16 @@ fn plan_routed(slots: &[Slot], rate: u64, allows: impl Fn(IVec3, IVec3) -> bool)
                 .min(state.avail[h])
                 .min(state.room[l])
                 .min(half.max(1));
+            if state.observe && state.transfers.len() < crate::network_visual::MAX_VISUAL_TRANSFERS
+            {
+                state.transfers.push((h, l, amount));
+            }
             state.delta[h] -= amount as i64;
             state.delta[l] += amount as i64;
         }
+    }
+    if let Some(transfers) = transfers {
+        transfers.extend(state.transfers);
     }
     state.delta
 }
@@ -979,7 +1038,11 @@ fn tick_energy(grid: &mut (impl BlockAccess + ?Sized), net: &Network) -> Vec<IVe
     changed
 }
 
-fn tick_fluid(grid: &mut (impl BlockAccess + ?Sized), net: &Network) -> Vec<IVec3> {
+fn tick_fluid(
+    grid: &mut (impl BlockAccess + ?Sized),
+    net: &Network,
+    movements: &mut Vec<Movement>,
+) -> Vec<IVec3> {
     if net.endpoints.len() < 2 {
         return Vec::new();
     }
@@ -1042,11 +1105,22 @@ fn tick_fluid(grid: &mut (impl BlockAccess + ?Sized), net: &Network) -> Vec<IVec
             })
         })
         .collect();
+    let mut transfers = Vec::new();
     let delta = if net.routes.is_some() {
-        plan_routed(&slots, rate, |a, b| net.allows(a, b))
+        plan_routed_traced(&slots, rate, |a, b| net.allows(a, b), Some(&mut transfers))
     } else {
-        plan(&slots, rate)
+        plan_traced(&slots, rate, Some(&mut transfers))
     };
+    for (from, to, amount) in transfers {
+        movements.push(Movement {
+            from: slots[from].pos,
+            to: slots[to].pos,
+            from_face: Some(slots[from].face),
+            to_face: Some(slots[to].face),
+            content: TransitContent::Fluid(fluid.clone()),
+            amount,
+        });
+    }
     let mut changed = Vec::new();
     for (slot, d) in slots.iter().zip(delta) {
         if d == 0 {

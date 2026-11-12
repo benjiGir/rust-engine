@@ -1,0 +1,3 @@
+Afficher le contenu transporté dans les conduits
+
+Observer les transferts réels pour animer les objets, les liquides et les gaz dans des conduits vitrés. Respecter les trajets, les sens uniques et les structures mobiles sans modifier les réserves ni la livraison. Ajouter les contrôles de rendu et les tests associés.

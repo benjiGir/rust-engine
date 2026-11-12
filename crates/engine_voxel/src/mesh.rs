@@ -883,9 +883,16 @@ fn model_boxes(
 ) {
     let (_, own_sky, own_light) = hood.cell(p);
     let boxes = crate::connections::boxes_at(&hood.registry, p, |p| hood.get(p), |p| hood.caps(p));
-    for (box_index, b) in boxes.iter().enumerate() {
+    let shell = crate::conduit_shell(def, &boxes);
+    let (solid, windows) = shell.as_ref().map_or((boxes.as_ref(), &[][..]), |s| {
+        (s.rails.as_slice(), s.windows.as_slice())
+    });
+    for (box_index, b) in solid.iter().chain(windows).enumerate() {
+        let glass = box_index >= solid.len();
         let rotation = def.rotation.as_ref().filter(|r| {
-            box_index < def.boxes.len() && (r.boxes.is_empty() || r.boxes.contains(&box_index))
+            shell.is_none() && {
+                box_index < def.boxes.len() && (r.boxes.is_empty() || r.boxes.contains(&box_index))
+            }
         });
         for face in Face::ALL {
             let a = face.axis;
@@ -928,9 +935,17 @@ fn model_boxes(
                 mesh.push_vertex(
                     base + corner,
                     normal,
-                    color,
+                    if glass {
+                        [0.35, 0.5, 0.46, 0.14]
+                    } else {
+                        color
+                    },
                     vertex_light,
-                    layer | flags | hood.furnace_fire(p, def, face),
+                    if glass {
+                        0
+                    } else {
+                        layer | flags | hood.furnace_fire(p, def, face)
+                    },
                 );
                 if let Some(rotation) = rotation {
                     let vertex = mesh.vertices.last_mut().expect("sommet ajouté");
@@ -945,7 +960,7 @@ fn model_boxes(
                     };
                 }
             }
-            let list = if def.alpha < 1.0 {
+            let list = if glass || def.alpha < 1.0 {
                 &mut mesh.translucent_indices
             } else {
                 &mut mesh.indices

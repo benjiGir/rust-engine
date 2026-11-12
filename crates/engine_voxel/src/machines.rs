@@ -593,6 +593,11 @@ impl Machines {
         &self.networks
     }
 
+    /// Vide les traces de dessin, sans toucher aux réserves des machines.
+    pub fn take_visual_transfers(&mut self) -> Vec<crate::VisualTransfer> {
+        self.networks.take_visual_transfers()
+    }
+
     /// Les objets et les recettes de machines que connaissent les réseaux d'objets.
     pub fn set_item_rules(
         &mut self,

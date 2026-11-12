@@ -96,6 +96,20 @@ pub struct Wander {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GravityScale(pub f32);
 
+/// L'animation d'une créature : la phase de sa marche, l'ampleur de ses pas, et de combien sa tête
+/// est tournée par rapport à son corps (radians, positif vers sa gauche... côté +z).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct MobAnim {
+    pub phase: f32,
+    pub stride: f32,
+    pub look: f32,
+    /// Le regard de repos (un petit coup d'œil au hasard) quand elle ne regarde pas le joueur.
+    pub glance: f32,
+    /// Elle regarde le joueur (tant que `timer` n'est pas écoulé).
+    pub attending: bool,
+    pub timer: f32,
+}
+
 /// Où une créature à comportement va (`mob_move_to`) : la case du but et la vitesse. Le chemin
 /// est cherché et suivi par le jeu entre deux appels du script.
 #[derive(Debug, Clone, Copy, PartialEq)]

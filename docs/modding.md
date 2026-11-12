@@ -209,6 +209,31 @@ Dans le jeu, **Maj + clic droit** avec un conduit permet de le poser contre une
 machine sans ouvrir son interface. Le clic normal sur un conduit pose sur la face
 visée ; les branches se raccordent automatiquement.
 
+### Le contenu visible des conduits
+
+Les transferts `Items` et `Fluid` produisent automatiquement des traces de dessin,
+dans le monde et dans les structures mobiles. Les objets utilisent leurs modèles
+texturés. Les fluides utilisent la couleur et la lumière propre de `fluids.ron` ; une
+densité négative donne une brume gazeuse. Aucun champ ni appel de script supplémentaire
+n'est nécessaire. Les courroies basses montrent les objets au-dessus du tapis.
+
+Un modèle fermé de fluide, ou un transporteur d'objets fermé à `connections`/`boxes`,
+reçoit un cadre métallique et des fenêtres transparentes pour voir son contenu.
+Les boîtes physiques et la sélection gardent leur géométrie d'origine. Pour un
+transporteur d'objets en boîtes, le premier volume haut d'au moins un demi-bloc
+est considéré comme une enveloppe fermée ; un tapis bas reste ouvert.
+
+Le trajet de dessin suit les conduits compatibles, les faces des machines, le canal
+et les sens uniques. Il ne traverse ni une machine intermédiaire ni un autre réseau.
+Les réserves changent toujours au tick du transfert : le déplacement visible n'ajoute
+aucun délai de livraison et n'est pas sauvegardé. Un flux arrêté s'efface rapidement ;
+le réseau ne gagne pas de réserve de fluide dans ses tuyaux.
+
+Le dessin est borné : 256 traces en attente, 256 animations actives, 8192 instances
+par image à 64 blocs de la caméra. Une recherche visuelle parcourt au plus 8192
+conduits et retient un trajet d'au plus 512 positions. Au-delà, seuls des effets
+visuels sont omis ; les transferts continuent normalement.
+
 ## Les animations de blocs
 
 Un modèle à boîtes peut déclarer une rotation visuelle continue, calculée par le GPU :
@@ -875,6 +900,15 @@ La physique, les dégâts reçus, la mort, le butin et le rendu restent ceux du 
 (id: "mon_mod:gardien", name: "Gardien", health: 20.0, speed: 2.2, size: (0.7, 1.7),
  hostile: true, brain: true, spawn_on: ["core:grass"], parts: [ /* ... */ ])
 ```
+
+**L'animation** vient de la forme : chaque boîte de `parts` peut dire son rôle avec `bone` (sans rien, elle
+reste immobile). `bone: Leg` et `bone: Arm` se balancent en marchant (par le haut de la boîte ; une patte
+et son sabot, à la même place, pivotent ensemble par le haut de la plus haute ; les pattes d'un animal
+vont en diagonale), d'autant plus que la créature va vite. `bone: Head` marque toutes les boîtes de la
+tête : elles se tournent ensemble, autour du cou, vers le joueur quand il est à moins de 8 blocs (16
+pour une hostile), par moments, et font un petit coup d'œil au hasard le reste du temps. Une créature
+de mod en profite sans script : `parts: [(offset: (0.3, 0.1, 0.2), size: (0.2, 0.3, 0.2), color: (..),
+bone: Leg), ...]`.
 
 ```rust
 fn init(&mut self) {

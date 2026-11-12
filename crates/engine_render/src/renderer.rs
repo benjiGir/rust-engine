@@ -50,6 +50,10 @@ pub struct CubeInstance {
     /// Coordonnées du fragment de bloc représenté par cette boîte.
     pub uv_min: [f32; 3],
     pub uv_max: [f32; 3],
+    /// Un balancement : l'angle (radians, autour de l'axe latéral de la boîte : une patte qui part
+    /// vers l'avant, +x, avec un angle positif) et la hauteur du pivot au-dessus du centre de la
+    /// boîte (une patte pivote par la hanche, en haut).
+    pub swing: [f32; 2],
 }
 
 impl CubeInstance {
@@ -66,7 +70,15 @@ impl CubeInstance {
             cutout: 0,
             uv_min: [0.0; 3],
             uv_max: [1.0; 3],
+            swing: [0.0; 2],
         }
+    }
+
+    /// Fait balancer la boîte de `angle` radians autour d'un pivot situé `pivot` au-dessus de son
+    /// centre (voir [`CubeInstance::swing`]).
+    pub fn with_swing(mut self, angle: f32, pivot: f32) -> Self {
+        self.swing = [angle, pivot];
+        self
     }
 
     pub fn with_surface(
@@ -397,7 +409,8 @@ impl Renderer {
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &wgpu::vertex_attr_array![
                     2 => Float32x3, 3 => Float32x3, 4 => Float32x3, 5 => Float32, 6 => Float32x2,
-                    7 => Float32, 8 => Uint32x3, 9 => Uint32, 10 => Float32x3, 11 => Float32x3
+                    7 => Float32, 8 => Uint32x3, 9 => Uint32, 10 => Float32x3, 11 => Float32x3,
+                    12 => Float32x2
                 ],
             }),
         ];

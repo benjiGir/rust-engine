@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-36 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | mods | travel dimension | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -185,6 +185,8 @@ pub enum Command {
     Mobs,
     /// Frapper la créature visée (comme un clic gauche).
     Attack,
+    /// Un coup de bras dans le vide (pour voir l'animation).
+    Swing,
     /// Un clic droit sur le bloc visé : un lit, un conteneur, sinon poser.
     Use,
     /// Réapparaître, depuis l'écran de mort.
@@ -424,6 +426,7 @@ pub fn parse(line: &str) -> Result<Command> {
         "eat" => Command::Eat,
         "mobs" => Command::Mobs,
         "attack" => Command::Attack,
+        "swing" => Command::Swing,
         "use" => Command::Use,
         "respawn" => Command::Respawn,
         "mods" => Command::Mods,
@@ -1112,6 +1115,10 @@ impl VoxelGame {
                 }
                 self.exert(self.hunger_rules.attack);
                 Ok(format!("{{\"ok\":true,\"damage\":{damage:.1}}}"))
+            }
+            Command::Swing => {
+                self.hand.punch();
+                Ok(ok())
             }
             Command::Eat => {
                 // L'aliment en main, sinon le premier de l'inventaire.

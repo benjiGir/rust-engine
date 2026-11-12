@@ -14,7 +14,12 @@ use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::path::Path;
 
+use engine_core::Context;
+use engine_core::winit::keyboard::KeyCode;
 use engine_render::HandInstance;
+
+use crate::components::{Collider, Velocity};
+use crate::player::{self, MoveMode};
 use engine_voxel::{BlockRegistry, Icon, ItemId, ItemRegistry, ToolKind};
 use glam::{Mat4, Quat, Vec2, Vec3};
 use serde::Deserialize;
@@ -348,6 +353,31 @@ fn load_sprite(key: &str, blocks: &BlockRegistry) -> Sprite {
             )
         })
         .collect()
+}
+
+impl crate::VoxelGame {
+    /// Les animations du bras : marche, minage, changement d'objet, inertie.
+    pub(crate) fn animate_hand(&mut self, ctx: &Context, dt: f32) {
+        let velocity = self
+            .ecs
+            .get::<Velocity>(self.player)
+            .map_or(Vec3::ZERO, |v| v.0);
+        let on_ground = self
+            .ecs
+            .get::<Collider>(self.player)
+            .is_some_and(|c| c.on_ground)
+            || player::mode(&self.ecs, self.player) == MoveMode::Fly;
+        self.hand.update(HandInput {
+            dt,
+            speed: Vec2::new(velocity.x, velocity.z).length(),
+            sprinting: ctx.input.key_held(KeyCode::ControlLeft),
+            on_ground,
+            mining: self.mining.is_some() || self.air_swing,
+            selected: (self.inventory.selected, self.inventory.selected_item()),
+            yaw: self.camera.yaw,
+            pitch: self.camera.pitch,
+        });
+    }
 }
 
 #[cfg(test)]

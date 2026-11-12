@@ -32,6 +32,8 @@ struct InstanceIn {
     @location(9) cutout: u32,
     @location(10) uv_min: vec3<f32>,
     @location(11) uv_max: vec3<f32>,
+    // x : angle de balancement (autour de l'axe latéral z), y : hauteur du pivot au-dessus du centre.
+    @location(12) swing: vec2<f32>,
 };
 
 struct VertexOut {
@@ -53,14 +55,28 @@ fn rotate_y(v: vec3<f32>, yaw: f32) -> vec3<f32> {
     return vec3<f32>(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
 }
 
+// Rotation autour de l'axe latéral (z) : un angle positif envoie le bas vers l'avant (+x).
+fn rotate_z(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    return vec3<f32>(v.x * c - v.y * s, v.x * s + v.y * c, v.z);
+}
+
 @vertex
 fn vs_main(vertex: VertexIn, instance: InstanceIn) -> VertexOut {
     var out: VertexOut;
-    let local = (vertex.position - vec3<f32>(0.5)) * instance.size;
+    var local = (vertex.position - vec3<f32>(0.5)) * instance.size;
+    var normal = vertex.normal;
+    if instance.swing.x != 0.0 {
+        // Une patte pivote par la hanche : on tourne autour du point d'attache.
+        let pivot = vec3<f32>(0.0, instance.swing.y, 0.0);
+        local = pivot + rotate_z(local - pivot, instance.swing.x);
+        normal = rotate_z(normal, instance.swing.x);
+    }
     let world = instance.center + rotate_y(local, instance.yaw);
     out.clip_position = camera.view_proj * vec4<f32>(world, 1.0);
     out.color = instance.color;
-    out.normal = rotate_y(vertex.normal, instance.yaw);
+    out.normal = rotate_y(normal, instance.yaw);
     out.world_position = world;
     out.light = instance.light;
     let p = mix(instance.uv_min, instance.uv_max, vertex.position);

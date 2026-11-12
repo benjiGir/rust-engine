@@ -55,6 +55,8 @@ mod hot_reload;
 mod interact;
 mod launch;
 pub use launch::{Launch, Request};
+mod conduit_fx;
+mod conduit_render;
 mod inventory;
 mod item_art;
 mod item_models;
@@ -161,6 +163,9 @@ struct VoxelGame {
     content: content::Content,
     /// Le bloc en cours de minage (bouton gauche maintenu) et l'avancement, de 0 à 1.
     mining: Option<(IVec3, f32)>,
+    /// Le bouton gauche est tenu sans rien à casser (le vide, un bloc incassable) : le bras frappe
+    /// quand même, en boucle.
+    air_swing: bool,
     /// L'état du hasard du jeu (butin, objets lâchés).
     random: u64,
     /// Le bras à la première personne.
@@ -214,6 +219,7 @@ struct VoxelGame {
     day: DayCycle,
     weather: weather::Weather,
     water_fx: water_fx::WaterFx,
+    conduit_fx: conduit_fx::ConduitFx,
     /// Le terrain lointain simplifié (voir `far_terrain.rs`), s'il est activé.
     far: Option<far_terrain::FarTerrain>,
     /// Les maillages des structures mobiles, et la structure dont on tient la barre.
@@ -578,6 +584,7 @@ impl VoxelGame {
             )
             .add(Stage::FixedUpdate, "structures mobiles", ships::update)
             .add(Stage::FixedUpdate, "physique", mobs::physics)
+            .add(Stage::FixedUpdate, "créatures : animation", mobs::animate)
             .add(
                 Stage::FixedUpdate,
                 "créatures : environnement",
@@ -662,6 +669,7 @@ impl VoxelGame {
             registry,
             content,
             mining: None,
+            air_swing: false,
             random: 0x853C_49E6_748F_EA9B ^ seed as u64,
             hand,
             fluids,
@@ -696,6 +704,7 @@ impl VoxelGame {
             day: DayCycle::new(time, env_parse("VOXEL_DAY_LENGTH").unwrap_or(600.0)),
             weather: weather::Weather::new(seed),
             water_fx: Default::default(),
+            conduit_fx: Default::default(),
             far,
             grid_meshes: ships::GridMeshes::default(),
             helm: None,
@@ -886,6 +895,7 @@ impl VoxelGame {
             self.weather.update(dt, streamer.world(), player_position)
         };
         self.update_water_fx(dt);
+        self.conduit_fx.advance(dt);
         // Les habitants des villages proches.
         {
             let player_position = player::body(&self.ecs, self.player).position;
@@ -949,6 +959,7 @@ impl VoxelGame {
         self.target = target;
         // Le minage : le bouton gauche maintenu sur le même bloc.
         let mining = self.mouse_captured && !click_used && ctx.input.mouse_held(MouseButton::Left);
+        self.air_swing = false;
         if !mining {
             self.mining = None;
         }
@@ -981,6 +992,8 @@ impl VoxelGame {
                     None => self.mine(dt),
                 }
             }
+            // Rien à frapper ni à casser : le bras donne un coup dans le vide, tant que le bouton est tenu.
+            self.air_swing = mining && self.mining.is_none();
             // Un clic droit : un lit, un conteneur, sinon poser.
             let bed = self.target.map(|hit| hit.block_pos);
             if ctx.input.mouse_pressed(MouseButton::Right)
@@ -1070,6 +1083,7 @@ impl VoxelGame {
             alpha,
             self.renderer.time,
         ));
+        self.draw_conduit_contents(&mut mob_boxes);
         self.direction_hint(&mut mob_boxes);
         self.renderer
             .set_instances_at(&mob_boxes, self.camera.position);
@@ -1352,6 +1366,7 @@ impl VoxelGame {
             self.renderer.set_block_textures(&self.block_textures);
             self.ui.clear_icons();
             drops::clear_models(&self.ecs);
+            self.conduit_fx.clear_models();
             self.hand
                 .reload_assets(hand::ArmColors::load(&assets_dir()));
             log::info!("{} textures rechargées", self.registry.textures().len());
@@ -1418,29 +1433,6 @@ impl VoxelGame {
                 })
             })
             .collect()
-    }
-
-    /// Les animations du bras : marche, minage, changement d'objet, inertie.
-    fn animate_hand(&mut self, ctx: &Context, dt: f32) {
-        let velocity = self
-            .ecs
-            .get::<Velocity>(self.player)
-            .map_or(Vec3::ZERO, |v| v.0);
-        let on_ground = self
-            .ecs
-            .get::<Collider>(self.player)
-            .is_some_and(|c| c.on_ground)
-            || player::mode(&self.ecs, self.player) == MoveMode::Fly;
-        self.hand.update(hand::HandInput {
-            dt,
-            speed: Vec2::new(velocity.x, velocity.z).length(),
-            sprinting: ctx.input.key_held(KeyCode::ControlLeft),
-            on_ground,
-            mining: self.mining.is_some(),
-            selected: (self.inventory.selected, self.inventory.selected_item()),
-            yaw: self.camera.yaw,
-            pitch: self.camera.pitch,
-        });
     }
 
     /// Le minage, à chaque image où le bouton gauche est tenu : l'avancement grandit selon

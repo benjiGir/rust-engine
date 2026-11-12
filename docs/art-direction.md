@@ -104,6 +104,15 @@ en main et au sol. Le cuivre reste visible sur la petite section du câble.
 Le principe de raccordement est inspiré de Mekanism ; les matières restent celles
 du projet. Les formes dépendent des voisins, sans variantes numériques supplémentaires.
 
+En monde, les conduits de fluides et les transporteurs d'objets fermés ont des
+arêtes métalliques et des fenêtres transparentes. Cette enveloppe de dessin garde
+les boîtes physiques et le contour de sélection antérieurs. Les objets transportés
+utilisent leurs vrais modèles texturés ; sur une courroie, ils passent au-dessus du
+tapis. Les liquides montrent un volume coloré et des reflets mobiles, les gaz une
+brume colorée. Les couleurs et la lumière propre viennent du registre des fluides.
+Ces effets suivent les transferts du réseau et disparaissent à l'arrêt du flux.
+Ils ne changent ni les réserves, ni la vitesse logique du transport.
+
 Les planches de la [passe visuelle des blocs](visual/README.md) sont des rendus CPU
 des formes et PNG du jeu. Leur colonne de nuit réduit la lumière de contrôle ; elle
 ne simule ni la propagation lumineuse du monde ni les effets du shader.

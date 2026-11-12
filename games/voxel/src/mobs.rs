@@ -10,11 +10,11 @@ use anyhow::{Context as _, Result, bail};
 use engine_ecs::{Entity, World};
 use engine_render::CubeInstance;
 use engine_voxel::{BlockRegistry, ChunkStreamer, PlayerBody, ray_aabb};
-use glam::{IVec3, Vec3};
+use glam::{IVec3, Vec2, Vec3};
 use serde::Deserialize;
 
 use crate::components::{
-    Collider, Flying, Health, Hurt, Impulse, Mob, MoveIntent, PreviousPosition, Transform,
+    Collider, Flying, Health, Hurt, Impulse, Mob, MobAnim, MoveIntent, PreviousPosition, Transform,
     Velocity, Wander,
 };
 use crate::events::{self, EntityDied, EntitySpawned, PlayerAttacked, Tick};
@@ -35,6 +35,23 @@ pub struct MobPart {
     pub offset: (f32, f32, f32),
     pub size: (f32, f32, f32),
     pub color: (f32, f32, f32),
+    /// Ce que fait la boîte quand la créature vit (voir `entities.ron`).
+    #[serde(default)]
+    pub bone: Bone,
+}
+
+/// Le rôle d'une boîte du modèle d'une créature dans son animation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+pub enum Bone {
+    /// Immobile.
+    #[default]
+    Fixed,
+    /// Une patte : elle se balance en marchant, par le haut.
+    Leg,
+    /// Un bras : il se balance en marchant, à l'opposé de la patte du même côté.
+    Arm,
+    /// La tête : elle se tourne vers le joueur proche, par moments.
+    Head,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -391,6 +408,7 @@ pub fn spawn_mob(world: &mut World, kind: u32, position: Vec3) -> Option<Entity>
     ));
     // À part : un « bundle » prend au plus 8 composants.
     world.insert(entity, PathFollow::default());
+    world.insert(entity, MobAnim::default());
     let rules = world.resource::<Arc<SurvivalRules>>().clone();
     world.insert(entity, MobVitals(Vitals::new(&rules)));
     events::send(
@@ -740,6 +758,77 @@ pub fn damage_mob(world: &mut World, entity: Entity, amount: f32, from: Vec3) ->
     true
 }
 
+fn volume(part: &MobPart) -> f32 {
+    part.size.0 * part.size.1 * part.size.2
+}
+
+/// À quelle distance (blocs) une créature remarque le joueur et peut tourner la tête vers lui ; une
+/// hostile le suit de plus loin.
+const LOOK_RANGE: f32 = 8.0;
+const LOOK_RANGE_HOSTILE: f32 = 16.0;
+/// De combien la tête peut se tourner de chaque côté (radians).
+const LOOK_LIMIT: f32 = 1.1;
+/// L'ampleur du balancement des pattes à pleine marche (radians).
+const LEG_SWING: f32 = 0.65;
+/// La phase avance de tant de radians par bloc parcouru.
+const PHASE_PER_BLOCK: f32 = 5.0;
+
+fn wrap_angle(angle: f32) -> f32 {
+    (angle + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+}
+
+/// Anime les créatures : la marche (pattes et bras) suit leur vitesse ; la tête se tourne vers le
+/// joueur quand il est près, par moments (une créature ne le fixe pas sans cesse), ou fait un petit
+/// coup d'œil au hasard.
+pub fn animate(world: &mut World) {
+    let dt = world.resource::<FixedDt>().0;
+    let player = world.resource::<PlayerEntity>().0;
+    let target = world.get::<Transform>(player).map(|t| t.position);
+    let registry = world.resource::<Arc<MobRegistry>>().clone();
+    let mut rng = world.resource_mut::<GameRng>();
+    world
+        .query::<(&Transform, &Velocity, &Mob, &mut MobAnim)>()
+        .for_each(|_, (transform, velocity, mob, anim)| {
+            let Some(def) = registry.get(mob.kind) else {
+                return;
+            };
+            let speed = Vec2::new(velocity.0.x, velocity.0.z).length();
+            let goal = (speed / def.speed.max(0.5)).min(1.4);
+            anim.stride += (goal - anim.stride) * (1.0 - (-10.0 * dt).exp());
+            anim.phase = (anim.phase + dt * speed * PHASE_PER_BLOCK) % std::f32::consts::TAU;
+
+            // Le regard : près du joueur, la créature s'y intéresse un moment, puis passe à autre chose.
+            let to = target.map(|t| t - transform.position);
+            let range = if def.hostile {
+                LOOK_RANGE_HOSTILE
+            } else {
+                LOOK_RANGE
+            };
+            let near = to.is_some_and(|d| Vec2::new(d.x, d.z).length() < range);
+            anim.timer -= dt;
+            if anim.timer <= 0.0 {
+                anim.attending = near && (def.hostile || rng.next_f32() < 0.6);
+                anim.timer = if anim.attending {
+                    2.0 + rng.next_f32() * 3.0
+                } else {
+                    1.5 + rng.next_f32() * 3.5
+                };
+                anim.glance = if rng.next_f32() < 0.5 {
+                    (rng.next_f32() - 0.5) * 0.9
+                } else {
+                    0.0
+                };
+            }
+            let wanted = match to {
+                Some(d) if anim.attending && near => {
+                    wrap_angle(d.z.atan2(d.x) - transform.yaw).clamp(-LOOK_LIMIT, LOOK_LIMIT)
+                }
+                _ => anim.glance,
+            };
+            anim.look += wrap_angle(wanted - anim.look) * (1.0 - (-6.0 * dt).exp());
+        });
+}
+
 /// Les boîtes à dessiner pour toutes les créatures, interpolées entre deux pas.
 pub fn instances(world: &World, alpha: f32) -> Vec<CubeInstance> {
     let registry = world.resource::<Arc<MobRegistry>>().clone();
@@ -764,22 +853,84 @@ pub fn instances(world: &World, alpha: f32) -> Vec<CubeInstance> {
                 1.0
             };
             let (c, s) = (transform.yaw.cos(), transform.yaw.sin());
+            let anim = world
+                .get::<MobAnim>(entity)
+                .map_or_else(MobAnim::default, |a| *a);
+            // Le cou : le pivot de la tête, à l'arrière de sa plus grosse boîte.
+            let neck = def
+                .parts
+                .iter()
+                .filter(|p| p.bone == Bone::Head)
+                .max_by(|a, b| volume(a).total_cmp(&volume(b)))
+                .map(|p| {
+                    let back = if p.offset.0 > 0.3 {
+                        p.size.0 * 0.4
+                    } else {
+                        0.0
+                    };
+                    (p.offset.0 - back, p.offset.2)
+                });
             for part in &def.parts {
-                let (ox, oy, oz) = part.offset;
+                let (mut ox, oy, mut oz) = part.offset;
+                let mut yaw = transform.yaw;
+                let mut swing = None;
+                match part.bone {
+                    Bone::Fixed => {}
+                    Bone::Head => {
+                        if let Some((nx, nz)) = neck {
+                            // La tête pivote autour du cou : ses boîtes tournent ensemble.
+                            let (lc, ls) = (anim.look.cos(), anim.look.sin());
+                            let (rx, rz) = (ox - nx, oz - nz);
+                            (ox, oz) = (nx + rx * lc - rz * ls, nz + rx * ls + rz * lc);
+                            yaw += anim.look;
+                        }
+                    }
+                    Bone::Leg | Bone::Arm => {
+                        // Les pattes en diagonale (avant gauche avec arrière droite) ; un bras à
+                        // l'opposé de la patte de son côté.
+                        let left = part.offset.2 > 0.0;
+                        let offset = if part.bone == Bone::Leg {
+                            if (part.offset.0 > 0.01) ^ left {
+                                std::f32::consts::PI
+                            } else {
+                                0.0
+                            }
+                        } else if left {
+                            0.0
+                        } else {
+                            std::f32::consts::PI
+                        };
+                        let angle = LEG_SWING * anim.stride * (anim.phase + offset).sin();
+                        // Le pivot : le haut de la plus haute boîte de la même patte (le sabot suit).
+                        let hip = def
+                            .parts
+                            .iter()
+                            .filter(|q| {
+                                q.bone == part.bone
+                                    && (q.offset.0 - part.offset.0).abs() < 0.02
+                                    && (q.offset.2 - part.offset.2).abs() < 0.02
+                            })
+                            .map(|q| q.offset.1 + q.size.1 / 2.0)
+                            .fold(f32::MIN, f32::max);
+                        swing = Some((angle, (hip - oy) * scale));
+                    }
+                }
                 let offset = Vec3::new(ox * c - oz * s, oy, ox * s + oz * c) * scale;
                 let mut color = Vec3::new(part.color.0, part.color.1, part.color.2);
                 if hurt {
                     color = color.lerp(Vec3::new(1.0, 0.1, 0.1), 0.6);
                 }
-                out.push(
-                    CubeInstance::new(
-                        position + offset,
-                        Vec3::new(part.size.0, part.size.1, part.size.2) * scale,
-                        color,
-                    )
-                    .with_yaw(transform.yaw)
-                    .with_light(sky as f32 / 15.0, block as f32 / 15.0),
-                );
+                let mut cube = CubeInstance::new(
+                    position + offset,
+                    Vec3::new(part.size.0, part.size.1, part.size.2) * scale,
+                    color,
+                )
+                .with_yaw(yaw)
+                .with_light(sky as f32 / 15.0, block as f32 / 15.0);
+                if let Some((angle, pivot)) = swing {
+                    cube = cube.with_swing(angle, pivot);
+                }
+                out.push(cube);
             }
         });
     out
@@ -1122,6 +1273,74 @@ pub(crate) mod tests {
         }
         let at = world.get::<Transform>(mob).unwrap().position;
         panic!("pas arrivé, il est en {at}");
+    }
+
+    #[test]
+    fn legs_swing_with_the_walk_and_rest_when_still() {
+        let mut world = sim();
+        let pig = world.resource::<Arc<MobRegistry>>().id("core:pig").unwrap();
+        let mob = spawn_mob(&mut world, pig, Vec3::new(0.5, 150.0, 0.5)).unwrap();
+        world.get_mut::<Velocity>(mob).unwrap().0 = Vec3::new(1.6, 0.0, 0.0);
+        for _ in 0..60 {
+            animate(&mut world);
+        }
+        let walking = *world.get::<MobAnim>(mob).unwrap();
+        assert!(walking.stride > 0.8, "il marche : {}", walking.stride);
+        // Les pattes ont un balancement, en diagonale (deux de chaque signe).
+        let boxes = instances(&world, 1.0);
+        let swings: Vec<f32> = boxes
+            .iter()
+            .map(|b| b.swing[0])
+            .filter(|a| *a != 0.0)
+            .collect();
+        assert!(
+            swings.len() >= 8,
+            "pattes et sabots balancent : {}",
+            swings.len()
+        );
+        assert!(swings.iter().any(|a| *a > 0.05) && swings.iter().any(|a| *a < -0.05));
+        // À l'arrêt, les pas s'éteignent et la phase ne bouge plus.
+        world.get_mut::<Velocity>(mob).unwrap().0 = Vec3::ZERO;
+        for _ in 0..120 {
+            animate(&mut world);
+        }
+        let still = *world.get::<MobAnim>(mob).unwrap();
+        assert!(still.stride < 0.02, "{}", still.stride);
+        let phase = still.phase;
+        animate(&mut world);
+        assert_eq!(world.get::<MobAnim>(mob).unwrap().phase, phase);
+    }
+
+    #[test]
+    fn a_creature_turns_its_head_toward_a_player_nearby_and_looks_away_far_off() {
+        let mut world = sim();
+        let player = world.resource::<PlayerEntity>().0;
+        let prowler = world
+            .resource::<Arc<MobRegistry>>()
+            .id("core:prowler")
+            .unwrap();
+        let mob = spawn_mob(&mut world, prowler, Vec3::new(0.5, 150.0, 0.5)).unwrap();
+        world.get_mut::<Transform>(mob).unwrap().yaw = 0.0;
+        // Le joueur à 5 blocs, à 45° sur sa gauche (côté +z) : une hostile le suit des yeux.
+        world.get_mut::<Transform>(player).unwrap().position = Vec3::new(4.0, 150.0, 4.5);
+        for _ in 0..240 {
+            animate(&mut world);
+        }
+        let look = world.get::<MobAnim>(mob).unwrap().look;
+        assert!((look - 0.78).abs() < 0.15, "tête tournée de {look}");
+        // La tête pivote avec ses boîtes : leur lacet change, pas celui du corps.
+        let boxes = instances(&world, 1.0);
+        assert!(
+            boxes.iter().any(|b| (b.yaw - look).abs() < 0.01),
+            "une boîte de tête tournée"
+        );
+        assert!(boxes.iter().any(|b| b.yaw == 0.0), "le corps reste droit");
+        // Le joueur loin (60 blocs) : elle ne le regarde plus, la tête revient près du repos.
+        world.get_mut::<Transform>(player).unwrap().position = Vec3::new(60.0, 150.0, 4.5);
+        for _ in 0..600 {
+            animate(&mut world);
+        }
+        assert!(world.get::<MobAnim>(mob).unwrap().look.abs() < 0.5);
     }
 
     #[test]
