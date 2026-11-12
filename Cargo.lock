@@ -994,6 +994,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "donjons_mod"
+version = "0.1.0"
+dependencies = [
+ "engine_mods",
+ "engine_voxel",
+ "glam",
+ "mod_sdk",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

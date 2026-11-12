@@ -1102,6 +1102,21 @@ fn define_player(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
     )?;
     linker.func_wrap(
         "voxel",
+        "hurt_player",
+        |mut caller: Caller<'_, HostState>, amount: f32| {
+            if amount.is_finite() && amount > 0.0 {
+                caller
+                    .data_mut()
+                    .requests
+                    .actions
+                    .push(MachineAction::PlayerHurt {
+                        amount: amount.min(100.0),
+                    });
+            }
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
         "say",
         |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> HostResult<()> {
             if len > 256 {

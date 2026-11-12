@@ -86,6 +86,12 @@ impl VoxelGame {
                     },
                 ));
             });
+        // Un mod dont plus aucune créature n'est proche reçoit un lot vide, une fois.
+        let present: Vec<String> = batches.keys().cloned().collect();
+        for owner in self.mods.take_brain_leavers(&present) {
+            let actions = self.mods.mob_brains(&owner, &[], 0);
+            self.apply_mob_orders(&actions, &HashMap::new(), &registry, player_pos);
+        }
         for (owner, mut batch) in batches {
             batch.sort_by(|a, b| a.0.total_cmp(&b.0));
             batch.truncate(mobs::MAX_PER_CALL);

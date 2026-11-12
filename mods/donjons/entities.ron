@@ -1,0 +1,24 @@
+// Le gardien de la crypte : un boss dirigé par le script du mod (`brain: true`, voir
+// `Mod::mobs` dans script/src/lib.rs). Il n'apparaît pas dans la nature : il ne peut naître que sur
+// de la bedrock (`spawn_on`), c'est-à-dire presque jamais, et c'est le sceau (`B`) de l'arène qui le
+// fait surgir (`spawn_entity`).
+[
+    (
+        id: "donjons:warden", name: "Gardien de la crypte", health: 80.0, speed: 2.6, size: (1.0, 2.6),
+        hostile: true, brain: true, xp: (30, 50), weight: 1, dissolves: false,
+        spawn_on: ["core:bedrock"],
+        drops: [
+            (item: "donjons:warden_sigil", count: (1, 1)),
+            (item: "core:gold_ingot", count: (3, 6)),
+        ],
+        parts: [
+            (offset: (0.0, 1.0, 0.0), size: (0.9, 1.4, 0.6), color: (0.25, 0.22, 0.3)),
+            (offset: (0.0, 2.15, 0.0), size: (0.7, 0.7, 0.7), color: (0.55, 0.52, 0.58)),
+            (offset: (0.6, 1.4, 0.0), size: (0.3, 1.1, 0.3), color: (0.25, 0.22, 0.3)),
+            (offset: (-0.6, 1.4, 0.0), size: (0.3, 1.1, 0.3), color: (0.25, 0.22, 0.3)),
+            (offset: (0.0, 0.4, 0.2), size: (0.5, 0.8, 0.4), color: (0.18, 0.16, 0.22)),
+            (offset: (0.0, 0.4, -0.2), size: (0.5, 0.8, 0.4), color: (0.18, 0.16, 0.22)),
+            (offset: (0.36, 2.2, 0.0), size: (0.1, 0.12, 0.45), color: (1.0, 0.25, 0.15)),
+        ],
+    ),
+]

@@ -77,6 +77,7 @@ pub struct ModSystem {
     pending_chunks: std::collections::VecDeque<IVec3>,
     /// Compte les ticks de machines : les créatures à comportement pensent un tick sur cinq.
     brain_clock: u32,
+    brain_active: Vec<String>,
     /// L'instantané du joueur que les scripts lisent (`player_info`).
     player: engine_mods::player::SharedPlayer,
     /// Les réglages des mods (`mod_settings.ron`), partagés avec leurs scripts.
@@ -156,6 +157,7 @@ impl ModSystem {
             last_tick: TickReport::default(),
             pending_chunks: std::collections::VecDeque::new(),
             brain_clock: 0,
+            brain_active: Vec::new(),
             player,
             settings,
             settings_path,
@@ -265,6 +267,19 @@ impl ModSystem {
     }
 
     /// Les mods dont le script dirige des créatures.
+    /// Les mods qui avaient des créatures dans leur dernier lot : si ce n'est plus le cas, le
+    /// script reçoit un lot vide une fois (il peut retirer sa jauge de boss, par exemple).
+    pub fn take_brain_leavers(&mut self, now: &[String]) -> Vec<String> {
+        let leavers: Vec<String> = self
+            .brain_active
+            .iter()
+            .filter(|m| !now.contains(m))
+            .cloned()
+            .collect();
+        self.brain_active = now.to_vec();
+        leavers
+    }
+
     pub fn brain_mods(&self) -> Vec<String> {
         self.runtime.mob_brains()
     }

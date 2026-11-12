@@ -19,6 +19,8 @@
 //! Les bâtiments sont dessinés dans un repère local (la porte du côté `z = 0`), puis tournés
 //! pour que la porte regarde le chemin ([`Frame`]).
 
+mod graph;
+
 use std::collections::HashMap;
 
 use anyhow::{Context as _, Result, bail};
@@ -47,6 +49,8 @@ pub enum StructureKind {
     Mine,
     /// Un plan décrit dans les données (`templates` de `structures.ron`) : voir [`Template`].
     Template,
+    /// Un donjon : des salles reliées en graphe, enterrées (`dungeons` de `structures.ron`).
+    Graph,
 }
 
 impl StructureKind {
@@ -58,7 +62,7 @@ impl StructureKind {
             Self::Dungeon => 10,
             Self::Mine => 70,
             // Le rayon d'un plan dépend de sa taille : `StructureDef::radius`.
-            Self::Template => 0,
+            Self::Template | Self::Graph => 0,
         }
     }
 }
@@ -78,6 +82,9 @@ struct StructureEntry {
     /// Pour `kind: Template` : le nom du plan.
     #[serde(default)]
     template: Option<String>,
+    /// Pour `kind: Graph` : le nom du donjon.
+    #[serde(default)]
+    dungeon: Option<String>,
 }
 
 /// Un plan dans un fichier : une palette (un caractère → un bloc), des couches de texte
@@ -161,6 +168,8 @@ struct StructuresFile {
     loot: HashMap<String, ChestLoot>,
     #[serde(default)]
     templates: HashMap<String, TemplateEntry>,
+    #[serde(default)]
+    dungeons: HashMap<String, graph::DungeonEntry>,
 }
 
 /// Une sorte de structure et où elle peut apparaître.
@@ -176,6 +185,8 @@ pub struct StructureDef {
     pub radius: i32,
     /// Son plan, pour `kind: Template`.
     pub template: Option<Template>,
+    /// Son graphe de salles, pour `kind: Graph`.
+    pub graph: Option<graph::GraphDef>,
 }
 
 /// Toutes les structures du jeu et leurs tables de butin.
@@ -244,6 +255,16 @@ impl StructureSet {
                 .with_context(|| format!("{origin} : plan « {name} »"))?;
             templates.insert(scoped(name, namespace), template);
         }
+        // Les donjons de ce fichier : leurs plans de salles sont ceux du fichier.
+        let graphs = if file.dungeons.is_empty() {
+            HashMap::new()
+        } else {
+            let blocks = blocks.with_context(|| {
+                format!("{origin} : les donjons ont besoin du registre de blocs")
+            })?;
+            graph::resolve(namespace, &file.dungeons, &templates, blocks)
+                .with_context(|| origin.to_string())?
+        };
         for entry in file.structures {
             if entry.id.split_once(':').map(|(ns, _)| ns) != Some(namespace) {
                 bail!(
@@ -263,7 +284,30 @@ impl StructureSet {
                     entry.id
                 );
             }
-            let (loot, template, radius) = if entry.kind == StructureKind::Template {
+            let mut graph_def = None;
+            let (loot, template, radius) = if entry.kind == StructureKind::Graph {
+                let name = entry
+                    .dungeon
+                    .as_deref()
+                    .with_context(|| format!("{origin} : « {} » : `dungeon` manque", entry.id))?;
+                let key = scoped(name, namespace);
+                let def = graphs.get(&key).cloned().with_context(|| {
+                    format!(
+                        "{origin} : « {} » : donjon « {key} » inconnu (dans ce fichier)",
+                        entry.id
+                    )
+                })?;
+                let radius = def.radius();
+                if entry.spacing * CHUNK_SIZE as i32 <= radius {
+                    bail!(
+                        "{origin} : « {} » : `spacing` d'au moins {} chunks (le donjon s'étend sur {radius} blocs)",
+                        entry.id,
+                        radius / CHUNK_SIZE as i32 + 1
+                    );
+                }
+                graph_def = Some(def);
+                (String::new(), None, radius)
+            } else if entry.kind == StructureKind::Template {
                 let name = entry
                     .template
                     .as_deref()
@@ -306,12 +350,25 @@ impl StructureSet {
                 loot,
                 radius,
                 template,
+                graph: graph_def,
             });
         }
+        // Les paliers d'un donjon sont des tables qui doivent exister.
+        for def in &self.defs {
+            for table in def.graph.iter().flat_map(|g| g.tiers()) {
+                if !self.loot.contains_key(table) {
+                    bail!(
+                        "{origin} : le donjon de « {} » : la table de butin « {table} » n'existe pas",
+                        def.key
+                    );
+                }
+            }
+        }
         // Les coffres des plans nomment des tables qui doivent exister (ici ou dans `core`).
+        // `@tier`, `@treasure` et `@boss` sont choisies par le donjon qui pose le plan.
         for def in &self.defs {
             for (_, table) in def.template.iter().flat_map(|t| &t.chests) {
-                if !self.loot.contains_key(table) {
+                if !table.starts_with('@') && !self.loot.contains_key(table) {
                     bail!(
                         "{origin} : le plan de « {} » : la table de butin « {table} » n'existe pas",
                         def.key
@@ -373,7 +430,14 @@ impl StructureSet {
             if *x < 0 || *y < 0 || *z < 0 || *x >= w || *y >= entry.layers.len() as i32 || *z >= d {
                 bail!("un coffre est hors du plan ({x}, {y}, {z})");
             }
-            chests.push((IVec3::new(*x, *y, *z), scoped(table, namespace)));
+            chests.push((
+                IVec3::new(*x, *y, *z),
+                if table.starts_with('@') {
+                    table.clone()
+                } else {
+                    scoped(table, namespace)
+                },
+            ));
         }
         let _ = (name, origin);
         Ok(Template {
@@ -519,7 +583,15 @@ impl Blueprint {
     }
 
     /// Écrit dans `chunk` la part du plan qui lui appartient.
-    pub fn apply(&self, chunk: &mut Chunk, chunk_pos: IVec3, chest: BlockId) {
+    /// `active` dit si un bloc est une machine : elle reçoit un état vide, pour que le jeu la
+    /// réveille au chargement du chunk (un piège, un générateur de créatures posé par le monde).
+    pub fn apply(
+        &self,
+        chunk: &mut Chunk,
+        chunk_pos: IVec3,
+        chest: BlockId,
+        active: &dyn Fn(BlockId) -> bool,
+    ) {
         let origin = World::chunk_origin(chunk_pos);
         let size = IVec3::splat(CHUNK_SIZE as i32);
         if self.ops.is_empty()
@@ -535,8 +607,9 @@ impl Blueprint {
         for &(p, block) in &self.ops {
             if let Some(l) = inside(p) {
                 chunk.set(l.x as usize, l.y as usize, l.z as usize, block);
-                // Un bloc posé sur un coffre efface son état.
-                chunk.set_block_entity(l.x as usize, l.y as usize, l.z as usize, None);
+                // Un bloc posé sur un coffre efface son état ; une machine en reçoit un, vide.
+                let state = active(block).then(BlockEntity::default);
+                chunk.set_block_entity(l.x as usize, l.y as usize, l.z as usize, state);
             }
         }
         for (p, inventory) in &self.chests {
@@ -649,6 +722,36 @@ impl Builder<'_> {
     /// Pose un plan décrit dans les données, centré en (x, z), sur le sol, au besoin tourné.
     fn template(&mut self, x: i32, z: i32, t: &Template, set: &StructureSet) {
         let k = if t.rotate { self.rng.below(4) as u8 } else { 0 };
+        // Le sol du plan : le point le plus haut de son emprise (il ne s'enfouit pas).
+        let frame = Frame {
+            origin: IVec3::ZERO,
+            k,
+            w: t.w,
+            d: t.d,
+        };
+        let (ew, ed) = frame.extent();
+        let (x0, z0) = (x - ew / 2, z - ed / 2);
+        let ground = (0..ed)
+            .flat_map(|dz| (0..ew).map(move |dx| (x0 + dx, z0 + dz)))
+            .map(|(px, pz)| self.height(px, pz))
+            .max()
+            .unwrap_or(SEA_LEVEL);
+        self.template_at(x, z, ground + 1, k, t, set, &|name| Some(name.to_string()));
+    }
+
+    /// Pose un plan centré en (x, z), son sol à la hauteur `y0`, tourné de `k` quarts de tour.
+    /// `pick` choisit la table de butin de chaque coffre à partir du nom écrit dans le plan.
+    #[allow(clippy::too_many_arguments)]
+    fn template_at(
+        &mut self,
+        x: i32,
+        z: i32,
+        y0: i32,
+        k: u8,
+        t: &Template,
+        set: &StructureSet,
+        pick: &dyn Fn(&str) -> Option<String>,
+    ) {
         let frame = Frame {
             origin: IVec3::ZERO,
             k,
@@ -661,13 +764,6 @@ impl Builder<'_> {
             origin: IVec3::new(x0, 0, z0),
             ..frame
         };
-        // Le sol du plan : le point le plus haut de son emprise (il ne s'enfouit pas).
-        let ground = (0..ed)
-            .flat_map(|dz| (0..ew).map(move |dx| (x0 + dx, z0 + dz)))
-            .map(|(px, pz)| self.height(px, pz))
-            .max()
-            .unwrap_or(SEA_LEVEL);
-        let y0 = ground + 1;
         let at = |p: IVec3| {
             let mapped = frame.map(p.x, 0, p.z);
             IVec3::new(mapped.x, y0 + p.y, mapped.z)
@@ -698,7 +794,7 @@ impl Builder<'_> {
             }
         }
         for (p, table) in &t.chests {
-            if let Some(loot) = set.loot.get(table) {
+            if let Some(loot) = pick(table).and_then(|name| set.loot.get(&name)) {
                 self.chest_with(at(*p), loot);
             }
         }
@@ -1366,6 +1462,13 @@ impl TerrainGenerator {
             StructureKind::Dungeon => column.height > SEA_LEVEL - 2,
             StructureKind::Mine => column.height > SEA_LEVEL + 3,
             StructureKind::Template => column.height > SEA_LEVEL,
+            StructureKind::Graph => {
+                column.height > SEA_LEVEL + 3
+                    && def
+                        .graph
+                        .as_ref()
+                        .is_some_and(|g| column.height - g.depth() >= 12)
+            }
         };
         ok.then_some(StructureSite {
             def: d,
@@ -1409,17 +1512,27 @@ impl TerrainGenerator {
 
     /// Le plan complet d'une structure.
     pub fn blueprint(&self, site: &StructureSite) -> Option<Blueprint> {
-        let set = self.structures.as_ref()?;
+        self.blueprint_with(self.structures.as_ref()?, site)
+    }
+
+    /// Le plan d'une structure d'un jeu de structures donné (celui du générateur, ou un autre).
+    pub(crate) fn blueprint_with(
+        &self,
+        set: &StructureSet,
+        site: &StructureSite,
+    ) -> Option<Blueprint> {
         let blocks = self.structure_blocks.as_ref()?;
         let def = set.defs.get(site.def)?;
         // Un plan n'a pas de table propre : ses coffres nomment les leurs.
         static EMPTY_LOOT: std::sync::OnceLock<ChestLoot> = std::sync::OnceLock::new();
         let loot = match set.loot.get(&def.loot) {
             Some(loot) => loot,
-            None if def.template.is_some() => EMPTY_LOOT.get_or_init(|| ChestLoot {
-                rolls: (0, 0),
-                entries: Vec::new(),
-            }),
+            None if def.template.is_some() || def.graph.is_some() => {
+                EMPTY_LOOT.get_or_init(|| ChestLoot {
+                    rolls: (0, 0),
+                    entries: Vec::new(),
+                })
+            }
             None => return None,
         };
         let mut builder = Builder {
@@ -1443,6 +1556,11 @@ impl TerrainGenerator {
             StructureKind::Template => {
                 if let Some(template) = &def.template {
                     builder.template(site.x, site.z, template, set);
+                }
+            }
+            StructureKind::Graph => {
+                if let Some(graph) = &def.graph {
+                    builder.graph(site.x, site.z, graph, set);
                 }
             }
         }
@@ -1492,8 +1610,10 @@ impl TerrainGenerator {
             return;
         };
         let chest = blocks.get("core:chest");
+        let registry = &self.registry;
+        let active = |b: BlockId| registry.def(b).behavior.is_some();
         for plan in plans {
-            plan.apply(chunk, chunk_pos, chest);
+            plan.apply(chunk, chunk_pos, chest, &active);
         }
     }
 

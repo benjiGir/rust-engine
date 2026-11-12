@@ -68,6 +68,10 @@ impl VoxelGame {
     pub(crate) fn apply_player_action(&mut self, action: MachineAction) {
         match action {
             MachineAction::PlayerHeal { amount } => self.heal(amount),
+            MachineAction::PlayerHurt { amount } => {
+                let from = player::body(&self.ecs, self.player).position;
+                crate::events::send(&self.ecs, crate::events::PlayerAttacked { amount, from });
+            }
             MachineAction::Say { text } => self.chat(&text),
             MachineAction::ConsumeHeld { count } => {
                 for _ in 0..count {

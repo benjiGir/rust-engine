@@ -200,6 +200,8 @@ unsafe extern "C" {
     pub fn say(ptr: i32, len: i32);
     /// Retire `count` exemplaires de l'objet que le joueur tient en main (une potion qu'on boit, un cristal qu'on use).
     pub fn consume_held(count: i32);
+    /// Blesse le joueur (l'armure et l'invulnérabilité après un coup comptent, comme pour une créature) : un piège, une explosion, une malédiction.
+    pub fn hurt_player(amount: f32);
     /// Affiche (ou met à jour) une jauge du mod à l'écran : `fraction` de 0 à 1, couleur (r, g, b) de 0 à 1, et son texte. Quatre jauges au plus par mod.
     pub fn hud_bar(id: i32, fraction: f32, r: f32, g: f32, b: f32, ptr: i32, len: i32);
     /// Retire une jauge du mod de l'écran.
@@ -454,6 +456,8 @@ mod inert {
     pub unsafe fn say(_: i32, _: i32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn consume_held(_: i32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn hurt_player(_: f32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn hud_bar(_: i32, _: f32, _: f32, _: f32, _: f32, _: i32, _: i32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]

@@ -652,6 +652,7 @@ test vérifie que le jeu définit exactement ces fonctions.
 | `hurt_area(x: f32, y: f32, z: f32, radius: f32, damage: f32)` | Blesse les créatures à moins de `radius` blocs de ce point (jusqu'à 16 blocs) ; elles reculent. |
 | `say(ptr: i32, len: i32)` | Écrit une ligne dans la console du joueur (un message : « pas assez de mana »). |
 | `consume_held(count: i32)` | Retire `count` exemplaires de l'objet que le joueur tient en main (une potion qu'on boit, un cristal qu'on use). |
+| `hurt_player(amount: f32)` | Blesse le joueur (l'armure et l'invulnérabilité après un coup comptent, comme pour une créature) : un piège, une explosion, une malédiction. |
 | `hud_bar(id: i32, fraction: f32, r: f32, g: f32, b: f32, ptr: i32, len: i32)` | Affiche (ou met à jour) une jauge du mod à l'écran : `fraction` de 0 à 1, couleur (r, g, b) de 0 à 1, et son texte. Quatre jauges au plus par mod. |
 | `hud_clear(id: i32)` | Retire une jauge du mod de l'écran. |
 
@@ -802,6 +803,41 @@ derniers ordres. Le gardien du mod d'exemple (`example:guard`) rôde, poursuit l
 près et fuit quand il est blessé ; son test sans fenêtre (`h.mobs(&[MobSnapshot {..}])`) vérifie
 chaque état.
 
+**5. Des donjons** — `kind: Graph` : des **salles reliées en graphe**, enterrées, avec un escalier jusqu'à la
+surface. Les salles sont des plans (`templates`) ; `dungeons` dit comment les assembler :
+
+```ron
+dungeons: {"crypte": (
+    rooms: [(template: "entree", role: Entry), (template: "salle", role: Room, weight: 3),
+            (template: "tresor", role: Treasure), (template: "arene", role: Boss)],
+    count: (6, 9), cell: 24, depth: 22,           // 6 à 9 salles, 24 blocs entre leurs centres, plancher à 22 sous la surface
+    wall: "mon_mod:brique", light: "core:glowstone",
+    tiers: ["crypte_1", "crypte_2", "crypte_3"],  // les tables de butin, du plus pauvre au plus riche
+)},
+structures: [(id: "mon_mod:crypte", kind: Graph, dungeon: "crypte", spacing: 10, chance: 0.5, biomes: [])],
+```
+
+- **La disposition** pousse comme un arbre depuis l'entrée (chaque salle s'accroche à une salle voisine de la
+  grille), à partir de la graine du site : le même monde a toujours les mêmes donjons. La salle la plus
+  **profonde** (en nombre de salles depuis l'entrée) est celle du **boss** ; jusqu'à deux bouts de branche sont
+  des salles du **trésor** ; les autres tirent un plan parmi les salles `Room` (selon leur `weight`).
+- **La construction** : des couloirs de 3 × 3 (murs, sol et toit en `wall`, un bloc `light` encastré dans le toit
+  tous les 6 blocs) percent les murs des salles pour y faire des portes ; un escalier de marches pleines
+  (on saute d'une marche à l'autre) monte de l'entrée jusqu'à la surface. Les plans ne tournent pas.
+- **Le butin à paliers** : la profondeur d'une salle donne son palier. Dans un plan, un coffre nomme sa table :
+  `"@tier"` (le palier de la salle), `"@treasure"` (un palier au-dessus) ou `"@boss"` (le dernier), ou une
+  table précise. Plus on s'enfonce, plus c'est riche.
+- **La vie du donjon** vient des blocs que les plans posent : des **machines** de script (un piège qui blesse, une
+  cage qui fait surgir des créatures à l'approche, un sceau qui réveille le boss). Le monde donne un état à
+  ces blocs pour que le jeu les réveille au chargement du chunk.
+- **Limites** : 3 à 9 salles, `cell` d'au moins la plus grande salle + 6, `spacing × 32` plus grand que le rayon du
+  donjon (le fichier est refusé sinon, avec le nombre qu'il faut).
+
+Le mod **Donjons** (`mods/donjons`) en est la démonstration : une crypte (entrée, salles à piliers avec cage à
+gardiens, salles piégées, salle du trésor, arène), un **boss** (`donjons:warden`, dirigé par script : il poursuit,
+charge, frappe, appelle des renforts à mi-vie, affiche sa jauge et laisse un coffre à sa mort) et trois paliers de
+butin.
+
 ## Les dimensions
 
 Une dimension est un monde parallèle, décrit dans le `dimensions.ron` d'un mod : son générateur, son
@@ -849,6 +885,7 @@ Un mod agit sur le joueur et sur l'écran sans toucher au moteur :
 | `player()` | l'état du joueur : ses yeux, son regard (longueur 1), sa vie, sa vie max et son niveau d'expérience ; rafraîchi à chaque pas de simulation |
 | `player_target(portée)` | le point où le regard touche un bloc, à moins de `portée` blocs (sans repasser par le jeu : c'est un rayon dans le monde) |
 | `heal_player(vie)` | rend de la vie |
+| `hurt_player(dégâts)` | blesse le joueur (l'armure et l'invulnérabilité après un coup comptent) : un piège |
 | `teleport_player(x, y, z)` | téléporte le joueur (ses pieds), à 64 blocs au plus, vers un endroit chargé |
 | `give_effect("speed", secondes, puissance)` | un effet : `speed`, `strength`, `regeneration`, `fire_resistance`, `healing` |
 | `hurt_area(centre, rayon, dégâts)` | blesse les créatures autour d'un point (16 blocs de rayon au plus) ; elles reculent |

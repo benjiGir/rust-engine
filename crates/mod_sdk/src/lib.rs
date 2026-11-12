@@ -44,12 +44,12 @@ pub use host::{
     Item, PlayerInfo, Recipe, add_energy, add_inventory, add_kinetic, add_tank, block_base,
     block_id, call_mod, close_menu, consume_held, data, dimension, energy_extract, energy_insert,
     energy_stored, find_recipe, fluid_amount, fluid_drain, fluid_fill, get_block, give_effect,
-    give_item, give_stack, heal_player, hud_bar, hud_clear, hurt_area, item_count, item_extract,
-    item_id, item_insert, kinetic_speed, log, mob_attack, mob_jump, mob_kind, mob_move, mob_state,
-    mod_loaded, player, player_target, power, random, received_power, register_command, say,
-    schedule_tick, set_block, set_data, set_kinetic, set_power, set_setting, set_slot,
-    set_world_value, setting, setting_bool, setting_f32, setting_i32, show_menu, show_options,
-    slot, spawn_entity, subscribe, teleport_player, travel_to, world_value,
+    give_item, give_stack, heal_player, hud_bar, hud_clear, hurt_area, hurt_player, item_count,
+    item_extract, item_id, item_insert, kinetic_speed, log, mob_attack, mob_jump, mob_kind,
+    mob_move, mob_state, mod_loaded, player, player_target, power, random, received_power,
+    register_command, say, schedule_tick, set_block, set_data, set_kinetic, set_power, set_setting,
+    set_slot, set_world_value, setting, setting_bool, setting_f32, setting_i32, show_menu,
+    show_options, slot, spawn_entity, subscribe, teleport_player, travel_to, world_value,
 };
 
 /// Une grille de blocs : le monde (`Grid::WORLD`), ou une structure mobile (plus tard).

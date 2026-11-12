@@ -1,0 +1,11 @@
+// Donjons : une crypte à explorer. Salles en graphe (générées par le moteur depuis des plans), pièges
+// et gardiens scriptés, un boss, du butin à paliers. Écrit uniquement avec l'API publique des mods.
+(
+    id: "donjons",
+    name: "Donjons",
+    version: "0.1.0",
+    authors: ["benji"],
+    description: "Une crypte enterrée : salles reliées en graphe, pièges, gardiens, un boss et son trésor.",
+    dependencies: [(id: "core", version: "^0.1")],
+    script: "donjons.wasm",
+)

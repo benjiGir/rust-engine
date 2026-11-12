@@ -747,6 +747,12 @@ pub fn hurt_area(center: [f32; 3], radius: f32, damage: f32) {
     unsafe { ffi::hurt_area(center[0], center[1], center[2], radius, damage) }
 }
 
+/// Blesse le joueur (l'armure compte, et il est invulnérable un instant après un coup) : un piège.
+pub fn hurt_player(amount: f32) {
+    // SAFETY: un nombre seulement.
+    unsafe { ffi::hurt_player(amount) }
+}
+
 /// Écrit une ligne dans la console du joueur (un message).
 pub fn say(text: &str) {
     let (ptr, len) = addr(text.as_bytes());

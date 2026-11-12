@@ -99,6 +99,10 @@ pub enum MachineAction {
         seconds: f32,
         power: f32,
     },
+    /// Blesser le joueur (l'armure compte).
+    PlayerHurt {
+        amount: f32,
+    },
     /// Une ligne dans la console du joueur.
     Say {
         text: String,

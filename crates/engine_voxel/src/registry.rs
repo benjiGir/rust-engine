@@ -1177,9 +1177,12 @@ pub(crate) mod tests {
         let ruby = registry
             .id("example:ruby")
             .expect("le bloc du mod est chargé");
-        // Core d'abord : le rubis vient après les blocs de base (et l'air).
-        let core_blocks = BlockRegistry::builtin().len();
-        assert_eq!(ruby, BlockId(core_blocks as u16));
+        // Core d'abord : les blocs des mods viennent après ceux de base (et l'air), qui gardent
+        // leur numéro.
+        let builtin = BlockRegistry::builtin();
+        let core_blocks = builtin.len();
+        assert!(ruby.0 as usize >= core_blocks);
+        assert_eq!(registry.id("core:stone"), builtin.id("core:stone"));
         assert!(registry.def(ruby).placeable);
         assert!(registry.placeable().any(|id| id == ruby));
     }

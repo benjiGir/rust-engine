@@ -1827,6 +1827,7 @@ impl VoxelGame {
                 | MachineAction::PlayerEffect { .. }
                 | MachineAction::HurtArea { .. }
                 | MachineAction::Say { .. }
+                | MachineAction::PlayerHurt { .. }
                 | MachineAction::ConsumeHeld { .. }
                 | MachineAction::HudBar { .. }
                 | MachineAction::HudClear { .. }) => self.apply_player_action(action),
