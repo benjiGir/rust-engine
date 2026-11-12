@@ -6,6 +6,7 @@
 pub mod manifest;
 pub mod menu;
 pub mod mobs;
+pub mod player;
 pub mod runtime;
 pub mod settings;
 pub mod testing;

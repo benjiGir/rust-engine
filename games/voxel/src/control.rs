@@ -32,7 +32,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 /// L'aide renvoyée par `help`.
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
-| block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-9 \
+| block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-36 \
 | inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | use | mods | travel dimension | console [texte] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
@@ -339,8 +339,10 @@ pub fn parse(line: &str) -> Result<Command> {
             let slot: usize = args[0]
                 .parse()
                 .ok()
-                .filter(|s| (1..=9).contains(s))
-                .context("select : une case de 1 à 9")?;
+                .filter(|s| (1..=36).contains(s))
+                .context(
+                    "select : une case de 1 à 36 (les neuf premières sont la barre d'objets)",
+                )?;
             Command::Select(slot - 1)
         }
         "inventory" => Command::Inventory,
@@ -681,7 +683,8 @@ impl VoxelGame {
                 ))
             }
             Command::Select(slot) => {
-                self.inventory.selected = slot;
+                // Pour les essais : une case hors de la barre peut être tenue en main.
+                self.inventory.selected = slot.min(self.inventory.slots.len().saturating_sub(1));
                 Ok(self.state_json())
             }
             Command::Inventory => {
@@ -875,7 +878,7 @@ impl VoxelGame {
                 if self.use_bed(hit.block_pos) {
                     return Ok(self.state_json());
                 }
-                if self.open_container() || self.use_machine() {
+                if self.open_container() || self.use_machine() || self.use_mod_item() {
                     return Ok(ok());
                 }
                 let pos = self.place_at_target().context("use : rien à faire ici")?;
@@ -1244,7 +1247,7 @@ mod tests {
             ("dance", "inconnue"),
             ("goto 1 2", "arguments"),
             ("goto 1 deux 3", "« deux »"),
-            ("select 0", "1 à 9"),
+            ("select 0", "1 à 36"),
             ("walk 2 sideways", "« sideways »"),
             ("give stone 0", "entier positif"),
         ] {

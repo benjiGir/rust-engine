@@ -683,3 +683,93 @@ pub fn mod_loaded(mod_id: &str) -> bool {
     // SAFETY: l'hôte lit `len` octets à `ptr`, dans `mod_id`.
     unsafe { ffi::mod_loaded(ptr, len) != 0 }
 }
+
+/// L'état du joueur, vu d'un script.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlayerInfo {
+    /// Ses yeux (x, y, z).
+    pub eye: [f32; 3],
+    /// Son regard, de longueur 1.
+    pub look: [f32; 3],
+    /// Sa vie, et sa vie maximale.
+    pub health: f32,
+    /// Sa vie maximale.
+    pub max_health: f32,
+    /// Son niveau d'expérience.
+    pub level: f32,
+}
+
+/// L'état du joueur, rafraîchi à chaque pas de simulation (`None` : pas de joueur).
+pub fn player() -> Option<PlayerInfo> {
+    let mut floats = [0f32; 9];
+    // SAFETY: l'hôte écrit au plus 36 octets à `ptr`, qui pointent dans `floats`.
+    let n = unsafe { ffi::player_info(floats.as_mut_ptr() as usize as i32, 36) };
+    (n == 9).then(|| PlayerInfo {
+        eye: [floats[0], floats[1], floats[2]],
+        look: [floats[3], floats[4], floats[5]],
+        health: floats[6],
+        max_health: floats[7],
+        level: floats[8],
+    })
+}
+
+/// Le point où le regard du joueur touche un bloc, à moins de `max_dist` blocs.
+pub fn player_target(max_dist: f32) -> Option<[f32; 3]> {
+    let mut point = [0f32; 3];
+    // SAFETY: l'hôte écrit 12 octets à `ptr`, qui pointent dans `point`.
+    let hit = unsafe { ffi::player_target(max_dist, point.as_mut_ptr() as usize as i32) };
+    (hit != 0).then_some(point)
+}
+
+/// Rend de la vie au joueur.
+pub fn heal_player(amount: f32) {
+    // SAFETY: un nombre seulement.
+    unsafe { ffi::player_heal(amount) }
+}
+
+/// Téléporte le joueur (ses pieds en `x, y, z`), à 64 blocs au plus d'où il est.
+pub fn teleport_player(x: f32, y: f32, z: f32) {
+    // SAFETY: des nombres seulement.
+    unsafe { ffi::player_teleport(x, y, z) }
+}
+
+/// Donne un effet au joueur : `"speed"`, `"strength"`, `"regeneration"`, `"fire_resistance"` ou
+/// `"healing"`, pendant `seconds` secondes, avec cette puissance.
+pub fn give_effect(effect: &str, seconds: f32, power: f32) {
+    let (ptr, len) = addr(effect.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `effect`.
+    unsafe { ffi::player_effect(ptr, len, seconds, power) }
+}
+
+/// Blesse les créatures à moins de `radius` blocs de ce point (16 au plus) ; elles reculent.
+pub fn hurt_area(center: [f32; 3], radius: f32, damage: f32) {
+    // SAFETY: des nombres seulement.
+    unsafe { ffi::hurt_area(center[0], center[1], center[2], radius, damage) }
+}
+
+/// Écrit une ligne dans la console du joueur (un message).
+pub fn say(text: &str) {
+    let (ptr, len) = addr(text.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `text`.
+    unsafe { ffi::say(ptr, len) }
+}
+
+/// Retire `count` exemplaires de l'objet que le joueur tient en main (au plus 64).
+pub fn consume_held(count: u32) {
+    // SAFETY: un entier seulement.
+    unsafe { ffi::consume_held(count.min(64) as i32) }
+}
+
+/// Affiche (ou met à jour) une jauge du mod à l'écran : `fraction` de 0 à 1, `color` en (r, g, b)
+/// de 0 à 1, et son texte. `id` distingue vos jauges (quatre au plus).
+pub fn hud_bar(id: u32, fraction: f32, color: [f32; 3], label: &str) {
+    let (ptr, len) = addr(label.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `label`.
+    unsafe { ffi::hud_bar(id as i32, fraction, color[0], color[1], color[2], ptr, len) }
+}
+
+/// Retire une jauge de l'écran.
+pub fn hud_clear(id: u32) {
+    // SAFETY: un entier seulement.
+    unsafe { ffi::hud_clear(id as i32) }
+}

@@ -104,6 +104,7 @@ pub(super) fn define_host_functions(linker: &mut Linker<HostState>) -> wasmtime:
     define_commands(linker)?;
     define_mobs(linker)?;
     define_dimensions(linker)?;
+    define_player(linker)?;
     Ok(())
 }
 
@@ -991,6 +992,188 @@ fn define_mobs(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
 }
 
 /// Les dimensions : savoir où l'on est, et y emmener le joueur.
+/// Le joueur : ce qu'on en sait (un instantané), et ce qu'un script peut lui faire.
+fn define_player(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        "voxel",
+        "player_info",
+        |mut caller: Caller<'_, HostState>, out_ptr: i32, cap: i32| -> HostResult<i32> {
+            let floats = caller.data().player.get().to_floats();
+            let n = floats.len().min(cap.max(0) as usize / 4);
+            let bytes: Vec<u8> = floats[..n].iter().flat_map(|f| f.to_le_bytes()).collect();
+            write_guest(&mut caller, out_ptr, &bytes)?;
+            Ok(n as i32)
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "player_target",
+        |mut caller: Caller<'_, HostState>, max_dist: f32, out_ptr: i32| -> HostResult<i32> {
+            let player = caller.data().player.get();
+            let max = max_dist.clamp(0.0, 128.0);
+            let hit = {
+                let streamer = caller.data().streamer.borrow();
+                engine_voxel::raycast(streamer.world(), player.eye, player.look, max)
+            };
+            let Some(hit) = hit else { return Ok(0) };
+            let point = player.eye + player.look.normalize_or_zero() * hit.distance;
+            let bytes: Vec<u8> = point
+                .to_array()
+                .iter()
+                .flat_map(|f| f.to_le_bytes())
+                .collect();
+            write_guest(&mut caller, out_ptr, &bytes)?;
+            Ok(1)
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "player_heal",
+        |mut caller: Caller<'_, HostState>, amount: f32| {
+            if amount.is_finite() && amount > 0.0 {
+                caller
+                    .data_mut()
+                    .requests
+                    .actions
+                    .push(MachineAction::PlayerHeal {
+                        amount: amount.min(100.0),
+                    });
+            }
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "player_teleport",
+        |mut caller: Caller<'_, HostState>, x: f32, y: f32, z: f32| {
+            if x.is_finite() && y.is_finite() && z.is_finite() {
+                caller
+                    .data_mut()
+                    .requests
+                    .actions
+                    .push(MachineAction::PlayerTeleport {
+                        position: Vec3::new(x, y, z),
+                    });
+            }
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "player_effect",
+        |mut caller: Caller<'_, HostState>,
+         ptr: i32,
+         len: i32,
+         seconds: f32,
+         power: f32|
+         -> HostResult<()> {
+            if len > 32 || !seconds.is_finite() || !power.is_finite() {
+                return Ok(());
+            }
+            let name = read_string(&mut caller, ptr, len)?;
+            if crate::player::EFFECTS.contains(&name.as_str()) {
+                caller
+                    .data_mut()
+                    .requests
+                    .actions
+                    .push(MachineAction::PlayerEffect {
+                        name,
+                        seconds: seconds.clamp(0.0, 600.0),
+                        power: power.clamp(0.0, 10.0),
+                    });
+            }
+            Ok(())
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "hurt_area",
+        |mut caller: Caller<'_, HostState>, x: f32, y: f32, z: f32, radius: f32, damage: f32| {
+            if [x, y, z, radius, damage].iter().all(|v| v.is_finite()) && damage > 0.0 {
+                caller
+                    .data_mut()
+                    .requests
+                    .actions
+                    .push(MachineAction::HurtArea {
+                        center: Vec3::new(x, y, z),
+                        radius: radius.clamp(0.0, 16.0),
+                        damage: damage.min(200.0),
+                    });
+            }
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "say",
+        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> HostResult<()> {
+            if len > 256 {
+                return Ok(());
+            }
+            let text = read_string(&mut caller, ptr, len)?;
+            caller
+                .data_mut()
+                .requests
+                .actions
+                .push(MachineAction::Say { text });
+            Ok(())
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "consume_held",
+        |mut caller: Caller<'_, HostState>, count: i32| {
+            if count > 0 {
+                caller
+                    .data_mut()
+                    .requests
+                    .actions
+                    .push(MachineAction::ConsumeHeld {
+                        count: (count as u32).min(64),
+                    });
+            }
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "hud_bar",
+        |mut caller: Caller<'_, HostState>,
+         id: i32,
+         fraction: f32,
+         r: f32,
+         g: f32,
+         b: f32,
+         ptr: i32,
+         len: i32|
+         -> HostResult<()> {
+            if len > 64 || ![fraction, r, g, b].iter().all(|v| v.is_finite()) {
+                return Ok(());
+            }
+            let label = read_string(&mut caller, ptr, len)?;
+            let state = caller.data_mut();
+            let mod_id = state.mod_id.clone();
+            state.requests.actions.push(MachineAction::HudBar {
+                mod_id,
+                id: id as u32,
+                fraction: fraction.clamp(0.0, 1.0),
+                color: [r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)],
+                label,
+            });
+            Ok(())
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "hud_clear",
+        |mut caller: Caller<'_, HostState>, id: i32| {
+            let state = caller.data_mut();
+            let mod_id = state.mod_id.clone();
+            state.requests.actions.push(MachineAction::HudClear {
+                mod_id,
+                id: id as u32,
+            });
+        },
+    )?;
+    Ok(())
+}
+
 fn define_dimensions(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
     linker.func_wrap(
         "voxel",

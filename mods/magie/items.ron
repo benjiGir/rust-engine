@@ -1,0 +1,14 @@
+// Les objets de la magie. `usable: true` : un clic droit avec cet objet en main prévient le script
+// du mod (`Event::ItemUsed`) au lieu de poser un bloc ou de ne rien faire.
+(
+    items: [
+        (id: "magie:wand", name: "Baguette", category: Material, color: (0.5, 0.35, 0.2), icon: "wand", max_stack: 1, usable: true),
+        (id: "magie:mana_crystal", name: "Cristal de mana", category: Material, color: (0.3, 0.5, 1.0), icon: "mana_crystal", usable: true),
+        // Les runes : une d'effet, puis des modificateurs. Elles se composent à la table des runes.
+        (id: "magie:rune_flame", name: "Rune de flamme", category: Material, color: (1.0, 0.5, 0.15), icon: "rune_flame"),
+        (id: "magie:rune_heal", name: "Rune de soin", category: Material, color: (0.3, 0.85, 0.45), icon: "rune_heal"),
+        (id: "magie:rune_blink", name: "Rune de saut", category: Material, color: (0.65, 0.35, 0.9), icon: "rune_blink"),
+        (id: "magie:rune_power", name: "Rune de puissance", category: Material, color: (0.95, 0.8, 0.25), icon: "rune_power"),
+        (id: "magie:rune_reach", name: "Rune de portée", category: Material, color: (0.35, 0.65, 1.0), icon: "rune_reach"),
+    ],
+)

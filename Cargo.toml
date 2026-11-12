@@ -13,6 +13,7 @@ members = [
     "tools/xtask",
     "mods/example/script",
     "mods/mecanique/script",
+    "mods/magie/script",
     "crates/engine_inspect",
     "crates/engine_inspect_derive",
     "games/voxel",

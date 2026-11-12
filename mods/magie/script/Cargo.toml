@@ -1,0 +1,23 @@
+[package]
+name = "magie_mod"
+description = "Le script du mod Magie : mana, runes, baguette."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+# `cdylib` : une bibliothèque autonome, ici un module WebAssembly (`cargo xtask build-mods`).
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+mod_sdk = { path = "../../../crates/mod_sdk" }
+
+# Pour les tests sans fenêtre (`cargo xtask test-mod magie`).
+[dev-dependencies]
+engine_mods = { path = "../../../crates/engine_mods" }
+engine_voxel = { path = "../../../crates/engine_voxel" }
+glam = { workspace = true }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

@@ -87,6 +87,44 @@ pub enum MachineAction {
         mob: u32,
         value: u32,
     },
+    /// Le joueur : de la vie, une téléportation, un effet (voir `engine_mods::player`).
+    PlayerHeal {
+        amount: f32,
+    },
+    PlayerTeleport {
+        position: Vec3,
+    },
+    PlayerEffect {
+        name: String,
+        seconds: f32,
+        power: f32,
+    },
+    /// Une ligne dans la console du joueur.
+    Say {
+        text: String,
+    },
+    /// Retirer des exemplaires de l'objet tenu en main.
+    ConsumeHeld {
+        count: u32,
+    },
+    /// Blesser les créatures autour d'un point.
+    HurtArea {
+        center: Vec3,
+        radius: f32,
+        damage: f32,
+    },
+    /// Une jauge de mod à l'écran (`fraction` de 0 à 1).
+    HudBar {
+        mod_id: String,
+        id: u32,
+        fraction: f32,
+        color: [f32; 3],
+        label: String,
+    },
+    HudClear {
+        mod_id: String,
+        id: u32,
+    },
     /// Faire passer le joueur dans une dimension (`mon_mod:ma_dimension`).
     Travel {
         dimension: String,

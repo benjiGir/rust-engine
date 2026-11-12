@@ -1,0 +1,11 @@
+// Magie : du mana, des runes et une baguette. Écrit uniquement avec l'API publique des mods.
+(
+    id: "magie",
+    name: "Magie",
+    version: "0.1.0",
+    authors: ["benji"],
+    description: "Un cristal de mana, des runes à composer à la table, une baguette qui lance le sort inscrit.",
+    dependencies: [(id: "core", version: "^0.1")],
+    script: "magie.wasm",
+    options: true,
+)

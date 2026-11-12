@@ -379,6 +379,7 @@ fn host_matches_the_catalog() {
         settings: Default::default(),
         world_data: Default::default(),
         peers: Default::default(),
+        player: Default::default(),
         commands: Vec::new(),
         requests: Requests::default(),
         subscriptions: Vec::new(),
@@ -467,6 +468,12 @@ fn event_numbers_match_the_catalog() {
             ModEvent::PlayerDamaged {
                 amount: 1.0,
                 health_left: 19.0,
+            },
+        ),
+        (
+            "ItemUsed",
+            ModEvent::ItemUsed {
+                item: engine_voxel::ItemId(4),
             },
         ),
         (

@@ -14,6 +14,8 @@ pub const EVENT_ENTITY_DIED: i32 = 3;
 pub const EVENT_TICK: i32 = 4;
 /// PlayerDamaged : le joueur a perdu de la vie.
 pub const EVENT_PLAYER_DAMAGED: i32 = 5;
+/// ItemUsed : le joueur a fait un clic droit avec un objet `usable` en main (hors d'une action du jeu : poser un bloc, ouvrir un coffre...).
+pub const EVENT_ITEM_USED: i32 = 7;
 /// ChunkGenerated : un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde) : le mod peut le décorer.
 pub const EVENT_CHUNK_GENERATED: i32 = 6;
 
@@ -182,6 +184,26 @@ unsafe extern "C" {
     pub fn mob_attack(mob: i32, damage: f32);
     /// Pendant `on_mobs` : la mémoire de la créature (un entier de votre choix, rendu dans `state` au prochain appel).
     pub fn mob_state(mob: i32, value: i32);
+    /// Écrit l'état du joueur : 9 décimaux (f32) `x, y, z` (ses yeux), `dx, dy, dz` (le regard, de longueur 1), `vie, vie max, niveau` ; renvoie leur nombre (0 s'il n'y a pas de joueur).
+    pub fn player_info(out_ptr: i32, cap: i32) -> i32;
+    /// Lance un rayon dans la direction du regard : si un bloc est touché à moins de `max_dist` blocs, écrit le point d'impact (3 f32) et renvoie 1 ; sinon 0.
+    pub fn player_target(max_dist: f32, out_ptr: i32) -> i32;
+    /// Rend de la vie au joueur.
+    pub fn player_heal(amount: f32);
+    /// Téléporte le joueur (les pieds en x, y, z), à 64 blocs au plus de là où il est.
+    pub fn player_teleport(x: f32, y: f32, z: f32);
+    /// Donne un effet au joueur : `speed`, `strength`, `regeneration`, `fire_resistance` ou `healing`.
+    pub fn player_effect(ptr: i32, len: i32, seconds: f32, power: f32);
+    /// Blesse les créatures à moins de `radius` blocs de ce point (jusqu'à 16 blocs) ; elles reculent.
+    pub fn hurt_area(x: f32, y: f32, z: f32, radius: f32, damage: f32);
+    /// Écrit une ligne dans la console du joueur (un message : « pas assez de mana »).
+    pub fn say(ptr: i32, len: i32);
+    /// Retire `count` exemplaires de l'objet que le joueur tient en main (une potion qu'on boit, un cristal qu'on use).
+    pub fn consume_held(count: i32);
+    /// Affiche (ou met à jour) une jauge du mod à l'écran : `fraction` de 0 à 1, couleur (r, g, b) de 0 à 1, et son texte. Quatre jauges au plus par mod.
+    pub fn hud_bar(id: i32, fraction: f32, r: f32, g: f32, b: f32, ptr: i32, len: i32);
+    /// Retire une jauge du mod de l'écran.
+    pub fn hud_clear(id: i32);
     /// Fait passer le joueur dans cette dimension (`mon_mod:ma_dimension`) : le monde est sauvegardé puis rechargé, et le joueur arrive au sol aux mêmes x et z. 1 si le voyage est lancé, 0 si la dimension est inconnue ou si le monde n'est pas sauvegardé.
     pub fn travel_to(ptr: i32, len: i32) -> i32;
     /// Copie l'identifiant de la dimension où se trouve le joueur (`core:overworld`, `mon_mod:ma_dimension`) ; renvoie sa taille.
@@ -412,6 +434,30 @@ mod inert {
     pub unsafe fn mob_attack(_: i32, _: f32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn mob_state(_: i32, _: i32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn player_info(_: i32, _: i32) -> i32 {
+        0
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn player_target(_: f32, _: i32) -> i32 {
+        0
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn player_heal(_: f32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn player_teleport(_: f32, _: f32, _: f32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn player_effect(_: i32, _: i32, _: f32, _: f32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn hurt_area(_: f32, _: f32, _: f32, _: f32, _: f32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn say(_: i32, _: i32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn consume_held(_: i32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn hud_bar(_: i32, _: f32, _: f32, _: f32, _: f32, _: i32, _: i32) {}
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn hud_clear(_: i32) {}
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn travel_to(_: i32, _: i32) -> i32 {
         0

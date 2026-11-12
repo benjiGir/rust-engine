@@ -12,6 +12,8 @@ pub const EVENT_ENTITY_DIED: i32 = 3;
 pub const EVENT_TICK: i32 = 4;
 /// PlayerDamaged : le joueur a perdu de la vie.
 pub const EVENT_PLAYER_DAMAGED: i32 = 5;
+/// ItemUsed : le joueur a fait un clic droit avec un objet `usable` en main (hors d'une action du jeu : poser un bloc, ouvrir un coffre...).
+pub const EVENT_ITEM_USED: i32 = 7;
 /// ChunkGenerated : un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde) : le mod peut le décorer.
 pub const EVENT_CHUNK_GENERATED: i32 = 6;
 

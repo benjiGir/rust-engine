@@ -1,0 +1,14 @@
+// L'artisanat de la magie (les objets du jeu de base s'écrivent en entier : `core:...`).
+(
+    shaped: [
+        (pattern: ["s"], key: {"s": "core:sapphire"}, result: ("mana_crystal", 3)),
+        (pattern: ["c", "s", "s"], key: {"c": "mana_crystal", "s": "core:stick"}, result: ("wand", 1)),
+        (pattern: ["cx"], key: {"c": "mana_crystal", "x": "core:coal"}, result: ("rune_flame", 1)),
+        (pattern: ["cx"], key: {"c": "mana_crystal", "x": "core:apple"}, result: ("rune_heal", 1)),
+        (pattern: ["cx"], key: {"c": "mana_crystal", "x": "core:shadow_dust"}, result: ("rune_blink", 1)),
+        (pattern: ["cx"], key: {"c": "mana_crystal", "x": "core:gold_ingot"}, result: ("rune_power", 1)),
+        (pattern: ["cx"], key: {"c": "mana_crystal", "x": "core:malachite"}, result: ("rune_reach", 1)),
+        (pattern: ["###", "#c#", "###"], key: {"#": "core:cobblestone", "c": "mana_crystal"}, result: ("rune_table", 1)),
+    ],
+    shapeless: [],
+)

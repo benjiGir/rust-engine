@@ -118,6 +118,9 @@ pub struct ItemDef {
     pub armor: Option<ArmorDef>,
     /// Un aliment : ce qu'il nourrit.
     pub food: Option<FoodDef>,
+    /// Un clic droit avec cet objet en main (hors d'une action du jeu) prévient les scripts des mods
+    /// (`Event::ItemUsed`) : une baguette, un grimoire, un outil de mod.
+    pub usable: bool,
     /// Sa couleur, pour l'objet posé au sol.
     pub color: [f32; 3],
     pub icon: Icon,
@@ -143,6 +146,8 @@ struct ItemEntry {
     armor: Option<ArmorDef>,
     #[serde(default)]
     food: Option<FoodDef>,
+    #[serde(default)]
+    usable: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -222,6 +227,7 @@ impl ItemRegistry {
                 tool: None,
                 armor: None,
                 food: None,
+                usable: false,
                 color: def.color,
                 icon: Icon::Block(id),
             };
@@ -275,6 +281,7 @@ impl ItemRegistry {
                 tool: e.tool,
                 armor: e.armor,
                 food: e.food,
+                usable: e.usable,
                 color: [r, g, b],
                 icon: Icon::Texture(qualify(&e.icon, namespace)),
                 key: e.id,

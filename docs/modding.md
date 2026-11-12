@@ -427,6 +427,7 @@ fait aussitôt. `cargo xtask ctl console /commande` la lance sans clavier (pour 
 | `EntityDied` (3) | une créature est morte | `x, y, z` (f32), puis le type de créature en UTF-8 |
 | `Tick` (4) | un tick de machines (20 par seconde) | le numéro du tick (u64) |
 | `PlayerDamaged` (5) | le joueur a perdu de la vie | `dégâts, vie restante` (f32) |
+| `ItemUsed` (7) | le joueur a fait un clic droit avec un objet `usable` en main (hors d'une action du jeu : poser un bloc, ouvrir un coffre...) | `objet` (i32 : son numéro, voir `item_id`) |
 | `ChunkGenerated` (6) | un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde) : le mod peut le décorer | `grille, cx, cy, cz` (i32 ; coordonnées de chunk, 32 blocs de côté) |
 <!-- /hooks:events -->
 
@@ -639,6 +640,21 @@ test vérifie que le jeu définit exactement ces fonctions.
 | `mob_attack(mob: i32, damage: f32)` | Pendant `on_mobs` : la créature blesse le joueur s'il est à portée de bras (3 blocs) et si elle n'a pas frappé depuis une seconde. |
 | `mob_state(mob: i32, value: i32)` | Pendant `on_mobs` : la mémoire de la créature (un entier de votre choix, rendu dans `state` au prochain appel). |
 
+*Joueur*
+
+| Fonction | Rôle |
+|---|---|
+| `player_info(out_ptr: i32, cap: i32) -> i32` | Écrit l'état du joueur : 9 décimaux (f32) `x, y, z` (ses yeux), `dx, dy, dz` (le regard, de longueur 1), `vie, vie max, niveau` ; renvoie leur nombre (0 s'il n'y a pas de joueur). |
+| `player_target(max_dist: f32, out_ptr: i32) -> i32` | Lance un rayon dans la direction du regard : si un bloc est touché à moins de `max_dist` blocs, écrit le point d'impact (3 f32) et renvoie 1 ; sinon 0. |
+| `player_heal(amount: f32)` | Rend de la vie au joueur. |
+| `player_teleport(x: f32, y: f32, z: f32)` | Téléporte le joueur (les pieds en x, y, z), à 64 blocs au plus de là où il est. |
+| `player_effect(ptr: i32, len: i32, seconds: f32, power: f32)` | Donne un effet au joueur : `speed`, `strength`, `regeneration`, `fire_resistance` ou `healing`. |
+| `hurt_area(x: f32, y: f32, z: f32, radius: f32, damage: f32)` | Blesse les créatures à moins de `radius` blocs de ce point (jusqu'à 16 blocs) ; elles reculent. |
+| `say(ptr: i32, len: i32)` | Écrit une ligne dans la console du joueur (un message : « pas assez de mana »). |
+| `consume_held(count: i32)` | Retire `count` exemplaires de l'objet que le joueur tient en main (une potion qu'on boit, un cristal qu'on use). |
+| `hud_bar(id: i32, fraction: f32, r: f32, g: f32, b: f32, ptr: i32, len: i32)` | Affiche (ou met à jour) une jauge du mod à l'écran : `fraction` de 0 à 1, couleur (r, g, b) de 0 à 1, et son texte. Quatre jauges au plus par mod. |
+| `hud_clear(id: i32)` | Retire une jauge du mod de l'écran. |
+
 *Dimensions*
 
 | Fonction | Rôle |
@@ -823,6 +839,34 @@ créatures, objets au sol et scripts repartent à neuf : ce qui doit rester va d
 le monde jetable). Si le mod d'une dimension est retiré, le joueur qui s'y trouvait est ramené à la
 dimension de départ. Une dimension peut aussi avoir ses propres minerais et structures (`ores.ron`,
 `structures.ron` du mod s'appliquent à toute dimension de type `Terrain`).
+
+## Le joueur, les objets utilisables et l'écran
+
+Un mod agit sur le joueur et sur l'écran sans toucher au moteur :
+
+| Fonction | Rôle |
+|---|---|
+| `player()` | l'état du joueur : ses yeux, son regard (longueur 1), sa vie, sa vie max et son niveau d'expérience ; rafraîchi à chaque pas de simulation |
+| `player_target(portée)` | le point où le regard touche un bloc, à moins de `portée` blocs (sans repasser par le jeu : c'est un rayon dans le monde) |
+| `heal_player(vie)` | rend de la vie |
+| `teleport_player(x, y, z)` | téléporte le joueur (ses pieds), à 64 blocs au plus, vers un endroit chargé |
+| `give_effect("speed", secondes, puissance)` | un effet : `speed`, `strength`, `regeneration`, `fire_resistance`, `healing` |
+| `hurt_area(centre, rayon, dégâts)` | blesse les créatures autour d'un point (16 blocs de rayon au plus) ; elles reculent |
+| `consume_held(n)` | retire `n` exemplaires de l'objet tenu en main |
+| `say(texte)` | une ligne dans la console du joueur |
+| `hud_bar(id, fraction, couleur, texte)` / `hud_clear(id)` | une jauge à l'écran, au-dessus de la barre d'objets (quatre au plus par mod) |
+
+**Les objets utilisables** : `usable: true` dans `items.ron` (une baguette, un grimoire, un outil de mod). Un
+clic droit avec cet objet en main, quand le jeu n'a rien d'autre à faire du clic (poser un bloc, ouvrir
+un coffre, manger...), prévient les scripts abonnés : `Event::ItemUsed { item }`. Le script décide de ce
+qui se passe, et de consommer l'objet ou non.
+
+Le mod **Magie** (`mods/magie`) est bâti uniquement avec cela : un **mana** qui se régénère (1 par
+seconde, réglable dans sa page d'options) avec une jauge à l'écran et un maximum qui monte avec le niveau,
+une **table des runes** (menu à trois cases) où l'on compose un sort (une rune d'effet : flamme, soin ou
+saut ; des modificateurs : puissance, portée), une **baguette** qui lance le sort inscrit sur un clic
+droit, un **cristal de mana**, les commandes `/mana` et `/sort`. Ses tests sans fenêtre vérifient la
+composition, chaque sort, le mana insuffisant et la jauge.
 
 ## Les coûts mesurés
 

@@ -49,6 +49,8 @@ pub struct GameUi {
     pub mod_events: Vec<(i32, i32, i32)>,
     /// Vrai pendant un clic droit : un script peut alors ouvrir son menu.
     pub allow_mod_menu: bool,
+    /// Les jauges que les mods affichent (voir `player_api.rs`).
+    pub mod_hud: crate::player_api::HudBars,
     /// La console : saisie, lignes et commandes validées.
     pub console: crate::console::ConsoleState,
     /// La page d'options d'un mod, ouverte depuis la pause : (mod, menu).
@@ -127,6 +129,7 @@ impl GameUi {
             mod_menu: None,
             mod_events: Vec::new(),
             allow_mod_menu: false,
+            mod_hud: Default::default(),
             console: Default::default(),
             options_menu: None,
             options_events: Vec::new(),
@@ -230,6 +233,7 @@ impl VoxelGame {
             self.draw_toast(ui.ctx());
             self.draw_menus(ui.ctx());
             self.draw_chat(ui.ctx());
+            self.draw_mod_hud(ui.ctx());
             if self.ui.inventory_open {
                 if self.ui.screen == Screen::Console {
                     self.draw_console(ui.ctx());

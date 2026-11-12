@@ -74,6 +74,10 @@ pub enum ModEvent {
         amount: f32,
         health_left: f32,
     },
+    /// Le joueur a fait un clic droit avec cet objet `usable` en main.
+    ItemUsed {
+        item: engine_voxel::ItemId,
+    },
     /// Un chunk (coordonnées de chunk) vient d'être généré pour la première fois.
     ChunkGenerated {
         chunk: IVec3,
@@ -89,6 +93,7 @@ impl ModEvent {
             Self::Tick(_) => abi::EVENT_TICK,
             Self::PlayerDamaged { .. } => abi::EVENT_PLAYER_DAMAGED,
             Self::ChunkGenerated { .. } => abi::EVENT_CHUNK_GENERATED,
+            Self::ItemUsed { .. } => abi::EVENT_ITEM_USED,
         }
     }
 
@@ -129,6 +134,7 @@ impl ModEvent {
                 int(amount.to_bits() as i32);
                 int(health_left.to_bits() as i32);
             }
+            Self::ItemUsed { item } => int(item.0 as i32),
             Self::ChunkGenerated { chunk } => {
                 int(0);
                 chunk.to_array().into_iter().for_each(&mut int);
@@ -189,6 +195,7 @@ pub struct HostState {
     settings: Rc<RefCell<crate::ModSettings>>,
     world_data: Rc<RefCell<crate::ModSettings>>,
     peers: Peers,
+    player: crate::player::SharedPlayer,
     /// Les commandes déclarées par le script (`register_command`) : (nom, aide).
     commands: Vec<(String, String)>,
     requests: Requests,
@@ -205,6 +212,7 @@ pub struct ScriptHost {
     settings: Rc<RefCell<crate::ModSettings>>,
     world_data: Rc<RefCell<crate::ModSettings>>,
     peers: Peers,
+    player: crate::player::SharedPlayer,
 }
 
 impl ScriptHost {
@@ -222,6 +230,7 @@ impl ScriptHost {
             settings: Rc::default(),
             world_data: Rc::new(RefCell::new(crate::ModSettings::default().for_world())),
             peers: Peers::default(),
+            player: Default::default(),
         })
     }
 
@@ -233,6 +242,11 @@ impl ScriptHost {
     /// Les réglages des mods, partagés avec le jeu (qui les écrit dans la page d'options).
     pub fn set_settings(&mut self, settings: Rc<RefCell<crate::ModSettings>>) {
         self.settings = settings;
+    }
+
+    /// L'instantané du joueur que le jeu rafraîchit et que les scripts lisent.
+    pub fn set_player(&mut self, player: crate::player::SharedPlayer) {
+        self.player = player;
     }
 
     /// Les scripts que les mods peuvent s'appeler (`ModRuntime::peers`).
@@ -264,6 +278,7 @@ impl ScriptHost {
             settings: self.settings.clone(),
             world_data: self.world_data.clone(),
             peers: self.peers.clone(),
+            player: self.player.clone(),
             commands: Vec::new(),
             requests: Requests::default(),
             subscriptions: Vec::new(),

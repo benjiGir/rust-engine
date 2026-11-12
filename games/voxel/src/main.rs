@@ -66,6 +66,7 @@ mod modding;
 mod navigation;
 mod persistence;
 mod player;
+mod player_api;
 mod potions;
 mod projectiles;
 mod screenshots;
@@ -757,6 +758,8 @@ impl VoxelGame {
         self.pick_up_drops(ctx.fixed_dt);
         let (actions, machine_tick) = self.mods.fixed_step(eye);
         self.apply_machine_actions(actions);
+        let snapshot = self.player_snapshot();
+        self.mods.set_player(snapshot);
         self.run_mob_brains(machine_tick.is_some());
         if let Some(stress) = &mut self.stress {
             let eye = player::eye(&self.ecs, self.player, 1.0);
@@ -975,6 +978,7 @@ impl VoxelGame {
                 && !self.feed_mob()
                 && !self.use_hoe()
                 && !self.use_fertilizer()
+                && !self.use_mod_item()
             {
                 self.place_at_target();
             }
@@ -1818,6 +1822,14 @@ impl VoxelGame {
                     self.show_mod_menu(mod_id, at, &data);
                 }
                 MachineAction::CloseMenu { mod_id } => self.close_mod_menu_of(&mod_id),
+                action @ (MachineAction::PlayerHeal { .. }
+                | MachineAction::PlayerTeleport { .. }
+                | MachineAction::PlayerEffect { .. }
+                | MachineAction::HurtArea { .. }
+                | MachineAction::Say { .. }
+                | MachineAction::ConsumeHeld { .. }
+                | MachineAction::HudBar { .. }
+                | MachineAction::HudClear { .. }) => self.apply_player_action(action),
                 MachineAction::Travel { dimension } => {
                     self.travel(&dimension);
                 }

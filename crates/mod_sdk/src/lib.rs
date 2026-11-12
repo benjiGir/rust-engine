@@ -41,14 +41,15 @@ pub mod ui;
 use std::cell::RefCell;
 
 pub use host::{
-    Item, Recipe, add_energy, add_inventory, add_kinetic, add_tank, block_base, block_id, call_mod,
-    close_menu, data, dimension, energy_extract, energy_insert, energy_stored, find_recipe,
-    fluid_amount, fluid_drain, fluid_fill, get_block, give_item, give_stack, item_count,
-    item_extract, item_id, item_insert, kinetic_speed, log, mob_attack, mob_jump, mob_kind,
-    mob_move, mob_state, mod_loaded, power, random, received_power, register_command,
+    Item, PlayerInfo, Recipe, add_energy, add_inventory, add_kinetic, add_tank, block_base,
+    block_id, call_mod, close_menu, consume_held, data, dimension, energy_extract, energy_insert,
+    energy_stored, find_recipe, fluid_amount, fluid_drain, fluid_fill, get_block, give_effect,
+    give_item, give_stack, heal_player, hud_bar, hud_clear, hurt_area, item_count, item_extract,
+    item_id, item_insert, kinetic_speed, log, mob_attack, mob_jump, mob_kind, mob_move, mob_state,
+    mod_loaded, player, player_target, power, random, received_power, register_command, say,
     schedule_tick, set_block, set_data, set_kinetic, set_power, set_setting, set_slot,
     set_world_value, setting, setting_bool, setting_f32, setting_i32, show_menu, show_options,
-    slot, spawn_entity, subscribe, travel_to, world_value,
+    slot, spawn_entity, subscribe, teleport_player, travel_to, world_value,
 };
 
 /// Une grille de blocs : le monde (`Grid::WORLD`), ou une structure mobile (plus tard).
@@ -199,6 +200,8 @@ pub enum EventKind {
     PlayerDamaged = ffi::EVENT_PLAYER_DAMAGED,
     /// Un chunk neuf vient d'être généré ([`Event::ChunkGenerated`]).
     ChunkGenerated = ffi::EVENT_CHUNK_GENERATED,
+    /// Un clic droit avec un objet `usable` ([`Event::ItemUsed`]).
+    ItemUsed = ffi::EVENT_ITEM_USED,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -235,6 +238,13 @@ pub enum Event {
         amount: f32,
         /// La vie qui lui reste.
         health_left: f32,
+    },
+    /// Le joueur a fait un clic droit avec cet objet en main (un objet `usable` d'`items.ron`),
+    /// hors d'une action du jeu (poser un bloc, ouvrir un coffre...). [`player`] donne où il
+    /// regarde.
+    ItemUsed {
+        /// L'objet utilisé (son numéro : à comparer avec [`item_id`]).
+        item: Item,
     },
     /// Un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde).
     /// `chunk` : ses coordonnées de chunk ; son coin minimal est [`Pos::chunk_origin`]. Pour le
@@ -369,6 +379,9 @@ pub mod __private {
             ffi::EVENT_TICK => {
                 Event::Tick(*v.first()? as u32 as u64 | (*v.get(1)? as u32 as u64) << 32)
             }
+            ffi::EVENT_ITEM_USED => Event::ItemUsed {
+                item: Item(*v.first()? as u16),
+            },
             ffi::EVENT_CHUNK_GENERATED => Event::ChunkGenerated {
                 chunk: grid_pos(0)?,
             },

@@ -77,6 +77,8 @@ pub struct ModSystem {
     pending_chunks: std::collections::VecDeque<IVec3>,
     /// Compte les ticks de machines : les créatures à comportement pensent un tick sur cinq.
     brain_clock: u32,
+    /// L'instantané du joueur que les scripts lisent (`player_info`).
+    player: engine_mods::player::SharedPlayer,
     /// Les réglages des mods (`mod_settings.ron`), partagés avec leurs scripts.
     settings: Rc<RefCell<ModSettings>>,
     settings_path: PathBuf,
@@ -111,6 +113,7 @@ impl ModSystem {
             .filter(|m| m.manifest.options && m.manifest.script.is_some())
             .map(|m| (m.id().to_string(), m.manifest.name.clone()))
             .collect();
+        let player = engine_mods::player::SharedPlayer::default();
         let mut machines = Machines::with_natives(&registry);
         machines.set_item_rules(content.items.clone(), content.machine_recipes.clone());
         let mut runtime = ModRuntime::default();
@@ -122,6 +125,7 @@ impl ModSystem {
                 host.set_settings(settings.clone());
                 host.set_world_data(world_data.clone());
                 host.set_peers(runtime.peers());
+                host.set_player(player.clone());
                 host
             });
         let scripts: Vec<(String, PathBuf)> = order
@@ -152,6 +156,7 @@ impl ModSystem {
             last_tick: TickReport::default(),
             pending_chunks: std::collections::VecDeque::new(),
             brain_clock: 0,
+            player,
             settings,
             settings_path,
             world_data,
@@ -237,6 +242,16 @@ impl ModSystem {
         let mut actions = Vec::new();
         let used = self.machines.use_block(&self.world, pos, &mut actions);
         (used, actions)
+    }
+
+    /// Rafraîchit l'instantané du joueur que les scripts lisent.
+    pub fn set_player(&mut self, snapshot: engine_mods::player::PlayerSnapshot) {
+        self.player.set(snapshot);
+    }
+
+    /// Au moins un script est abonné à ce type d'événement.
+    pub fn has_subscribers(&self, kind: i32) -> bool {
+        self.runtime.has_subscribers(kind)
     }
 
     /// Vrai un tick de machines sur cinq (4 fois par seconde) : le moment de confier leurs

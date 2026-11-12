@@ -56,6 +56,8 @@ pub struct Harness {
     /// Les données du mod propres à ce monde (`world_value` côté script).
     pub world_data: Rc<RefCell<ModSettings>>,
     mob_keys: Arc<Vec<String>>,
+    items: Arc<ItemRegistry>,
+    player: crate::player::SharedPlayer,
     pub mod_id: String,
 }
 
@@ -87,7 +89,7 @@ impl Harness {
             .collect();
 
         let registry = Arc::new(BlockRegistry::load_mods(&assets, &dirs)?);
-        let items = ItemRegistry::load_mods(&registry, &assets, &dirs)?;
+        let items = Arc::new(ItemRegistry::load_mods(&registry, &assets, &dirs)?);
         let mut recipes = MachineRecipes::default();
         for (ns, dir) in std::iter::once(&("core".to_string(), assets.join("core"))).chain(&dirs) {
             let path = dir.join("machine_recipes.ron");
@@ -129,11 +131,13 @@ impl Harness {
         let mob_keys = Arc::new(mob_keys(&dirs));
         let mut host = ScriptHost::new()?;
         host.set_content(ModContent {
-            items: Arc::new(items),
+            items: items.clone(),
             machine_recipes: Arc::new(recipes),
             mob_keys: mob_keys.clone(),
             dimension: "core:overworld".into(),
         });
+        let player = crate::player::SharedPlayer::default();
+        host.set_player(player.clone());
         host.set_settings(settings.clone());
         let world_data = Rc::new(RefCell::new(ModSettings::default().for_world()));
         host.set_world_data(world_data.clone());
@@ -145,6 +149,8 @@ impl Harness {
             settings,
             world_data,
             mob_keys,
+            items,
+            player,
             mod_id: mod_id.to_string(),
         })
     }
@@ -259,6 +265,20 @@ impl Harness {
     /// Confie ces créatures au script (`on_mobs`) : ce qu'il ordonne.
     pub fn mobs(&mut self, mobs: &[crate::mobs::MobSnapshot]) -> Result<Requests> {
         self.script.mobs(&crate::mobs::encode(mobs), mobs.len())
+    }
+
+    /// Ce que le script voit du joueur (`player()`) : à régler avant un clic ou un tick.
+    pub fn set_player(&mut self, snapshot: crate::player::PlayerSnapshot) {
+        self.player.set(snapshot);
+    }
+
+    /// Un clic droit avec cet objet `usable` en main (`Event::ItemUsed`).
+    pub fn use_item(&mut self, key: &str) -> Result<Requests> {
+        let item = self
+            .items
+            .id(key)
+            .unwrap_or_else(|| panic!("objet inconnu : {key}"));
+        self.script.send_event(&ModEvent::ItemUsed { item })
     }
 
     /// Le numéro d'un type de créature, comme `mob_kind` le donne au script.
