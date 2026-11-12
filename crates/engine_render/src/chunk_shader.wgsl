@@ -179,16 +179,55 @@ fn caustics(p: vec2<f32>, t: f32) -> f32 {
     return pow(1.0 - abs((a + b + c) / 3.0), 6.0);
 }
 
+// Les filets d'une chute d'eau : des rubans verticaux de largeurs et de vitesses différentes,
+// dont des bandes plus claires descendent. `along` : la position en travers de la chute ;
+// `down` : la hauteur (elle diminue le long du courant). Renvoie 0 (rien) à 1 (un filet clair).
+fn fall_streaks(along: f32, down: f32, t: f32) -> f32 {
+    var total = 0.0;
+    for (var layer = 0; layer < 2; layer++) {
+        let scale = select(5.0, 11.0, layer == 1);
+        let column = along * scale + f32(layer) * 17.0;
+        let id = floor(column);
+        let f = fract(column);
+        let h = fract(sin(id * 12.9898 + f32(layer) * 3.7) * 43758.5453);
+        // Les bords du ruban s'adoucissent : pas de colonnes nettes comme une grille.
+        let ribbon = smoothstep(0.0, 0.3, f) * smoothstep(1.0, 0.7, f);
+        let band = fract(down * (0.22 + 0.1 * h) + t * (1.4 + 1.6 * h) + h * 9.0);
+        let bright = smoothstep(0.0, 0.18, band) * smoothstep(0.75, 0.3, band);
+        total += ribbon * (0.25 + 0.75 * bright) * select(1.0, 0.6, layer == 1);
+    }
+    return clamp(total * 0.7, 0.0, 1.0);
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let time = camera.sun_color.w;
     var uv = face_uv(in.tex_position, in.tex_normal);
     let is_water = (in.flags & FLAG_WATER) != 0u;
-    let wp = in.world_position.xz;
+    var wp = in.world_position.xz;
+    // Le courant : sur le dessus d'une eau libre, la normale est inclinée par la pente de la
+    // surface (voir le maillage) ; l'eau coule vers le bas de la pente, d'autant plus vite
+    // qu'elle est raide. Sur les côtés, elle tombe.
+    var flow_dir = vec2<f32>(0.0);
+    var current = 0.0;
+    if is_water && abs(in.tex_normal.y) > 0.5 {
+        let slope = length(in.tex_normal.xz);
+        flow_dir = in.tex_normal.xz / max(slope, 1e-4);
+        current = smoothstep(0.015, 0.16, slope);
+    }
     if is_water {
         // La texture glisse doucement et ondule : l'eau ne reste pas figée.
         uv += vec2<f32>(time * 0.021, time * 0.013)
             + 0.02 * vec2<f32>(sin(wp.y * 3.1 + time * 1.3), cos(wp.x * 2.7 + time * 1.1));
+        if abs(in.tex_normal.y) > 0.5 {
+            // Les motifs partent avec le courant (1,2 bloc par seconde au plus).
+            let drift = flow_dir * current * 1.2 * time;
+            uv -= drift;
+            wp -= drift * 1.5;
+        } else {
+            // Une chute : la texture descend, vite.
+            uv.y -= time * 2.2;
+        }
     }
     var texel = textureSample(block_textures, block_sampler, uv, in.texture);
     // Une feuille au cœur du feuillage : ses trous deviennent un vert sombre (la couleur
@@ -240,10 +279,13 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         let to_camera = camera.position_fog_start.xyz - in.world_position;
         let view = normalize(to_camera);
         var n = vec3<f32>(0.0, 1.0, 0.0);
+        let tilt = in.tex_normal.xyz - vec3<f32>(0.0, 1.0, 0.0);
         // Les vagues s'effacent avec la distance : trop petites, elles feraient du moiré.
         let calm = smoothstep(18.0, 70.0, length(to_camera));
         if abs(in.tex_normal.y) > 0.5 {
-            n = normalize(mix(wave_normal(wp, time), n, calm));
+            // Une pente raide est une chute : on ne l'éclaire pas comme une vague.
+            let gentle = 1.0 - smoothstep(0.4, 0.9, length(in.tex_normal.xz));
+            n = normalize(mix(wave_normal(wp, time), n, calm) + tilt * 1.5 * gentle);
         }
         // Le dessus vu de dessous : la même surface, retournée.
         n = select(-n, n, view.y >= 0.0 || abs(in.tex_normal.y) < 0.5);
@@ -256,6 +298,23 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             * daylight * step(0.0, sun_direction.y) * (1.0 - calm);
         lit += vec3<f32>(1.0, 0.93, 0.75) * glint * 0.5;
         alpha = clamp(alpha + fresnel * 0.35 + glint, 0.0, 1.0);
+        // Une chute (côté d'une cascade, ou pente raide) : elle reste translucide, on y voit
+        // couler des filets plus clairs vers le bas.
+        let steep = smoothstep(0.55, 1.1, length(in.tex_normal.xz));
+        let vertical = abs(in.tex_normal.y) < 0.5;
+        if vertical || steep > 0.0 {
+            var along = in.world_position.x + in.world_position.z;
+            var down = in.world_position.y;
+            if !vertical {
+                // Sur une pente raide, « en bas » est le long du courant.
+                along = dot(in.world_position.xz, vec2<f32>(-flow_dir.y, flow_dir.x));
+                down = -dot(in.world_position.xz, flow_dir) * 1.3;
+            }
+            let strength = select(steep, 1.0, vertical);
+            let streaks = fall_streaks(along, down, time) * strength;
+            lit = mix(lit, vec3<f32>(0.88, 0.96, 1.0) * (0.45 + 0.55 * daylight), streaks * 0.55);
+            alpha = mix(alpha, 0.26 + 0.32 * streaks, strength * 0.85);
+        }
     }
     if (in.flags & FLAG_FURNACE_FIRE) != 0u {
         // Même bouche 8 × 6 que furnace_front.png. Animation pixel art à 10 images/s,

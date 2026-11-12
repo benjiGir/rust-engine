@@ -34,6 +34,12 @@
 //! la mer viderait l'océan cellule par cellule) : il remplit les trous voisins jusqu'à
 //! « plein », puis se rendort. Le fluide posé par le joueur, lui, est fini.
 //!
+//! Un réservoir ne doit pourtant pas inonder tout ce qui est plat : l'eau qu'il alimente a une
+//! **portée** ([`MAX_REACH`] cellules). La cellule voisine d'une source ne contient au plus que 7/8
+//! de bloc, la suivante 6/8, et ainsi de suite jusqu'à 1/8 : un ruisseau qui s'amincit puis
+//! s'arrête, comme dans Minecraft. En tombant, l'eau retrouve toute sa portée en bas (une cascade
+//! repart). L'eau versée par le joueur n'a pas de portée : son volume est fini et se conserve.
+//!
 //! # Lecture puis écriture
 //!
 //! Pendant une étape, on **lit** les quantités du monde sans les modifier et on note
@@ -69,6 +75,11 @@ const PRESSURE_TOLERANCE: i32 = 4;
 /// Un changement plus petit que ça ne réveille pas les voisins.
 const WAKE_THRESHOLD: i32 = 2;
 
+/// La portée d'une source qui coule : l'eau d'un réservoir s'étale au plus sur ce nombre de
+/// cellules, en s'amincissant (comme un ruisseau), au lieu d'inonder tout ce qui est plat.
+/// Une cellule à `k` de portée restante ne contient au plus que `k / (MAX_REACH + 1)` de bloc.
+const MAX_REACH: u8 = 7;
+
 const SIDES: [IVec3; 4] = [IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z];
 const NEIGHBOURS: [IVec3; 6] = [
     IVec3::X,
@@ -78,6 +89,13 @@ const NEIGHBOURS: [IVec3; 6] = [
     IVec3::Z,
     IVec3::NEG_Z,
 ];
+
+/// Ce qu'une étape accumule : les transferts, les cellules à figer, les portées à noter.
+type FlowOut<'a> = (
+    &'a mut HashMap<IVec3, (usize, i32)>,
+    &'a mut Vec<IVec3>,
+    &'a mut Vec<(IVec3, u8)>,
+);
 
 /// Un fluide, tel que la simulation le voit.
 #[derive(Debug, Clone)]
@@ -131,6 +149,10 @@ pub struct FluidSim {
     queue: VecDeque<IVec3>,
     queued: HashSet<IVec3>,
     step: u64,
+    /// La portée restante des cellules alimentées par un réservoir (voir [`MAX_REACH`]). Les
+    /// autres (de l'eau versée par le joueur) n'en ont pas : leur volume est fini, il se
+    /// conserve et s'étale jusqu'à l'équilibre.
+    reach: HashMap<IVec3, u8>,
 }
 
 /// La quantité qui devrait se trouver dans la cellule du **bas** quand deux cellules
@@ -178,6 +200,7 @@ impl FluidSim {
             queue: VecDeque::new(),
             queued: HashSet::new(),
             step: 0,
+            reach: HashMap::new(),
         }
     }
 
@@ -252,6 +275,7 @@ impl FluidSim {
         // elles ont reçu autant (une cellule de passage dans un tube ne change pas de
         // quantité, mais l'eau la traverse : elle ne doit pas s'endormir).
         let mut moving: Vec<IVec3> = Vec::new();
+        let mut reach_new: Vec<(IVec3, u8)> = Vec::new();
         let mut processed = 0;
         while let Some(pos) = self.queue.pop_front() {
             // Le budget, vérifié toutes les 64 cellules (lire l'horloge a un coût).
@@ -266,6 +290,7 @@ impl FluidSim {
                 reservoir,
             } = self.cell(s, pos)
             else {
+                self.reach.remove(&pos);
                 continue;
             };
             if !self.step.is_multiple_of(self.kinds[kind].every) {
@@ -273,12 +298,26 @@ impl FluidSim {
                 continue;
             }
             processed += 1;
-            if self.flow(s, pos, kind, mass, reservoir, &mut deltas, &mut solidify) {
+            let reach = if reservoir {
+                Some(MAX_REACH + 1)
+            } else {
+                self.reach.get(&pos).copied()
+            };
+            if self.flow(
+                s,
+                pos,
+                (kind, mass, reservoir, reach),
+                (&mut deltas, &mut solidify, &mut reach_new),
+            ) {
                 moving.push(pos);
             }
         }
         for pos in later {
             self.push(pos);
+        }
+        for (pos, reach) in reach_new {
+            let entry = self.reach.entry(pos).or_insert(0);
+            *entry = (*entry).max(reach);
         }
 
         // Appliquer les transferts.
@@ -342,17 +381,14 @@ impl FluidSim {
 
     /// Les flux d'une cellule : tomber, s'étaler, remonter. Renvoie `true` si elle a
     /// donné quelque chose.
-    #[allow(clippy::too_many_arguments)]
     fn flow(
         &self,
         s: &ChunkStreamer,
         pos: IVec3,
-        kind: usize,
-        mass: i32,
-        reservoir: bool,
-        deltas: &mut HashMap<IVec3, (usize, i32)>,
-        solidify: &mut Vec<IVec3>,
+        (kind, mass, reservoir, reach): (usize, i32, bool, Option<u8>),
+        out: FlowOut,
     ) -> bool {
+        let (deltas, solidify, reach_new) = out;
         let compress = self.kinds[kind].compress;
         let mut remaining = mass;
         // `Cell` : la fermeture `transfer` la modifie pendant qu'on la lit ailleurs.
@@ -407,6 +443,10 @@ impl FluidSim {
             // minuscule ne vaut pas un échange.
             if below == 0 || flow >= PRESSURE_TOLERANCE {
                 transfer(pos - IVec3::Y, flow, &mut remaining);
+                // L'eau qui tombe retrouve toute sa portée en bas : une cascade repart.
+                if flow > 0 && reach.is_some() {
+                    reach_new.push((pos - IVec3::Y, MAX_REACH));
+                }
             }
         }
         if remaining <= 0 {
@@ -414,7 +454,9 @@ impl FluidSim {
         }
 
         // 2. S'étaler, vers chaque voisine horizontale moins remplie.
-        if mass > SURFACE_TENSION || reservoir {
+        // Une eau alimentée par un réservoir s'amincit et s'arrête après `MAX_REACH` cellules.
+        let spreads = reach.is_none_or(|k| k > 1);
+        if (mass > SURFACE_TENSION || reservoir) && spreads {
             for side in SIDES {
                 let Some((other, other_reservoir)) = neighbour(side) else {
                     continue;
@@ -441,7 +483,16 @@ impl FluidSim {
                 } else {
                     (mass - other) / 4
                 };
-                let flow = target.clamp(0, remaining);
+                let mut flow = target.clamp(0, remaining);
+                if let Some(k) = reach {
+                    // La cellule voisine ne dépasse pas la hauteur que sa portée permet.
+                    let next = (k - 1).max(self.reach.get(&(pos + side)).copied().unwrap_or(0));
+                    let cap = FULL * i32::from(next) / i32::from(MAX_REACH + 1);
+                    flow = flow.min((cap - other).max(0));
+                    if flow > 0 {
+                        reach_new.push((pos + side, k - 1));
+                    }
+                }
                 transfer(pos + side, flow, &mut remaining);
                 if remaining <= 0 {
                     return gave.get();

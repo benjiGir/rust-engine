@@ -128,3 +128,12 @@ par le shader des chunks (`crates/engine_render/src/chunk_shader.wgsl`), sans re
 sillage quand on nage à la surface, bulles sous l'eau. La physique (`PlayerBody`) freine un plongeon
 (`splash` donne la vitesse d'entrée), et un **courant** emporte les corps vers les cellules d'eau
 moins remplies (`PlayerBody::current`). La lave n'est pas animée (elle émet de la lumière).
+
+**L'écoulement** : un réservoir (source) alimente un ruisseau de 7 cellules au plus, de plus en plus
+mince, au lieu d'inonder tout ce qui est plat (`fluid_sim.rs`, « portée »). En tombant, l'eau
+retrouve toute sa portée en bas. À l'écran, la normale du dessus de l'eau suit la pente de la
+surface (calculée au maillage) : le shader fait glisser la texture et les vagues vers le bas de la
+pente, d'autant plus vite qu'elle est raide. Une chute (le côté d'une cascade, une pente très raide)
+reste **translucide** : on y voit couler des filets plus clairs, des rubans verticaux de largeurs et
+de vitesses différentes dont des bandes descendent (`fall_streaks` dans le shader), comme dans les
+shaders d'eau de Minecraft, sans écume opaque.

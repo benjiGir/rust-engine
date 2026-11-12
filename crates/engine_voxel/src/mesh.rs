@@ -245,7 +245,20 @@ impl ChunkMesh {
         let drops = order.map(|c| look.drops[c]);
 
         let base = self.vertices.len() as u32;
-        let normal = face.normal().as_vec3().to_array();
+        let mut normal = face.normal().as_vec3().to_array();
+        // Le dessus d'une eau libre : la normale suit la pente de la surface (la différence des
+        // hauteurs des coins). Le shader en tire le sens et la vitesse du courant.
+        if face.axis == 1 && face.positive && look.flags & FLAG_WATER != 0 {
+            let lowered: Vec<Vec3> = positions
+                .iter()
+                .zip(drops)
+                .map(|(p, d)| *p - Vec3::Y * (d as f32 / 255.0))
+                .collect();
+            let tilt = (lowered[1] - lowered[0]).cross(lowered[2] - lowered[0]);
+            if tilt.y > 1e-4 {
+                normal = tilt.normalize().to_array();
+            }
+        }
         for ((position, corner), drop) in positions.into_iter().zip(corners).zip(drops) {
             // La surface d'un fluide : le coin descend selon la quantité.
             let position = position - Vec3::Y * (drop as f32 / 255.0);

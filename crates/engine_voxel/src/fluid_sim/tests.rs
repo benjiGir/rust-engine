@@ -237,6 +237,77 @@ fn reservoirs_fill_holes_and_stay_full() {
     assert!(filled > FULL * 3 / 4, "le trou n'est rempli qu'à {filled}");
 }
 
+/// Une source qui coule sur un sol plat fait un ruisseau qui s'amincit et s'arrête, au lieu
+/// d'inonder tout ce qui est plat.
+#[test]
+fn a_source_makes_a_stream_that_thins_and_stops() {
+    let mut s = world();
+    let mut sim = sim(&s);
+    let stone = id(&s, "core:stone");
+    let water = id(&s, "core:water");
+    let center = IVec3::new(10, 130, 10);
+    for x in -20..=20 {
+        for z in -20..=20 {
+            s.set_block(center + IVec3::new(x, -1, z), stone);
+        }
+    }
+    // Un réservoir (sans quantité enregistrée) posé sur le sol.
+    s.set_block(center, water);
+    sim.wake(center);
+    settle(&mut s, &mut sim, 4000);
+    let amount = |d: i32| s.fluid_amount(center + IVec3::new(d, 0, 0)).map(i32::from);
+    assert_eq!(s.fluid_amount(center), None, "la source reste un réservoir");
+    let line: Vec<i32> = (1..=7).map(|d| amount(d).unwrap_or(0)).collect();
+    assert!(line[0] > FULL * 3 / 4, "près de la source : {line:?}");
+    assert!(
+        line.windows(2).all(|w| w[0] >= w[1]),
+        "elle s'amincit avec la distance : {line:?}"
+    );
+    assert!(line[6] > 0, "elle atteint la portée : {line:?}");
+    assert_eq!(amount(8), None, "puis elle s'arrête");
+    let wet = (-20..=20)
+        .flat_map(|x| (-20..=20).map(move |z| (x, z)))
+        .filter(|&(x, z)| s.fluid_amount(center + IVec3::new(x, 0, z)).is_some())
+        .count();
+    assert!(
+        wet < 130,
+        "{wet} cellules mouillées : elle ne doit pas inonder"
+    );
+}
+
+/// Une cascade au bout du ruisseau retrouve sa portée en bas.
+#[test]
+fn a_waterfall_restarts_the_stream_below() {
+    let mut s = world();
+    let mut sim = sim(&s);
+    let stone = id(&s, "core:stone");
+    let water = id(&s, "core:water");
+    let top = IVec3::new(10, 140, 10);
+    // Une corniche à 140 et un sol 8 blocs plus bas.
+    for x in -20..=20 {
+        for z in -12..=12 {
+            s.set_block(IVec3::new(10 + x, 131, 10 + z), stone);
+            if x < 3 {
+                s.set_block(IVec3::new(10 + x, 139, 10 + z), stone);
+            }
+        }
+    }
+    s.set_block(top - IVec3::new(2, 0, 0), water);
+    sim.wake(top - IVec3::new(2, 0, 0));
+    // Une chute coule sans fin : on avance un nombre d'étapes fixé, sans attendre qu'elle dorme.
+    for _ in 0..600 {
+        sim.step(&mut s, std::time::Duration::from_secs(1));
+    }
+    // Au pied de la chute (x = 13, y = 132), l'eau s'étale de nouveau, puis s'arrête.
+    let below = |d: i32| s.fluid_amount(IVec3::new(13 + d, 132, 10)).unwrap_or(0);
+    assert!(below(0) > 0 || below(1) > 0, "l'eau tombe de la corniche");
+    assert!(
+        (0..6).any(|d| below(d + 2) > 0),
+        "elle repart au pied de la chute"
+    );
+    assert_eq!(below(14), 0, "mais pas indéfiniment");
+}
+
 /// Du fluide versé au bord d'un chunk passe dans le voisin, sans perte.
 #[test]
 fn fluid_crosses_chunk_borders() {
