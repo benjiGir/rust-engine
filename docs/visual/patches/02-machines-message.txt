@@ -1,0 +1,3 @@
+Modèle les circuits et les machines et unifie les textures des mods
+
+Donne des formes fixes aux circuits et réseaux, affine les machines et les mécanismes. Intègre tous les PNG des six mods au générateur déterministe et vérifie leur reproduction. Les IDs, les états existants et les paramètres de jeu sont conservés.

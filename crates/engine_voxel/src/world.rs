@@ -111,9 +111,17 @@ impl World {
         self.registry.is_solid(self.block(pos))
     }
 
-    /// Les boîtes du bloc à cette position (vide : un cube plein).
-    pub fn block_boxes(&self, pos: IVec3) -> &[crate::registry::BlockBox] {
-        &self.registry.def(self.block(pos)).boxes
+    /// Les boîtes actuelles du bloc (vide : cube plein), raccords des voisins compris.
+    pub fn block_boxes(&self, pos: IVec3) -> std::borrow::Cow<'_, [crate::registry::BlockBox]> {
+        crate::connections::boxes_at(
+            &self.registry,
+            pos,
+            |p| self.block(p),
+            |p| {
+                let (chunk, [x, y, z]) = Self::split(p);
+                self.chunk(chunk)?.block_entity(x, y, z)?.caps.as_deref()
+            },
+        )
     }
 
     /// La plus petite boîte (coin min, coin max, en coordonnées monde) qui contient le bloc.
@@ -126,6 +134,22 @@ impl World {
         let min = boxes.iter().fold(Vec3::MAX, |m, b| m.min(b.min));
         let max = boxes.iter().fold(Vec3::MIN, |m, b| m.max(b.max));
         (origin + min, origin + max)
+    }
+
+    /// Sur un conduit, le contour suit la pièce visée plutôt que le vide entre ses bras.
+    pub fn selection_bounds(&self, pos: IVec3, hit: Vec3) -> (Vec3, Vec3) {
+        if self.registry.def(self.block(pos)).connections.is_some() {
+            let origin = pos.as_vec3();
+            let local = hit - origin;
+            if let Some(b) = self.block_boxes(pos).iter().min_by(|a, b| {
+                local
+                    .distance_squared(local.clamp(a.min, a.max))
+                    .total_cmp(&local.distance_squared(local.clamp(b.min, b.max)))
+            }) {
+                return (origin + b.min, origin + b.max);
+            }
+        }
+        self.block_bounds(pos)
     }
 
     /// Vrai si le joueur peut viser le bloc à cette position.

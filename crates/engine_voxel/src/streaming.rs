@@ -480,9 +480,11 @@ impl ChunkStreamer {
     }
 
     /// Une propriété visuelle de l'entité a changé (allumage d'un four, par exemple).
-    /// Seul son chunk est à remailler ; le numéro du bloc et son inventaire restent en place.
+    /// Le chunk et les voisins directs au bord sont remaillés : un raccord peut changer.
     pub fn invalidate_block_visuals(&mut self, pos: IVec3) {
-        self.remesh_pending.insert(World::split(pos).0);
+        for d in std::iter::once(IVec3::ZERO).chain(crate::FACINGS) {
+            self.remesh_pending.insert(World::split(pos + d).0);
+        }
     }
 
     /// La quantité de fluide d'une cellule, en 4096e de bloc (`None` : rien d'enregistré,
@@ -556,6 +558,11 @@ impl ChunkStreamer {
         let (chunk, [x, y, z]) = World::split(pos);
         if !matches!(self.slots.get(&chunk), Some(Slot::Generated(_))) {
             return false;
+        }
+        if crate::connections::ports(self.block_entity(pos).and_then(|e| e.caps.as_deref()))
+            != crate::connections::ports(entity.as_ref().and_then(|e| e.caps.as_deref()))
+        {
+            self.invalidate_block_visuals(pos);
         }
         self.edited.insert(chunk);
         self.dirty.insert(chunk);
@@ -1215,6 +1222,37 @@ pub(crate) mod tests {
             ..StreamingConfig::default()
         };
         ChunkStreamer::new(TerrainGenerator::new(7), config)
+    }
+
+    #[test]
+    fn changing_machine_ports_remeshes_the_neighbour_chunk_but_changing_amounts_does_not() {
+        use crate::{EnergyStorage, GridPos, Grids, Sides};
+        use std::cell::RefCell;
+        let mut s = streamer();
+        pump(&mut s, Vec3::new(4.0, 80.0, 4.0));
+        let pos = IVec3::new(32, 80, 4);
+        let battery = s.world().registry().id("core:battery").unwrap();
+        assert!(s.set_block_quiet(pos, battery));
+        s.remesh_pending.clear();
+        let cell = RefCell::new(s);
+        let grids = Grids::new(&cell);
+        grids.write_or_create(GridPos::world(pos), |e| {
+            e.caps_mut().energy = Some(EnergyStorage::new(100, 10))
+        });
+        let expected = HashSet::from_iter([IVec3::new(0, 2, 0), IVec3::new(1, 2, 0)]);
+        assert_eq!(cell.borrow().remesh_pending, expected);
+        cell.borrow_mut().remesh_pending.clear();
+        grids.write(GridPos::world(pos), |e| {
+            e.caps_mut().energy.as_mut().unwrap().amount = 42
+        });
+        assert!(
+            cell.borrow().remesh_pending.is_empty(),
+            "le contenu ne change pas la forme"
+        );
+        grids.write(GridPos::world(pos), |e| {
+            e.caps_mut().energy.as_mut().unwrap().sides = Sides::NONE
+        });
+        assert_eq!(cell.borrow().remesh_pending, expected);
     }
 
     /// Charge tout autour de `player` (pour les tests d'autres modules).

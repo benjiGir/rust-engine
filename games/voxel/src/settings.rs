@@ -212,6 +212,8 @@ pub struct Settings {
     pub volume_effects: f32,
     pub vsync: bool,
     pub show_arm: bool,
+    pub ui_scale: f32,
+    pub target_info: bool,
     pub keys: Keys,
 }
 
@@ -227,6 +229,8 @@ impl Default for Settings {
             volume_effects: 0.8,
             vsync: true,
             show_arm: true,
+            ui_scale: 1.0,
+            target_info: true,
             keys: Keys::default(),
         }
     }
@@ -273,6 +277,15 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn older_settings_keep_the_default_ui_scale_and_enable_target_information() {
+        let loaded: Settings = ron::from_str("(fov:80.0,show_arm:false)").unwrap();
+        assert_eq!(loaded.ui_scale, 1.0);
+        assert!(loaded.target_info);
+        assert_eq!(loaded.fov, 80.0);
+        assert!(!loaded.show_arm);
+    }
 
     #[test]
     fn settings_round_trip_and_keys_remap() {

@@ -1,8 +1,17 @@
 // La table des runes : un clic droit ouvre son menu, où l'on compose un sort.
 [
     (
-        id: "magie:rune_table", name: "Table des runes", color: (0.35, 0.3, 0.45), texture: "rune_table",
-        boxes: [(from: (0, 0, 0), to: (16, 3, 16)), (from: (2, 3, 2), to: (14, 12, 14)), (from: (0, 12, 0), to: (16, 15, 16))],
+        id: "magie:rune_table", name: "Table des runes", color: (0.1140, 0.1429, 0.1615), texture: "rune_table",
+        boxes: [
+            (from: (0, 10, 0), to: (16, 13, 16)),
+            (from: (2, 0, 2), to: (5, 10, 5)),
+            (from: (11, 0, 2), to: (14, 10, 5)),
+            (from: (2, 0, 11), to: (5, 10, 14)),
+            (from: (11, 0, 11), to: (14, 10, 14)),
+            (from: (3, 3, 5), to: (4, 5, 11)),
+            (from: (12, 3, 5), to: (13, 5, 11)),
+            (from: (4, 13, 4), to: (12, 14, 12)),
+        ],
         behavior: "rune_table", hardness: 2.0, tool: Pickaxe,
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),

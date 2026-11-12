@@ -10,9 +10,8 @@
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use engine_render::egui::{self, Color32, RichText};
+use engine_render::egui::{self, RichText};
 
-use crate::settings::Action;
 use crate::{Launch, Mode, Request, VoxelGame, project_root};
 
 /// Les pages du menu principal.
@@ -161,39 +160,25 @@ impl VoxelGame {
     }
 
     pub(crate) fn menu_window(ctx: &egui::Context, title: &str, add: impl FnOnce(&mut egui::Ui)) {
-        egui::Window::new(title)
-            .frame(crate::skin::panel())
-            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-            .resizable(false)
-            .collapsible(false)
-            .title_bar(false)
-            .show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(8.0);
-                    crate::skin::mark(ui);
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(title)
-                            .size(30.0)
-                            .strong()
-                            .color(crate::skin::TEXT),
-                    );
-                    ui.add_space(12.0);
-                    add(ui);
-                    ui.add_space(8.0);
-                });
-            });
+        crate::ui_layout::menu(
+            ctx,
+            title,
+            if title == "Voxel" {
+                500.0
+            } else if title == "Options" {
+                640.0
+            } else if title == "Mondes" {
+                600.0
+            } else {
+                360.0
+            },
+            add,
+        );
     }
 
     fn draw_title(&mut self, ctx: &egui::Context, page: TitlePage) {
         match page {
             TitlePage::Main => Self::menu_window(ctx, "Voxel", |ui| {
-                ui.label(
-                    RichText::new("TERRES SAUVAGES · ATELIERS · AVENTURES")
-                        .size(11.0)
-                        .color(crate::skin::MUTED),
-                );
-                ui.add_space(12.0);
                 if button(ui, "Jouer") {
                     self.worlds = saved_worlds();
                     self.mode = Mode::Title(TitlePage::Worlds { confirm: None });
@@ -206,10 +191,12 @@ impl VoxelGame {
                         error: None,
                     });
                 }
-                if button(ui, "Options") {
+                ui.add_space(10.0);
+                let (options, quit) = crate::ui_layout::paired_buttons(ui, "Options…", "Quitter");
+                if options {
                     self.mode = Mode::Title(TitlePage::Options);
                 }
-                if button(ui, "Quitter") {
+                if quit {
                     self.request = Some(Request::Quit);
                 }
             }),
@@ -222,7 +209,7 @@ impl VoxelGame {
                     .max_height(320.0)
                     .show(ui, |ui| {
                         for world in self.worlds.clone() {
-                            ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
                                 ui.vertical(|ui| {
                                     ui.label(RichText::new(&world.name).strong().size(16.0));
                                     let seed = world
@@ -230,43 +217,38 @@ impl VoxelGame {
                                         .map_or(String::new(), |s| format!(" — graine {s}"));
                                     ui.label(format!("{}{seed}", world.date));
                                 });
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if confirm.as_deref() == Some(world.name.as_str()) {
-                                            if ui.button("Annuler").clicked() {
-                                                self.mode = Mode::Title(TitlePage::Worlds {
-                                                    confirm: None,
-                                                });
-                                            }
-                                            if ui
-                                                .button(
-                                                    RichText::new("Supprimer définitivement")
-                                                        .color(crate::skin::RED),
-                                                )
-                                                .clicked()
-                                            {
-                                                delete = Some(world.clone());
-                                            }
-                                        } else {
-                                            if ui.button("Supprimer").clicked() {
-                                                self.mode = Mode::Title(TitlePage::Worlds {
-                                                    confirm: Some(world.name.clone()),
-                                                });
-                                            }
-                                            if ui.button(RichText::new("Jouer").strong()).clicked()
-                                            {
-                                                self.request = Some(Request::Play(Launch {
-                                                    world: Some(world.dir.clone()),
-                                                    seed: None,
-                                                    title: false,
-                                                    difficulty: None,
-                                                    dimension: None,
-                                                }));
-                                            }
+                                ui.horizontal_wrapped(|ui| {
+                                    if confirm.as_deref() == Some(world.name.as_str()) {
+                                        if ui.button("Annuler").clicked() {
+                                            self.mode =
+                                                Mode::Title(TitlePage::Worlds { confirm: None });
                                         }
-                                    },
-                                );
+                                        if ui
+                                            .button(
+                                                RichText::new("Supprimer définitivement")
+                                                    .color(crate::skin::RED),
+                                            )
+                                            .clicked()
+                                        {
+                                            delete = Some(world.clone());
+                                        }
+                                    } else {
+                                        if ui.button("Supprimer").clicked() {
+                                            self.mode = Mode::Title(TitlePage::Worlds {
+                                                confirm: Some(world.name.clone()),
+                                            });
+                                        }
+                                        if ui.button(RichText::new("Jouer").strong()).clicked() {
+                                            self.request = Some(Request::Play(Launch {
+                                                world: Some(world.dir.clone()),
+                                                seed: None,
+                                                title: false,
+                                                difficulty: None,
+                                                dimension: None,
+                                            }));
+                                        }
+                                    }
+                                });
                             });
                             ui.separator();
                         }
@@ -293,11 +275,17 @@ impl VoxelGame {
                 let mut back = false;
                 Self::menu_window(ctx, "Nouveau monde", |ui| {
                     ui.label("Nom");
-                    ui.add(egui::TextEdit::singleline(&mut name).desired_width(260.0));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut name)
+                            .desired_width(ui.available_width().min(260.0)),
+                    );
                     ui.label("Graine (vide : au hasard ; un nombre ou un mot)");
-                    ui.add(egui::TextEdit::singleline(&mut seed).desired_width(260.0));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut seed)
+                            .desired_width(ui.available_width().min(260.0)),
+                    );
                     ui.label("Difficulté");
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.selectable_value(&mut difficulty, 0, "Paisible");
                         ui.selectable_value(&mut difficulty, 1, "Normale");
                         ui.selectable_value(&mut difficulty, 2, "Difficile");
@@ -358,12 +346,6 @@ impl VoxelGame {
     }
 
     fn draw_pause(&mut self, ctx: &egui::Context, page: PausePage) {
-        // Un voile sombre sur le monde arrêté.
-        ctx.layer_painter(egui::LayerId::background()).rect_filled(
-            ctx.content_rect(),
-            0.0,
-            Color32::from_black_alpha(110),
-        );
         match page {
             PausePage::Main => Self::menu_window(ctx, "Pause", |ui| {
                 if button(ui, "Reprendre") {
@@ -430,70 +412,9 @@ impl VoxelGame {
     /// Les options, communes au menu principal et à la pause. Renvoie `true` quand on
     /// clique « Retour » (les options sont alors enregistrées et appliquées).
     fn options_panel(&mut self, ui: &mut egui::Ui) -> bool {
-        let s = &mut self.settings;
-        egui::Grid::new("options")
-            .num_columns(2)
-            .spacing([16.0, 8.0])
-            .show(ui, |ui| {
-                ui.label("Distance de rendu (chunks)");
-                ui.add(egui::Slider::new(&mut s.render_distance, 4..=32))
-                    .on_hover_text("Appliquée au prochain monde chargé");
-                ui.end_row();
-                ui.label("Terrain lointain (chunks, 0 : aucun)");
-                ui.add(egui::Slider::new(&mut s.far_distance, 0..=192))
-                    .on_hover_text("Décor simplifié au-delà des chunks détaillés. Appliqué au prochain monde chargé");
-                ui.end_row();
-                ui.label("Champ de vision (°)");
-                ui.add(egui::Slider::new(&mut s.fov, 50.0..=110.0));
-                ui.end_row();
-                ui.label("Sensibilité de la souris");
-                ui.add(egui::Slider::new(&mut s.mouse_sensitivity, 0.2..=3.0));
-                ui.end_row();
-                ui.label("Volume général");
-                ui.add(egui::Slider::new(&mut s.volume_master, 0.0..=1.0));
-                ui.end_row();
-                ui.label("Musique et ambiance");
-                ui.add(egui::Slider::new(&mut s.volume_music, 0.0..=1.0));
-                ui.end_row();
-                ui.label("Effets");
-                ui.add(egui::Slider::new(&mut s.volume_effects, 0.0..=1.0));
-                ui.end_row();
-                ui.label("Synchronisation verticale");
-                ui.checkbox(&mut s.vsync, "");
-                ui.end_row();
-                ui.label("Afficher le bras");
-                ui.checkbox(&mut s.show_arm, "");
-                ui.end_row();
-            });
-        ui.separator();
-        ui.label(RichText::new("Touches").strong());
-        egui::Grid::new("keys")
-            .num_columns(2)
-            .spacing([16.0, 4.0])
-            .show(ui, |ui| {
-                for action in Action::ALL {
-                    ui.label(action.label());
-                    let text = if self.waiting_key == Some(action) {
-                        "appuie sur une touche…".to_string()
-                    } else {
-                        self.settings.keys.name(action).to_string()
-                    };
-                    if ui
-                        .add_sized([180.0, 22.0], egui::Button::new(text))
-                        .clicked()
-                    {
-                        self.waiting_key = Some(action);
-                    }
-                    ui.end_row();
-                }
-            });
-        if ui.button("Touches par défaut").clicked() {
-            self.settings.keys = Default::default();
-        }
-        // Les réglages visibles tout de suite : le champ de vision, les volumes, le bras.
+        let back = crate::ui_options::panel(ui, &mut self.settings, &mut self.waiting_key);
         self.apply_settings();
-        ui.add_space(8.0);
-        if button(ui, "Retour") {
+        if back {
             self.waiting_key = None;
             self.settings.save(&project_root());
             self.renderer.set_vsync(self.settings.vsync);

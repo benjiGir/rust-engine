@@ -229,6 +229,8 @@ struct CameraUniform {
     sun: [f32; 4],
     /// Teinte de la lumière du ciel (xyz).
     sun_color: [f32; 4],
+    /// Sous l'eau : x vaut 0 (dehors) à 1 (sous la surface), y est l'altitude de la surface.
+    water: [f32; 4],
 }
 
 pub struct Renderer {
@@ -273,6 +275,11 @@ pub struct Renderer {
     gpu_timer: Option<crate::gpu_timer::GpuTimer>,
     /// `None` : pas de brouillard.
     pub fog: Option<Fog>,
+    /// De 0 (la caméra est dehors) à 1 (sous la surface de l'eau) : active la brume bleue, la
+    /// perte des rouges et les reflets mouvants sous l'eau.
+    pub underwater: f32,
+    /// L'altitude de la surface au-dessus de la caméra, quand elle est sous l'eau.
+    pub water_surface: f32,
     pub sun: Sun,
     /// Le temps en secondes, pour animer le vent dans les feuilles et les herbes.
     pub time: f32,
@@ -544,6 +551,8 @@ impl Renderer {
             visible_meshes: None,
             gpu_timer,
             fog: None,
+            underwater: 0.0,
+            water_surface: 0.0,
             sun: Sun::default(),
             time: 0.0,
             translucent_cubes,
@@ -912,6 +921,7 @@ impl Renderer {
             fog_color_end: [sky.r as f32, sky.g as f32, sky.b as f32, fog.end],
             sun: self.sun.direction.extend(self.sun.daylight).to_array(),
             sun_color: self.sun.color.extend(self.time).to_array(),
+            water: [self.underwater, self.water_surface, 0.0, 0.0],
         };
         let frustum = Frustum::from_view_proj(view_proj);
         if let Some(timer) = &mut self.gpu_timer {

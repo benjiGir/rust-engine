@@ -242,7 +242,7 @@ impl Hand {
         // doit être saisi par son manche, au centre de la main.
         let grip = pose * Mat4::from_translation(Vec3::new(-0.02, 0.07, -0.3));
         match def.icon {
-            // Un bloc : un petit cube texturé, tourné pour montrer deux faces.
+            // Un conduit garde son segment d'inventaire ; les autres blocs sont présentés en cube.
             Icon::Block(block) => {
                 let layer = blocks.def(block).face_textures[1];
                 let tint = if layer == 0 {
@@ -250,8 +250,20 @@ impl Hand {
                 } else {
                     [1.0; 3]
                 };
-                let model = grip * Mat4::from_rotation_y(0.7) * Mat4::from_scale(Vec3::splat(0.2));
-                out.push(HandInstance::new(model, tint, layer));
+                let connected = blocks.def(block).connections.is_some();
+                let model = grip
+                    * Mat4::from_rotation_y(0.7)
+                    * Mat4::from_scale(Vec3::splat(if connected { 0.36 } else { 0.2 }));
+                if connected {
+                    for b in &blocks.def(block).boxes {
+                        let part = model
+                            * Mat4::from_translation((b.min + b.max) * 0.5 - Vec3::splat(0.5))
+                            * Mat4::from_scale(b.max - b.min);
+                        out.push(HandInstance::new(part, tint, layer));
+                    }
+                } else {
+                    out.push(HandInstance::new(model, tint, layer));
+                }
             }
             // Un outil, un lingot... : son icône extrudée, un petit cube par pixel.
             Icon::Texture(ref key) => {

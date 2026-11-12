@@ -43,6 +43,7 @@ pub struct GameUi {
     pub split: Option<Split>,
     /// Un message en haut de l'écran (« Point de réapparition fixé ») et son heure.
     pub toast: Option<(String, std::time::Instant)>,
+    pub target_bottom: f32,
     /// Le menu d'une machine de mod, s'il est ouvert (`Screen::Mod`).
     pub mod_menu: Option<crate::mod_menu::ModMenuState>,
     /// Les actions du joueur dans ce menu, à transmettre au script : (type, id, valeur).
@@ -128,6 +129,7 @@ impl GameUi {
             icons: HashMap::new(),
             split: None,
             toast: None,
+            target_bottom: 12.0,
             mod_menu: None,
             mod_events: Vec::new(),
             allow_mod_menu: false,
@@ -152,7 +154,12 @@ impl GameUi {
         response.consumed && (self.inventory_open || self.inspector_open || self.menu_open)
     }
 
-    pub fn take_input(&mut self, window: &Window) -> egui::RawInput {
+    pub fn take_input(&mut self, window: &Window, scale: f32) -> egui::RawInput {
+        self.ctx.set_zoom_factor(if scale.is_finite() {
+            scale.clamp(0.75, 1.5)
+        } else {
+            1.0
+        });
         let mut raw = self.state.take_egui_input(window);
         raw.events.extend(self.input.next_frame());
         raw
@@ -169,7 +176,7 @@ impl GameUi {
 
     /// L'icône d'un objet : la texture de côté de son bloc, ou son image à lui
     /// (`items/<nom>.png`), ou à défaut sa couleur.
-    fn icon(
+    pub(super) fn icon(
         &mut self,
         item: ItemId,
         items: &ItemRegistry,
@@ -232,7 +239,7 @@ impl VoxelGame {
         let ctx = self.ui.ctx.clone();
         let output = ctx.run_ui(raw, |ui| {
             // Au menu principal et à l'écran de mort, ni barre d'objets ni vie.
-            if !matches!(self.mode, crate::Mode::Title(_) | crate::Mode::Dead(_)) {
+            if self.mode == crate::Mode::Playing && !self.ui.inventory_open {
                 self.draw_hud(ui.ctx());
             }
             self.draw_toast(ui.ctx());
@@ -267,8 +274,13 @@ impl VoxelGame {
         stack: Option<ItemStack>,
         highlighted: bool,
     ) -> Option<Press> {
-        let (rect, response) =
-            ui.allocate_exact_size(egui::vec2(SLOT_SIZE, SLOT_SIZE), egui::Sense::click());
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(
+                crate::ui_layout::slot_size(ui.ctx()),
+                crate::ui_layout::slot_size(ui.ctx()),
+            ),
+            egui::Sense::click(),
+        );
         let painter = ui.painter().clone();
         skin::slot(&painter, rect, highlighted, response.hovered());
         if let Some(stack) = stack {
@@ -287,27 +299,12 @@ impl VoxelGame {
             None
         };
         if let Some(stack) = stack {
-            let def = self.content.items.get(stack.item);
-            let mut text = def.name.clone();
-            if let Some(durability) = def.durability {
-                text += &format!(
-                    "\nUsure : {} / {durability}",
-                    crate::enchanting::wear(stack.damage)
-                );
-                if let Some((kind, level)) = crate::enchanting::enchantment_of(stack.damage) {
-                    text += &format!("\n{}", crate::enchanting::label(kind, level));
-                }
-            }
-            if def.key.ends_with("_bucket") && stack.damage > 0 {
-                text += &format!(
-                    "\nContient {:.0} % d'un bloc",
-                    stack.damage as f32 * 100.0 / engine_voxel::FLUID_FULL as f32
-                );
-            }
-            if let Some(armor) = def.armor {
-                text += &format!("\nProtection : {}", armor.protection);
-            }
-            response.on_hover_text(text);
+            let card = crate::ui_info::item(
+                self.content.items.get(stack.item),
+                stack.count,
+                stack.damage,
+            );
+            crate::ui_info::hover(response, &card);
         }
         press
     }
@@ -322,10 +319,15 @@ impl VoxelGame {
         );
         let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
         // 32 points : 2× les sprites 16 px et 1× les miniatures de blocs, sans pas inégal.
-        painter.image(icon, rect.shrink(6.0), uv, Color32::WHITE);
+        painter.image(
+            icon,
+            rect.shrink((rect.width() * 0.14).clamp(2.0, 6.0)),
+            uv,
+            Color32::WHITE,
+        );
         if stack.count > 1 {
-            let at = rect.right_bottom() - egui::vec2(4.0, 2.0);
-            let font = egui::FontId::monospace(14.0);
+            let at = rect.right_bottom() - egui::vec2((rect.width() * 0.09).min(4.0), 2.0);
+            let font = egui::FontId::monospace((rect.width() * 0.3).clamp(5.0, 14.0));
             painter.text(
                 at + egui::vec2(1.0, 1.0),
                 egui::Align2::RIGHT_BOTTOM,
@@ -354,10 +356,16 @@ impl VoxelGame {
         if let Some(durability) = self.content.items.get(stack.item).durability
             && crate::enchanting::wear(stack.damage) > 0
         {
-            let left = 1.0 - crate::enchanting::wear(stack.damage) as f32 / durability as f32;
+            let left = (1.0
+                - crate::enchanting::wear(stack.damage) as f32 / durability.max(1) as f32)
+                .clamp(0.0, 1.0);
+            let pad = (rect.width() * 0.14).clamp(1.0, 6.0);
             let bar = egui::Rect::from_min_size(
-                rect.left_bottom() + egui::vec2(6.0, -7.0),
-                egui::vec2(SLOT_SIZE - 12.0, 3.0),
+                rect.left_bottom() + egui::vec2(pad, -(rect.height() * 0.2).min(7.0)),
+                egui::vec2(
+                    (rect.width() - pad * 2.0).max(1.0),
+                    (rect.height() * 0.08).clamp(1.0, 3.0),
+                ),
             );
             painter.rect_filled(bar, 0.0, Color32::BLACK);
             let mut fill = bar;
@@ -441,8 +449,7 @@ impl VoxelGame {
         }
         let name = self.content.items.get(stack.item).name.clone();
         let mut action = None;
-        egui::Window::new("Diviser la pile")
-            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        crate::ui_layout::window(ctx, "Diviser la pile", 360.0)
             .order(egui::Order::Foreground)
             .resizable(false)
             .collapsible(false)
@@ -498,28 +505,22 @@ impl VoxelGame {
                     ui.painter().rect_filled(fill, 0.0, skin::COPPER);
                 });
         }
-        // Ce que contient le bloc visé (réseaux : énergie, fluides, rotation).
-        let lines = self.capability_lines();
-        if !lines.is_empty() {
-            egui::Area::new(egui::Id::unique("capabilities"))
-                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 60.0))
-                .show(ctx, |ui| {
-                    egui::Frame::new()
-                        .fill(skin::PANEL)
-                        .stroke(egui::Stroke::new(1.0, skin::BORDER))
-                        .corner_radius(0)
-                        .inner_margin(egui::Margin::symmetric(8, 4))
-                        .show(ui, |ui| {
-                            for line in &lines {
-                                ui.label(egui::RichText::new(line).size(14.0).color(skin::TEXT));
-                            }
-                        });
-                });
-        }
+        let target_bottom = self.draw_target_info(ctx);
+        self.ui.target_bottom = target_bottom;
         // Les potions en cours, en haut à droite, avec le temps restant.
         if !self.effects.list().is_empty() {
             egui::Area::new(egui::Id::unique("effects"))
-                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
+                .anchor(
+                    egui::Align2::RIGHT_TOP,
+                    egui::vec2(
+                        -12.0,
+                        if ctx.content_rect().width() < 760.0 {
+                            target_bottom + if self.ui.toast.is_some() { 96.0 } else { 8.0 }
+                        } else {
+                            12.0
+                        },
+                    ),
+                )
                 .show(ctx, |ui| {
                     for active in self.effects.list() {
                         ui.label(
@@ -571,30 +572,37 @@ impl VoxelGame {
                     // Orange quand le joueur brûle.
                     let heart = if burning { skin::GOLD } else { skin::RED };
                     // À droite, la réserve de nourriture, couleur blé.
-                    let squares = (health.max / 2.0).ceil() as usize;
-                    let food_squares = (self.hunger_rules.max_food / 2.0).ceil() as usize;
-                    let hotbar_width = HOTBAR as f32 * SLOT_SIZE + (HOTBAR - 1) as f32 * 6.0;
-                    let gap = (hotbar_width - (squares + food_squares) as f32 * 16.0).max(24.0);
-                    let (rect, _) = ui.allocate_exact_size(
-                        egui::vec2((squares + food_squares) as f32 * 16.0 + gap, 14.0),
-                        egui::Sense::hover(),
-                    );
+                    let squares = (health.max / 2.0).ceil().clamp(1.0, 20.0) as usize;
+                    let food_squares =
+                        (self.hunger_rules.max_food / 2.0).ceil().clamp(1.0, 20.0) as usize;
+                    let hotbar_width = HOTBAR as f32 * crate::ui_layout::slot_size(ctx)
+                        + (HOTBAR - 1) as f32 * 2.0;
+                    let step = ((hotbar_width - 24.0) / (squares + food_squares) as f32).min(16.0);
+                    let gap = hotbar_width - (squares + food_squares) as f32 * step;
+                    let (rect, _) = ui
+                        .allocate_exact_size(egui::vec2(hotbar_width, 14.0), egui::Sense::hover());
                     let food = skin::GOLD;
                     let rows = [
-                        (0.0, squares, health.current, heart),
                         (
-                            squares as f32 * 16.0 + gap,
+                            0.0,
+                            squares,
+                            health.current / health.max.max(1.0) * squares as f32,
+                            heart,
+                        ),
+                        (
+                            squares as f32 * step + gap,
                             food_squares,
-                            self.hunger.food,
+                            self.hunger.food / self.hunger_rules.max_food.max(1.0)
+                                * food_squares as f32,
                             food,
                         ),
                     ];
                     for (x, count, value, color) in rows {
                         for i in 0..count {
-                            let fill = ((value - i as f32 * 2.0) / 2.0).clamp(0.0, 1.0);
+                            let fill = (value - i as f32).clamp(0.0, 1.0);
                             let cell = egui::Rect::from_min_size(
-                                rect.min + egui::vec2(x + i as f32 * 16.0, 0.0),
-                                egui::vec2(13.0, 13.0),
+                                rect.min + egui::vec2(x + i as f32 * step, 0.0),
+                                egui::vec2((step * 0.8).min(13.0), 13.0),
                             );
                             skin::meter(ui.painter(), cell, fill, color, x > 0.0);
                         }
@@ -627,10 +635,11 @@ impl VoxelGame {
                             .text(at, egui::Align2::CENTER_CENTER, text, font, skin::SAGE);
                     }
                     egui::Frame::new()
-                        .fill(skin::PANEL)
-                        .stroke(egui::Stroke::new(1.0, skin::BORDER))
-                        .inner_margin(5)
+                        .fill(skin::INVENTORY)
+                        .stroke(egui::Stroke::new(2.0, skin::DARK))
+                        .inner_margin(3)
                         .show(ui, |ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
                             ui.horizontal(|ui| {
                                 for i in 0..HOTBAR {
                                     let selected = i == self.inventory.selected;
@@ -713,8 +722,8 @@ impl VoxelGame {
             return;
         }
         egui::ScrollArea::vertical()
-            .max_height(260.0)
-            .min_scrolled_height(200.0)
+            .max_height((ui.ctx().content_rect().height() * 0.3).min(240.0))
+            .min_scrolled_height(60.0)
             .show(ui, |ui| {
                 for recipe in craftable {
                     let (item, count) = recipe.result();
@@ -757,42 +766,38 @@ impl VoxelGame {
                 .as_ref()
                 .map_or_else(|| "Machine".to_string(), |m| m.menu.title.clone()),
         };
-        egui::Window::new(title)
-            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -20.0))
-            .resizable(false)
-            .collapsible(false)
+        let mut open = true;
+        let window = crate::ui_layout::inventory_window(ctx, &title, egui::Id::unique((
+            "inventory_screen",
+            std::mem::discriminant(&self.ui.screen),
+        )))
             .show(ctx, |ui| {
+                skin::inventory_style(ui);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(&title).strong());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("×").on_hover_text("Fermer · Échap").clicked() { open = false; }
+                    });
+                });
+                ui.add_space(6.0);
                 match self.ui.screen {
-                    Screen::Inventory => {
-                        ui.horizontal(|ui| {
-                            ui.vertical(|ui| {
-                                ui.label("Armure");
-                                for (i, slot) in engine_voxel::ArmorSlot::ALL.iter().enumerate() {
-                                    ui.horizontal(|ui| {
-                                        self.slot_widget(ui, Slot::Armor(i), false);
-                                        ui.label(slot.name());
-                                    });
-                                }
-                                ui.label(format!(
-                                    "Protection : {}",
-                                    self.inventory.protection(&self.content.items)
-                                ));
-                            });
-                            ui.separator();
-                            ui.vertical(|ui| {
-                                ui.label("Artisanat");
-                                self.craft_grid(ui, 2);
-                            });
-                            ui.separator();
-                            ui.vertical(|ui| self.recipe_book(ui, 2));
-                        });
-                    }
+                    Screen::Inventory => self.inventory_panel(ui),
                     Screen::Workbench => {
-                        ui.horizontal(|ui| {
-                            ui.vertical(|ui| self.craft_grid(ui, 3));
-                            ui.separator();
-                            ui.vertical(|ui| self.recipe_book(ui, 3));
-                        });
+                        if ui.available_width() >= 600.0 {
+                            ui.horizontal_top(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.set_width(
+                                        4.0 * crate::ui_layout::slot_size(ui.ctx()) + 50.0,
+                                    );
+                                    self.craft_grid(ui, 3);
+                                });
+                                ui.separator();
+                                ui.vertical(|ui| self.recipe_book(ui, 3));
+                            });
+                        } else {
+                            self.craft_grid(ui, 3);
+                            ui.collapsing("Livre de recettes", |ui| self.recipe_book(ui, 3));
+                        }
                     }
                     Screen::Furnace(pos) => self.furnace_panel(ui, pos),
                     Screen::Brewing(pos) => self.brewing_panel(ui, pos),
@@ -804,22 +809,57 @@ impl VoxelGame {
                 }
                 ui.separator();
                 self.player_slots(ui);
-                ui.label(
-                    "Clic : prendre, poser ou échanger une pile. Clic droit : prendre la moitié, \
-                     ou poser un seul objet. Maj + clic droit : en prendre un nombre choisi. \
-                     Échap : fermer.",
-                );
+                ui.add_space(6.0);
+                ui.collapsing("Aide · déplacer les objets", |ui| {
+                    ui.label("Clic : prendre ou poser. Clic droit : moitié ou un objet. Maj + clic droit : choisir la quantité. Échap : fermer.");
+                });
             });
+        if let Some(window) = window {
+            skin::inventory_border(&window.response);
+        }
+        if !open {
+            self.close_screen();
+            return;
+        }
         self.split_window(ctx);
         // La pile tenue suit la souris.
         if let (Some(held), Some(pointer)) = (self.inventory.cursor, ctx.pointer_hover_pos()) {
-            let rect = egui::Rect::from_center_size(pointer, egui::vec2(SLOT_SIZE, SLOT_SIZE));
+            let rect = egui::Rect::from_center_size(
+                pointer,
+                egui::Vec2::splat(crate::ui_layout::slot_size(ctx)),
+            );
             let painter = ctx.layer_painter(egui::LayerId::new(
                 egui::Order::Tooltip,
                 egui::Id::unique("cursor"),
             ));
             self.paint_stack(&painter, rect, held);
         }
+    }
+
+    fn armor_panel(&mut self, ui: &mut egui::Ui) {
+        ui.label("Armure");
+        for (i, slot) in engine_voxel::ArmorSlot::ALL.iter().enumerate() {
+            ui.horizontal(|ui| {
+                self.slot_widget(ui, Slot::Armor(i), false);
+                ui.label(egui::RichText::new(slot.name()).size(11.0));
+            });
+        }
+        ui.label(
+            egui::RichText::new(format!(
+                "Protection : {}",
+                self.inventory.protection(&self.content.items)
+            ))
+            .size(11.0),
+        );
+    }
+
+    fn inventory_panel(&mut self, ui: &mut egui::Ui) {
+        use crate::ui_layout::{InventorySection, inventory_sections};
+        inventory_sections(ui, |ui, section| match section {
+            InventorySection::Armor => self.armor_panel(ui),
+            InventorySection::Craft => self.craft_grid(ui, 2),
+            InventorySection::Recipes => self.recipe_book(ui, 2),
+        });
     }
 
     /// Le menu d'une machine de mod : les éléments décrits par son script, dessinés ici.
@@ -836,6 +876,12 @@ impl VoxelGame {
             &mut state.menu.widgets,
             &mut events,
             &mut |ui, first, count, columns| {
+                let columns = columns
+                    .min(crate::ui_layout::columns(
+                        ui,
+                        crate::ui_layout::slot_size(ui.ctx()),
+                    ))
+                    .max(1);
                 for row in (0..count).step_by(columns) {
                     ui.horizontal(|ui| {
                         for k in row..(row + columns).min(count) {
@@ -935,7 +981,7 @@ impl VoxelGame {
         let mut chosen = None;
         for offer in list {
             let affordable = level >= offer.levels && have_gems >= offer.gems;
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 let text = format!(
                     "{} — {} niveau(x) + {} saphir(s)",
                     label(offer.kind, offer.level),
@@ -1003,7 +1049,7 @@ impl VoxelGame {
         for (i, trade) in trades.iter().enumerate() {
             let left = uses.get(i).copied().unwrap_or(0);
             let can = crate::trading::can_trade(&self.inventory, trade, left);
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(format!("{}  →  {}", label(trade.give), label(trade.get)));
                 if ui.add_enabled(can, egui::Button::new("Échanger")).clicked() {
                     chosen = Some(i);
@@ -1054,7 +1100,7 @@ impl VoxelGame {
             .map(FurnaceState::read)
             .unwrap_or_default();
         let mut changed = false;
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.vertical(|ui| {
                 ui.label("Entrée");
                 changed |= self.container_slot(ui, pos, engine_voxel::FURNACE_INPUT);
@@ -1108,7 +1154,7 @@ impl VoxelGame {
             .map(engine_voxel::brew_progress)
             .unwrap_or((0, 0));
         let mut changed = false;
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.vertical(|ui| {
                 ui.label("Fiole d'eau");
                 changed |= self.container_slot(ui, pos, engine_voxel::BREW_INPUT);
@@ -1158,9 +1204,8 @@ impl VoxelGame {
         });
         let render = self.last_render;
         let debug = self.debug.clone();
-        egui::Window::new("Inspecteur (F3)")
-            .default_pos(egui::pos2(12.0, 12.0))
-            .default_width(360.0)
+        crate::ui_layout::window(ctx, "Inspecteur (F3)", 520.0)
+            .hscroll(true)
             .show(ctx, |ui| {
                 egui::Grid::new("stats").num_columns(2).show(ui, |ui| {
                     ui.label("Images");

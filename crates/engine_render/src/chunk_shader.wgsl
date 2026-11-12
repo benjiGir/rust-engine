@@ -12,6 +12,8 @@ struct Camera {
     sun: vec4<f32>,
     // rgb : teinte de la lumière du ciel, w : le temps en secondes (pour le vent).
     sun_color: vec4<f32>,
+    // x : 0 dehors, 1 sous l'eau ; y : altitude de la surface au-dessus de la caméra.
+    water: vec4<f32>,
 };
 
 @group(0) @binding(0)
@@ -54,6 +56,7 @@ const FLAG_FILLED: u32 = 262144u;  // 1 << 18 : pixels transparents remplis (feu
 const FLAG_ROTATE: u32 = 524288u;
 const FLAG_FURNACE_FIRE: u32 = 1048576u;
 const FLAG_GROUND: u32 = 2097152u;
+const FLAG_WATER: u32 = 4194304u;   // 1 << 22 : eau libre, animée
 const TEXTURE_MASK: u32 = 65535u;
 
 struct VertexOut {
@@ -151,9 +154,43 @@ fn face_uv(position: vec3<f32>, normal: vec3<f32>) -> vec2<f32> {
     return vec2<f32>(position.x, -position.y);
 }
 
+// La hauteur d'une houle (somme de trois ondes qui se croisent) : sert à incliner la surface
+// de l'eau, pas à la déplacer (une grande face fusionnée n'a que quatre sommets).
+fn wave_height(p: vec2<f32>, t: f32) -> f32 {
+    return sin(p.x * 1.3 + t * 1.1) * 0.5
+        + sin(p.y * 1.7 - t * 0.9 + p.x * 0.4) * 0.35
+        + sin((p.x + p.y) * 2.9 + t * 1.9) * 0.15;
+}
+
+fn wave_normal(p: vec2<f32>, t: f32) -> vec3<f32> {
+    let e = 0.05;
+    let h = wave_height(p, t);
+    let dx = (wave_height(p + vec2<f32>(e, 0.0), t) - h) / e;
+    let dz = (wave_height(p + vec2<f32>(0.0, e), t) - h) / e;
+    return normalize(vec3<f32>(-dx * 0.08, 1.0, -dz * 0.08));
+}
+
+// Les reflets de lumière qui dansent au fond de l'eau : des lignes fines là où des ondulations
+// se renforcent.
+fn caustics(p: vec2<f32>, t: f32) -> f32 {
+    let a = sin(p.x * 1.7 + t * 0.8 + sin(p.y * 1.3 + t * 0.6));
+    let b = sin(p.y * 2.1 - t * 0.7 + sin(p.x * 1.9 - t * 0.5));
+    let c = sin((p.x + p.y) * 1.1 + t * 0.4);
+    return pow(1.0 - abs((a + b + c) / 3.0), 6.0);
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-    var texel = textureSample(block_textures, block_sampler, face_uv(in.tex_position, in.tex_normal), in.texture);
+    let time = camera.sun_color.w;
+    var uv = face_uv(in.tex_position, in.tex_normal);
+    let is_water = (in.flags & FLAG_WATER) != 0u;
+    let wp = in.world_position.xz;
+    if is_water {
+        // La texture glisse doucement et ondule : l'eau ne reste pas figée.
+        uv += vec2<f32>(time * 0.021, time * 0.013)
+            + 0.02 * vec2<f32>(sin(wp.y * 3.1 + time * 1.3), cos(wp.x * 2.7 + time * 1.1));
+    }
+    var texel = textureSample(block_textures, block_sampler, uv, in.texture);
     // Une feuille au cœur du feuillage : ses trous deviennent un vert sombre (la couleur
     // de la feuille, assombrie), comme le fond d'un buisson dense.
     if (in.flags & FLAG_FILLED) != 0u && texel.a < 0.5 {
@@ -198,6 +235,28 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // Occlusion ambiante : un coin enfermé descend à 45 % de la lumière.
     light *= 0.45 + 0.55 * in.light.z;
     var lit = albedo.rgb * light;
+    var alpha = albedo.a;
+    if is_water {
+        let to_camera = camera.position_fog_start.xyz - in.world_position;
+        let view = normalize(to_camera);
+        var n = vec3<f32>(0.0, 1.0, 0.0);
+        // Les vagues s'effacent avec la distance : trop petites, elles feraient du moiré.
+        let calm = smoothstep(18.0, 70.0, length(to_camera));
+        if abs(in.tex_normal.y) > 0.5 {
+            n = normalize(mix(wave_normal(wp, time), n, calm));
+        }
+        // Le dessus vu de dessous : la même surface, retournée.
+        n = select(-n, n, view.y >= 0.0 || abs(in.tex_normal.y) < 0.5);
+        // Fresnel : de biais, l'eau reflète le ciel ; de face, on voit à travers.
+        let fresnel = pow(1.0 - clamp(abs(dot(n, view)), 0.0, 1.0), 4.0);
+        let sky_color = camera.fog_color_end.rgb;
+        lit = mix(lit, sky_color * (0.4 + 0.6 * daylight), fresnel * 0.55);
+        // Le soleil, en reflet : une tache brillante qui scintille avec les vagues.
+        let glint = pow(max(dot(reflect(-sun_direction, n), view), 0.0), 220.0)
+            * daylight * step(0.0, sun_direction.y) * (1.0 - calm);
+        lit += vec3<f32>(1.0, 0.93, 0.75) * glint * 0.5;
+        alpha = clamp(alpha + fresnel * 0.35 + glint, 0.0, 1.0);
+    }
     if (in.flags & FLAG_FURNACE_FIRE) != 0u {
         // Même bouche 8 × 6 que furnace_front.png. Animation pixel art à 10 images/s,
         // calculée sur place : aucune texture transférée ni chunk remaillé par image.
@@ -213,6 +272,21 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // Brouillard : distance horizontale, le brouillard forme un cylindre comme le
     // rayon de chargement. `smoothstep` : 0 avant le début, 1 après la fin.
     let offset = in.world_position.xz - camera.position_fog_start.xz;
-    let fog = smoothstep(camera.position_fog_start.w, camera.fog_color_end.w, length(offset));
-    return vec4<f32>(mix(lit, camera.fog_color_end.rgb, fog), albedo.a);
+    var fog = smoothstep(camera.position_fog_start.w, camera.fog_color_end.w, length(offset));
+    let underwater = camera.water.x;
+    if underwater > 0.0 {
+        // Sous l'eau : le rouge s'éteint vite, puis le vert ; au loin tout devient un bleu
+        // sombre. Des reflets de lumière dansent sur ce qui est près de la surface.
+        let distance = length(in.world_position - camera.position_fog_start.xyz);
+        let depth = max(camera.water.y - in.world_position.y, 0.0);
+        let shafts = caustics(in.world_position.xz * 0.9 + in.world_position.y * 0.35, time);
+        let day = 0.25 + 0.75 * daylight;
+        lit *= 1.0 + underwater * shafts * 1.1 * exp(-depth * 0.14) * day;
+        let transmit = exp(-distance * vec3<f32>(0.20, 0.075, 0.04));
+        let deep = vec3<f32>(0.015, 0.11, 0.17) * day;
+        lit = mix(lit, lit * transmit + deep * (vec3<f32>(1.0) - transmit), underwater);
+        // Le brouillard du ciel n'a plus de sens sous l'eau : c'est la couleur de l'eau.
+        fog *= 1.0 - underwater;
+    }
+    return vec4<f32>(mix(lit, camera.fog_color_end.rgb, fog), alpha);
 }

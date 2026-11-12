@@ -2,28 +2,64 @@
 // comportement est écrit dans le script du mod.
 [
     (
-        id: "donjons:crypt_brick", name: "Brique de crypte", color: (0.23, 0.22, 0.26), texture: "crypt_brick",
+        id: "donjons:crypt_brick", name: "Brique de crypte", color: (0.0808, 0.1133, 0.1423), texture: "crypt_brick",
         hardness: 2.5, tool: Pickaxe,
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
     // Des pointes : on peut marcher dessus (`solid: false`), et elles blessent. Casser le piège avec
     // une pioche le désarme.
     (
-        id: "donjons:spike_trap", name: "Piège à pointes", color: (0.7, 0.7, 0.75), texture: "spike_trap",
-        boxes: [(from: (1, 0, 1), to: (15, 7, 15))], solid: false, behavior: "spike_trap",
+        id: "donjons:spike_trap", name: "Piège à pointes", color: (0.1435, 0.1843, 0.1920), texture: "spike_trap",
+        boxes: [
+            (from: (1, 0, 1), to: (15, 2, 15)),
+            (from: (3, 2, 3), to: (6, 4, 6)),
+            (from: (3, 2, 10), to: (6, 4, 13)),
+            (from: (10, 2, 3), to: (13, 4, 6)),
+            (from: (10, 2, 10), to: (13, 4, 13)),
+            (from: (4, 4, 4), to: (5, 8, 5)),
+            (from: (4, 4, 11), to: (5, 8, 12)),
+            (from: (11, 4, 4), to: (12, 8, 5)),
+            (from: (11, 4, 11), to: (12, 8, 12)),
+        ], solid: false, behavior: "spike_trap",
         hardness: 0.5, tool: Pickaxe,
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
     // Un générateur de créatures : quand le joueur approche, il fait surgir des rôdeurs puis disparaît.
     (
-        id: "donjons:spawner", name: "Cage à gardiens", color: (0.2, 0.25, 0.2), texture: "spawner",
+        id: "donjons:spawner", name: "Cage à gardiens", color: (0.1278, 0.1547, 0.1314), texture: "spawner",
+        boxes: [
+            (from: (1, 0, 1), to: (15, 2, 15)),
+            (from: (1, 14, 1), to: (15, 16, 15)),
+            (from: (1, 2, 1), to: (2, 14, 2)),
+            (from: (1, 2, 14), to: (2, 14, 15)),
+            (from: (7, 2, 1), to: (8, 14, 2)),
+            (from: (7, 2, 14), to: (8, 14, 15)),
+            (from: (14, 2, 1), to: (15, 14, 2)),
+            (from: (14, 2, 14), to: (15, 14, 15)),
+            (from: (1, 2, 7), to: (2, 14, 8)),
+            (from: (14, 2, 7), to: (15, 14, 8)),
+            (from: (5, 5, 5), to: (11, 11, 11)),
+        ],
         light_emission: 6, behavior: "spawner",
         hardness: 3.0, tool: Pickaxe,
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
     // Le même, pour le boss de la crypte.
     (
-        id: "donjons:boss_spawner", name: "Sceau du gardien", color: (0.35, 0.15, 0.15), texture: "boss_spawner",
+        id: "donjons:boss_spawner", name: "Sceau du gardien", color: (0.1673, 0.1203, 0.1125), texture: "boss_spawner",
+        boxes: [
+            (from: (1, 0, 1), to: (15, 2, 15)),
+            (from: (1, 14, 1), to: (15, 16, 15)),
+            (from: (1, 2, 1), to: (2, 14, 2)),
+            (from: (1, 2, 14), to: (2, 14, 15)),
+            (from: (7, 2, 1), to: (8, 14, 2)),
+            (from: (7, 2, 14), to: (8, 14, 15)),
+            (from: (14, 2, 1), to: (15, 14, 2)),
+            (from: (14, 2, 14), to: (15, 14, 15)),
+            (from: (1, 2, 7), to: (2, 14, 8)),
+            (from: (14, 2, 7), to: (15, 14, 8)),
+            (from: (5, 5, 5), to: (11, 11, 11)),
+        ],
         light_emission: 8, behavior: "boss_spawner",
         hardness: 3.0, tool: Pickaxe,
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),

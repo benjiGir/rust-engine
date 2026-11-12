@@ -1,6 +1,6 @@
 // L'objet que laisse le gardien de la crypte.
 (
     items: [
-        (id: "donjons:warden_sigil", name: "Sceau du gardien", category: Material, color: (0.95, 0.75, 0.25), icon: "warden_sigil"),
+        (id: "donjons:warden_sigil", name: "Sceau du gardien", category: Material, color: (0.1301, 0.1238, 0.1136), icon: "warden_sigil"),
     ],
 )

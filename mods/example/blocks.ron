@@ -13,6 +13,13 @@
     // Une machine : son comportement est écrit dans le script du mod (`script/src/lib.rs`).
     (
         id: "example:breaker", name: "Casseur", color: (0.1866, 0.1971, 0.2384), texture: "breaker",
+        boxes: [
+            (from: (1, 0, 1), to: (15, 3, 15)),
+            (from: (2, 3, 3), to: (14, 13, 15)),
+            (from: (1, 13, 2), to: (15, 15, 15)),
+            (from: (5, 5, 1), to: (11, 11, 3)),
+            (from: (6, 6, 0), to: (10, 10, 1)),
+        ],
         behavior: "breaker",
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),

@@ -10,6 +10,10 @@ use anyhow::Result;
 use crate::Rng;
 
 mod items;
+mod machines;
+mod mod_assets;
+mod nature;
+mod workstations;
 use items::item_icons;
 
 const SIZE: usize = 16;
@@ -191,99 +195,27 @@ fn dirt() -> Image {
 
 /// Le dessus de la terre labourée : des sillons, plus sombres quand elle est humide.
 fn farmland(wet: bool) -> Image {
-    let base = if wet {
-        [0.27, 0.18, 0.12]
-    } else {
-        [0.45, 0.32, 0.21]
-    };
-    let mut image = Image::filled(base).noise(base, 0.08, if wet { 41 } else { 40 });
-    for y in (1..SIZE).step_by(4) {
-        for x in 0..SIZE {
-            image.set(x, y, scale(base, 0.7));
-        }
-    }
-    image
+    nature::farmland(wet)
 }
 
-/// Le dessus de la table d'enchantement : un tapis violet, des runes et un saphir au centre.
+/// Le dessus de la table : un livre de lin sur un plateau d’ardoise gravé.
 fn enchanting_top() -> Image {
-    let base = [0.35, 0.16, 0.5];
-    let mut image = Image::filled(base).noise(base, 0.1, 60);
-    for k in 0..SIZE {
-        for edge in [0, 1, SIZE - 2, SIZE - 1] {
-            image.set(k, edge, [0.75, 0.6, 0.2]);
-            image.set(edge, k, [0.75, 0.6, 0.2]);
-        }
-    }
-    for (x, y) in [
-        (4, 4),
-        (11, 4),
-        (4, 11),
-        (11, 11),
-        (7, 3),
-        (7, 12),
-        (3, 7),
-        (12, 7),
-    ] {
-        image.set(x, y, [0.9, 0.75, 1.0]);
-    }
-    for y in 6..10 {
-        for x in 6..10 {
-            image.set(x, y, [0.3, 0.5, 1.0]);
-        }
-    }
-    image.set(6, 6, [0.7, 0.85, 1.0]);
-    image
+    workstations::draw("enchanting_top")
 }
 
-/// Le côté : du bois sombre avec un liseré violet.
+/// Le côté : pierre bleutée, pages de lin et liserés de cuivre.
 fn enchanting_side() -> Image {
-    let wood = [0.3, 0.2, 0.14];
-    let mut image = Image::filled(wood).noise(wood, 0.08, 61);
-    for x in 0..SIZE {
-        image.set(x, 0, [0.5, 0.25, 0.7]);
-        image.set(x, 1, [0.5, 0.25, 0.7]);
-        image.set(x, 14, [0.5, 0.25, 0.7]);
-        image.set(x, 15, [0.5, 0.25, 0.7]);
-    }
-    image
+    workstations::draw("enchanting_side")
 }
 
-/// Le dessus de l'alambic : une plaque de fer, trois cuves et un brûleur.
+/// Le dessus de l’alambic : une cuve de cuivre et un condenseur sur socle.
 fn brewing_top() -> Image {
-    let iron = [0.42, 0.42, 0.46];
-    let mut image = Image::filled(iron).noise(iron, 0.07, 62);
-    for (cx, cy) in [(4, 4), (11, 4), (7, 11)] {
-        for dy in -2..=2i32 {
-            for dx in -2..=2i32 {
-                if dx * dx + dy * dy <= 5 {
-                    let edge = dx * dx + dy * dy > 3;
-                    image.plot(
-                        cx + dx,
-                        cy + dy,
-                        if edge {
-                            [0.25, 0.25, 0.28]
-                        } else {
-                            [0.35, 0.6, 0.9]
-                        },
-                    );
-                }
-            }
-        }
-    }
-    image
+    workstations::draw("brewing_top")
 }
 
-/// Le côté : du bois cerclé de fer.
+/// Le côté : cuivre et verre patiné, aux hauteurs des pièces du modèle.
 fn brewing_side() -> Image {
-    let wood = [0.5, 0.38, 0.24];
-    let mut image = Image::filled(wood).noise(wood, 0.07, 63);
-    for x in 0..SIZE {
-        for y in [2, 3, 12, 13] {
-            image.set(x, y, [0.4, 0.4, 0.44]);
-        }
-    }
-    image
+    workstations::draw("brewing_side")
 }
 
 /// Une fiole : un verre rond à col étroit ; `liquid` colore son contenu.
@@ -333,236 +265,7 @@ fn flask(liquid: Option<[f32; 3]>) -> Image {
 
 /// Les blocs des réseaux et leurs machines (phase 9c) : un fond de métal et un motif.
 fn tech(kind: &str, on: bool) -> Image {
-    let steel = [0.5, 0.52, 0.56];
-    let mut image = Image::filled(steel).noise(steel, 0.06, 70 + kind.len() as u64);
-    let edge = |image: &mut Image, c: [f32; 3]| {
-        for k in 0..SIZE {
-            for e in [0, SIZE - 1] {
-                image.set(k, e, c);
-                image.set(e, k, c);
-            }
-        }
-    };
-    match kind {
-        "cable" => {
-            image = Image::filled([0.25, 0.25, 0.28]).noise([0.25, 0.25, 0.28], 0.05, 71);
-            for y in 6..10 {
-                for x in 0..SIZE {
-                    image.set(x, y, [0.8, 0.5, 0.25]);
-                }
-            }
-            for x in (0..SIZE).step_by(4) {
-                for y in 5..11 {
-                    image.set(x, y, [0.15, 0.15, 0.17]);
-                }
-            }
-        }
-        "pipe" => {
-            image = Image::filled([0.45, 0.5, 0.55]).noise([0.45, 0.5, 0.55], 0.05, 72);
-            for x in (2..SIZE).step_by(5) {
-                for y in 0..SIZE {
-                    image.set(x, y, [0.25, 0.45, 0.8]);
-                }
-            }
-        }
-        "shaft" => {
-            image = Image::filled([0.55, 0.4, 0.25]).noise([0.55, 0.4, 0.25], 0.08, 73);
-            for x in (1..SIZE).step_by(5) {
-                for y in 0..SIZE {
-                    image.set(x, y, [0.45, 0.45, 0.5]);
-                }
-            }
-        }
-        "solar_panel" => {
-            let blue = [0.12, 0.2, 0.45];
-            image = Image::filled(blue).noise(blue, 0.05, 74);
-            for k in (0..SIZE).step_by(4) {
-                for j in 0..SIZE {
-                    image.set(k, j, [0.55, 0.6, 0.7]);
-                    image.set(j, k, [0.55, 0.6, 0.7]);
-                }
-            }
-        }
-        "battery" => {
-            edge(&mut image, [0.3, 0.3, 0.33]);
-            for (i, y) in (3..13).step_by(3).enumerate() {
-                let lit = (i as u32) < 3;
-                for x in 3..13 {
-                    image.set(
-                        x,
-                        y,
-                        if lit {
-                            [0.5, 0.9, 0.3]
-                        } else {
-                            [0.25, 0.3, 0.2]
-                        },
-                    );
-                    image.set(
-                        x,
-                        y + 1,
-                        if lit {
-                            [0.5, 0.9, 0.3]
-                        } else {
-                            [0.25, 0.3, 0.2]
-                        },
-                    );
-                }
-            }
-        }
-        "power_lamp" => {
-            edge(&mut image, [0.3, 0.3, 0.33]);
-            let glow = if on {
-                [1.0, 0.95, 0.6]
-            } else {
-                [0.35, 0.3, 0.2]
-            };
-            for y in 3..13 {
-                for x in 3..13 {
-                    image.set(x, y, glow);
-                }
-            }
-            if on {
-                image.set(6, 6, [1.0, 1.0, 0.95]);
-            }
-        }
-        "pump" | "filler" => {
-            edge(&mut image, [0.3, 0.32, 0.36]);
-            for y in 4..12 {
-                for x in 4..12 {
-                    image.set(x, y, [0.2, 0.4, 0.75]);
-                }
-            }
-            // La buse : en bas pour la pompe, en haut pour le remplisseur.
-            let rows: [usize; 3] = if kind == "pump" {
-                [12, 13, 14]
-            } else {
-                [1, 2, 3]
-            };
-            for y in rows {
-                for x in 6..10 {
-                    image.set(x, y, [0.2, 0.2, 0.22]);
-                }
-            }
-        }
-        "tank" => {
-            edge(&mut image, [0.3, 0.32, 0.36]);
-            for y in 3..13 {
-                for x in 3..13 {
-                    let water = y >= 7;
-                    image.set(
-                        x,
-                        y,
-                        if water {
-                            [0.2, 0.45, 0.85]
-                        } else {
-                            [0.7, 0.85, 0.95]
-                        },
-                    );
-                }
-            }
-        }
-        "motor" => {
-            edge(&mut image, [0.3, 0.3, 0.33]);
-            for y in 3..13 {
-                for x in 3..13 {
-                    let coil = (x + y) % 3 == 0;
-                    image.set(
-                        x,
-                        y,
-                        if coil {
-                            [0.85, 0.5, 0.25]
-                        } else {
-                            [0.5, 0.3, 0.2]
-                        },
-                    );
-                }
-            }
-            image.set(8, 8, [0.9, 0.9, 0.95]);
-        }
-        "assembler" => {
-            edge(&mut image, [0.3, 0.3, 0.33]);
-            // Un engrenage au centre : un anneau, des dents, un trou.
-            for y in 0..SIZE {
-                for x in 0..SIZE {
-                    let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
-                    let r = (dx * dx + dy * dy).sqrt();
-                    let teeth = (dy.atan2(dx) * 4.0).cos() > 0.3;
-                    if (3.0..5.0).contains(&r) || (5.0..6.5).contains(&r) && teeth {
-                        image.set(x, y, [0.85, 0.7, 0.3]);
-                    }
-                }
-            }
-        }
-        "balloon" => {
-            for y in 0..SIZE {
-                for x in 0..SIZE {
-                    let stripe = (x / 4) % 2 == 0;
-                    let c = if stripe {
-                        [0.9, 0.25, 0.2]
-                    } else {
-                        [0.95, 0.9, 0.85]
-                    };
-                    image.set(x, y, scale(c, 0.9 + 0.08 * ((x + y) % 3) as f32));
-                }
-            }
-        }
-        "propeller" => {
-            edge(&mut image, [0.3, 0.3, 0.33]);
-            for k in 2..14 {
-                image.set(k, 5, [0.8, 0.82, 0.88]);
-                image.set(k, 6, [0.8, 0.82, 0.88]);
-                image.set(k, 9, [0.65, 0.68, 0.75]);
-                image.set(k, 10, [0.65, 0.68, 0.75]);
-            }
-            for y in 7..9 {
-                for x in 7..9 {
-                    image.set(x, y, [0.9, 0.8, 0.3]);
-                }
-            }
-            // Une pointe : le sens de la poussée, vers la droite.
-            for k in 0..4 {
-                image.set(12 + k.min(3), 7, [0.9, 0.3, 0.2]);
-                image.set(12 + k.min(3), 8, [0.9, 0.3, 0.2]);
-            }
-        }
-        "helm" => {
-            let wood = [0.5, 0.36, 0.22];
-            image = Image::filled(wood).noise(wood, 0.07, 75);
-            for y in 0..SIZE {
-                for x in 0..SIZE {
-                    let (dx, dy) = (x as f32 - 7.5, y as f32 - 7.5);
-                    let r = (dx * dx + dy * dy).sqrt();
-                    let spoke = dx.abs() < 0.8
-                        || dy.abs() < 0.8
-                        || (dx - dy).abs() < 0.9
-                        || (dx + dy).abs() < 0.9;
-                    if (5.5..7.0).contains(&r) || (r < 5.5 && spoke) {
-                        image.set(x, y, [0.25, 0.16, 0.08]);
-                    }
-                }
-            }
-            image.set(7, 7, [0.9, 0.75, 0.3]);
-            image.set(8, 8, [0.9, 0.75, 0.3]);
-        }
-        "fan" => {
-            edge(&mut image, [0.3, 0.3, 0.33]);
-            let (a, b): ([f32; 3], [f32; 3]) = if on {
-                ([0.85, 0.9, 0.95], [0.65, 0.7, 0.8])
-            } else {
-                ([0.4, 0.42, 0.46], [0.3, 0.32, 0.36])
-            };
-            for k in 2..14 {
-                // Quatre pales en croix ; en marche, elles sont floues (deux tons).
-                image.set(k, 8, if k % 2 == 0 { a } else { b });
-                image.set(8, k, if k % 2 == 0 { a } else { b });
-                image.set(k, k, b);
-                image.set(k, 15 - k, b);
-            }
-            image.set(8, 8, [0.9, 0.9, 0.2]);
-        }
-        _ => {}
-    }
-    image
+    machines::draw(kind, on)
 }
 
 /// Un câble de signal : un trait en croix qui relie les bords de la case.
@@ -595,124 +298,41 @@ fn plate(seed: u64) -> Image {
     image
 }
 
-/// Un levier : un manche penché à gauche (relevé) ou à droite (actif, bout rouge).
+/// Un levier : manche en bois, pivot et contact cuivré, clair à l’activation.
 fn lever(on: bool) -> Image {
-    let mut image = plate(50);
-    for k in 0..8i32 {
-        let x = if on { 5 + k / 2 } else { 11 - k / 2 };
-        image.plot(x, 12 - k, [0.45, 0.32, 0.2]);
-        image.plot(x + 1, 12 - k, [0.55, 0.4, 0.25]);
-    }
-    let tip = if on { 9 } else { 6 };
-    let color = if on {
-        [1.0, 0.2, 0.12]
-    } else {
-        [0.5, 0.15, 0.1]
-    };
-    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-        image.plot(tip + dx, 3 + dy, color);
-    }
-    image.plot(8, 13, [0.3, 0.3, 0.32]);
-    image
+    machines::draw("lever", on)
 }
 
-/// Un bouton : un carré en relief, enfoncé et rouge quand il est pressé.
+/// Un bouton : contact cuivré plus clair quand il est pressé.
 fn button(on: bool) -> Image {
-    let mut image = plate(51);
-    let (inner, rim) = if on {
-        ([0.9, 0.22, 0.15], [0.55, 0.12, 0.1])
-    } else {
-        ([0.72, 0.72, 0.76], [0.4, 0.4, 0.44])
-    };
-    for y in 4..12 {
-        for x in 4..12 {
-            let edge = x == 4 || y == 4 || x == 11 || y == 11;
-            image.set(x, y, if edge { rim } else { inner });
-        }
-    }
-    image
+    machines::draw("button", on)
 }
 
-/// Une herse : des barreaux de fer ; ouverte, ils sont découpés sur fond transparent.
+/// Une herse : acier et cuivre ; les ouvertures viennent des boîtes du bloc.
 fn gate(open: bool) -> Image {
-    let iron = [0.55, 0.56, 0.6];
-    let mut image = if open {
-        Image::transparent()
-    } else {
-        Image::filled([0.22, 0.22, 0.25]).noise([0.22, 0.22, 0.25], 0.08, 52)
-    };
-    for x in (1..SIZE).step_by(4) {
-        for y in 0..SIZE {
-            for w in 0..2 {
-                image.set(x + w, y, scale(iron, 0.85 + 0.1 * (y % 3) as f32));
-            }
-        }
-    }
-    for y in [1, 8, 14] {
-        for x in 0..SIZE {
-            image.set(x, y, scale(iron, 0.7));
-        }
-    }
-    image
+    machines::draw("gate", open)
 }
 
 /// L'inverseur (un point) et le répéteur (deux points), allumés ou non.
 fn logic(dots: usize, on: bool) -> Image {
-    let mut image = plate(53 + dots as u64);
-    let color = if on {
-        [1.0, 0.2, 0.1]
-    } else {
-        [0.35, 0.1, 0.08]
-    };
-    let xs: &[usize] = if dots == 1 { &[7] } else { &[4, 10] };
-    for &x in xs {
-        for dy in 0..3 {
-            for dx in 0..3 {
-                image.set(x + dx, 6 + dy, color);
-            }
-        }
-    }
-    // Une rainure d'entrée à gauche, de sortie à droite : le sens de la lecture.
-    for x in 0..3 {
-        image.set(x, 7, scale([0.5, 0.5, 0.53], 0.5));
-    }
-    for x in 13..SIZE {
-        image.set(x, 7, color);
-    }
-    image
+    machines::draw(if dots == 2 { "repeater" } else { "inverter" }, on)
 }
 
 /// Un piston : une planche bordée de fer ; `centre` colore le cœur (vert : collant).
 fn piston(extended: bool, centre: [f32; 3]) -> Image {
-    let wood = [0.62, 0.5, 0.3];
-    let mut image = Image::filled(wood).noise(wood, 0.06, 56);
-    let iron = [0.5, 0.5, 0.55];
-    for k in 0..SIZE {
-        for edge in [0, 1, SIZE - 2, SIZE - 1] {
-            image.set(k, edge, iron);
-            image.set(edge, k, iron);
-        }
-    }
-    for y in 5..11 {
-        for x in 5..11 {
-            let shade = if extended { 0.55 } else { 1.0 };
-            image.set(x, y, scale(centre, shade));
-        }
-    }
-    image
+    machines::draw(
+        if centre[1] > centre[0] {
+            "sticky_piston"
+        } else {
+            "piston"
+        },
+        extended,
+    )
 }
 
 /// La tête d'un piston sorti : une planche pleine.
 fn piston_head() -> Image {
-    let wood = [0.7, 0.57, 0.34];
-    let mut image = Image::filled(wood).noise(wood, 0.07, 57);
-    for k in 0..SIZE {
-        for edge in [0, SIZE - 1] {
-            image.set(k, edge, scale(wood, 0.7));
-            image.set(edge, k, scale(wood, 0.7));
-        }
-    }
-    image
+    machines::draw("piston_head", false)
 }
 
 /// Le côté de l'herbe : de la terre, avec une bordure d'herbe irrégulière en haut.
@@ -731,39 +351,15 @@ fn grass_side() -> Image {
 }
 
 fn stone() -> Image {
-    let mut image = Image::filled(STONE).noise(STONE, 0.13, 8);
-    // Éclats plats : l'arête du haut claire et une ombre courte au-dessous.
-    for (x, y, length) in [(1, 3, 4), (9, 1, 3), (6, 7, 5), (0, 12, 3), (11, 12, 4)] {
-        for k in 0..length {
-            image.set((x + k) % SIZE, y, scale(STONE, 1.12));
-            image.set((x + k) % SIZE, (y + 2) % SIZE, scale(STONE, 0.86));
-        }
-        image.set((x + length) % SIZE, (y + 1) % SIZE, scale(STONE, 0.90));
-    }
-    image
+    nature::mineral("stone")
 }
 
 fn sand() -> Image {
-    let base = [0.84, 0.75, 0.54];
-    let mut image = Image::filled(base).noise(base, 0.06, 10);
-    for (x, y, length) in [(0, 3, 6), (9, 6, 5), (3, 11, 7), (13, 14, 4)] {
-        for k in 0..length {
-            image.set((x + k) % SIZE, y, [0.90, 0.82, 0.62]);
-            image.set((x + k + 1) % SIZE, (y + 1) % SIZE, [0.77, 0.68, 0.49]);
-        }
-    }
-    image
+    nature::mineral("sand")
 }
 
 fn snow() -> Image {
-    let base = [0.88, 0.94, 0.94];
-    let mut image = Image::filled(base).noise(base, 0.035, 12);
-    for (x, y) in [(2, 4), (9, 1), (6, 12), (13, 9)] {
-        image.set(x, y, [0.98, 0.99, 0.95]);
-        image.set((x + 1) % SIZE, y, [0.98, 0.99, 0.95]);
-        image.set(x, (y + 1) % SIZE, [0.78, 0.87, 0.91]);
-    }
-    image
+    nature::mineral("snow")
 }
 
 /// L'eau : un bleu uni avec quelques vaguelettes plus claires.
@@ -804,32 +400,7 @@ fn glass() -> Image {
 
 /// La torche : un bois sombre avec un cœur lumineux.
 fn torch() -> Image {
-    let wood = [0.38, 0.27, 0.20];
-    let mut image = Image::filled(wood).noise(wood, 0.14, 15);
-    for y in 0..SIZE {
-        image.set(5, y, scale(wood, 0.72));
-        image.set(10, y, scale(wood, 1.22));
-    }
-    for y in 2..12 {
-        for x in 4..12 {
-            let edge = x == 4 || x == 11 || y == 2 || y == 11;
-            image.set(
-                x,
-                y,
-                if edge {
-                    COPPER
-                } else if y < 5 {
-                    [0.98, 0.90, 0.57]
-                } else {
-                    [0.94, 0.65, 0.26]
-                },
-            );
-        }
-    }
-    for x in 4..12 {
-        image.set(x, 7, scale(COPPER, 0.65));
-    }
-    image
+    nature::torch()
 }
 
 fn glowstone() -> Image {
@@ -884,21 +455,7 @@ fn clock() -> Image {
 
 /// La lampe : un verre ambré dans un cadre ; allumée, le verre est lumineux.
 fn lamp(lit: bool) -> Image {
-    let frame = [0.3, 0.22, 0.14];
-    let glass = if lit {
-        [1.0, 0.85, 0.45]
-    } else {
-        [0.42, 0.34, 0.22]
-    };
-    let mut image = Image::filled(frame).noise(frame, 0.1, 20);
-    let mut rng = Rng::new(21);
-    for y in 2..14 {
-        for x in 2..14 {
-            let shade = 1.0 + rng.signed() * if lit { 0.08 } else { 0.12 };
-            image.set(x, y, scale(glass, shade));
-        }
-    }
-    image
+    machines::draw("lamp", lit)
 }
 
 /// Le casseur du mod d'exemple : un bloc de métal avec une « mâchoire ».
@@ -1120,14 +677,7 @@ fn sandstone_top() -> Image {
 }
 
 fn ice() -> Image {
-    let base = [0.62, 0.78, 0.98];
-    let mut image = Image::filled(base).noise(base, 0.04, 42);
-    // Quelques fissures blanches.
-    for i in 2..9 {
-        image.set(i, i + 2, [0.9, 0.95, 1.0]);
-        image.set(14 - i, i + 5, [0.85, 0.92, 1.0]);
-    }
-    image
+    nature::mineral("ice")
 }
 
 fn lava() -> Image {
@@ -1150,97 +700,27 @@ fn lava() -> Image {
 
 /// Un minerai : de la pierre (ou de la pierre profonde) et des grains colorés en amas.
 fn ore(color: [f32; 3], seed: u64) -> Image {
-    let mut image = stone();
-    // Chaque gisement possède sa disposition ; les amas sont de petits cristaux biseautés.
-    let mut rng = Rng::new(seed);
-    for (cx, cy) in [(3, 3), (10, 2), (6, 9), (12, 12)] {
-        let x = cx + (rng.next_u64() % 2) as usize;
-        let y = cy + (rng.next_u64() % 2) as usize;
-        for (dx, dy, shade) in [
-            (0, 0, 1.2),
-            (1, 0, 1.1),
-            (0, 1, 1.0),
-            (1, 1, 0.92),
-            (2, 1, 0.8),
-            (1, 2, 0.7),
-        ] {
-            image.set(x + dx, y + dy, scale(color, shade));
-        }
-        image.set(x, y + 2, scale(STONE, 0.63));
-        image.set(x + 2, y + 2, scale(STONE, 0.72));
-    }
-    image
+    nature::ore(color, seed)
 }
 
 // ----- La végétation (phase O2) -----
 
 /// L'écorce : des stries verticales irrégulières.
 fn log_side(base: [f32; 3], seed: u64) -> Image {
-    let mut image = Image::filled(base).noise(base, 0.17, seed);
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            let bend = ((y / 4 + x / 5) % 3) as i32 - 1;
-            let lane = (x as i32 + bend).rem_euclid(5);
-            if lane == 0 {
-                image.set(x, y, scale(base, 0.66));
-            } else if lane == 1 {
-                image.set(x, y, scale(base, 1.18));
-            }
-        }
-    }
-    for (x, y) in [(3, 5), (11, 11)] {
-        for dy in 0..3 {
-            image.set(x, y + dy, scale(base, 0.55));
-        }
-        image.set(x + 1, y + 1, scale(base, 0.82));
-    }
-    image
+    nature::bark(base, seed)
 }
 
 /// Le bouleau : une écorce blanche avec des taches noires horizontales.
 fn birch_side() -> Image {
-    let base = [0.86, 0.85, 0.8];
-    let mut image = Image::filled(base).noise(base, 0.04, 60);
-    let mut rng = Rng::new(61);
-    for _ in 0..7 {
-        let (x, y) = (
-            (rng.next_u64() % 14) as usize,
-            (rng.next_u64() % 16) as usize,
-        );
-        for dx in 0..2 + (rng.next_u64() % 3) as usize {
-            image.set((x + dx).min(15), y, [0.15, 0.15, 0.14]);
-        }
-    }
-    image
+    nature::birch()
 }
 
 /// Le dessus d'une bûche : des cernes autour du cœur.
 fn log_top(bark: [f32; 3], wood: [f32; 3]) -> Image {
-    let mut image = Image::filled(bark).noise(bark, 0.10, 89);
-    for y in 1..15 {
-        for x in 1..15 {
-            let dx = (x as i32 - 7).abs();
-            let dy = (y as i32 - 8).abs();
-            let radius = dx.max(dy) + dx.min(dy) / 2;
-            let factor = if radius % 3 == 0 {
-                0.78
-            } else if radius % 3 == 1 {
-                1.08
-            } else {
-                0.97
-            };
-            if radius < 8 {
-                image.set(x, y, scale(wood, factor));
-            }
-        }
-    }
-    for (x, y) in [(7, 8), (8, 8), (8, 9)] {
-        image.set(x, y, scale(wood, 0.62));
-    }
-    image
+    nature::endgrain(bark, wood)
 }
 
-/// Des planches : quatre lattes horizontales.
+/// Des planches : trois assises de lattes horizontales.
 fn planks(wood: [f32; 3], seed: u64) -> Image {
     let mut image = Image::filled(wood).noise(wood, 0.08, seed);
     for y in 0..SIZE {
@@ -1278,48 +758,7 @@ fn planks(wood: [f32; 3], seed: u64) -> Image {
 
 /// Des feuilles : la couleur avec du bruit, et des trous transparents.
 fn leaves(base: [f32; 3], seed: u64) -> Image {
-    let base = base.map(|c| (c * 1.08 + 0.035).min(1.0));
-    let mut image = Image::filled(scale(base, 0.64));
-    // Des bouquets décalés et imbriqués, sans grille visible entre les feuilles.
-    for (cx, cy) in [
-        (1, 2),
-        (6, 1),
-        (12, 3),
-        (4, 6),
-        (10, 7),
-        (15, 8),
-        (0, 11),
-        (6, 12),
-        (12, 13),
-        (3, 15),
-    ] {
-        let light = 0.94 + (texel_hash(cx, cy, seed) % 4) as f32 * 0.09;
-        for dy in -2i32..=2 {
-            for dx in -3i32..=3 {
-                if dx.abs() + dy.abs() * 2 > 5 {
-                    continue;
-                }
-                let x = (cx as i32 + dx).rem_euclid(16) as usize;
-                let y = (cy as i32 + dy).rem_euclid(16) as usize;
-                let bevel = if dy < 0 {
-                    0.10
-                } else if dy > 1 {
-                    -0.18
-                } else {
-                    0.0
-                };
-                image.set(x, y, scale(base, light + bevel));
-            }
-        }
-    }
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            if texel_hash(x, y, seed + 71).is_multiple_of(11) {
-                image.clear(x, y);
-            }
-        }
-    }
-    image
+    nature::foliage(base, seed)
 }
 
 /// Une petite pousse : une tige et quelques feuilles.
@@ -1600,31 +1039,11 @@ fn lily_pad() -> Image {
 }
 
 fn cactus_side() -> Image {
-    let base = [0.3, 0.55, 0.25];
-    let mut image = Image::filled(base).noise(base, 0.06, 80);
-    for y in 0..SIZE {
-        for x in [0, 15] {
-            image.set(x, y, scale(base, 0.75));
-        }
-        for x in [4, 11] {
-            image.set(x, y, scale(base, 0.85));
-        }
-    }
-    for (x, y) in [(2, 3), (6, 7), (9, 2), (13, 10), (2, 12), (7, 14)] {
-        image.set(x, y, [0.15, 0.15, 0.12]);
-    }
-    image
+    nature::cactus(false)
 }
 
 fn cactus_top() -> Image {
-    let base = [0.38, 0.62, 0.3];
-    let mut image = Image::filled(base).noise(base, 0.05, 81);
-    for i in 0..SIZE {
-        for (x, y) in [(i, 0), (i, 15), (0, i), (15, i)] {
-            image.set(x, y, scale(base, 0.75));
-        }
-    }
-    image
+    nature::cactus(true)
 }
 
 // ----- Objets et artisanat (phase O3) -----
@@ -1676,177 +1095,37 @@ fn volcanic_rock() -> Image {
 }
 
 fn workbench_top() -> Image {
-    let wood = [0.61, 0.44, 0.29];
-    let mut image = planks(wood, 112);
-    // Une planche de travail marquée, une règle et deux fixations en cuivre.
-    for y in 2..14 {
-        for x in 3..13 {
-            image.set(x, y, [0.74, 0.60, 0.41]);
-        }
-    }
-    for y in 2..14 {
-        image.set(3, y, scale(wood, 0.65));
-    }
-    for x in 3..13 {
-        image.set(x, 13, scale(wood, 0.65));
-    }
-    for x in 5..12 {
-        image.set(x, 4, INK);
-        if x % 2 == 0 {
-            image.set(x, 5, INK);
-        }
-    }
-    for k in 0..5 {
-        image.set(6 + k, 11 - k, scale(wood, 0.8));
-    }
-    for (x, y) in [(1, 1), (14, 14)] {
-        image.set(x, y, COPPER);
-    }
-    image
+    workstations::draw("workbench_top")
 }
 
 fn workbench_side() -> Image {
-    let wood = [0.55, 0.4, 0.24];
-    let mut image = planks(wood, 113);
-    // Des outils accrochés : une scie et un marteau.
-    for x in 3..8 {
-        image.set(x, 5, [0.75, 0.75, 0.78]);
-    }
-    for y in 3..9 {
-        image.set(11, y, [0.4, 0.28, 0.15]);
-    }
-    for x in 9..14 {
-        image.set(x, 3, [0.6, 0.6, 0.62]);
-    }
-    image
+    workstations::draw("workbench_side")
 }
 
 fn furnace_front() -> Image {
-    let mut image = cobblestone();
-    for y in 1..6 {
-        for x in 4..12 {
-            image.set(x, y, INK);
-        }
-    }
-    for x in [5, 8, 11] {
-        for y in 2..5 {
-            image.set(x, y, scale(IRON, 0.65));
-        }
-    }
-    for x in 3..13 {
-        image.set(x, 7, COPPER);
-        image.set(x, 14, scale(STONE, 0.64));
-    }
-    for y in 8..14 {
-        for x in 4..12 {
-            image.set(x, y, [0.10, 0.12, 0.13]);
-        }
-    }
-    // La bouche garde exactement ses coordonnées : le shader anime les flammes ici.
-    for (x, y) in [(2, 7), (13, 7)] {
-        image.set(x, y, scale(IRON, 1.05));
-    }
-    image
+    workstations::draw("furnace_front")
 }
 
 fn furnace_top() -> Image {
-    let base = scale(STONE, 0.85);
-    Image::filled(base).noise(base, 0.06, 114)
+    workstations::draw("furnace_top")
 }
 
 fn chest_side() -> Image {
-    let wood = [0.51, 0.36, 0.23];
-    let mut image = planks(wood, 115);
-    for x in 0..SIZE {
-        image.set(x, 5, INK);
-        image.set(x, 6, scale(wood, 1.20));
-    }
-    for x in [2, 12] {
-        for y in 0..SIZE {
-            image.set(x, y, scale(COPPER, 0.72));
-            image.set(x + 1, y, COPPER);
-        }
-    }
-    // Fermoir en losange, décentré des sangles.
-    for y in 5..10 {
-        for x in 6..10 {
-            if (x as i32 - 7).abs() + (y as i32 - 7).abs() <= 2 {
-                image.set(x, y, [0.87, 0.68, 0.36]);
-            }
-        }
-    }
-    image.set(7, 7, INK);
-    image
+    workstations::draw("chest_side")
 }
 
 fn chest_top() -> Image {
-    let wood = [0.56, 0.40, 0.26];
-    let mut image = planks(wood, 116);
-    for x in [2, 12] {
-        for y in 0..SIZE {
-            image.set(x, y, scale(COPPER, 0.72));
-            image.set(x + 1, y, COPPER);
-        }
-    }
-    for (x, y) in [(3, 2), (13, 2), (3, 13), (13, 13)] {
-        image.set(x, y, scale(IRON, 1.15));
-    }
-    image
-}
-
-/// Le matelas du lit de feuillage : un vert tacheté.
-fn mattress_pixel(x: usize, y: usize) -> [f32; 3] {
-    let base = [0.30, 0.49, 0.47];
-    if y.is_multiple_of(6) {
-        [0.75, 0.70, 0.49]
-    } else if (x / 2 + y / 2).is_multiple_of(2) {
-        scale(base, 1.08)
-    } else {
-        base
-    }
+    workstations::draw("chest_top")
 }
 
 /// Le dessus du lit : le matelas, un oreiller pâle en haut, le cadre en bois.
 fn bed_top() -> Image {
-    let wood = [0.6, 0.42, 0.22];
-    let mut image = Image::filled(wood);
-    for y in 1..SIZE - 1 {
-        for x in 1..SIZE - 1 {
-            let pillow = (2..=4).contains(&y) && (3..=12).contains(&x);
-            let color = if pillow {
-                if y == 4 {
-                    [0.82, 0.8, 0.72]
-                } else {
-                    [0.93, 0.91, 0.84]
-                }
-            } else {
-                mattress_pixel(x, y)
-            };
-            image.set(x, y, color);
-        }
-    }
-    image
+    workstations::draw("bed_top")
 }
 
 /// Le côté du lit : le matelas en haut, le cadre et les pieds en bas.
 fn bed_side() -> Image {
-    let wood = [0.6, 0.42, 0.22];
-    let mut image = planks(wood, 117);
-    for y in 0..7 {
-        for x in 0..SIZE {
-            image.set(x, y, mattress_pixel(x, y));
-        }
-    }
-    for x in 0..SIZE {
-        image.set(x, 7, scale(wood, 0.6));
-    }
-    // L'ombre sous le lit, entre les deux pieds.
-    for y in 12..SIZE {
-        for x in 2..SIZE - 2 {
-            image.set(x, y, scale(wood, 0.3));
-        }
-    }
-    image
+    workstations::draw("bed_side")
 }
 
 /// Écrit toutes les textures ; renvoie les chemins.
@@ -2083,6 +1362,12 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (root.join("mods/example/textures/ruby.png"), ruby()),
     ];
     let mut textures = textures;
+    textures.extend(workstations::mod_textures(root));
+    textures.extend(mod_assets::generate(root));
+    textures.push((
+        core.join("machine_frame.png"),
+        machines::draw("machine_frame", false),
+    ));
     textures.extend(item_icons(&root.join("assets/core/items")));
     for kind in ["shaft", "gear", "crank", "press", "belt"] {
         textures.push((
@@ -2105,6 +1390,58 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
 #[cfg(test)]
 mod seam_tests {
     use super::*;
+
+    #[test]
+    fn all_versioned_core_and_mod_pngs_are_reproducible() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let temporary =
+            std::env::temp_dir().join(format!("assetgen-review-{}", std::process::id()));
+        let generated = generate(&temporary).unwrap();
+        let mut checked = 0;
+        for namespace in [
+            "core",
+            "example",
+            "mecanique",
+            "donjons",
+            "entrepot",
+            "magie",
+            "forge",
+        ] {
+            let base = if namespace == "core" {
+                root.join("assets/core")
+            } else {
+                root.join("mods").join(namespace)
+            };
+            for kind in ["textures", "items"] {
+                let directory = base.join(kind);
+                if !directory.exists() {
+                    continue;
+                }
+                for entry in std::fs::read_dir(directory).unwrap() {
+                    let path = entry.unwrap().path();
+                    if path.extension().is_none_or(|ext| ext != "png") {
+                        continue;
+                    }
+                    let relative = path.strip_prefix(&root).unwrap();
+                    let produced = temporary.join(relative);
+                    assert!(
+                        generated.contains(&produced),
+                        "PNG hors générateur : {}",
+                        relative.display()
+                    );
+                    assert_eq!(
+                        std::fs::read(&path).unwrap(),
+                        std::fs::read(&produced).unwrap(),
+                        "PNG non régénéré : {}",
+                        relative.display()
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 250);
+        std::fs::remove_dir_all(temporary).unwrap();
+    }
 
     #[test]
     fn ground_edges_match_after_palette_quantization() {
@@ -2131,6 +1468,32 @@ mod seam_tests {
                 finish_pixel(side.pixels[y * SIZE]),
                 finish_pixel(side.pixels[y * SIZE + SIZE - 1])
             );
+        }
+    }
+
+    #[test]
+    fn natural_materials_join_after_palette_quantization() {
+        for image in [
+            stone(),
+            sand(),
+            snow(),
+            ice(),
+            log_side([0.42, 0.31, 0.18], 90),
+            log_side([0.30, 0.21, 0.12], 95),
+            leaves([0.3, 0.55, 0.2], 91),
+        ] {
+            for i in 0..SIZE {
+                assert_eq!(
+                    finish_pixel(image.pixels[i * SIZE]),
+                    finish_pixel(image.pixels[i * SIZE + SIZE - 1]),
+                    "raccord horizontal à la ligne {i}"
+                );
+                assert_eq!(
+                    finish_pixel(image.pixels[i]),
+                    finish_pixel(image.pixels[i + SIZE * (SIZE - 1)]),
+                    "raccord vertical à la colonne {i}"
+                );
+            }
         }
     }
 }

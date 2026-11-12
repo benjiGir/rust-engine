@@ -28,6 +28,8 @@ pub struct Collider {
     pub height: f32,
     pub on_ground: bool,
     pub in_liquid: bool,
+    /// La vitesse d'entrée si l'entité vient de plonger dans un liquide à ce pas (0 sinon).
+    pub splash: f32,
     /// Le terrain autour n'est pas encore chargé : l'entité attend sans bouger.
     pub frozen: bool,
 }

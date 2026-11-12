@@ -104,6 +104,13 @@ du registre, avec son identifiant complet (`example:ruby_stairs[facing=east,half
 (`example:ruby_stairs`) est la première. La forme écrite est celle de la **première valeur** : le
 jeu en déduit les autres par rotation. Au plus 64 variantes par bloc.
 
+**Compatibilité des sauvegardes** : les variantes sont enregistrées immédiatement
+après leur base. Ajouter des `states` à un bloc déjà publié décale donc les identifiants
+numériques des blocs suivants, même sans changer l’ordre du fichier. Conserver les
+états existants lors d’une simple passe visuelle. Les comportements qui échangent
+directement deux identifiants (levier, bouton, répéteur, piston…) ne transfèrent pas
+automatiquement une orientation à l’autre identifiant.
+
 | État | Valeurs | À la pose |
 |---|---|---|
 | `Facing4` | `north` (-Z, la forme écrite), `east`, `south`, `west` | l'avant regarde le joueur |
@@ -152,6 +159,43 @@ sans passage par le script.
 À savoir : un bloc à boîtes est « transparent » pour ses voisins (ils gardent leurs faces) ; sa
 lumière est arrêtée par défaut s'il est `solid`, et passe sinon (`light_opacity` pour régler).
 Les créatures le traitent encore comme un cube plein.
+
+## Les raccords automatiques des conduits
+
+Un conduit peut calculer sa forme à partir de ses voisins, sans `states` ni nouveaux
+identifiants de blocs :
+
+```ron
+(
+    id: "mon_mod:cable", name: "Câble", color: (0.2, 0.1, 0.05), texture: "cable",
+    conduit: Energy,
+    connections: (core: 4, arm: 4),
+)
+```
+
+`core` est la largeur du noyau central, `arm` celle des branches, en seizièmes de bloc :
+`0 < arm <= core < 16`, avec des valeurs finies. Ce champ remplace `boxes` et ne se
+combine pas avec `states` ou `rotation`. Il exige un conduit (champ `conduit`, ou
+comportement natif `core:cable`, `core:pipe`, `core:shaft`).
+
+La forme suit les six voisins : même sorte et même canal pour les conduits, capacité
+compatible et face ouverte pour les machines. Une pierre ou un conduit d’une autre
+sorte ne crée pas de branche. Les machines en retrait reçoivent un raccord jusqu’à
+la première pièce qui croise sa section. Les calculs utilisent les capacités réelles,
+y compris les faces des réservoirs multiples ; une machine vide reste raccordable.
+Le dessin, les collisions, le rayon et le contour de sélection suivent ces formes.
+L’icône et l’objet lâché représentent un segment droit.
+
+Les 64 combinaisons sont des géométries calculées, pas des variantes enregistrées :
+la pose, la casse et le chargement des voisins les mettent à jour. Les numéros des
+blocs et le format des sauvegardes restent inchangés. Les écritures via `Grids::write`
+et `write_or_create` invalident le rendu quand les capacités ou leurs faces changent ;
+changer uniquement les quantités ne remaille pas le monde. Une écriture directe
+dans un chunk doit, comme tout changement visuel direct, faire invalider le rendu.
+
+Dans le jeu, **Maj + clic droit** avec un conduit permet de le poser contre une
+machine sans ouvrir son interface. Le clic normal sur un conduit pose sur la face
+visée ; les branches se raccordent automatiquement.
 
 ## Les animations de blocs
 

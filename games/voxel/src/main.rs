@@ -81,8 +81,13 @@ mod stress;
 mod survival;
 mod trading;
 mod ui;
+mod ui_info;
 mod ui_input;
+mod ui_layout;
+mod ui_options;
+mod ui_target;
 mod villagers;
+mod water_fx;
 mod weather;
 
 use std::cell::{Ref, RefCell, RefMut};
@@ -208,6 +213,7 @@ struct VoxelGame {
     tour: Option<screenshots::Tour>,
     day: DayCycle,
     weather: weather::Weather,
+    water_fx: water_fx::WaterFx,
     /// Le terrain lointain simplifié (voir `far_terrain.rs`), s'il est activé.
     far: Option<far_terrain::FarTerrain>,
     /// Les maillages des structures mobiles, et la structure dont on tient la barre.
@@ -684,6 +690,7 @@ impl VoxelGame {
             tour,
             day: DayCycle::new(time, env_parse("VOXEL_DAY_LENGTH").unwrap_or(600.0)),
             weather: weather::Weather::new(seed),
+            water_fx: Default::default(),
             far,
             grid_meshes: ships::GridMeshes::default(),
             helm: None,
@@ -873,6 +880,7 @@ impl VoxelGame {
             let streamer = self.world.borrow();
             self.weather.update(dt, streamer.world(), player_position)
         };
+        self.update_water_fx(dt);
         // Les habitants des villages proches.
         {
             let player_position = player::body(&self.ecs, self.player).position;
@@ -972,6 +980,9 @@ impl VoxelGame {
             let bed = self.target.map(|hit| hit.block_pos);
             if ctx.input.mouse_pressed(MouseButton::Right)
                 && !self.use_ship()
+                && !((ctx.input.key_held(KeyCode::ShiftLeft)
+                    || ctx.input.key_held(KeyCode::ShiftRight))
+                    && self.place_conduit_first())
                 && !self.use_assembler()
                 && !bed.is_some_and(|pos| self.use_bed(pos))
                 && !self.open_container()
@@ -1044,6 +1055,8 @@ impl VoxelGame {
         let mut mob_boxes = mobs::instances(&self.ecs, alpha);
         projectiles::instances(&self.ecs, alpha, &mut mob_boxes);
         self.weather.instances(self.camera.position, &mut mob_boxes);
+        self.water_fx
+            .instances(self.camera.position, &mut mob_boxes);
         // Les objets au sol : leurs modèles et textures, en rotation.
         mob_boxes.extend(drops::instances(
             &self.ecs,
@@ -1082,14 +1095,25 @@ impl VoxelGame {
             end: self.base_fog.1 * fog_scale,
         });
         let sky = self.weather.tint_sky(self.day.sky_color()).as_dvec3();
+        // Sous l'eau, le « ciel » (le fond de ce qu'on voit) est le bleu sombre de l'eau.
+        let (underwater, surface) = self.water_fx.underwater();
+        let day = f64::from(0.25 + 0.75 * self.day.daylight());
+        let deep = glam::DVec3::new(0.015, 0.11, 0.17) * day;
+        let sky = sky.lerp(deep, f64::from(underwater));
+        self.renderer.underwater = underwater;
+        self.renderer.water_surface = surface;
         self.renderer.clear_color = engine_render::wgpu_color(sky.x, sky.y, sky.z);
         self.renderer.outline = self.target.map(|hit| {
-            let (min, max) = self.streamer().world().block_bounds(hit.block_pos);
+            let point = self.camera.position + self.camera.forward() * hit.distance;
+            let (min, max) = self
+                .streamer()
+                .world()
+                .selection_bounds(hit.block_pos, point);
             Aabb::new(min, max)
         });
 
         // L'interface de cette image.
-        let raw = self.ui.take_input(&ctx.window);
+        let raw = self.ui.take_input(&ctx.window, self.settings.ui_scale);
         let (ui_frame, platform) = self.build_ui(raw);
         self.flush_mod_ui();
         self.ui.handle_output(&ctx.window, platform);

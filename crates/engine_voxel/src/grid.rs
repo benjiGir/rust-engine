@@ -185,7 +185,13 @@ impl<'a> Grids<'a> {
     /// Modifie l'état actif d'un bloc avec `f`, s'il en a un.
     pub fn write<R>(&self, at: GridPos, f: impl FnOnce(&mut BlockEntity) -> R) -> Option<R> {
         let mut grid = self.get(at.grid)?.borrow_mut();
-        grid.block_entity_mut(at.pos).map(f)
+        let entity = grid.block_entity_mut(at.pos)?;
+        let before = crate::connections::ports(entity.caps.as_deref());
+        let result = f(entity);
+        if before != crate::connections::ports(entity.caps.as_deref()) {
+            grid.invalidate_visuals(at.pos);
+        }
+        Some(result)
     }
 
     /// Comme [`Grids::write`], en créant l'état s'il n'existe pas.
@@ -195,6 +201,12 @@ impl<'a> Grids<'a> {
         f: impl FnOnce(&mut BlockEntity) -> R,
     ) -> Option<R> {
         let mut grid = self.get(at.grid)?.borrow_mut();
-        grid.ensure_block_entity(at.pos).map(f)
+        let entity = grid.ensure_block_entity(at.pos)?;
+        let before = crate::connections::ports(entity.caps.as_deref());
+        let result = f(entity);
+        if before != crate::connections::ports(entity.caps.as_deref()) {
+            grid.invalidate_visuals(at.pos);
+        }
+        Some(result)
     }
 }

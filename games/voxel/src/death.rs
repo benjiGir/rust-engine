@@ -150,8 +150,20 @@ impl VoxelGame {
             return;
         }
         egui::Area::new(egui::Id::unique("toast"))
-            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 60.0))
+            .anchor(
+                egui::Align2::CENTER_TOP,
+                egui::vec2(
+                    0.0,
+                    if self.mode == crate::Mode::Playing && !self.ui.inventory_open {
+                        self.ui.target_bottom + 8.0
+                    } else {
+                        12.0
+                    },
+                ),
+            )
+            .interactable(false)
             .show(ctx, |ui| {
+                ui.set_max_width((ctx.content_rect().width() - 60.0).clamp(100.0, 420.0));
                 egui::Frame::new()
                     .fill(crate::skin::PANEL)
                     .stroke(egui::Stroke::new(1.0, crate::skin::COPPER))

@@ -101,7 +101,7 @@ impl NetworkKind {
     }
 
     /// Les faces par lesquelles cette capacité échange, si le bloc en a une de cette sorte.
-    fn sides(self, caps: &Capabilities) -> Option<Sides> {
+    pub(crate) fn sides(self, caps: &Capabilities) -> Option<Sides> {
         match self {
             Self::Energy => caps.energy.as_ref().map(|e| e.sides),
             Self::Fluid => {

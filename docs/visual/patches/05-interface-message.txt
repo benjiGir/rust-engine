@@ -1,0 +1,3 @@
+Adapter les menus et ajouter les infobulles et la fiche de visée
+
+Borner les fenêtres au viewport, adapter les inventaires et proposer une échelle d’interface. Afficher les propriétés des objets au survol et identifier les blocs, créatures et machines visés. Ajouter les contrôles de disposition et les aperçus egui.

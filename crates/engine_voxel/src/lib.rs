@@ -18,6 +18,7 @@ mod block_rules;
 mod capabilities;
 mod chunk;
 mod circuits;
+mod connections;
 mod containers;
 mod crafting;
 mod dimension;
@@ -55,6 +56,7 @@ pub use capabilities::{
 };
 pub use chunk::{BlockEntity, CHUNK_SIZE, Chunk, DEFAULT_LIGHT};
 pub use circuits::{FACINGS, PUSH_LIMIT, facing_of, placement_state};
+pub use connections::ConnectedShape;
 pub use containers::{
     BREW_INPUT, BREW_OUTPUT, BREW_REAGENT, CHEST_SLOTS, Chest, FURNACE_FUEL, FURNACE_INPUT,
     FURNACE_OUTPUT, Furnace, FurnaceState, brew_progress, container_slots,

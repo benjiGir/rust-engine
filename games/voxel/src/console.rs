@@ -189,7 +189,7 @@ impl VoxelGame {
 
     /// Les lignes récentes, au-dessus de la barre d'objets (console fermée).
     pub(crate) fn draw_chat(&mut self, ctx: &egui::Context) {
-        if self.console_open() {
+        if self.console_open() || self.ui.inventory_open || self.mode != crate::Mode::Playing {
             return;
         }
         let recent: Vec<&str> = self
@@ -209,28 +209,39 @@ impl VoxelGame {
             .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -90.0))
             .interactable(false)
             .show(ctx, |ui| {
-                for text in recent.iter().rev() {
-                    ui.label(
-                        RichText::new(*text)
-                            .color(Color32::WHITE)
-                            .background_color(Color32::from_black_alpha(140)),
-                    );
-                }
+                ui.set_max_width((ctx.content_rect().width() * 0.45).min(600.0));
+                egui::ScrollArea::vertical()
+                    .max_height(ctx.content_rect().height() * 0.3)
+                    .stick_to_bottom(true)
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                    .show(ui, |ui| {
+                        for text in recent.iter().rev() {
+                            ui.label(
+                                RichText::new(*text)
+                                    .color(Color32::WHITE)
+                                    .background_color(Color32::from_black_alpha(140)),
+                            );
+                        }
+                    });
             });
     }
 
     /// La console ouverte : les dernières lignes et la ligne de saisie.
     pub(crate) fn draw_console(&mut self, ctx: &egui::Context) {
-        egui::Window::new("Console")
-            .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -90.0))
-            .resizable(false)
-            .collapsible(false)
+        crate::ui_layout::window(ctx, "Console", 680.0)
+            .vscroll(false)
             .title_bar(false)
             .show(ctx, |ui| {
-                ui.set_width(680.0);
-                for (text, _) in self.ui.console.lines.iter().rev().take(SHOWN_LINES).rev() {
-                    ui.label(text.as_str());
-                }
+                ui.set_max_width((ctx.content_rect().width() - 64.0).min(680.0));
+                egui::ScrollArea::vertical()
+                    .max_height((ctx.content_rect().height() - 130.0).max(40.0))
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        for (text, _) in self.ui.console.lines.iter().rev().take(SHOWN_LINES).rev()
+                        {
+                            ui.label(text.as_str());
+                        }
+                    });
                 let console = &mut self.ui.console;
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut console.input)

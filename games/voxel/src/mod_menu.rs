@@ -165,7 +165,7 @@ fn draw_range(
                     egui::ProgressBar::new(*value)
                         .corner_radius(0)
                         .text(text.as_str())
-                        .desired_width(200.0),
+                        .desired_width(ui.available_width().min(200.0)),
                 );
             }
             Widget::Button { id, text } => {
@@ -206,7 +206,7 @@ fn draw_range(
                     .iter()
                     .position(|w| *w == Widget::RowEnd)
                     .map_or(range.end, |p| i + 1 + p);
-                ui.horizontal(|ui| draw_range(ui, widgets, i + 1..end, events, slots));
+                ui.horizontal_wrapped(|ui| draw_range(ui, widgets, i + 1..end, events, slots));
                 i = end;
             }
             Widget::RowEnd => {}

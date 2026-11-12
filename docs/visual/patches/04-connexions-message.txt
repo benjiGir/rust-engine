@@ -1,0 +1,3 @@
+Raccorde automatiquement les câbles et tuyaux à leurs voisins
+
+Calcule les branches selon la sorte, le canal et les faces ouvertes des capacités. Partage les formes entre rendu, collision et sélection, ajoute les raccords de machines et la pose avec Maj. Vérifie les 64 configurations et conserve les identifiants et sauvegardes. Le test socket reste bloqué par l’environnement.

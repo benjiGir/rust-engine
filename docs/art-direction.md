@@ -28,6 +28,10 @@ L'herbe et la terre utilisent un grain périodique : leurs pixels de bord se rac
 après réduction de palette. Le dessus de l'herbe reçoit en plus une faible variation
 continue dans le shader, sur plusieurs blocs et sans rupture entre quads greedy.
 Le bord végétal latéral se raccorde horizontalement, sans contour sombre systématique.
+La pierre, le sable, la neige, la glace, les écorces striées et les feuillages
+emploient aussi un grain périodique dans `textures/nature.rs`. Les cinq essences
+partagent la construction des cernes et des fibres, avec leurs couleurs propres.
+Les minerais forment de petites veines fragmentées dans la pierre bleutée.
 
 ## Objets lâchés
 
@@ -49,9 +53,23 @@ multiplicateurs de biome que les chunks détaillés.
 ## Interface et personnages
 
 `games/voxel/src/skin.rs` centralise la palette, les boutons, les cases, les cadres et les
-jauges. Les panneaux sont en ardoise sombre, les textes couleur lin, la sélection en
-cuivre. Les losanges rouges indiquent la vitalité, les grains dorés la nourriture et
+jauges. Les menus sont superposés au monde, sans grande fenêtre d'encadrement : logo
+original « VOXEL » dessiné en pixels, actions principales centrées et boutons gris
+en relief. La typographie courante est à chasse fixe. Les inventaires et machines
+utilisent un panneau minéral clair à bords biseautés, du texte sombre et des cases en
+creux serrées. La sélection claire reste visible sur les petits objets ; les
+infobulles sont sombres à liseré violet. Le cuivre reste un accent des matières du
+jeu. Les losanges rouges indiquent la vitalité, les grains dorés la nourriture et
 la barre sauge l'expérience. Les écrans des mods partagent le même thème.
+
+Les fenêtres restent dans le viewport et défilent quand leur contenu est trop haut.
+Les cases, colonnes et lignes s'adaptent à la largeur disponible ; les options sont
+regroupées par onglets (Affichage, Audio, Commandes) et proposent une échelle
+d'interface de 75 à 150 %. Le bouton Retour reste hors du défilement des réglages.
+Les infobulles utilisent le nom, l'origine et les propriétés réelles des objets.
+Une fiche compacte en haut de l'écran identifie le bloc ou la créature visée,
+avec l'outil requis et les réserves des machines quand la place le permet.
+Cette fiche s'inspire du principe de Jade, avec nos cadres, couleurs et dessins.
 
 Le bras porte une manche vert grisé et un poignet couleur cuir. Les habitants portent
 des tabliers et accessoires associés à leur métier ; la faune utilise des tons naturels.
@@ -65,10 +83,48 @@ cargo run -p voxel --example skin_preview -- docs/images/skin-preview.png
 ```
 
 Les générateurs de surfaces sont dans `tools/assetgen/src/textures.rs`, ceux des objets
-dans `tools/assetgen/src/textures/items.rs`. La génération inclut les assets des mods
-de référence Example et Mécanique et reste déterministe.
+dans `tools/assetgen/src/textures/items.rs`. Les dessins du mobilier sont dans
+`textures/workstations.rs`. La génération inclut les assets des mods de référence
+Example, Mécanique, Entrepôt, Forge, Magie et Donjons, et reste déterministe.
+`textures/machines.rs` dessine circuits et machines ; `textures/mod_assets.rs`
+couvre notamment les runes, les pièces forgées et les blocs de crypte. Un test
+régénère et compare chaque PNG versionné du jeu et des six mods.
+
+## Mobilier et machines
+
+Les boîtes décrivent les pièces réelles : pieds, plateau, cuve, couvercle, livre,
+fermoir. Les détails suivent les coordonnées globales des boîtes ; un matelas bas
+utilise donc les lignes centrales du PNG latéral. Le lit reste un couchage d’un bloc.
+Les changements de collision liés aux boîtes sont intentionnels.
+
+Les câbles et tuyaux suivent leurs connexions : noyau central, branches vers les
+voisins compatibles et raccords jusqu’au corps des machines en retrait. La sélection
+souligne le tronçon visé ; le segment droit représente le conduit en inventaire,
+en main et au sol. Le cuivre reste visible sur la petite section du câble.
+Le principe de raccordement est inspiré de Mekanism ; les matières restent celles
+du projet. Les formes dépendent des voisins, sans variantes numériques supplémentaires.
+
+Les planches de la [passe visuelle des blocs](visual/README.md) sont des rendus CPU
+des formes et PNG du jeu. Leur colonne de nuit réduit la lumière de contrôle ; elle
+ne simule ni la propagation lumineuse du monde ni les effets du shader.
 
 Après un changement de dessin, **F5** recharge les textures, les miniatures et les
 icônes extrudées en main. Les changements du thème et de la lumière, écrits en Rust,
 nécessitent de relancer le binaire recompilé. Le mode `VOXEL_SCREENSHOTS` fournit aussi
 les vues en jeu, dont les poses de repos, de minage et d'épée.
+
+## L'eau
+
+L'eau libre (liquide translucide sans lumière propre : `FLAG_WATER` dans le maillage) est animée
+par le shader des chunks (`crates/engine_render/src/chunk_shader.wgsl`), sans remailler :
+- la texture glisse et ondule, une houle de trois ondes incline la surface (les grandes faces
+  fusionnées n'ont que quatre sommets : on ne déplace pas la géométrie) ;
+- le ciel se reflète de biais (Fresnel) et le soleil laisse une tache qui scintille ; les vagues
+  s'effacent avec la distance (18 à 70 blocs) pour ne pas faire de moiré ;
+- **sous l'eau** (`Renderer::underwater`, de 0 à 1, lissé) : le rouge s'éteint avant le vert, le
+  lointain devient un bleu sombre, des reflets de lumière dansent sur ce qui est près de la
+  surface, et le fond de l'écran prend la couleur de l'eau. La surface se voit par en dessous.
+`games/voxel/src/water_fx.rs` ajoute les effets décoratifs : gerbe de gouttes et rides au plongeon,
+sillage quand on nage à la surface, bulles sous l'eau. La physique (`PlayerBody`) freine un plongeon
+(`splash` donne la vitesse d'entrée), et un **courant** emporte les corps vers les cellules d'eau
+moins remplies (`PlayerBody::current`). La lave n'est pas animée (elle émet de la lumière).

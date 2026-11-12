@@ -1,0 +1,3 @@
+Donne une silhouette au mobilier et aux postes de travail
+
+Dessine dix modèles à boîtes et leurs matières originales. Préserve le feu du four, les identifiants et les propriétés de jeu. Ajoute des planches avant/après et des contrôles de collision et de sélection.

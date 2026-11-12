@@ -45,7 +45,7 @@ pub(super) fn outlined(mut image: Image) -> Image {
 const HANDLE: [f32; 3] = [0.43, 0.30, 0.21];
 
 /// Les cinq outils, dessinés en diagonale : la tête (H, h plus sombre) et le manche (S).
-fn tool(kind: &str, head: [f32; 3]) -> Image {
+pub(super) fn tool(kind: &str, head: [f32; 3]) -> Image {
     let mask: [&str; 16] = match kind {
         "pickaxe" => [
             "................",
@@ -316,7 +316,7 @@ fn apple() -> Image {
 }
 
 /// Les pièces d'armure.
-fn armor(piece: &str, color: [f32; 3]) -> Image {
+pub(super) fn armor(piece: &str, color: [f32; 3]) -> Image {
     let mask: [&str; 16] = match piece {
         "helmet" => [
             "................",
@@ -404,7 +404,7 @@ fn armor(piece: &str, color: [f32; 3]) -> Image {
 }
 
 /// Un objet « matière » : lingot, minerai brut, gemme, poudre, bâton...
-fn material(kind: &str, color: [f32; 3]) -> Image {
+pub(super) fn material(kind: &str, color: [f32; 3]) -> Image {
     let mask: [&str; 16] = match kind {
         "ingot" => [
             "................",

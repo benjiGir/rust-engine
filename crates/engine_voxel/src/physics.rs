@@ -35,6 +35,12 @@ pub const SWIM_DEPTH: f32 = 0.15;
 /// La poussée relative d'un corps dans l'eau : un peu plus que son poids une fois
 /// immergé aux 9/10 (il flotte, la tête dehors).
 const BODY_FLOAT: f32 = 1.1;
+/// La vitesse (blocs par seconde) que donne un courant d'une cellule pleine contre une vide.
+const CURRENT_PUSH: f32 = 3.0;
+/// Le courant le plus fort qu'un corps subit.
+const MAX_CURRENT: f32 = 2.5;
+/// Ce qu'il reste de la vitesse de chute quand on entre dans l'eau : le plongeon est freiné.
+const ENTRY_DAMPING: f32 = 0.35;
 /// Plus grand pas de déplacement testé d'un coup.
 const MAX_STEP: f32 = 0.4;
 /// Petit écart laissé entre le joueur et un bloc, pour qu'il ne soit pas
@@ -54,6 +60,9 @@ pub struct PlayerBody {
     pub in_liquid: bool,
     /// La part de la hauteur du corps sous la surface, de 0 à 1.
     pub submersion: f32,
+    /// La vitesse d'entrée (blocs par seconde) si le corps vient de plonger dans un liquide à
+    /// ce pas, sinon 0 : de quoi faire des éclaboussures.
+    pub splash: f32,
     /// Largeur (x et z) et hauteur de la boîte : celles du joueur par défaut. Un cochon
     /// ou un slime utilisent la même physique avec une autre taille.
     pub width: f32,
@@ -77,6 +86,7 @@ impl PlayerBody {
             on_ground: false,
             in_liquid: false,
             submersion: 0.0,
+            splash: 0.0,
             width: PLAYER_WIDTH,
             height: PLAYER_HEIGHT,
             impulse: Vec3::ZERO,
@@ -123,14 +133,23 @@ impl PlayerBody {
     pub fn step(&mut self, world: &World, walk: Vec3, jump: bool, dt: f32) {
         let (submersion, fluid) = self.submersion(world);
         self.submersion = submersion;
+        let was_in_liquid = self.in_liquid;
         self.in_liquid = submersion > SWIM_DEPTH;
+        self.splash = 0.0;
+        if self.in_liquid && !was_in_liquid && self.velocity.y < -1.0 {
+            // Le plongeon : l'eau encaisse l'essentiel de la chute.
+            self.splash = -self.velocity.y;
+            self.velocity.y *= ENTRY_DAMPING;
+        }
         if self.in_liquid {
             // La nage dépend du fluide : la viscosité freine (la lave est 6 fois plus
             // visqueuse que l'eau), la densité porte (la poussée d'Archimède).
             let (viscosity, density) = fluid;
             let drag = (5.0 / viscosity.max(1.0)).sqrt().min(1.0);
-            self.velocity.x = walk.x * SWIM_FACTOR * drag;
-            self.velocity.z = walk.z * SWIM_FACTOR * drag;
+            // Un courant (l'eau qui s'écoule vers une cellule moins remplie) emporte le corps.
+            let current = self.current(world);
+            self.velocity.x = walk.x * SWIM_FACTOR * drag + current.x;
+            self.velocity.z = walk.z * SWIM_FACTOR * drag + current.z;
             // La poussée : proportionnelle au volume immergé et à la densité du fluide
             // (un corps humain flotte à peine dans l'eau : on s'y enfonce jusqu'aux yeux).
             let buoyancy = self.gravity * BODY_FLOAT * (density / 1000.0) * submersion;
@@ -165,6 +184,61 @@ impl PlayerBody {
         for axis in [1, 0, 2] {
             self.move_axis(world, axis, delta[axis]);
         }
+    }
+
+    /// Le courant qui pousse le corps (blocs par seconde, horizontal) : l'eau coule vers les
+    /// cellules voisines moins remplies, et le corps suit. Une eau calme (niveaux égaux) ne
+    /// pousse pas ; une cascade ou une vague qui s'étale, oui.
+    pub fn current(&self, world: &World) -> Vec3 {
+        let registry = world.registry();
+        let (x, z) = (
+            self.position.x.floor() as i32,
+            self.position.z.floor() as i32,
+        );
+        // La cellule d'eau la plus proche du centre du corps.
+        let middle = (self.position.y + self.height * 0.5).floor() as i32;
+        let Some(here) = [middle, self.position.y.floor() as i32]
+            .into_iter()
+            .map(|y| IVec3::new(x, y, z))
+            .find(|&p| registry.def(world.block(p)).liquid)
+        else {
+            return Vec3::ZERO;
+        };
+        let amount = |p: IVec3| {
+            world
+                .fluid_amount(p)
+                .map_or(crate::fluid_sim::FULL, i32::from)
+        };
+        let mut push = Vec3::ZERO;
+        for side in [IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z] {
+            let other = here + side;
+            // Seul l'écart avec une autre cellule du même fluide compte : un rivage de roche
+            // ou de sable ne pousse pas.
+            if registry.def(world.block(other)).liquid && world.block(other) == world.block(here) {
+                let diff = amount(here) - amount(other);
+                push += side.as_vec3() * (diff as f32 / crate::fluid_sim::FULL as f32);
+            }
+        }
+        (push * CURRENT_PUSH).clamp_length_max(MAX_CURRENT)
+    }
+
+    /// L'altitude de la surface du liquide dans la colonne de ce point (à quelques blocs
+    /// autour de lui), ou `None` s'il n'y a pas de liquide : pour poser des éclaboussures.
+    pub fn surface_at(world: &World, point: Vec3) -> Option<f32> {
+        let registry = world.registry();
+        let (x, z) = (point.x.floor() as i32, point.z.floor() as i32);
+        let y0 = point.y.floor() as i32;
+        (y0 - 2..=y0 + 3).rev().find_map(|y| {
+            let pos = IVec3::new(x, y, z);
+            let def = registry.def(world.block(pos));
+            if !def.liquid || registry.def(world.block(pos + IVec3::Y)).liquid {
+                return None;
+            }
+            let level = world.fluid_amount(pos).map_or(1.0, |a| {
+                (f32::from(a) / crate::fluid_sim::FULL as f32).min(1.0)
+            });
+            Some(y as f32 + level * 0.875)
+        })
     }
 
     /// La part du corps sous la surface (de 0 à 1), et la viscosité et la densité du
@@ -253,7 +327,7 @@ impl PlayerBody {
                         };
                     } else {
                         let origin = block.as_vec3();
-                        for b in boxes {
+                        for b in boxes.iter() {
                             let (lo, hi) = (origin + b.min, origin + b.max);
                             if min.cmplt(hi).all() && max.cmpgt(lo).all() {
                                 hit_faces.push(if distance > 0.0 { lo[axis] } else { hi[axis] });
@@ -445,6 +519,68 @@ mod tests {
         let low = body.position.y;
         run(&mut body, &world, Vec3::ZERO, true, 30);
         assert!(body.position.y > low + 1.0, "Espace fait remonter");
+    }
+
+    #[test]
+    fn diving_in_is_slowed_and_reported_as_a_splash() {
+        let world = pool("core:water", 6);
+        // Tombe de 8 blocs au-dessus de la surface.
+        let mut body = PlayerBody::new(Vec3::new(0.5, 14.0, 0.5));
+        let mut biggest = 0.0f32;
+        let mut entry_speed = 0.0;
+        for _ in 0..200 {
+            let before = body.velocity.y;
+            body.step(&world, Vec3::ZERO, false, DT);
+            if body.splash > 0.0 {
+                entry_speed = before;
+            }
+            biggest = biggest.max(body.splash);
+        }
+        assert!(biggest > 8.0, "un plongeon de 8 blocs : {biggest}");
+        assert!(entry_speed < -8.0);
+        assert!(body.velocity.y.abs() < 3.0, "freiné : {}", body.velocity.y);
+        // Une fois dedans, plus d'éclaboussure.
+        body.step(&world, Vec3::ZERO, false, DT);
+        assert_eq!(body.splash, 0.0);
+    }
+
+    #[test]
+    fn water_flowing_to_a_lower_cell_carries_a_swimmer_and_still_water_does_not() {
+        let mut world = pool("core:water", 4);
+        let body = PlayerBody::new(Vec3::new(0.5, 1.0, 0.5));
+        assert_eq!(body.current(&world), Vec3::ZERO, "eau calme");
+        // La cellule voisine (+X) à demi remplie : l'eau s'y écoule.
+        let pos = IVec3::new(1, 1, 0);
+        let (chunk, [lx, ly, lz]) = World::split(pos);
+        world
+            .chunk_mut(chunk)
+            .set_fluid_amount(lx, ly, lz, Some(1024));
+        let here = IVec3::new(0, 1, 0);
+        let (chunk, [lx, ly, lz]) = World::split(here);
+        world
+            .chunk_mut(chunk)
+            .set_fluid_amount(lx, ly, lz, Some(4096));
+        let current = body.current(&world);
+        assert!(current.x > 1.0 && current.z == 0.0, "{current}");
+        // Un corps qui nage sans bouger est emporté de ce côté.
+        let mut body = PlayerBody::new(Vec3::new(0.5, 1.0, 0.5));
+        run(&mut body, &world, Vec3::ZERO, false, 10);
+        assert!(body.position.x > 0.6, "emporté : {}", body.position.x);
+    }
+
+    #[test]
+    fn the_surface_is_found_from_above_and_below() {
+        let world = pool("core:water", 3);
+        let top = PlayerBody::surface_at(&world, Vec3::new(0.5, 5.0, 0.5)).unwrap();
+        assert!((top - (3.0 + 0.875)).abs() < 1e-4, "{top}");
+        assert_eq!(
+            PlayerBody::surface_at(&world, Vec3::new(0.5, 2.0, 0.5)),
+            Some(top)
+        );
+        assert_eq!(
+            PlayerBody::surface_at(&world, Vec3::new(0.5, 30.0, 0.5)),
+            None
+        );
     }
 
     #[test]

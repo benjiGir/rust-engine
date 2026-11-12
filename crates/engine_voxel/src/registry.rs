@@ -95,8 +95,11 @@ pub struct BlockDef {
     /// L'expérience gagnée en le cassant (min, max), s'il lâche son butin : les minerais.
     pub xp: (u32, u32),
     /// Les boîtes de la forme `Shape::Model` (en blocs, de 0 à 1) : la forme dessinée, la
-    /// collision et la sélection. Vide pour un cube plein.
+    /// collision et la sélection. Vide pour un cube plein. Avec `connections`, ce sont
+    /// les boîtes du segment d'inventaire ; `World::block_boxes` donne la forme en place.
     pub boxes: Vec<BlockBox>,
+    /// Géométries calculées depuis les voisins ; aucune variante enregistrée.
+    pub connections: Option<Arc<crate::connections::ConnectedShape>>,
     /// Les états du bloc (orientation, moitié...), dans l'ordre déclaré. Chaque combinaison
     /// est un bloc du registre : voir [`BlockRegistry::variant`]. Vide si le bloc n'en a pas.
     pub states: Vec<StateKind>,
@@ -390,6 +393,8 @@ struct BlockFileEntry {
     /// Les boîtes de la forme, en seizièmes de bloc : `(from: (0, 0, 0), to: (16, 8, 16))`.
     #[serde(default)]
     boxes: Vec<BoxEntry>,
+    #[serde(default)]
+    connections: Option<crate::connections::ConnectionSize>,
     /// Les états : une variante du bloc par combinaison (voir [`StateKind`]).
     #[serde(default)]
     states: Vec<StateKind>,
@@ -469,6 +474,7 @@ impl BlockRegistry {
             gravity: false,
             xp: (0, 0),
             boxes: Vec::new(),
+            connections: None,
             states: Vec::new(),
             conduit: None,
             channel: None,
@@ -635,7 +641,19 @@ impl BlockRegistry {
                     entry.id
                 );
             }
-            let boxes = parse_boxes(&entry, origin)?;
+            let connections = entry.connections.as_ref().map(|size| {
+                anyhow::ensure!(entry.boxes.is_empty() && entry.states.is_empty() && entry.rotation.is_none(),
+                    "{origin} : connections remplace boxes et ne se combine pas avec states ou rotation");
+                anyhow::ensure!(entry.conduit.or_else(||entry.behavior.as_deref().and_then(crate::NetworkKind::of_behavior)).is_some(),
+                    "{origin} : connections exige un conduit de réseau");
+                crate::connections::ConnectedShape::new(size).map(Arc::new)
+            }).transpose().with_context(||format!("{origin} : {}",entry.id))?;
+            // L'objet et l'icône montrent un segment droit ; dans le monde, les voisins décident.
+            let boxes = if let Some(shape) = &connections {
+                shape.boxes(3).to_vec()
+            } else {
+                parse_boxes(&entry, origin)?
+            };
             if let Some(rotation) = &entry.rotation
                 && (boxes.is_empty()
                     || !rotation.speed.is_finite()
@@ -693,6 +711,7 @@ impl BlockRegistry {
                 gravity: entry.gravity,
                 xp: entry.xp,
                 boxes: boxes.clone(),
+                connections,
                 states: entry.states.clone(),
                 conduit: entry.conduit,
                 channel: entry.channel.as_ref().map(|c| qualify(c, namespace)),

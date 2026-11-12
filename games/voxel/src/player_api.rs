@@ -120,16 +120,19 @@ impl VoxelGame {
     /// Les jauges des mods, au-dessus de la barre d'objets, l'une sous l'autre.
     pub(crate) fn draw_mod_hud(&mut self, ctx: &engine_render::egui::Context) {
         use engine_render::egui::{self, Color32};
-        if self.ui.mod_hud.is_empty() || self.console_open() {
+        if self.ui.mod_hud.is_empty() || self.ui.inventory_open || self.mode != crate::Mode::Playing
+        {
             return;
         }
         egui::Area::new(egui::Id::unique("mod_hud"))
-            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -120.0))
+            .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -120.0))
             .interactable(false)
             .show(ctx, |ui| {
                 for bar in self.ui.mod_hud.values() {
-                    let (rect, _) =
-                        ui.allocate_exact_size(egui::vec2(220.0, 14.0), egui::Sense::hover());
+                    let (rect, _) = ui.allocate_exact_size(
+                        egui::vec2((ctx.content_rect().width() * 0.4 - 12.0).min(220.0), 14.0),
+                        egui::Sense::hover(),
+                    );
                     let painter = ui.painter();
                     painter.rect_filled(rect, 2.0, Color32::from_black_alpha(160));
                     let mut fill = rect.shrink(1.5);

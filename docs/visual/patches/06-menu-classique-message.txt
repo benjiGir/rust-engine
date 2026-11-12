@@ -1,0 +1,3 @@
+Recomposer les menus et les inventaires dans un style voxel classique
+
+Remplacer les grands cadres des menus par un logo original en pixels et des boutons gris en relief. Clarifier les inventaires avec des panneaux clairs, des cases compactes et des infobulles sombres. Garder les onglets et le retour accessibles et vérifier les redimensionnements dans les deux sens.

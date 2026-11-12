@@ -135,6 +135,8 @@ pub const FLAG_ROTATE: u32 = 1 << 19;
 pub const FLAG_FURNACE_FIRE: u32 = 1 << 20;
 /// Variation continue de l'herbe à l'échelle du terrain, indépendante des blocs.
 pub const FLAG_GROUND: u32 = 1 << 21;
+/// Une eau libre (translucide, sans lumière propre) : le shader l'anime (vagues, reflets).
+pub const FLAG_WATER: u32 = 1 << 22;
 /// Les bits de la couche de texture dans [`MeshVertex::texture`].
 pub const TEXTURE_MASK: u32 = 0xFFFF;
 
@@ -373,6 +375,15 @@ pub struct Neighbourhood {
 }
 
 impl Neighbourhood {
+    fn caps(&self, p: IVec3) -> Option<&crate::Capabilities> {
+        let offset = p.div_euclid(IVec3::splat(SIZE));
+        let q = p.rem_euclid(IVec3::splat(SIZE));
+        self.chunks[index_of(offset)]
+            .as_ref()?
+            .block_entity(q.x as usize, q.y as usize, q.z as usize)?
+            .caps
+            .as_deref()
+    }
     /// Prend des copies des `Arc` du chunk et de ses voisins (aucun bloc n'est copié).
     /// `None` si le chunk lui-même n'existe pas.
     pub fn from_world(world: &World, chunk_pos: IVec3) -> Option<Self> {
@@ -646,17 +657,7 @@ impl Neighbourhood {
         } else {
             [0; 4]
         };
-        let fire = if face.axis != 1
-            && def.behavior.as_deref() == Some("core:furnace")
-            && self.chunks[13]
-                .as_ref()
-                .and_then(|chunk| chunk.block_entity(p.x as usize, p.y as usize, p.z as usize))
-                .is_some_and(|entity| crate::FurnaceState::read(entity).burning())
-        {
-            FLAG_FURNACE_FIRE
-        } else {
-            0
-        };
+        let fire = self.furnace_fire(p, def, face);
         FaceLook {
             block,
             texture,
@@ -693,6 +694,9 @@ fn block_flags(def: &BlockDef) -> u32 {
     }
     if def.sway {
         flags |= FLAG_SWAY;
+    }
+    if def.liquid && def.alpha < 1.0 && def.light_emission == 0 {
+        flags |= FLAG_WATER;
     }
     flags
 }
@@ -835,6 +839,23 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
     }
 }
 
+impl Neighbourhood {
+    /// Le masque de feu dépend de la machine, quelle que soit sa géométrie.
+    fn furnace_fire(&self, p: IVec3, def: &BlockDef, face: Face) -> u32 {
+        if face.axis != 1
+            && def.behavior.as_deref() == Some("core:furnace")
+            && self.chunks[13]
+                .as_ref()
+                .and_then(|chunk| chunk.block_entity(p.x as usize, p.y as usize, p.z as usize))
+                .is_some_and(|entity| crate::FurnaceState::read(entity).burning())
+        {
+            FLAG_FURNACE_FIRE
+        } else {
+            0
+        }
+    }
+}
+
 /// Les boîtes d'un bloc `Shape::Model` : jusqu'à six faces par boîte. Une face posée contre
 /// le bord du bloc est omise si le voisin est opaque. Les textures sont coupées, pas
 /// étirées (le shader les déduit de la position) : une dalle montre la moitié de la texture.
@@ -848,11 +869,11 @@ fn model_boxes(
     flags: u32,
 ) {
     let (_, own_sky, own_light) = hood.cell(p);
-    for (box_index, b) in def.boxes.iter().enumerate() {
-        let rotation = def
-            .rotation
-            .as_ref()
-            .filter(|r| r.boxes.is_empty() || r.boxes.contains(&box_index));
+    let boxes = crate::connections::boxes_at(&hood.registry, p, |p| hood.get(p), |p| hood.caps(p));
+    for (box_index, b) in boxes.iter().enumerate() {
+        let rotation = def.rotation.as_ref().filter(|r| {
+            box_index < def.boxes.len() && (r.boxes.is_empty() || r.boxes.contains(&box_index))
+        });
         for face in Face::ALL {
             let a = face.axis;
             let on_edge = if face.positive {
@@ -891,7 +912,13 @@ fn model_boxes(
             let start = mesh.vertices.len() as u32;
             let normal = face.normal().as_vec3().to_array();
             for corner in corners {
-                mesh.push_vertex(base + corner, normal, color, vertex_light, layer | flags);
+                mesh.push_vertex(
+                    base + corner,
+                    normal,
+                    color,
+                    vertex_light,
+                    layer | flags | hood.furnace_fire(p, def, face),
+                );
                 if let Some(rotation) = rotation {
                     let vertex = mesh.vertices.last_mut().expect("sommet ajouté");
                     vertex.texture |= FLAG_ROTATE;
@@ -1158,11 +1185,12 @@ mod tests {
                 .iter()
                 .filter(|v| v.texture & FLAG_FURNACE_FIRE != 0)
                 .collect();
-            assert_eq!(
-                fire.len(),
-                16,
-                "quatre côtés allumés, aucun dessus ni dessous"
-            );
+            // Le four a désormais un corps, une corniche et des pieds : chaque
+            // boîte porte ses faces latérales, avec les mêmes UV de bouche.
+            assert!(!fire.is_empty());
+            for normal in [Vec3::X, -Vec3::X, Vec3::Z, -Vec3::Z] {
+                assert!(fire.iter().any(|v| v.normal() == normal));
+            }
             assert!(
                 fire.iter()
                     .all(|v| v.normal().y == 0.0 && v.local_position().x <= 3.0)

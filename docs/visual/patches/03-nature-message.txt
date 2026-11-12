@@ -1,0 +1,3 @@
+Affine les matières naturelles et les petits volumes
+
+Travaille les cernes, les fibres, les feuillages et les veines minérales. Modèle torche, cactus et terre labourée. Vérifie les raccords, la sélection, les collisions et les faces voisines de tous les modèles ; documente les validations en partie restant bloquées par macOS.

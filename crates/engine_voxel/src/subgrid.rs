@@ -198,6 +198,11 @@ impl BlockAccess for SubGrid {
         if self.world.block(pos).is_air() {
             return false;
         }
+        if crate::connections::ports(self.block_entity(pos).and_then(|e| e.caps.as_deref()))
+            != crate::connections::ports(entity.as_ref().and_then(|e| e.caps.as_deref()))
+        {
+            self.revision += 1;
+        }
         let (chunk, [x, y, z]) = World::split(pos);
         self.world
             .chunk_mut(chunk)
