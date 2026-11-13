@@ -48,7 +48,7 @@ use glam::IVec3;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use crate::block::BlockId;
-use crate::capabilities::{Capabilities, Face, Inventory, Io, ItemStack, Sides};
+use crate::capabilities::{Capabilities, Face, Io, ItemStack, Sides};
 use crate::circuits::FACINGS;
 use crate::grid::{BlockAccess, GridId, GridPos, Grids};
 use crate::machines::{BlockBehavior, MachineContext};
@@ -175,6 +175,10 @@ pub struct Networks {
     flows: Vec<Option<IVec3>>,
     /// Les cases d'inventaire que les réseaux d'objets remplissent et vident, par numéro de bloc.
     ports: Vec<Option<crate::registry::InventoryPorts>>,
+    /// La disposition des cases des coffres à paliers (les tuyaux n'en voient que les cases
+    /// principales), et les contrôleurs de stockage, par numéro de bloc.
+    layouts: Vec<Option<crate::storage::Layout>>,
+    controllers: Vec<bool>,
     /// Ce qu'il faut savoir des objets pour les réseaux d'objets (voir `set_item_rules`).
     rules: Option<(Arc<ItemRegistry>, Arc<MachineRecipes>)>,
     /// Les ticks écoulés : les réseaux d'objets passent un tick sur [`ITEM_PERIOD`].
@@ -192,6 +196,8 @@ impl Networks {
         let mut throughputs: Vec<Option<u32>> = Vec::new();
         let mut flows: Vec<Option<IVec3>> = Vec::new();
         let mut ports: Vec<Option<crate::registry::InventoryPorts>> = Vec::new();
+        let mut layouts: Vec<Option<crate::storage::Layout>> = Vec::new();
+        let mut controllers: Vec<bool> = Vec::new();
         // Les canaux (`mon_mod:vapeur`) reçoivent un numéro à la première rencontre ; 0 : aucun.
         let mut channels: Vec<&str> = Vec::new();
         for (id, def) in registry.iter() {
@@ -213,17 +219,26 @@ impl Networks {
                 throughputs.resize(i + 1, None);
                 flows.resize(i + 1, None);
                 ports.resize(i + 1, None);
+                layouts.resize(i + 1, None);
+                controllers.resize(i + 1, false);
             }
             kinds[i] = kind.map(|k| (k, channel));
             throughputs[i] = def.throughput;
             flows[i] = def.flow;
             ports[i] = def.ports.clone();
+            layouts[i] = def
+                .behavior
+                .as_deref()
+                .and_then(crate::storage::chest_layout);
+            controllers[i] = def.behavior.as_deref() == Some(crate::storage::CONTROLLER_KEY);
         }
         Self {
             kinds,
             throughputs,
             flows,
             ports,
+            layouts,
+            controllers,
             ..Self::default()
         }
     }
@@ -485,7 +500,11 @@ impl Networks {
                 NetworkKind::Items if items_pass => tick_items(
                     &mut *grid,
                     net,
-                    &self.ports,
+                    ItemTables {
+                        ports: &self.ports,
+                        layouts: &self.layouts,
+                        controllers: &self.controllers,
+                    },
                     self.rules.as_ref(),
                     self.ticks / ITEM_PERIOD,
                     &mut movements,
@@ -515,50 +534,114 @@ struct ItemPort {
     producer: bool,
     consumer: bool,
     buffer: bool,
+    /// Un coffre à paliers : seules ses cases principales sont à la portée des tuyaux, et ses
+    /// améliorations (piles plus grandes, néant) s'appliquent.
+    layout: Option<crate::storage::Layout>,
+    /// Le contrôleur de stockage : il dépose dans les coffres qui lui sont reliés.
+    controller: bool,
 }
 
-/// Y a-t-il de la place pour cet objet dans ces cases ? (au plus `count`)
-fn room_for(inventory: &Inventory, slots: &[usize], item: &str, count: u32) -> u32 {
-    let mut room = 0;
-    for &i in slots {
-        match inventory.slots.get(i) {
-            Some(Some(stack)) if stack.item == item => {
-                room += crate::capabilities::MAX_STACK.saturating_sub(stack.count);
-            }
-            Some(None) => room += crate::capabilities::MAX_STACK,
-            _ => {}
-        }
-    }
-    room.min(count)
+/// Ce que les réseaux d'objets savent de chaque bloc, par numéro de bloc.
+#[derive(Clone, Copy)]
+struct ItemTables<'a> {
+    ports: &'a [Option<crate::registry::InventoryPorts>],
+    layouts: &'a [Option<crate::storage::Layout>],
+    controllers: &'a [bool],
 }
 
-/// Range `count` objets (dont on a vérifié la place) dans ces cases : les piles du même objet
-/// d'abord, puis les cases vides.
-fn put_into(inventory: &mut Inventory, slots: &[usize], item: &str, mut count: u32) {
-    for &i in slots {
-        if count == 0 {
-            return;
-        }
-        if let Some(Some(stack)) = inventory.slots.get_mut(i)
-            && stack.item == item
-        {
-            let n = count.min(crate::capabilities::MAX_STACK.saturating_sub(stack.count));
-            stack.count += n;
-            count -= n;
-        }
+/// La place que cette extrémité offre à `count` objets de cette sorte.
+fn room_at(
+    grid: &(impl BlockAccess + ?Sized),
+    target: &ItemPort,
+    rules: Option<&(Arc<ItemRegistry>, Arc<MachineRecipes>)>,
+    stack: &ItemStack,
+    count: u32,
+) -> u32 {
+    use crate::capabilities::MAX_STACK;
+    let items = rules.map(|(items, _)| items.as_ref());
+    if target.controller {
+        let members = crate::storage::controller_members(grid, target.pos);
+        return crate::storage::controller_room(grid, &members, items, &stack.item, stack.damage)
+            .min(count);
     }
-    for &i in slots {
-        if count == 0 {
-            return;
+    let Some(inventory) = grid
+        .block_entity(target.pos)
+        .and_then(|b| b.caps.as_deref())
+        .and_then(|c| c.inventory.as_ref())
+    else {
+        return 0;
+    };
+    match target.layout {
+        Some(layout) => {
+            let policy = crate::storage::Policy::of(&inventory.slots, layout, 0);
+            crate::storage::accept(
+                &inventory.slots,
+                layout,
+                &policy,
+                items,
+                &stack.item,
+                stack.damage,
+                count,
+            )
         }
-        if let Some(slot @ None) = inventory.slots.get_mut(i) {
-            let n = count.min(crate::capabilities::MAX_STACK);
-            *slot = Some(ItemStack {
-                item: item.to_string(),
-                count: n,
-                damage: 0,
-            });
-            count -= n;
+        None => crate::storage::room_in(
+            &inventory.slots,
+            &target.take,
+            &stack.item,
+            stack.damage,
+            MAX_STACK,
+        )
+        .min(count),
+    }
+}
+
+/// Range `count` objets (dont on a vérifié la place) chez cette extrémité : les piles du même
+/// objet d'abord, puis les cases vides.
+fn put_at(
+    grid: &mut (impl BlockAccess + ?Sized),
+    target: &ItemPort,
+    rules: Option<&(Arc<ItemRegistry>, Arc<MachineRecipes>)>,
+    stack: &ItemStack,
+    count: u32,
+) {
+    use crate::capabilities::MAX_STACK;
+    let items = rules.map(|(items, _)| items.as_ref());
+    if target.controller {
+        let members = crate::storage::controller_members(&*grid, target.pos);
+        crate::storage::controller_insert(grid, &members, items, &stack.item, stack.damage, count);
+        return;
+    }
+    let Some(inventory) = grid
+        .block_entity_mut(target.pos)
+        .and_then(|b| b.caps.as_mut())
+        .and_then(|c| c.inventory.as_mut())
+    else {
+        return;
+    };
+    match target.layout {
+        Some(layout) => {
+            let policy = crate::storage::Policy::of(&inventory.slots, layout, 0);
+            crate::storage::insert(
+                &mut inventory.slots,
+                layout,
+                &policy,
+                items,
+                &stack.item,
+                stack.damage,
+                count,
+                crate::storage::Fill::Any,
+            );
+        }
+        None => {
+            crate::storage::put_in(
+                &mut inventory.slots,
+                &target.take,
+                &stack.item,
+                stack.damage,
+                count,
+                MAX_STACK,
+                crate::storage::Fill::Any,
+            );
         }
     }
 }
@@ -569,7 +652,7 @@ fn put_into(inventory: &mut Inventory, slots: &[usize], item: &str, mut count: u
 fn tick_items(
     grid: &mut (impl BlockAccess + ?Sized),
     net: &Network,
-    ports: &[Option<crate::registry::InventoryPorts>],
+    tables: ItemTables,
     rules: Option<&(Arc<ItemRegistry>, Arc<MachineRecipes>)>,
     turn: u64,
     movements: &mut Vec<Movement>,
@@ -593,8 +676,19 @@ fn tick_items(
             continue;
         };
         let io = inventory.sides.io();
-        let declared = ports.get(block.0 as usize).and_then(Option::as_ref);
-        let all: Vec<usize> = (0..inventory.slots.len()).collect();
+        let declared = tables.ports.get(block.0 as usize).and_then(Option::as_ref);
+        let layout = tables.layouts.get(block.0 as usize).copied().flatten();
+        let controller = tables
+            .controllers
+            .get(block.0 as usize)
+            .copied()
+            .unwrap_or(false);
+        // Un coffre à paliers n'offre que ses cases principales : les emplacements d'amélioration
+        // et les filtres ne regardent pas les tuyaux.
+        let all: Vec<usize> = match layout {
+            Some(l) => l.main_range().collect(),
+            None => (0..inventory.slots.len()).collect(),
+        };
         let (give, take) = match declared {
             Some(p) => (p.outputs.clone(), p.inputs.clone()),
             None => (all.clone(), all),
@@ -606,6 +700,8 @@ fn tick_items(
             producer: !give.is_empty() && (declared.is_some() || io == Io::Out),
             consumer: !take.is_empty() && (declared.is_some() || io == Io::In),
             buffer: declared.is_none() && io == Io::Both,
+            layout,
+            controller,
             accepts: declared.and_then(|p| p.accepts.clone()),
             only: declared
                 .and_then(|p| p.filter)
@@ -666,13 +762,7 @@ fn tick_items(
                     {
                         continue;
                     }
-                    let room = grid
-                        .block_entity(target.pos)
-                        .and_then(|b| b.caps.as_deref())
-                        .and_then(|c| c.inventory.as_ref())
-                        .map_or(0, |i| {
-                            room_for(i, &target.take, &stack.item, budget.min(stack.count))
-                        });
+                    let room = room_at(&*grid, target, rules, &stack, budget.min(stack.count));
                     if room == 0 {
                         continue;
                     }
@@ -688,13 +778,7 @@ fn tick_items(
                             inv.slots[slot] = None;
                         }
                     }
-                    if let Some(inv) = grid
-                        .block_entity_mut(target.pos)
-                        .and_then(|b| b.caps.as_mut())
-                        .and_then(|c| c.inventory.as_mut())
-                    {
-                        put_into(inv, &target.take, &stack.item, room);
-                    }
+                    put_at(grid, target, rules, &stack, room);
                     movements.push(Movement {
                         from: giver.pos,
                         to: target.pos,
@@ -1857,6 +1941,102 @@ mod tests {
         assert_eq!(rig.count(rig.at(6, 0), 1), 0, "la sortie est vidée");
         let crate_gold: u32 = (0..3).map(|s| rig.count(rig.at(6, 1), s)).sum();
         assert_eq!(crate_gold, 3);
+    }
+
+    #[test]
+    fn pipes_only_touch_the_main_slots_of_a_tiered_chest_and_honour_its_upgrades() {
+        use crate::storage::{CHEST_TIERS, Upgrade};
+        let layout = CHEST_TIERS[2].layout;
+        let mut rig = Rig::items();
+        rig.container(rig.at(0, 0), "test:src", 1);
+        rig.put(rig.at(0, 0), 0, "core:iron_ingot", 200);
+        rig.container(rig.at(6, 0), "core:iron_chest", layout.total());
+        rig.put(rig.at(6, 0), layout.main, Upgrade::Stack2.key(), 1);
+        // Un objet dans un emplacement de filtre : les tuyaux ne doivent pas le prendre.
+        rig.put(rig.at(6, 0), layout.filter_range(0).start, "core:coal", 1);
+        rig.belts(1, 5, "test:belt");
+        rig.tick(ITEM_PERIOD as usize * 30);
+        // Pile ×2 : 128 lingots dans la première case, 72 dans la suivante.
+        assert_eq!(rig.count(rig.at(6, 0), 0), 128);
+        assert_eq!(rig.count(rig.at(6, 0), 1), 72);
+        assert_eq!(rig.count(rig.at(0, 0), 0), 0);
+        // L'amélioration et le filtre sont intacts : pas écrasés, pas vidés.
+        assert_eq!(rig.count(rig.at(6, 0), layout.main), 1);
+        assert_eq!(rig.count(rig.at(6, 0), layout.filter_range(0).start), 1);
+    }
+
+    #[test]
+    fn pipes_never_take_upgrades_or_filters_out_of_a_tiered_chest() {
+        use crate::storage::{CHEST_TIERS, Upgrade};
+        let layout = CHEST_TIERS[2].layout;
+        let mut rig = Rig::items();
+        rig.container(rig.at(0, 0), "core:iron_chest", layout.total());
+        rig.put(rig.at(0, 0), 0, "core:stone", 5);
+        rig.put(rig.at(0, 0), layout.main, Upgrade::Stack2.key(), 1);
+        rig.put(rig.at(0, 0), layout.filter_range(0).start, "core:coal", 1);
+        // Une machine (un consommateur) : elle tire ce que le coffre peut donner.
+        rig.container(rig.at(6, 0), "test:machine", 2);
+        rig.belts(1, 5, "test:belt");
+        rig.tick(ITEM_PERIOD as usize * 10);
+        let crate_items: Vec<String> = (0..2)
+            .filter_map(|i| {
+                rig.with_caps(rig.at(6, 0), |c| {
+                    c.inventory.as_ref().unwrap().slots[i]
+                        .as_ref()
+                        .map(|s| s.item.clone())
+                })
+                .flatten()
+            })
+            .collect();
+        assert_eq!(crate_items, vec!["core:stone".to_string()]);
+        assert_eq!(
+            rig.count(rig.at(0, 0), layout.main),
+            1,
+            "l'amélioration reste"
+        );
+        assert_eq!(rig.count(rig.at(0, 0), layout.filter_range(0).start), 1);
+    }
+
+    #[test]
+    fn a_void_chest_destroys_filtered_items_that_a_pipe_brings() {
+        use crate::storage::{CHEST_TIERS, Upgrade};
+        let layout = CHEST_TIERS[1].layout;
+        let mut rig = Rig::items();
+        rig.container(rig.at(0, 0), "test:src", 1);
+        rig.put(rig.at(0, 0), 0, "core:coal", 20);
+        rig.container(rig.at(6, 0), "core:copper_chest", layout.total());
+        rig.put(rig.at(6, 0), layout.main, Upgrade::Void.key(), 1);
+        rig.put(rig.at(6, 0), layout.filter_range(0).start, "core:coal", 1);
+        rig.belts(1, 5, "test:belt");
+        rig.tick(ITEM_PERIOD as usize * 6);
+        assert_eq!(rig.count(rig.at(0, 0), 0), 0, "la source est vidée");
+        let stored: u32 = (0..layout.main).map(|i| rig.count(rig.at(6, 0), i)).sum();
+        assert_eq!(stored, 0, "le charbon est détruit à l'entrée");
+    }
+
+    #[test]
+    fn a_pipe_on_the_controller_deposits_into_the_chests_around_it() {
+        use crate::storage::CHEST_TIERS;
+        let mut rig = Rig::items();
+        rig.container(rig.at(0, 0), "test:src", 1);
+        rig.put(rig.at(0, 0), 0, "core:iron_ingot", 100);
+        rig.container(rig.at(6, 0), "core:storage_controller", 0);
+        // Deux coffres contre le contrôleur, un troisième contre le premier.
+        rig.container(rig.at(7, 0), "core:chest", CHEST_TIERS[0].layout.total());
+        rig.container(rig.at(6, 1), "core:chest", CHEST_TIERS[0].layout.total());
+        rig.container(
+            rig.at(7, 1),
+            "core:copper_chest",
+            CHEST_TIERS[1].layout.total(),
+        );
+        rig.belts(1, 5, "test:belt");
+        rig.tick(ITEM_PERIOD as usize * 20);
+        assert_eq!(rig.count(rig.at(0, 0), 0), 0);
+        let total: u32 = [(7, 0), (6, 1), (7, 1)]
+            .iter()
+            .map(|&(x, z)| (0..27).map(|i| rig.count(rig.at(x, z), i)).sum::<u32>())
+            .sum();
+        assert_eq!(total, 100, "tout est dans les coffres reliés");
     }
 
     #[test]

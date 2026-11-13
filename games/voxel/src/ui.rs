@@ -61,6 +61,8 @@ pub struct GameUi {
     pub input: crate::ui_input::UiInput,
     /// L'explorateur de recettes (voir `recipe_browser.rs`).
     pub browser: crate::recipe_browser::BrowserState,
+    /// La recherche de l'écran du contrôleur de stockage.
+    pub storage_search: String,
 }
 
 /// Une pile qu'on s'apprête à diviser, et combien d'objets prendre.
@@ -77,13 +79,17 @@ pub enum SlotRef {
     Container(IVec3, usize),
     /// Une case de l'inventaire d'un wagon.
     Cart(Entity, usize),
+    /// Une case d'un sac à dos (son numéro, la case).
+    Bag(u32, usize),
 }
 
 /// Le bouton pressé sur une case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Press {
+pub(crate) enum Press {
     Primary,
     Secondary,
+    /// Maj + clic : toute la pile passe de l'autre côté (conteneur ouvert).
+    Quick,
     /// Maj + clic droit : ouvrir « Diviser la pile ».
     Split,
 }
@@ -99,6 +105,10 @@ pub enum Screen {
     /// L'alambic.
     Brewing(IVec3),
     Chest(IVec3),
+    /// Un sac à dos, par son numéro (voir `backpacks.rs`).
+    Bag(u32),
+    /// Le contrôleur de stockage (voir `storage_ui.rs`).
+    Controller(IVec3),
     /// L'inventaire d'un wagon (voir `cart_play.rs`).
     Cart(Entity),
     /// L'échange avec un habitant.
@@ -144,6 +154,7 @@ impl GameUi {
             settings_saved: std::time::Instant::now(),
             input: Default::default(),
             browser: Default::default(),
+            storage_search: String::new(),
         }
     }
 
@@ -273,7 +284,7 @@ impl VoxelGame {
     }
 
     /// Dessine une case et la pile qu'elle contient. Renvoie `true` si on a cliqué.
-    fn stack_widget(
+    pub(crate) fn stack_widget(
         &mut self,
         ui: &mut egui::Ui,
         stack: Option<ItemStack>,
@@ -293,7 +304,11 @@ impl VoxelGame {
         }
         let shift = ui.input(|i| i.modifiers.shift);
         let press = if response.clicked() {
-            Some(Press::Primary)
+            Some(if shift && self.quick_enabled() {
+                Press::Quick
+            } else {
+                Press::Primary
+            })
         } else if response.secondary_clicked() {
             Some(if shift {
                 Press::Split
@@ -308,11 +323,10 @@ impl VoxelGame {
                 // Pour les touches R, U et A de l'explorateur de recettes.
                 self.ui.browser.hovered = Some(stack.item);
             }
-            let card = crate::ui_info::item(
-                self.content.items.get(stack.item),
-                stack.count,
-                stack.damage,
-            );
+            let def = self.content.items.get(stack.item);
+            let mut card = crate::ui_info::item(def, stack.count, stack.damage);
+            card.lines
+                .extend(crate::backpacks::card_lines(&def.key, stack.damage));
             crate::ui_info::hover(response, &card);
         }
         press
@@ -355,9 +369,18 @@ impl VoxelGame {
 
     /// Un bouton pressé sur une case : un clic, ou l'ouverture de « Diviser la pile ».
     /// Renvoie `true` si la case a pu changer.
-    fn press_slot(&mut self, target: SlotRef, stack: Option<ItemStack>, press: Press) -> bool {
+    pub(crate) fn press_slot(
+        &mut self,
+        target: SlotRef,
+        stack: Option<ItemStack>,
+        press: Press,
+    ) -> bool {
         let click = match press {
             Press::Primary => Click::Primary,
+            // Maj + clic : l'autre côté. Une case qui n'est pas concernée (amélioration, filtre,
+            // machine) se comporte comme un clic ordinaire.
+            Press::Quick if self.quick_move(target) => return true,
+            Press::Quick => Click::Primary,
             Press::Secondary => Click::Secondary,
             // Une pile en main : Maj + clic droit pose un objet, comme un clic droit.
             Press::Split if self.inventory.cursor.is_some() => Click::Secondary,
@@ -383,6 +406,9 @@ impl VoxelGame {
             }
             SlotRef::Container(pos, index) => self.click_container(pos, index, click),
             SlotRef::Cart(cart, index) => self.click_cart(cart, index, click),
+            SlotRef::Bag(number, index) => {
+                self.click_storage(crate::storage_ui::Target::Bag(number), index, click)
+            }
         }
     }
 
@@ -396,6 +422,9 @@ impl VoxelGame {
             },
             SlotRef::Container(pos, index) => self.container_stack(pos, index),
             SlotRef::Cart(cart, index) => self.cart_stack(cart, index),
+            SlotRef::Bag(number, index) => {
+                self.target_stack(crate::storage_ui::Target::Bag(number), index)
+            }
         }
     }
 
@@ -706,7 +735,7 @@ impl VoxelGame {
             Screen::Workbench => "Établi".to_string(),
             Screen::Furnace(_) => "Four".to_string(),
             Screen::Brewing(_) => "Alambic".to_string(),
-            Screen::Chest(_) => "Coffre".to_string(),
+            Screen::Chest(_) | Screen::Bag(_) | Screen::Controller(_) => self.storage_title(),
             Screen::Cart(cart) => self.cart_title(cart),
             Screen::Trade(_) => "Échange".to_string(),
             Screen::Enchant => "Table d'enchantement".to_string(),
@@ -748,6 +777,10 @@ impl VoxelGame {
                     Screen::Furnace(pos) => self.furnace_panel(ui, pos),
                     Screen::Brewing(pos) => self.brewing_panel(ui, pos),
                     Screen::Chest(pos) => self.chest_panel(ui, pos),
+                    Screen::Bag(number) => {
+                        self.storage_panel(ui, crate::storage_ui::Target::Bag(number))
+                    }
+                    Screen::Controller(pos) => self.controller_panel(ui, pos),
                     Screen::Cart(cart) => self.cart_panel(ui, cart),
                     Screen::Trade(mob) => self.trade_panel(ui, mob),
                     Screen::Enchant => self.enchant_panel(ui),
@@ -760,7 +793,7 @@ impl VoxelGame {
                 self.player_slots(ui);
                 ui.add_space(6.0);
                 ui.collapsing("Aide · déplacer les objets", |ui| {
-                    ui.label("Clic : prendre ou poser. Clic droit : moitié ou un objet. Maj + clic droit : choisir la quantité. Échap : fermer.");
+                    ui.label("Clic : prendre ou poser. Clic droit : moitié ou un objet. Maj + clic : envoyer la pile de l'autre côté (coffre, sac). Maj + clic droit : choisir la quantité. Échap : fermer.");
                 });
             });
         // Le cadre de l'inventaire, centré (voir `ui_layout::inventory_window`) : l'explorateur
@@ -864,7 +897,7 @@ impl VoxelGame {
     }
 
     /// La pile rangée dans une case d'un conteneur.
-    fn container_stack(&self, pos: IVec3, index: usize) -> Option<ItemStack> {
+    pub(crate) fn container_stack(&self, pos: IVec3, index: usize) -> Option<ItemStack> {
         let stored = self.streamer().block_entity(pos).and_then(|e| {
             e.caps
                 .as_ref()?
@@ -884,26 +917,10 @@ impl VoxelGame {
         })
     }
 
-    /// Un clic sur une case d'un conteneur : la pile est relue puis réécrite dans
-    /// l'entité du bloc.
+    /// Un clic sur une case d'un coffre ou d'une machine : la pile est relue puis réécrite
+    /// dans l'entité du bloc (voir `storage_ui.rs` pour les règles des coffres à paliers).
     fn click_container(&mut self, pos: IVec3, index: usize, click: Click) -> bool {
-        let mut slot = self.container_stack(pos, index);
-        let mut cursor = self.inventory.cursor.take();
-        click_slot(&mut slot, &mut cursor, &self.content.items, |_| true, click);
-        self.inventory.cursor = cursor;
-        let items = self.content.items.clone();
-        let mut streamer = self.streamer_mut();
-        if let Some(entity) = streamer.block_entity_mut(pos)
-            && let Some(inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut())
-            && let Some(target) = inventory.slots.get_mut(index)
-        {
-            *target = slot.map(|s| engine_voxel::ItemStack {
-                item: items.get(s.item).key.clone(),
-                count: s.count,
-                damage: s.damage,
-            });
-        }
-        true
+        self.click_storage(crate::storage_ui::Target::Block(pos), index, click)
     }
 
     /// Le titre de l'écran d'un wagon (et sa réserve de combustible, pour une locomotive).
@@ -931,9 +948,7 @@ impl VoxelGame {
                 self.cart_slot(ui, cart, index);
             });
         } else {
-            crate::ui_layout::slots(ui, kind.slots(), 9, |ui, index| {
-                self.cart_slot(ui, cart, index);
-            });
+            self.storage_panel(ui, crate::storage_ui::Target::Cart(cart));
         }
     }
 
@@ -945,7 +960,7 @@ impl VoxelGame {
     }
 
     /// La pile rangée dans une case d'un wagon.
-    fn cart_stack(&self, cart: Entity, index: usize) -> Option<ItemStack> {
+    pub(crate) fn cart_stack(&self, cart: Entity, index: usize) -> Option<ItemStack> {
         let cargo = self.ecs.get::<crate::carts::CartCargo>(cart)?;
         let stored = cargo.0.slots.get(index)?.as_ref()?;
         Some(ItemStack {
@@ -1111,9 +1126,7 @@ impl VoxelGame {
     }
 
     fn chest_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
-        crate::ui_layout::slots(ui, 27, 9, |ui, index| {
-            self.container_slot(ui, pos, index);
-        });
+        self.storage_panel(ui, crate::storage_ui::Target::Block(pos));
     }
 
     fn furnace_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {

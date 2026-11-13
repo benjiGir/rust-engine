@@ -6,6 +6,7 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+postcard = { workspace = true }
 engine_trace = { workspace = true }
 engine_core = { workspace = true }
 engine_render = { workspace = true }

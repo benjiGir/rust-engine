@@ -23,10 +23,11 @@ pub enum Action {
     Drop,
     Fly,
     Time,
+    Backpack,
 }
 
 impl Action {
-    pub const ALL: [Action; 11] = [
+    pub const ALL: [Action; 12] = [
         Action::Forward,
         Action::Back,
         Action::Left,
@@ -38,6 +39,7 @@ impl Action {
         Action::Drop,
         Action::Fly,
         Action::Time,
+        Action::Backpack,
     ];
 
     pub fn label(self) -> &'static str {
@@ -53,6 +55,7 @@ impl Action {
             Self::Drop => "Jeter un objet",
             Self::Fly => "Voler",
             Self::Time => "Vitesse du temps",
+            Self::Backpack => "Ouvrir le sac à dos",
         }
     }
 }
@@ -72,6 +75,7 @@ pub struct Keys {
     pub drop: String,
     pub fly: String,
     pub time: String,
+    pub backpack: String,
 }
 
 impl Default for Keys {
@@ -89,6 +93,7 @@ impl Default for Keys {
             drop: "KeyQ".into(),
             fly: "KeyF".into(),
             time: "KeyT".into(),
+            backpack: "KeyB".into(),
         }
     }
 }
@@ -107,6 +112,7 @@ impl Keys {
             Action::Drop => &mut self.drop,
             Action::Fly => &mut self.fly,
             Action::Time => &mut self.time,
+            Action::Backpack => &mut self.backpack,
         }
     }
 
@@ -123,6 +129,7 @@ impl Keys {
             Action::Drop => &self.drop,
             Action::Fly => &self.fly,
             Action::Time => &self.time,
+            Action::Backpack => &self.backpack,
         }
     }
 
@@ -214,6 +221,8 @@ pub struct Settings {
     pub show_arm: bool,
     pub ui_scale: f32,
     pub target_info: bool,
+    /// Voir le contenu d'un coffre en le regardant (dans la fiche de visée).
+    pub chest_preview: bool,
     /// La vitesse maximale des wagons sur rail, en blocs par seconde (8 par défaut, 30 au plus).
     pub cart_max_speed: f32,
     pub keys: Keys,
@@ -235,6 +244,7 @@ impl Default for Settings {
             show_arm: true,
             ui_scale: 1.0,
             target_info: true,
+            chest_preview: true,
             cart_max_speed: 8.0,
             keys: Keys::default(),
             bookmarks: Vec::new(),
@@ -289,8 +299,23 @@ mod tests {
         let loaded: Settings = ron::from_str("(fov:80.0,show_arm:false)").unwrap();
         assert_eq!(loaded.ui_scale, 1.0);
         assert!(loaded.target_info);
+        assert!(
+            loaded.chest_preview,
+            "l'aperçu des coffres est activé par défaut"
+        );
+        assert_eq!(loaded.keys.key(Action::Backpack), KeyCode::KeyB);
         assert_eq!(loaded.fov, 80.0);
         assert!(!loaded.show_arm);
+    }
+
+    #[test]
+    fn an_older_settings_file_without_the_backpack_key_still_loads() {
+        let loaded: Settings =
+            ron::from_str("(fov:80.0,keys:(forward:\"ArrowUp\",inventory:\"KeyI\"))").unwrap();
+        assert_eq!(loaded.keys.key(Action::Forward), KeyCode::ArrowUp);
+        assert_eq!(loaded.keys.key(Action::Inventory), KeyCode::KeyI);
+        assert_eq!(loaded.keys.key(Action::Backpack), KeyCode::KeyB);
+        assert!(loaded.chest_preview);
     }
 
     #[test]

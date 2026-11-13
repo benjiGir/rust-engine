@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use engine_voxel::{
-    BlockRegistry, Brewing, ItemRegistry, LootTables, MachineRecipes, RecipeIndex, Recipes,
-    Smelting,
+    BlockRegistry, Brewing, CompactTable, ItemRegistry, LootTables, MachineRecipes, RecipeIndex,
+    Recipes, Smelting,
 };
 
 #[derive(Clone)]
@@ -23,6 +23,8 @@ pub struct Content {
     pub machine_recipes: Arc<MachineRecipes>,
     /// Toutes les recettes, par produit et par ingrédient (l'explorateur, voir `recipe_browser.rs`).
     pub recipe_index: Arc<RecipeIndex>,
+    /// Ce que l'amélioration « compactage » sait regrouper (lu dans les recettes).
+    pub compact: Arc<CompactTable>,
 }
 
 /// Les fichiers `name` de core puis des mods, avec leur espace de noms.
@@ -75,7 +77,9 @@ impl Content {
             smelting.recipes().len()
         );
         let recipe_index = RecipeIndex::new(&recipes, &smelting, &brewing, &machine_recipes);
+        let compact = CompactTable::from_recipes(&recipes, &items);
         Ok(Self {
+            compact: Arc::new(compact),
             recipe_index: Arc::new(recipe_index),
             items: Arc::new(items),
             recipes: Arc::new(recipes),

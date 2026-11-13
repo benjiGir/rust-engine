@@ -54,6 +54,40 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
     if let Some(tool) = def.tool {
         lines.push((format!("Dégâts : {:.0}", tool.damage), skin::MUTED));
     }
+    // Le stockage : l'effet d'une amélioration, l'usage d'un kit (le numéro d'un sac est ajouté
+    // par `backpacks::card_lines`).
+    if let Some(upgrade) = engine_voxel::Upgrade::from_key(&def.key) {
+        lines.push((upgrade.help().into(), skin::TEXT));
+        lines.push((
+            match (upgrade.in_chest(), upgrade.in_backpack()) {
+                (true, true) => "Coffre ou sac à dos",
+                (true, false) => "Coffre seulement",
+                _ => "Sac à dos seulement",
+            }
+            .into(),
+            skin::MUTED,
+        ));
+    }
+    if let Some(kit) = engine_voxel::kit_of(&def.key) {
+        lines.push((
+            format!(
+                "Clic droit sur un coffre : {}",
+                if kit.direct {
+                    format!(
+                        "monte à {} depuis n'importe quel palier inférieur",
+                        engine_voxel::CHEST_TIERS[kit.to].name
+                    )
+                } else {
+                    format!(
+                        "{} → {}",
+                        engine_voxel::CHEST_TIERS[kit.to - 1].name,
+                        engine_voxel::CHEST_TIERS[kit.to].name
+                    )
+                }
+            ),
+            skin::TEXT,
+        ));
+    }
     if let Some(armor) = def.armor {
         lines.push((format!("Protection : {}", armor.protection), skin::TEXT));
     }
@@ -113,7 +147,13 @@ pub fn block(def: &BlockDef, held: Option<&ToolDef>) -> Card {
     }
 }
 
-pub fn capabilities(caps: &Capabilities, fluids: Option<&FluidRegistry>) -> Vec<(String, Color32)> {
+/// Les capacités d'un bloc actif. `main` : le nombre de cases de contenu d'un coffre à paliers
+/// (les emplacements d'amélioration et les filtres ne comptent pas), `None` pour les autres.
+pub fn capabilities(
+    caps: &Capabilities,
+    fluids: Option<&FluidRegistry>,
+    main: Option<usize>,
+) -> Vec<(String, Color32)> {
     let mut lines = Vec::new();
     if let Some(e) = &caps.energy {
         lines.push((
@@ -141,8 +181,12 @@ pub fn capabilities(caps: &Capabilities, fluids: Option<&FluidRegistry>) -> Vec<
         lines.push((
             format!(
                 "Stockage : {} / {} cases",
-                i.slots.iter().filter(|s| s.is_some()).count(),
-                i.slots.len()
+                i.slots
+                    .iter()
+                    .take(main.unwrap_or(usize::MAX))
+                    .filter(|s| s.is_some())
+                    .count(),
+                main.unwrap_or(i.slots.len()).min(i.slots.len())
             ),
             skin::MUTED,
         ));

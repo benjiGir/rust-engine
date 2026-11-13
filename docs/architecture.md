@@ -267,6 +267,41 @@ Limites : pas de signal qui se propage de rail accélérateur en rail accéléra
 voisins), pas de détecteur qui change d'apparence, un wagon poussé par un autre peut traverser un
 butoir (les corrections d'attelage et de chocs ne tiennent pas compte du butoir).
 
+### Stockage : coffres à paliers, contrôleur, sacs à dos (fait : `storage.rs`, `games/voxel/src/{storage_ui,transfer,backpacks,chest_preview}.rs`)
+
+Plan et choix : `docs/plan-stockage.md`.
+
+- **Disposition des cases** (`engine_voxel::Layout`). Un coffre à paliers garde tout dans
+  l'`Inventory` de son entité de bloc, sans champ de plus (le format des chunks ne change pas), rangé
+  en trois blocs : les **cases principales** (les seules que voient les tuyaux d'objets), les
+  **emplacements d'amélioration** (un objet « amélioration » par case, juste après), puis les cases
+  **filtre** (fantômes : un exemplaire pour désigner un objet, rien n'est consommé, et elles ne
+  tombent jamais quand le bloc casse). Paliers : coffre 27 cases / 1 amélioration, cuivre 45 / 2, fer
+  54 / 3, or 81 / 4, saphir 108 / 5. Monter de palier (`upgrade_chest`, par un kit en clic droit)
+  change le bloc et garde l'entité : seul le début des deux derniers blocs se déplace (`relayout`). Un
+  coffre posé avant les paliers (27 cases) se complète au chargement (`ensure_layout`).
+- **Améliorations** (`Upgrade`) : pile ×2 et ×4 (×8 au plus, dans `Policy`), compactage (lu dans les
+  recettes 3 × 3 réversibles : `CompactTable`), néant (filtre, ou surplus sans filtre), entonnoir
+  (une pile par seconde du dessus vers le dessous, ports respectés). Les passives se rejouent chaque
+  seconde par `StorageChest` (tant qu'il y en a, jamais au repos) et tout de suite après un geste de
+  l'interface.
+- **Réseaux d'objets** (`networks.rs`) : un coffre à paliers n'offre que ses cases principales, avec
+  les piles de ses améliorations et son néant ; le contrôleur est un bloc à `Inventory` sans case qui
+  dépose dans les coffres reliés. Une pile garde son `damage` en passant par un tuyau.
+- **Contrôleur** : `controller_members` suit les coffres qui se touchent (64 au plus, rayon 16),
+  `controller_groups`/`controller_insert`/`controller_take` les voient comme un seul inventaire.
+- **Sacs à dos** (`backpacks.rs`, côté jeu) : l'objet ne contient rien, son `damage` est un numéro
+  (1 à 65 535, les bits hauts sont ceux de l'enchantement). Le contenu est dans le
+  `BackpackStore`, sauvegardé dans `backpacks.bin` à la racine du monde (postcard, `version`, `next`,
+  `(numéro, palier, cases, améliorations coupées)`), à côté de `world.ron` : pas par dimension. Un sac
+  neuf reçoit son numéro au premier usage ; le palier suit l'objet (une montée par recette garde le
+  numéro, le magasin range le contenu à la disposition du nouveau palier à la vue suivante). Un sac
+  refuse les sacs.
+- **Interface** (`storage_ui.rs`) : un seul écran pour coffres, wagons coffres et sacs (`Target`), avec
+  les gestes de `transfer.rs` (Déposer, Compléter, Tout prendre, Trier, Maj + clic : logique pure sur
+  des listes de cases, avec les règles de chaque côté), la colonne des emplacements d'amélioration et
+  les filtres. `chest_preview.rs` regroupe le contenu pour l'aperçu de la fiche de visée.
+
 ### Comment tout s'articule
 
 ```

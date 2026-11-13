@@ -144,6 +144,7 @@ impl VoxelGame {
             log::error!("sauvegarde des structures mobiles : {err:#}");
         }
         crate::carts::save(&self.ecs, store.dir());
+        self.save_backpacks();
         self.mods.save_world_data();
         if self.streamer_mut().begin_save() {
             self.save_started = Instant::now();
@@ -167,6 +168,7 @@ impl VoxelGame {
             log::error!("sauvegarde des structures mobiles : {err:#}");
         }
         crate::carts::save(&self.ecs, store.dir());
+        self.save_backpacks();
         self.mods.save_world_data();
         let saved = self.streamer_mut().save_blocking();
         match (meta, saved) {

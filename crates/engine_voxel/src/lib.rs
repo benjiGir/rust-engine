@@ -48,6 +48,7 @@ mod recipe_index;
 mod registry;
 mod save;
 mod ship;
+mod storage;
 mod streaming;
 mod subgrid;
 mod tech;
@@ -129,6 +130,15 @@ pub use save::{
     SavedInventory, SavedStack, UNKNOWN_BLOCK, UnknownBlocks, WorldMeta, write_atomic,
 };
 pub use ship::{ShipInput, StepReport, step as step_ship};
+pub use storage::{
+    CHEST_TIERS, CONTROLLER_KEY, CONTROLLER_MAX_CONTAINERS, CONTROLLER_RADIUS, ChestTier,
+    CompactTable, Controller, FILTER_SLOTS, Fill, Group, KITS, Kit, Layout, MULTIPLIER_CAP, Policy,
+    SlotKind, StorageChest, UPGRADE_PERIOD, Upgrade, Voiding, accept as storage_accept,
+    chest_layout, chest_tier_of, controller_groups, controller_insert, controller_members,
+    controller_room, controller_take, ensure_layout, filter_items, insert as storage_insert,
+    installed as installed_upgrades, is_controller, kit_of, kit_target, layout_of, maintain,
+    put_in, relayout, room_in, stack_limit, stack_multiplier, upgrade_chest,
+};
 pub use streaming::{ChunkStreamer, StreamEvent, StreamStats, StreamingConfig};
 pub use subgrid::{
     AssemblyError, MAX_BLOCKS, SubGrid, SubGrids, extract, land, landing_cells, load_grids,

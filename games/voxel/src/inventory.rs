@@ -91,19 +91,33 @@ pub fn click_slot(
     accepts: impl Fn(ItemId) -> bool,
     click: Click,
 ) {
+    click_slot_mult(slot, cursor, items, accepts, click, 1);
+}
+
+/// Comme [`click_slot`], pour une case qui accepte des piles `mult` fois plus grandes (un
+/// conteneur à amélioration « pile »). La main, elle, garde la taille normale : une pile trop
+/// grande se prend en plusieurs fois.
+pub fn click_slot_mult(
+    slot: &mut Option<ItemStack>,
+    cursor: &mut Option<ItemStack>,
+    items: &ItemRegistry,
+    accepts: impl Fn(ItemId) -> bool,
+    click: Click,
+    mult: u32,
+) {
     if let Some(held) = cursor
         && !accepts(held.item)
     {
         return;
     }
     match click {
-        Click::Primary => click_whole(slot, cursor, items),
+        Click::Primary => click_whole(slot, cursor, items, mult),
         Click::Secondary => match cursor {
             None => {
                 let half = slot.map_or(0, |s| s.count.div_ceil(2));
                 take(slot, cursor, items, half);
             }
-            Some(_) => place_one(slot, cursor, items),
+            Some(_) => place_one(slot, cursor, items, mult),
         },
         Click::Take(n) => take(slot, cursor, items, n),
     }
@@ -158,13 +172,20 @@ fn take(
 
 /// Pose un seul objet de la pile tenue : dans une case vide, ou sur une pile du même
 /// objet qui a encore de la place.
-fn place_one(slot: &mut Option<ItemStack>, cursor: &mut Option<ItemStack>, items: &ItemRegistry) {
+fn place_one(
+    slot: &mut Option<ItemStack>,
+    cursor: &mut Option<ItemStack>,
+    items: &ItemRegistry,
+    mult: u32,
+) {
     let Some(held) = cursor.as_mut() else { return };
     match slot {
         None => {
             *slot = Some(ItemStack { count: 1, ..*held });
         }
-        Some(stack) if stackable(stack, held) && stack.count < items.get(stack.item).max_stack => {
+        Some(stack)
+            if stackable(stack, held) && stack.count < items.get(stack.item).max_stack * mult =>
+        {
             stack.count += 1;
         }
         Some(_) => return,
@@ -175,14 +196,20 @@ fn place_one(slot: &mut Option<ItemStack>, cursor: &mut Option<ItemStack>, items
     }
 }
 
-/// Le clic gauche : toute la pile.
-fn click_whole(slot: &mut Option<ItemStack>, cursor: &mut Option<ItemStack>, items: &ItemRegistry) {
+/// Le clic gauche : toute la pile. Dans une case à piles `mult` fois plus grandes, la main ne
+/// prend jamais plus que la taille normale, et un échange qui ferait déborder est refusé.
+fn click_whole(
+    slot: &mut Option<ItemStack>,
+    cursor: &mut Option<ItemStack>,
+    items: &ItemRegistry,
+    mult: u32,
+) {
     match (slot.as_mut(), cursor.as_mut()) {
         // Même objet, empilable : on complète la pile de la case.
         (Some(stack), Some(held))
             if stack.item == held.item && held.damage == 0 && stack.damage == 0 =>
         {
-            let max = items.get(stack.item).max_stack;
+            let max = items.get(stack.item).max_stack * mult;
             let moved = held.count.min(max.saturating_sub(stack.count));
             stack.count += moved;
             held.count -= moved;
@@ -190,7 +217,14 @@ fn click_whole(slot: &mut Option<ItemStack>, cursor: &mut Option<ItemStack>, ite
                 *cursor = None;
             }
         }
-        // Sinon (prendre, poser, ou deux objets différents) : on échange.
+        // Une pile plus grande que la main ne peut porter : on en prend ce qui tient.
+        (Some(stack), None) if stack.count > items.get(stack.item).max_stack => {
+            let n = items.get(stack.item).max_stack;
+            take(slot, cursor, items, n);
+        }
+        // Échanger deux piles différentes : seulement si la grosse pile tient dans la main.
+        (Some(stack), Some(_)) if stack.count > items.get(stack.item).max_stack => {}
+        // Sinon (prendre, poser) : on échange.
         _ => std::mem::swap(slot, cursor),
     }
 }
@@ -373,6 +407,9 @@ impl Inventory {
         if !room {
             return false;
         }
+        // Un sac qui monte de palier garde son numéro, donc son contenu.
+        let inherited =
+            crate::backpacks::inherited_number(self.craft.iter().flatten().copied(), item, items);
         for i in 0..size * size {
             let cell = &mut self.craft[(i / size) * 3 + i % size];
             if let Some(stack) = cell {
@@ -384,7 +421,12 @@ impl Inventory {
         }
         match &mut self.cursor {
             Some(held) => held.count += count,
-            None => self.cursor = Some(ItemStack::new(item, count)),
+            None => {
+                self.cursor = Some(ItemStack {
+                    damage: inherited,
+                    ..ItemStack::new(item, count)
+                })
+            }
         }
         true
     }
@@ -470,6 +512,12 @@ impl Inventory {
     /// résultat. Renvoie le reste qui n'a pas trouvé de place (0 si tout est rangé).
     pub fn craft_from_book(&mut self, recipe: &Recipe, items: &ItemRegistry) -> Option<u32> {
         let taken = self.find_ingredients(&recipe.ingredients())?;
+        let (item, count) = recipe.result();
+        let inherited = crate::backpacks::inherited_number(
+            taken.iter().filter_map(|&i| self.slots[i]),
+            item,
+            items,
+        );
         for i in taken {
             let slot = &mut self.slots[i];
             if let Some(stack) = slot {
@@ -479,8 +527,13 @@ impl Inventory {
                 }
             }
         }
-        let (item, count) = recipe.result();
-        Some(self.add(item, count, items))
+        Some(self.add_stack(
+            ItemStack {
+                damage: inherited,
+                ..ItemStack::new(item, count)
+            },
+            items,
+        ))
     }
 
     /// Pour `world.ron` : une palette d'identifiants et des cases qui y renvoient.

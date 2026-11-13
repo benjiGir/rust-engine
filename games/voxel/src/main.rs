@@ -6,7 +6,7 @@
 //! `assets/core/` et des mods (`mods/<nom>/`).
 //! - Clic gauche : capturer la souris, puis casser le bloc visé ou frapper une créature.
 //!   Clic droit : poser le bloc choisi. Touches 1 à 9 : choisir la case de la barre.
-//! - E : ouvrir l'inventaire (déplacer les piles à la souris). F3 : l'inspecteur.
+//! - E : ouvrir l'inventaire (déplacer les piles à la souris). B : le sac à dos. F3 : l'inspecteur.
 //! - ZQSD (AZERTY) ou WASD (QWERTY) : se déplacer. Espace : sauter (en vol : monter).
 //!   Maj : descendre (en vol). Ctrl gauche : courir.
 //! - F : basculer entre marche et vol libre. Dans l'eau, Espace fait remonter.
@@ -36,10 +36,12 @@
 
 mod assets;
 mod audio;
+mod backpacks;
 mod bench;
 mod breeding;
 mod cart_play;
 mod carts;
+mod chest_preview;
 mod components;
 mod console;
 mod content;
@@ -83,9 +85,12 @@ mod skin;
 mod soundscape;
 mod spawning;
 mod stats;
+mod storage_ctl;
+mod storage_ui;
 mod stress;
 mod survival;
 mod trading;
+mod transfer;
 mod ui;
 mod ui_info;
 mod ui_input;
@@ -248,6 +253,8 @@ struct VoxelGame {
     store: Option<Arc<engine_voxel::SaveStore>>,
     /// Les dimensions du monde et celle où l'on est (voir `dimensions.rs`).
     dims: dimensions::Dimensions,
+    /// Le contenu des sacs à dos du monde (voir `backpacks.rs`).
+    backpacks: backpacks::BackpackStore,
     last_autosave: Instant,
     save_started: Instant,
     /// Le lancement du jeu (pour animer le vent).
@@ -516,6 +523,7 @@ impl VoxelGame {
             content.items.clone(),
             content.smelting.clone(),
             content.brewing.clone(),
+            &content.recipes,
         );
         // Les structures mobiles du monde : relues, et leurs machines redémarrent.
         if let Some(store) = &store {
@@ -725,6 +733,9 @@ impl VoxelGame {
             trades,
             base_fog: (view_distance * 0.6, view_distance * 0.95),
             store,
+            backpacks: dims.meta_store.as_ref().map_or_else(Default::default, |s| {
+                backpacks::BackpackStore::load(s.dir())
+            }),
             dims,
             last_autosave: Instant::now(),
             save_started: Instant::now(),
@@ -786,6 +797,7 @@ impl VoxelGame {
         // Les machines : un tick tous les 3 pas (20 par seconde).
         let eye = player::eye(&self.ecs, self.player, 1.0);
         self.pick_up_drops(ctx.fixed_dt);
+        self.update_backpacks(ctx.fixed_dt);
         let (actions, machine_tick) = self.mods.fixed_step(eye);
         self.apply_machine_actions(actions);
         let snapshot = self.player_snapshot();
@@ -1405,62 +1417,6 @@ impl VoxelGame {
         self.break_block(hit.block_pos).then_some(hit.block_pos)
     }
 
-    /// Un clic droit sur un établi, un four ou un coffre ouvre son écran. `true` si c'est fait.
-    fn open_container(&mut self) -> bool {
-        let Some(hit) = self.target else { return false };
-        let block = self.streamer().world().block(hit.block_pos);
-        let screen = match self.registry.def(block).behavior.as_deref() {
-            Some("core:chest") => ui::Screen::Chest(hit.block_pos),
-            Some("core:furnace") => ui::Screen::Furnace(hit.block_pos),
-            Some("core:brewing_stand") => ui::Screen::Brewing(hit.block_pos),
-            _ if self.registry.def(block).key == "core:workbench" => ui::Screen::Workbench,
-            _ if self.registry.def(block).key == "core:enchanting_table" => ui::Screen::Enchant,
-            _ => return false,
-        };
-        // Un conteneur ancien (ou posé par un mod) n'a peut-être pas encore son inventaire.
-        if let Some(slots) = engine_voxel::container_slots(&self.registry, block) {
-            let mut streamer = self.streamer_mut();
-            if streamer
-                .block_entity(hit.block_pos)
-                .and_then(|e| e.caps.as_ref()?.inventory.as_ref())
-                .is_none()
-            {
-                let mut entity = streamer
-                    .block_entity(hit.block_pos)
-                    .cloned()
-                    .unwrap_or_default();
-                entity.caps_mut().inventory = Some(engine_voxel::Inventory::new(slots));
-                streamer.set_block_entity(hit.block_pos, Some(entity));
-            }
-        }
-        self.ui.screen = screen;
-        self.ui.inventory_open = true;
-        true
-    }
-
-    /// Les objets d'un coffre ou d'un four (vide pour un autre bloc).
-    fn container_contents(&self, pos: IVec3) -> Vec<inventory::ItemStack> {
-        let streamer = self.streamer();
-        let Some(inventory) = streamer
-            .block_entity(pos)
-            .and_then(|e| e.caps.as_ref()?.inventory.clone())
-        else {
-            return Vec::new();
-        };
-        inventory
-            .slots
-            .into_iter()
-            .flatten()
-            .filter_map(|s| {
-                Some(inventory::ItemStack {
-                    item: self.content.items.id(&s.item)?,
-                    count: s.count,
-                    damage: s.damage,
-                })
-            })
-            .collect()
-    }
-
     /// Le minage, à chaque image où le bouton gauche est tenu : l'avancement grandit selon
     /// la dureté du bloc et l'outil en main ; à 1, le bloc casse.
     fn mine(&mut self, dt: f32) {
@@ -1592,7 +1548,7 @@ impl VoxelGame {
     fn pick_up_drops(&mut self, dt: f32) {
         let feet = player::body(&self.ecs, self.player).position;
         for (entity, stack) in drops::update(&mut self.ecs, feet, dt) {
-            let left = self.inventory.add_stack(stack, &self.content.items);
+            let left = self.collect_stack(stack);
             if left < stack.count {
                 if let Some(audio) = &mut self.audio {
                     audio.play("core:place_soft");

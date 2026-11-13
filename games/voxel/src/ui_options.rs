@@ -90,6 +90,7 @@ fn controls(ui: &mut egui::Ui, s: &mut Settings, waiting: &mut Option<Action>, t
                 &mut s.target_info,
                 "Identifier le bloc ou la créature visée",
             );
+            ui.checkbox(&mut s.chest_preview, "Aperçu des coffres");
             ui.checkbox(&mut s.show_arm, "Afficher le bras");
             row(ui, "Vitesse max. des wagons (blocs/s)", |ui| {
                 ui.add(egui::Slider::new(&mut s.cart_max_speed, 1.0..=30.0).step_by(0.5));

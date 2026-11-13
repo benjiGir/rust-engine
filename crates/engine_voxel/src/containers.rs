@@ -16,7 +16,7 @@ use std::sync::Arc;
 use crate::block::BlockId;
 use crate::capabilities::{Inventory, ItemStack};
 use crate::chunk::BlockEntity;
-use crate::crafting::{Brewing, Smelting};
+use crate::crafting::{Brewing, Recipes, Smelting};
 use crate::grid::GridPos;
 use crate::items::ItemRegistry;
 use crate::machines::{BlockBehavior, MachineContext, Machines};
@@ -333,15 +333,20 @@ pub fn register(
     items: Arc<ItemRegistry>,
     smelting: Arc<Smelting>,
     brewing: Arc<Brewing>,
+    recipes: &Recipes,
 ) {
+    let storage = std::rc::Rc::new(crate::storage::StorageChest::new(items.clone(), recipes));
+    let controller = std::rc::Rc::new(crate::storage::Controller);
     let stand = std::rc::Rc::new(BrewingStand::new(items.clone(), brewing));
     let furnace = std::rc::Rc::new(Furnace::new(items, smelting));
-    let chest = std::rc::Rc::new(Chest);
     let loader = std::rc::Rc::new(Loader);
     for (id, def) in blocks.iter() {
         match def.behavior.as_deref() {
             Some("core:furnace") => machines.register(id, furnace.clone()),
-            Some("core:chest") => machines.register(id, chest.clone()),
+            Some(b) if crate::storage::chest_layout(b).is_some() => {
+                machines.register(id, storage.clone())
+            }
+            Some(crate::storage::CONTROLLER_KEY) => machines.register(id, controller.clone()),
             Some("core:cart_loader" | "core:cart_unloader") => {
                 machines.register(id, loader.clone())
             }
@@ -354,7 +359,9 @@ pub fn register(
 /// Le bloc en `pos` est-il un conteneur, et de combien de cases ?
 pub fn container_slots(blocks: &BlockRegistry, block: BlockId) -> Option<usize> {
     match blocks.def(block).behavior.as_deref() {
-        Some("core:chest") => Some(CHEST_SLOTS),
+        Some(b) if crate::storage::chest_layout(b).is_some() => {
+            crate::storage::chest_layout(b).map(|l| l.total())
+        }
         Some("core:cart_loader" | "core:cart_unloader") => Some(LOADER_SLOTS),
         Some("core:furnace" | "core:brewing_stand") => Some(3),
         _ => None,

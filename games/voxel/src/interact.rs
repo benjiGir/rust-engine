@@ -27,6 +27,16 @@ impl VoxelGame {
         {
             self.throw_selected();
         }
+        // Le sac à dos : la même touche l'ouvre (le premier sac de l'inventaire) et le referme.
+        if input.key_pressed(self.settings.keys.key(Action::Backpack))
+            && !self.ui.ctx.egui_wants_keyboard_input()
+        {
+            if self.ui.inventory_open && matches!(self.ui.screen, ui::Screen::Bag(_)) {
+                self.close_screen();
+            } else if self.mouse_captured && !self.ui.inventory_open {
+                self.open_first_bag();
+            }
+        }
         if input.key_pressed(self.settings.keys.key(Action::Time)) {
             self.day.cycle_speed();
             log::info!("temps {} ({})", self.day.speed.name(), self.day.clock());
