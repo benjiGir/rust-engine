@@ -536,7 +536,8 @@ impl Neighbourhood {
     /// Exceptions : les plantes (formes autres que le cube) n'ont pas de faces de cube ;
     /// deux feuilles côte à côte gardent leurs faces (on voit à travers leurs trous),
     /// sauf au cœur du feuillage (culling des feuilles) ; deux liquides côte à côte (l'eau
-    /// et des algues) n'en ont pas entre eux.
+    /// et des algues) n'en ont pas entre eux ; un bloc translucide (glace, verre) n'a pas de
+    /// face contre un liquide, dont la surface est déjà dessinée.
     #[inline]
     fn visible_face(&self, p: IVec3, face: Face) -> Option<BlockId> {
         let block = self.get(p);
@@ -553,6 +554,14 @@ impl Neighbourhood {
         }
         let other = self.registry.def(neighbour);
         if def.liquid && other.liquid {
+            return None;
+        }
+        // Le dessous de la glace sur l'eau : les faces translucides ne s'écrivent pas dans la
+        // profondeur, l'ordre de dessin décide de la couleur. Dans un chunk, chaque colonne
+        // pose le dessus de la glace puis son dessous (plus sombre, éclairé par l'eau) : le
+        // dessous passait par-dessus. D'un chunk à l'autre l'ordre s'inverse, et la banquise se
+        // couvrait d'un quadrillage de bandes claires le long des bordures de chunks.
+        if other.liquid && self.registry.is_translucent(block) {
             return None;
         }
         // Culling des feuilles : une feuille entourée de feuilles (ou de blocs pleins) est
@@ -1274,6 +1283,25 @@ mod tests {
             .chunks(4)
             .filter(|q| q[0].normal() == normal)
             .collect()
+    }
+
+    /// La glace posée sur l'eau n'a pas de face du dessous (ni la vitre contre l'eau) : la
+    /// surface de l'eau suffit, et l'ordre de dessin des faces translucides ne change plus
+    /// la couleur d'un chunk à l'autre.
+    #[test]
+    fn translucent_blocks_have_no_face_against_a_liquid() {
+        let mut world = World::new();
+        let (water, ice) = (id("core:water"), id("core:ice"));
+        world.set_block(IVec3::new(4, 4, 4), water);
+        world.set_block(IVec3::new(4, 5, 4), ice);
+        let mesh = mesh_culled(&world, IVec3::ZERO);
+        let down = quads_facing(&mesh, -Vec3::Y);
+        let up = quads_facing(&mesh, Vec3::Y);
+        // Vers le bas : seulement le dessous de l'eau, pas celui de la glace.
+        assert_eq!(down.len(), 1);
+        assert!(mesh.world_position(&down[0][0]).y < 4.5);
+        // Vers le haut : le dessus de la glace et la surface de l'eau sous elle.
+        assert_eq!(up.len(), 2);
     }
 
     #[test]
