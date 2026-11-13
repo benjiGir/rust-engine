@@ -112,6 +112,9 @@ pub struct BlockDef {
     /// Un portail : le joueur qui s'y tient quelques secondes passe dans cette dimension
     /// (`mon_mod:ma_dimension`, ou `core:overworld` pour revenir).
     pub portal: Option<String>,
+    /// Ce bloc est un rail (voir `rails.rs`) : sa forme est calculée depuis les rails voisins.
+    /// Son dessin est un panneau posé au sol (`Shape::Rail`), orienté selon cette forme.
+    pub rail: Option<crate::rails::RailKind>,
     /// Le débit d'un conduit : au plus ce nombre d'unités par passage (le plus faible du réseau
     /// l'emporte). Sans valeur : le débit par défaut de la sorte.
     pub throughput: Option<u32>,
@@ -314,6 +317,10 @@ pub enum Shape {
     /// engrenages, tout ce qui n'est pas un cube plein. Sert aussi à la collision et à la
     /// sélection.
     Model,
+    /// Un rail : un panneau texturé au ras du sol, tourné et incliné selon sa forme (rangée dans
+    /// l'état du bloc, voir `rails.rs`). `textures` : dessus = rail droit, côtés = virage. La
+    /// sélection se fait sur une dalle très fine ; le joueur le traverse.
+    Rail,
 }
 
 /// La teinte qui dépend du biome (multipliée à la couleur de la texture).
@@ -432,6 +439,9 @@ struct BlockFileEntry {
     channel: Option<String>,
     #[serde(default)]
     portal: Option<String>,
+    /// `rail: Normal` (ou `Booster`, `Detector`, `Activator`, `Stop`) : le bloc est un rail.
+    #[serde(default)]
+    rail: Option<crate::rails::RailKind>,
     #[serde(default)]
     throughput: Option<u32>,
     #[serde(default)]
@@ -509,6 +519,7 @@ impl BlockRegistry {
             conduit: None,
             channel: None,
             portal: None,
+            rail: None,
             throughput: None,
             ports: None,
             directed: false,
@@ -706,7 +717,20 @@ impl BlockRegistry {
                 crate::connections::ConnectedShape::new(size).map(Arc::new)
             }).transpose().with_context(||format!("{origin} : {}",entry.id))?;
             // L'objet et l'icône montrent un segment droit ; dans le monde, les voisins décident.
-            let boxes = if let Some(shape) = &connections {
+            let boxes = if entry.rail.is_some() {
+                anyhow::ensure!(
+                    entry.boxes.is_empty()
+                        && entry.states.is_empty()
+                        && entry.connections.is_none(),
+                    "{origin} : « {} » : un rail n'a ni boîtes, ni états, ni connexions",
+                    entry.id
+                );
+                // La sélection : une dalle très fine au ras du sol.
+                vec![BlockBox {
+                    min: Vec3::ZERO,
+                    max: Vec3::new(1.0, 0.125, 1.0),
+                }]
+            } else if let Some(shape) = &connections {
                 shape.boxes(3).to_vec()
             } else {
                 parse_boxes(&entry, origin)?
@@ -737,7 +761,8 @@ impl BlockRegistry {
                 key: entry.id,
                 name: entry.name,
                 color: [r, g, b],
-                solid: entry.solid,
+                // Un rail se traverse.
+                solid: entry.solid && entry.rail.is_none(),
                 // Une forme à boîtes ne remplit pas son cube : les voisins gardent leurs faces.
                 transparent: entry.transparent || model,
                 selectable: entry.selectable,
@@ -751,8 +776,14 @@ impl BlockRegistry {
                 behavior: entry.behavior.as_ref().map(|b| qualify(b, namespace)),
                 fluid: entry.fluid.as_ref().map(|f| qualify(f, namespace)),
                 unbreakable: entry.unbreakable,
-                shape: if model { Shape::Model } else { entry.shape },
-                cutout: entry.cutout,
+                shape: if entry.rail.is_some() {
+                    Shape::Rail
+                } else if model {
+                    Shape::Model
+                } else {
+                    entry.shape
+                },
+                cutout: entry.cutout || entry.rail.is_some(),
                 tint: entry.tint,
                 sway: entry.sway,
                 rotation: entry.rotation.clone(),
@@ -773,6 +804,7 @@ impl BlockRegistry {
                 conduit: entry.conduit,
                 channel: entry.channel.as_ref().map(|c| qualify(c, namespace)),
                 portal: entry.portal.as_ref().map(|p| qualify(p, namespace)),
+                rail: entry.rail,
                 throughput: entry.throughput,
                 ports: entry.ports.clone().map(|mut p| {
                     p.accepts = p.accepts.map(|a| qualify(&a, namespace));
@@ -1240,7 +1272,7 @@ pub(crate) mod tests {
         assert!(!registry.is_solid(BlockId::AIR) && registry.is_transparent(BlockId::AIR));
         assert_eq!(
             registry.placeable().count(),
-            94,
+            101,
             "sans l'air, l'eau, la lave, le socle, l'inconnu, la lampe allumée et les états actifs"
         );
         let water = registry.id("core:water").unwrap();

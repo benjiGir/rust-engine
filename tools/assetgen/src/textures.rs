@@ -13,6 +13,7 @@ mod items;
 mod machines;
 mod mod_assets;
 mod nature;
+mod rails;
 mod workstations;
 use items::item_icons;
 
@@ -1468,6 +1469,7 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         machines::draw("machine_frame", false),
     ));
     textures.extend(item_icons(&root.join("assets/core/items")));
+    textures.extend(rails::generate(&core, &root.join("assets/core/items")));
     for kind in ["shaft", "gear", "crank", "press", "belt"] {
         textures.push((
             root.join(format!("mods/mecanique/textures/{kind}.png")),

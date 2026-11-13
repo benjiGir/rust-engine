@@ -335,6 +335,31 @@ impl MachineContext<'_> {
         }
     }
 
+    /// Le bloc en `at` est-il un rail ?
+    pub fn block_is_rail(&self, at: GridPos) -> bool {
+        self.grids.get(at.grid).is_some_and(|g| {
+            let g = g.borrow();
+            g.registry().def(g.block(at.pos)).rail.is_some()
+        })
+    }
+
+    /// Prévient les rails voisins en diagonale (un cran plus haut ou plus bas) : leur forme
+    /// dépend de ce bloc, mais `notify_neighbors` ne leur parle pas.
+    pub(crate) fn notify_rail_ring(&mut self, at: GridPos) {
+        let Some(grid) = self.grids.get(at.grid) else {
+            return;
+        };
+        let grid = grid.borrow();
+        for side in crate::rails::SIDES {
+            for k in [-1, 1] {
+                let next = at.offset(side + IVec3::Y * k);
+                if grid.registry().def(grid.block(next.pos)).rail.is_some() {
+                    self.scheduler.neighbors.push(next);
+                }
+            }
+        }
+    }
+
     /// La puissance émise par le bloc (0 s'il n'est pas actif).
     pub fn power(&self, at: GridPos) -> u8 {
         self.grids.read(at, |e| e.power).unwrap_or(0)
@@ -407,7 +432,13 @@ impl Machines {
         let farmland: Option<Rc<dyn BlockBehavior>> =
             crate::farming::Farmland::new(registry).map(|f| Rc::new(f) as _);
         let crop: Rc<dyn BlockBehavior> = Rc::new(crate::farming::Crop);
+        let rail: Rc<dyn BlockBehavior> = Rc::new(crate::rails::RailBehavior);
         for (id, def) in registry.iter() {
+            // Un rail (`rail:` dans blocs.ron) : sa forme suit ses voisins.
+            if def.rail.is_some() {
+                machines.register(id, rail.clone());
+                continue;
+            }
             // Un conduit déclaré par un mod (`conduit: Kinetic`) : le même comportement.
             if def.conduit.is_some() {
                 machines.register(id, conduit.clone());
@@ -627,6 +658,23 @@ impl Machines {
         self.context(grids, &mut actions).notify_neighbors(at);
     }
 
+    /// Change la puissance émise par un bloc actif (le détecteur de rail) et prévient ses voisins
+    /// si elle a changé. `false` : rien n'a changé (ou le bloc n'a pas d'état).
+    pub fn set_power(&mut self, grids: Grids, at: GridPos, power: u8) -> bool {
+        let changed = grids
+            .write(at, |e| {
+                let changed = e.power != power;
+                e.power = power;
+                changed
+            })
+            .unwrap_or(false);
+        if changed {
+            let mut actions = Vec::new();
+            self.context(grids, &mut actions).notify_neighbors(at);
+        }
+        changed
+    }
+
     /// Un bloc du monde a changé (le joueur l'a posé ou cassé) : le nouveau bloc démarre
     /// s'il est actif, et les voisins sont prévenus.
     pub fn block_changed(
@@ -648,6 +696,7 @@ impl Machines {
         let block = grids.block(at);
         let mut ctx = self.context(grids, actions);
         ctx.notify_neighbors(at);
+        ctx.notify_rail_ring(at);
         if let Some(behavior) = self.behaviors.get(&block).cloned() {
             let mut ctx = self.context(grids, actions);
             behavior.placed(&mut ctx, &[at]);

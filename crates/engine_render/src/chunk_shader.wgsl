@@ -57,6 +57,7 @@ const FLAG_ROTATE: u32 = 524288u;
 const FLAG_FURNACE_FIRE: u32 = 1048576u;
 const FLAG_GROUND: u32 = 2097152u;
 const FLAG_WATER: u32 = 4194304u;   // 1 << 22 : eau libre, animée
+const TURN_SHIFT: u32 = 23u;        // 2 bits : quarts de tour de la texture (les rails)
 const TEXTURE_MASK: u32 = 65535u;
 
 struct VertexOut {
@@ -203,6 +204,16 @@ fn fall_streaks(along: f32, down: f32, t: f32) -> f32 {
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let time = camera.sun_color.w;
     var uv = face_uv(in.tex_position, in.tex_normal);
+    // Un rail : le même dessin tourné d'un, deux ou trois quarts de tour (sens horaire, vu d'en haut).
+    let turns = (in.flags >> TURN_SHIFT) & 3u;
+    if turns != 0u {
+        let cell = floor(uv);
+        var t = uv - cell;
+        for (var i = 0u; i < turns; i++) {
+            t = vec2<f32>(t.y, 1.0 - t.x);
+        }
+        uv = cell + t;
+    }
     let is_water = (in.flags & FLAG_WATER) != 0u;
     var wp = in.world_position.xz;
     // Le courant : sur le dessus d'une eau libre, la normale est inclinée par la pente de la

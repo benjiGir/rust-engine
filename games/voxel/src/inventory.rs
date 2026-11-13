@@ -559,6 +559,46 @@ impl Inventory {
     }
 }
 
+/// Un petit nécessaire pour un nouveau monde : de quoi s'éclairer et construire.
+pub fn starter_inventory(items: &ItemRegistry) -> Inventory {
+    let mut inventory = Inventory::default();
+    for (key, count) in [
+        ("core:stone_pickaxe", 1),
+        ("core:stone_axe", 1),
+        ("core:stone_shovel", 1),
+        ("core:torch", 32),
+        ("core:oak_log", 16),
+        ("core:workbench", 1),
+        ("core:furnace", 1),
+        ("core:chest", 1),
+        ("core:coal", 8),
+        ("core:raw_iron", 6),
+        ("core:shears", 1),
+        ("core:oak_sapling", 4),
+        ("core:glass", 16),
+        ("core:glowstone", 8),
+        // De quoi construire un mécanisme : horloge → lampe, horloge → casseur.
+        ("core:clock", 4),
+        ("core:lamp", 4),
+        // Les circuits (phase O8).
+        ("core:wire", 32),
+        ("core:lever", 4),
+        ("core:button", 4),
+        ("core:repeater", 2),
+        ("core:inverter", 2),
+        ("core:gate", 2),
+        ("core:piston", 2),
+        ("core:sticky_piston", 2),
+        ("example:breaker", 2),
+        ("example:ruby", 4),
+    ] {
+        if let Some(id) = items.id(key) {
+            inventory.add(id, count, items);
+        }
+    }
+    inventory
+}
+
 #[cfg(test)]
 mod tests {
     use engine_voxel::{BlockRegistry, Recipes};

@@ -232,6 +232,15 @@ impl ModSystem {
         (actions, Some(report))
     }
 
+    /// Change la puissance émise par un bloc actif du monde (un rail détecteur, un chargeur) et
+    /// prévient ses voisins. `true` si elle a changé.
+    pub fn set_power(&mut self, pos: IVec3, power: u8) -> bool {
+        let subs = self.subgrids.borrow();
+        let grids = Grids::with_subgrids(&self.world, &subs);
+        self.machines
+            .set_power(grids, engine_voxel::GridPos::world(pos), power)
+    }
+
     /// Le joueur a changé un bloc.
     pub fn block_changed(&mut self, pos: IVec3) -> Vec<MachineAction> {
         let mut actions = Vec::new();

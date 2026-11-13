@@ -45,6 +45,13 @@
         (id: "core:potion_speed", name: "Potion de vitesse", category: Food, color: (0.2255, 0.4007, 0.4153), icon: "potion_speed", max_stack: 8, food: (nutrition: 0.0, saturation: 0.0)),
         (id: "core:potion_strength", name: "Potion de force", category: Food, color: (0.2603, 0.2481, 0.2373), icon: "potion_strength", max_stack: 8, food: (nutrition: 0.0, saturation: 0.0)),
         (id: "core:potion_fire_resistance", name: "Potion de résistance au feu", category: Food, color: (0.3796, 0.3143, 0.2373), icon: "potion_fire_resistance", max_stack: 8, food: (nutrition: 0.0, saturation: 0.0)),
+        // Les wagons sur rails et leur attelage (voir `carts.rs`) : un clic droit sur un rail pose le
+        // wagon ; l'attelage se clique sur un wagon, puis sur un autre.
+        (id: "core:minecart", name: "Wagonnet", category: Tool, color: (0.2211, 0.2448, 0.2461), icon: "minecart", max_stack: 1),
+        (id: "core:chest_cart", name: "Wagon coffre", category: Tool, color: (0.2096, 0.2062, 0.1886), icon: "chest_cart", max_stack: 1),
+        (id: "core:hopper_cart", name: "Wagon trémie", category: Tool, color: (0.1755, 0.1957, 0.1991), icon: "hopper_cart", max_stack: 1),
+        (id: "core:locomotive", name: "Locomotive", category: Tool, color: (0.122, 0.028, 0.0333), icon: "locomotive", max_stack: 1),
+        (id: "core:coupler", name: "Attelage", category: Tool, color: (0.1814, 0.2025, 0.2282), icon: "coupler", max_stack: 1),
         (id: "core:fertilizer", name: "Engrais", category: Material, color: (0.1093, 0.0701, 0.0332), icon: "fertilizer"),
         (id: "core:flint", name: "Silex", category: Material, color: (0.0478, 0.0500, 0.0624), icon: "flint"),
         // Le butin des créatures (phase O5).

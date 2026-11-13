@@ -1170,4 +1170,56 @@
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 1.25, tool: Pickaxe, tier: 1,
     ),
+    // ----- Les rails et le chargement des wagons -----
+    // Un rail se traverse (`solid: false`) ; sa forme (droite, montée, virage) est calculée depuis
+    // les rails voisins. Dessus : le rail droit, côtés : le virage (voir `rails.rs`).
+    (
+        id: "core:rail", name: "Rail", color: (0.1829, 0.1873, 0.1606),
+        textures: (top: "rail", side: "rail_curve", bottom: "rail"),
+        rail: Normal, solid: false, support: Floor,
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
+        hardness: 0.7, tool: Pickaxe,
+    ),
+    (
+        id: "core:booster_rail", name: "Rail accélérateur", color: (0.4235, 0.2389, 0.0547), texture: "booster_rail",
+        rail: Booster, solid: false, support: Floor,
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
+        hardness: 0.7, tool: Pickaxe,
+    ),
+    (
+        id: "core:detector_rail", name: "Rail détecteur", color: (0.2151, 0.2357, 0.2172), texture: "detector_rail",
+        rail: Detector, solid: false, support: Floor,
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
+        hardness: 0.7, tool: Pickaxe,
+    ),
+    (
+        id: "core:activator_rail", name: "Rail activateur", color: (0.2387, 0.0422, 0.0275), texture: "activator_rail",
+        rail: Activator, solid: false, support: Floor,
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
+        hardness: 0.7, tool: Pickaxe,
+    ),
+    (
+        id: "core:buffer_stop", name: "Butoir", color: (0.1897, 0.1909, 0.1616), texture: "buffer_stop",
+        rail: Stop, solid: false, support: Floor,
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
+        hardness: 0.7, tool: Pickaxe,
+    ),
+    // Le chargeur remplit le wagon coffre ou trémie arrêté sur un rail voisin ; le déchargeur le
+    // vide. Chacun a neuf cases, branchables aux tuyaux d'objets, et émet un signal une fois fini.
+    (
+        id: "core:cart_loader", name: "Chargeur de wagon", color: (0.1596, 0.1302, 0.0856),
+        textures: (top: "cart_loader_top", side: "cart_loader_side", bottom: "cart_loader_top"),
+        behavior: "core:cart_loader",
+        ports: (inputs: [0, 1, 2, 3, 4, 5, 6, 7, 8], outputs: []),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
+        hardness: 2.0, tool: Pickaxe,
+    ),
+    (
+        id: "core:cart_unloader", name: "Déchargeur de wagon", color: (0.0778, 0.1326, 0.1054),
+        textures: (top: "cart_unloader_top", side: "cart_unloader_side", bottom: "cart_unloader_top"),
+        behavior: "core:cart_unloader",
+        ports: (inputs: [], outputs: [0, 1, 2, 3, 4, 5, 6, 7, 8]),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
+        hardness: 2.0, tool: Pickaxe,
+    ),
 ]

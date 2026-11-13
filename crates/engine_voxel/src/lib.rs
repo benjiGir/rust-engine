@@ -40,6 +40,9 @@ mod networks;
 mod pathfind;
 mod physics;
 mod plants;
+mod rail_motion;
+mod rail_save;
+mod rails;
 mod raycast;
 mod recipe_index;
 mod registry;
@@ -64,7 +67,7 @@ pub use circuits::{FACINGS, PUSH_LIMIT, facing_of, placement_state};
 pub use connections::ConnectedShape;
 pub use containers::{
     BREW_INPUT, BREW_OUTPUT, BREW_REAGENT, CHEST_SLOTS, Chest, FURNACE_FUEL, FURNACE_INPUT,
-    FURNACE_OUTPUT, Furnace, FurnaceState, brew_progress, container_slots,
+    FURNACE_OUTPUT, Furnace, FurnaceState, LOADER_SLOTS, brew_progress, container_slots,
     register as register_containers,
 };
 pub use crafting::{
@@ -98,8 +101,8 @@ pub use machines::{
     Machines, Scheduler, TickReport, received_power,
 };
 pub use mesh::{
-    ChunkMesh, FLAG_CUTOUT, FLAG_FILLED, FLAG_SWAY, MeshVertex, Mesher, Neighbourhood,
-    TEXTURE_MASK, mesh_culled, mesh_greedy,
+    ChunkMesh, FLAG_CUTOUT, FLAG_FILLED, FLAG_SWAY, FLAG_TURN_SHIFT, MeshVertex, Mesher,
+    Neighbourhood, TEXTURE_MASK, mesh_culled, mesh_greedy,
 };
 pub use networks::{
     ENERGY_RATE, Endpoint, FLUID_RATE, Network, NetworkKind, NetworkStats, Networks,
@@ -107,6 +110,14 @@ pub use networks::{
 pub use pathfind::{Path, PathRules, find_path};
 pub use physics::{GRAVITY, PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
 pub use plants::{Precipitation, precipitation_at};
+pub use rail_motion::{
+    DEFAULT_MAX_SPEED, Derail, Drive, MAX_STEP, RailMotion, SPEED_LIMIT, bump, couple,
+};
+pub use rail_save::{SavedCart, SavedRail, load_carts, save_carts};
+pub use rails::{
+    RAIL_HEIGHT, Rail, RailBehavior, RailEnd, RailKind, RailShape, SIDES as RAIL_SIDES,
+    choose_shape, follow as follow_rail, links as rail_links, rail_at,
+};
 pub use raycast::{RayHit, ray_aabb, raycast};
 pub use recipe_index::{Choice, RecipeCategory, RecipeIndex, RecipeLayout, RecipeView};
 pub use registry::{

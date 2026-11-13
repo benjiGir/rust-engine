@@ -225,6 +225,48 @@ Limites : une structure assemblée ne se modifie pas (on la repose d'abord) ; sa
 celle du plein ciel (pas d'ombres) ; pas de collisions entre structures ; pas de fluides dans
 une structure.
 
+### Wagonnets et rails (fait : `rails.rs`, `rail_motion.rs`, `rail_save.rs`, `games/voxel/src/carts.rs`)
+
+Les rails sont des **blocs actifs** (`rail: Normal | Booster | Detector | Activator | Stop` dans
+`blocks.ron`, un mod peut donc ajouter les siens) ; les wagons sont des **entités ECS** : ce qui est
+fixé dans la grille est un bloc, ce qui roule librement est une entité.
+
+- **Forme d'un rail** (`rails.rs`) : dix formes (deux droites, quatre montées, quatre virages),
+  calculées depuis les rails voisins à la pose et au changement d'un voisin, comme les raccords des
+  conduits, puis rangées dans `BlockEntity::data` (`data[0]` : la forme, `data[1]` : alimenté).
+  Aucune variante de bloc n'est sauvegardée. Un voisin n'est relié que s'il accepte le lien (il
+  pointe déjà vers le rail, ou une de ses extrémités ne mène nulle part) : deux voies parallèles ne
+  se tordent pas l'une vers l'autre. Avec trois liens, c'est un aiguillage : droit sans signal,
+  virage avec. Le chemin dans le bloc (segment ou quart de cercle), sa tangente et la sortie vers le
+  bloc suivant (une marche plus haut ou plus bas) sont des fonctions pures et testées.
+- **Rendu** : `Shape::Rail`, un panneau au ras du sol dont le mailleur choisit la texture (droite ou
+  virage) et le nombre de quarts de tour (`FLAG_TURN_SHIFT`, lu par le shader) ; la montée est
+  inclinée. Sélection : une dalle très fine ; le joueur le traverse (`solid: false`).
+- **Signal** : l'accélérateur, l'activateur, le butoir et l'aiguillage lisent `received_power` ; le
+  détecteur émet 15 tant qu'un wagon roule dessus (`Machines::set_power`, appelé par le jeu).
+- **Physique** (`rail_motion.rs`) : une abscisse et une vitesse signée le long du chemin du rail
+  courant, en sous-pas de 0,5 bloc au plus (aucun rail sauté, même à 30 blocs par seconde) ;
+  gravité dans les pentes, frottement, accélérateur alimenté (pousse) ou non (retient), butoir
+  (arrêt au milieu du bloc), vitesse maximale réglable (8 par défaut, 30 au plus). Au bout de la
+  voie le wagon déraille : le jeu reprend avec une boîte (`PlayerBody`) et un fort frottement, et un
+  wagon libre au-dessus d'un rail le reprend.
+- **Train** : `couple` garde deux wagons à une distance donnée (ils avancent sur leur chemin et
+  partagent leur vitesse : la locomotive tire le train) ; `bump` repousse deux wagons qui se
+  touchent.
+- **Jeu** (`carts.rs`, `cart_play.rs`) : quatre sortes (wagonnet, wagon coffre, wagon trémie,
+  locomotive), passager (`Riding`, la caméra suit), créatures qui montent dans un wagonnet vide,
+  attelage (objet : un clic sur un wagon puis sur un autre), inventaire en écran, dessin en boîtes
+  (`mobs::instances` comme modèle). Le chargeur et le déchargeur (blocs avec `Inventory`,
+  branchables aux tuyaux) remplissent ou vident un wagon coffre ou trémie arrêté sur un rail
+  voisin et émettent un signal quand ils ont fini.
+- **Sauvegarde** : `carts.bin` dans le dossier de la dimension, à côté de `grids.bin` (sorte,
+  position, rail et vitesse, inventaire, combustible, attelages). Un wagon dont le terrain n'est pas
+  chargé attend, figé.
+
+Limites : pas de signal qui se propage de rail accélérateur en rail accélérateur (chacun lit ses
+voisins), pas de détecteur qui change d'apparence, un wagon poussé par un autre peut traverser un
+butoir (les corrections d'attelage et de chocs ne tiennent pas compte du butoir).
+
 ### Comment tout s'articule
 
 ```

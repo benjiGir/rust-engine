@@ -10,7 +10,7 @@ pub fn build(item: ItemId, items: &ItemRegistry, blocks: &BlockRegistry) -> Vec<
     match &def.icon {
         Icon::Block(id) => {
             let block = blocks.def(*id);
-            if matches!(block.shape, Shape::Cross | Shape::Flat) {
+            if matches!(block.shape, Shape::Cross | Shape::Flat | Shape::Rail) {
                 return block.face_textures[1]
                     .checked_sub(1)
                     .and_then(|i| blocks.textures().get(i as usize))

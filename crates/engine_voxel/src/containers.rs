@@ -23,6 +23,8 @@ use crate::machines::{BlockBehavior, MachineContext, Machines};
 use crate::registry::BlockRegistry;
 
 pub const CHEST_SLOTS: usize = 27;
+/// Les cases du chargeur et du déchargeur de wagon.
+pub const LOADER_SLOTS: usize = 9;
 pub const FURNACE_INPUT: usize = 0;
 pub const FURNACE_FUEL: usize = 1;
 pub const FURNACE_OUTPUT: usize = 2;
@@ -89,6 +91,18 @@ impl BlockBehavior for Chest {
     fn placed(&self, ctx: &mut MachineContext, positions: &[GridPos]) {
         for &at in positions {
             ensure_inventory(ctx, at, CHEST_SLOTS);
+        }
+    }
+}
+
+/// Le chargeur et le déchargeur de wagon : un petit coffre, que le jeu vide dans un wagon arrêté
+/// à côté ou remplit depuis lui (voir `carts.rs` du jeu).
+pub struct Loader;
+
+impl BlockBehavior for Loader {
+    fn placed(&self, ctx: &mut MachineContext, positions: &[GridPos]) {
+        for &at in positions {
+            ensure_inventory(ctx, at, LOADER_SLOTS);
         }
     }
 }
@@ -323,10 +337,14 @@ pub fn register(
     let stand = std::rc::Rc::new(BrewingStand::new(items.clone(), brewing));
     let furnace = std::rc::Rc::new(Furnace::new(items, smelting));
     let chest = std::rc::Rc::new(Chest);
+    let loader = std::rc::Rc::new(Loader);
     for (id, def) in blocks.iter() {
         match def.behavior.as_deref() {
             Some("core:furnace") => machines.register(id, furnace.clone()),
             Some("core:chest") => machines.register(id, chest.clone()),
+            Some("core:cart_loader" | "core:cart_unloader") => {
+                machines.register(id, loader.clone())
+            }
             Some("core:brewing_stand") => machines.register(id, stand.clone()),
             _ => {}
         }
@@ -337,6 +355,7 @@ pub fn register(
 pub fn container_slots(blocks: &BlockRegistry, block: BlockId) -> Option<usize> {
     match blocks.def(block).behavior.as_deref() {
         Some("core:chest") => Some(CHEST_SLOTS),
+        Some("core:cart_loader" | "core:cart_unloader") => Some(LOADER_SLOTS),
         Some("core:furnace" | "core:brewing_stand") => Some(3),
         _ => None,
     }

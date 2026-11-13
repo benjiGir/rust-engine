@@ -7,7 +7,7 @@ use super::{COPPER, GRASS, INK, IRON, Image, SIZE, flask, scale};
 /// Une icône dessinée à partir d'un masque de 16 lignes de 16 caractères. Chaque
 /// caractère choisit une couleur dans `palette` ; « . » est transparent. Un contour
 /// sombre est ajouté autour, pour que l'icône se détache du fond.
-fn icon(mask: &[&str; 16], palette: &[(char, [f32; 3])]) -> Image {
+pub(super) fn icon(mask: &[&str; 16], palette: &[(char, [f32; 3])]) -> Image {
     let mut image = Image::transparent();
     for (y, row) in mask.iter().enumerate() {
         for (x, c) in row.chars().enumerate().take(SIZE) {

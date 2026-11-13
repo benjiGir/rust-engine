@@ -75,6 +75,8 @@ pub struct Split {
 pub enum SlotRef {
     Player(Slot),
     Container(IVec3, usize),
+    /// Une case de l'inventaire d'un wagon.
+    Cart(Entity, usize),
 }
 
 /// Le bouton pressé sur une case.
@@ -97,6 +99,8 @@ pub enum Screen {
     /// L'alambic.
     Brewing(IVec3),
     Chest(IVec3),
+    /// L'inventaire d'un wagon (voir `cart_play.rs`).
+    Cart(Entity),
     /// L'échange avec un habitant.
     Trade(Entity),
     /// La table d'enchantement.
@@ -378,6 +382,7 @@ impl VoxelGame {
                 true
             }
             SlotRef::Container(pos, index) => self.click_container(pos, index, click),
+            SlotRef::Cart(cart, index) => self.click_cart(cart, index, click),
         }
     }
 
@@ -390,6 +395,7 @@ impl VoxelGame {
                 Slot::Craft(i) => self.inventory.craft[i],
             },
             SlotRef::Container(pos, index) => self.container_stack(pos, index),
+            SlotRef::Cart(cart, index) => self.cart_stack(cart, index),
         }
     }
 
@@ -701,6 +707,7 @@ impl VoxelGame {
             Screen::Furnace(_) => "Four".to_string(),
             Screen::Brewing(_) => "Alambic".to_string(),
             Screen::Chest(_) => "Coffre".to_string(),
+            Screen::Cart(cart) => self.cart_title(cart),
             Screen::Trade(_) => "Échange".to_string(),
             Screen::Enchant => "Table d'enchantement".to_string(),
             Screen::Console => String::new(),
@@ -741,6 +748,7 @@ impl VoxelGame {
                     Screen::Furnace(pos) => self.furnace_panel(ui, pos),
                     Screen::Brewing(pos) => self.brewing_panel(ui, pos),
                     Screen::Chest(pos) => self.chest_panel(ui, pos),
+                    Screen::Cart(cart) => self.cart_panel(ui, cart),
                     Screen::Trade(mob) => self.trade_panel(ui, mob),
                     Screen::Enchant => self.enchant_panel(ui),
                     Screen::Mod(pos) => self.mod_panel(ui, pos),
@@ -888,6 +896,80 @@ impl VoxelGame {
         if let Some(entity) = streamer.block_entity_mut(pos)
             && let Some(inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut())
             && let Some(target) = inventory.slots.get_mut(index)
+        {
+            *target = slot.map(|s| engine_voxel::ItemStack {
+                item: items.get(s.item).key.clone(),
+                count: s.count,
+                damage: s.damage,
+            });
+        }
+        true
+    }
+
+    /// Le titre de l'écran d'un wagon (et sa réserve de combustible, pour une locomotive).
+    fn cart_title(&self, cart: Entity) -> String {
+        match self.ecs.get::<crate::carts::Cart>(cart) {
+            Some(state) if state.kind == crate::carts::CartKind::Locomotive => {
+                format!("{} · {:.0} s de feu", state.kind.title(), state.burn)
+            }
+            Some(state) => state.kind.title().to_string(),
+            None => "Wagon".to_string(),
+        }
+    }
+
+    /// L'inventaire d'un wagon : 27 cases pour un coffre ou une trémie, la case de combustible
+    /// d'une locomotive.
+    fn cart_panel(&mut self, ui: &mut egui::Ui, cart: Entity) {
+        let Some(kind) = self.ecs.get::<crate::carts::Cart>(cart).map(|c| c.kind) else {
+            // Le wagon n'existe plus (cassé, déchargé) : on revient à l'inventaire.
+            self.ui.screen = Screen::Inventory;
+            return;
+        };
+        if kind == crate::carts::CartKind::Locomotive {
+            ui.label("Combustible : charbon, bois...");
+            crate::ui_layout::slots(ui, 1, 1, |ui, index| {
+                self.cart_slot(ui, cart, index);
+            });
+        } else {
+            crate::ui_layout::slots(ui, kind.slots(), 9, |ui, index| {
+                self.cart_slot(ui, cart, index);
+            });
+        }
+    }
+
+    fn cart_slot(&mut self, ui: &mut egui::Ui, cart: Entity, index: usize) {
+        let stack = self.cart_stack(cart, index);
+        if let Some(press) = self.stack_widget(ui, stack, false) {
+            self.press_slot(SlotRef::Cart(cart, index), stack, press);
+        }
+    }
+
+    /// La pile rangée dans une case d'un wagon.
+    fn cart_stack(&self, cart: Entity, index: usize) -> Option<ItemStack> {
+        let cargo = self.ecs.get::<crate::carts::CartCargo>(cart)?;
+        let stored = cargo.0.slots.get(index)?.as_ref()?;
+        Some(ItemStack {
+            item: self.content.items.id(&stored.item)?,
+            count: stored.count,
+            damage: stored.damage,
+        })
+    }
+
+    /// Un clic sur une case d'un wagon.
+    fn click_cart(&mut self, cart: Entity, index: usize, click: Click) -> bool {
+        let mut slot = self.cart_stack(cart, index);
+        let mut cursor = self.inventory.cursor.take();
+        // Une locomotive n'accepte que du combustible.
+        let fuel = self
+            .ecs
+            .get::<crate::carts::Cart>(cart)
+            .is_some_and(|c| c.kind == crate::carts::CartKind::Locomotive);
+        let accepts = |item: ItemId| !fuel || self.content.smelting.burn_ticks(item).is_some();
+        click_slot(&mut slot, &mut cursor, &self.content.items, accepts, click);
+        self.inventory.cursor = cursor;
+        let items = self.content.items.clone();
+        if let Some(mut cargo) = self.ecs.get_mut::<crate::carts::CartCargo>(cart)
+            && let Some(target) = cargo.0.slots.get_mut(index)
         {
             *target = slot.map(|s| engine_voxel::ItemStack {
                 item: items.get(s.item).key.clone(),

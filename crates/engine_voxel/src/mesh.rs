@@ -137,6 +137,9 @@ pub const FLAG_FURNACE_FIRE: u32 = 1 << 20;
 pub const FLAG_GROUND: u32 = 1 << 21;
 /// Une eau libre (translucide, sans lumière propre) : le shader l'anime (vagues, reflets).
 pub const FLAG_WATER: u32 = 1 << 22;
+/// Le décalage des deux bits qui font tourner la texture de quarts de tour (les rails : un seul
+/// dessin pour les quatre orientations).
+pub const FLAG_TURN_SHIFT: u32 = 23;
 /// Les bits de la couche de texture dans [`MeshVertex::texture`].
 pub const TEXTURE_MASK: u32 = 0xFFFF;
 
@@ -799,7 +802,17 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                 let vertex_light = [sky as f32 / 15.0, light as f32 / 15.0, 1.0];
                 let base = (origin + p).as_vec3();
                 let flags = block_flags(def) | FLAG_CUTOUT;
-                let texture = def.face_textures[1] | (flags & !FLAG_SWAY);
+                let mut texture = def.face_textures[1] | (flags & !FLAG_SWAY);
+                let mut rail_corners = None;
+                if def.shape == Shape::Rail {
+                    let shape = center
+                        .block_entity(x as usize, y as usize, z as usize)
+                        .and_then(|e| e.data.first().copied())
+                        .map_or(crate::RailShape::NorthSouth, crate::RailShape::from_index);
+                    let (layer, turns, corners) = rail_quad(def, shape);
+                    texture = layer | (flags & !FLAG_SWAY) | (turns << FLAG_TURN_SHIFT);
+                    rail_corners = Some(corners);
+                }
                 // Les sommets du haut se balancent, ceux du bas restent plantés.
                 let sway_top = flags & FLAG_SWAY;
                 if def.shape == Shape::Model {
@@ -839,6 +852,7 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                         ],
                         [0.0, 1.0, 0.0],
                     )],
+                    Shape::Rail => rail_corners.into_iter().collect(),
                     Shape::Cube | Shape::Model => Vec::new(),
                 };
                 for (corners, normal) in quads {
@@ -860,6 +874,44 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
             }
         }
     }
+}
+
+/// Le panneau d'un rail : la couche de texture, le nombre de quarts de tour à lui donner et les
+/// quatre coins (avec la normale). Le rail droit et la montée utilisent `textures.top`, le virage
+/// `textures.side`. Un rail est posé juste au-dessus du sol, et la montée suit sa pente.
+fn rail_quad(def: &BlockDef, shape: crate::RailShape) -> (u32, u32, ([Vec3; 4], [f32; 3])) {
+    use crate::RailShape::*;
+    let straight = def.face_textures[0];
+    let curve = if def.face_textures[1] == 0 {
+        straight
+    } else {
+        def.face_textures[1]
+    };
+    let (layer, turns) = match shape {
+        NorthSouth | AscendNorth | AscendSouth => (straight, 0),
+        EastWest | AscendEast | AscendWest => (straight, 1),
+        SouthEast => (curve, 0),
+        SouthWest => (curve, 1),
+        NorthWest => (curve, 2),
+        NorthEast => (curve, 3),
+    };
+    const LOW: f32 = 0.02;
+    // La hauteur des quatre coins (x0 z0, x1 z0, x1 z1, x0 z1).
+    let (heights, normal) = match shape {
+        AscendEast => ([LOW, 1.0 + LOW, 1.0 + LOW, LOW], [-1.0, 1.0, 0.0]),
+        AscendWest => ([1.0 + LOW, LOW, LOW, 1.0 + LOW], [1.0, 1.0, 0.0]),
+        AscendNorth => ([1.0 + LOW, 1.0 + LOW, LOW, LOW], [0.0, 1.0, 1.0]),
+        AscendSouth => ([LOW, LOW, 1.0 + LOW, 1.0 + LOW], [0.0, 1.0, -1.0]),
+        _ => ([LOW; 4], [0.0, 1.0, 0.0]),
+    };
+    let n = Vec3::from(normal).normalize().to_array();
+    let corners = [
+        Vec3::new(0.0, heights[0], 0.0),
+        Vec3::new(1.0, heights[1], 0.0),
+        Vec3::new(1.0, heights[2], 1.0),
+        Vec3::new(0.0, heights[3], 1.0),
+    ];
+    (layer, turns, (corners, n))
 }
 
 impl Neighbourhood {

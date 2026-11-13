@@ -38,6 +38,8 @@ mod assets;
 mod audio;
 mod bench;
 mod breeding;
+mod cart_play;
+mod carts;
 mod components;
 mod console;
 mod content;
@@ -565,6 +567,7 @@ impl VoxelGame {
         ecs.insert_resource(mobs::FixedDt(ctx.fixed_dt));
         ecs.insert_resource(mobs::GameRng(0x2545_F491_4F6C_DD1D ^ seed as u64));
         ecs.insert_resource(mobs::SimClock::default());
+        carts::setup(&mut ecs, &settings, &content, store.as_deref());
         ecs.insert_resource(spawning::Difficulty(difficulty));
         ecs.insert_resource(spawning::Sky::default());
         let player = player::spawn(&mut ecs, eye, mode);
@@ -587,6 +590,7 @@ impl VoxelGame {
             )
             .add(Stage::FixedUpdate, "structures mobiles", ships::update)
             .add(Stage::FixedUpdate, "physique", mobs::physics)
+            .add(Stage::FixedUpdate, "wagons", carts::update)
             .add(Stage::FixedUpdate, "créatures : animation", mobs::animate)
             .add(
                 Stage::FixedUpdate,
@@ -618,9 +622,9 @@ impl VoxelGame {
                 None if !meta.inventory.is_empty() => {
                     Inventory::from_old_save(&meta.inventory, items)
                 }
-                None => starter_inventory(items),
+                None => inventory::starter_inventory(items),
             },
-            None => starter_inventory(items),
+            None => inventory::starter_inventory(items),
         };
         let time = meta
             .as_ref()
@@ -796,6 +800,7 @@ impl VoxelGame {
             stress.record(machine_tick.map(|t| t.duration), start.elapsed());
         }
         self.step_fluids();
+        self.update_cart_blocks();
         self.update_vitals(ctx.fixed_dt);
         self.update_hunger(ctx.fixed_dt);
         self.drop_mob_loot();
@@ -925,6 +930,7 @@ impl VoxelGame {
         self.update_dimensions(dt);
         self.update_effects(dt);
         self.update_ships(ctx);
+        self.update_carts(ctx);
         if let Some(audio) = &mut self.audio {
             if thunder {
                 audio.play(audio::THUNDER);
@@ -1001,6 +1007,7 @@ impl VoxelGame {
                             audio.play("core:break_soft");
                         }
                     }
+                    None if self.punch_cart() => {}
                     None => self.mine(dt),
                 }
             }
@@ -1009,6 +1016,7 @@ impl VoxelGame {
             // Un clic droit : un lit, un conteneur, sinon poser.
             let bed = self.target.map(|hit| hit.block_pos);
             if ctx.input.mouse_pressed(MouseButton::Right)
+                && !self.use_cart()
                 && !self.use_ship()
                 && !((ctx.input.key_held(KeyCode::ShiftLeft)
                     || ctx.input.key_held(KeyCode::ShiftRight))
@@ -1084,6 +1092,7 @@ impl VoxelGame {
         self.renderer.time = self.started.elapsed().as_secs_f32();
         let mut mob_boxes = mobs::instances(&self.ecs, alpha);
         projectiles::instances(&self.ecs, alpha, &mut mob_boxes);
+        mob_boxes.extend(carts::instances(&self.ecs, alpha));
         self.weather.instances(self.camera.position, &mut mob_boxes);
         self.water_fx
             .instances(self.camera.position, &mut mob_boxes);
@@ -2288,46 +2297,6 @@ impl EventReaders {
             loot: ecs.resource::<Events<EntityDied>>().reader(),
         }
     }
-}
-
-/// Un petit nécessaire pour un nouveau monde : de quoi s'éclairer et construire.
-fn starter_inventory(items: &engine_voxel::ItemRegistry) -> Inventory {
-    let mut inventory = Inventory::default();
-    for (key, count) in [
-        ("core:stone_pickaxe", 1),
-        ("core:stone_axe", 1),
-        ("core:stone_shovel", 1),
-        ("core:torch", 32),
-        ("core:oak_log", 16),
-        ("core:workbench", 1),
-        ("core:furnace", 1),
-        ("core:chest", 1),
-        ("core:coal", 8),
-        ("core:raw_iron", 6),
-        ("core:shears", 1),
-        ("core:oak_sapling", 4),
-        ("core:glass", 16),
-        ("core:glowstone", 8),
-        // De quoi construire un mécanisme : horloge → lampe, horloge → casseur.
-        ("core:clock", 4),
-        ("core:lamp", 4),
-        // Les circuits (phase O8).
-        ("core:wire", 32),
-        ("core:lever", 4),
-        ("core:button", 4),
-        ("core:repeater", 2),
-        ("core:inverter", 2),
-        ("core:gate", 2),
-        ("core:piston", 2),
-        ("core:sticky_piston", 2),
-        ("example:breaker", 2),
-        ("example:ruby", 4),
-    ] {
-        if let Some(id) = items.id(key) {
-            inventory.add(id, count, items);
-        }
-    }
-    inventory
 }
 
 /// Lit le registre des blocs : `assets/core` puis les mods de `mods/`.

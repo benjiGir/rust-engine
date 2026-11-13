@@ -214,6 +214,8 @@ pub struct Settings {
     pub show_arm: bool,
     pub ui_scale: f32,
     pub target_info: bool,
+    /// La vitesse maximale des wagons sur rail, en blocs par seconde (8 par défaut, 30 au plus).
+    pub cart_max_speed: f32,
     pub keys: Keys,
     /// Les favoris de l'explorateur de recettes (identifiants d'objets).
     pub bookmarks: Vec<String>,
@@ -233,6 +235,7 @@ impl Default for Settings {
             show_arm: true,
             ui_scale: 1.0,
             target_info: true,
+            cart_max_speed: 8.0,
             keys: Keys::default(),
             bookmarks: Vec::new(),
         }
@@ -314,5 +317,7 @@ mod tests {
         assert_eq!(settings.fov, 85.0);
         assert_eq!(settings.render_distance, 16);
         assert_eq!(settings.keys, Keys::default());
+        // Un fichier d'avant les wagons : la vitesse maximale par défaut.
+        assert_eq!(settings.cart_max_speed, 8.0);
     }
 }

@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-36 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -183,7 +183,7 @@ pub enum Command {
     Eat,
     /// Les créatures proches : type, position, vie.
     Mobs,
-    /// Frapper la créature visée (comme un clic gauche).
+    /// Frapper la créature (ou le wagon) visée (comme un clic gauche).
     Attack,
     /// Un coup de bras dans le vide (pour voir l'animation).
     Swing,
@@ -191,6 +191,14 @@ pub enum Command {
     Use,
     /// Réapparaître, depuis l'écran de mort.
     Respawn,
+    /// Les wagons : les lister, en poser un sur le rail en x y z, monter dans un wagonnet (le plus
+    /// proche, ou ce numéro), descendre, atteler deux wagons, ranger des objets dans l'un d'eux.
+    Carts,
+    Cart(crate::carts::CartKind, IVec3),
+    Ride(Option<u32>),
+    Dismount,
+    Couple(u32, u32),
+    CartStock(u32, String, u32),
     /// La pause, la reprise, la page d'options d'un mod, et une action du joueur dans cette page.
     /// La consommation de temps de chaque mod.
     Mods,
@@ -403,6 +411,54 @@ pub fn parse(line: &str) -> Result<Command> {
             )
         }
         "ships" => Command::Ships,
+        "carts" => Command::Carts,
+        "cart" => {
+            count(&[4])?;
+            let kind = crate::carts::CartKind::parse(args[0]).with_context(|| {
+                format!(
+                    "cart : sorte inconnue « {} » (minecart, chest, hopper, locomotive)",
+                    args[0]
+                )
+            })?;
+            Command::Cart(kind, block_pos(1)?)
+        }
+        "ride" => {
+            count(&[0, 1])?;
+            Command::Ride(match args.first() {
+                Some(id) => Some(
+                    id.parse()
+                        .context("ride : le numéro d'un wagon (voir carts)")?,
+                ),
+                None => None,
+            })
+        }
+        "dismount" => Command::Dismount,
+        "couple" => {
+            count(&[2])?;
+            Command::Couple(
+                args[0]
+                    .parse()
+                    .context("couple : deux numéros de wagons (voir carts)")?,
+                args[1]
+                    .parse()
+                    .context("couple : deux numéros de wagons (voir carts)")?,
+            )
+        }
+        "cartstock" => {
+            count(&[2, 3])?;
+            let n = if args.len() == 3 {
+                number(2)?.max(0.0) as u32
+            } else {
+                1
+            };
+            Command::CartStock(
+                args[0]
+                    .parse()
+                    .context("cartstock : le numéro d'un wagon (voir carts)")?,
+                qualified(args[1]),
+                n,
+            )
+        }
         "steer" => {
             count(&[2])?;
             Command::Steer(
@@ -875,6 +931,74 @@ impl VoxelGame {
                 }
                 Ok(ok())
             }
+            Command::Carts => Ok(self.carts_json()),
+            Command::Cart(kind, pos) => {
+                let look = self.camera.forward();
+                let entity =
+                    crate::carts::place(&mut self.ecs, kind, pos, look).with_context(|| {
+                        format!("cart : pas de rail en {} {} {}", pos.x, pos.y, pos.z)
+                    })?;
+                let id = self
+                    .ecs
+                    .get::<crate::carts::Cart>(entity)
+                    .map_or(0, |c| c.id);
+                Ok(format!("{{\"ok\":true,\"cart\":{id}}}"))
+            }
+            Command::Ride(id) => {
+                let entity = match id {
+                    Some(id) => self
+                        .cart_by_id(id)
+                        .with_context(|| format!("ride : pas de wagon {id}"))?,
+                    None => {
+                        let feet = player::body(&self.ecs, self.player).position;
+                        let mut best: Option<(f32, engine_ecs::Entity)> = None;
+                        self.ecs
+                            .query::<(&crate::components::Transform, &crate::carts::Cart)>()
+                            .for_each(|e, (t, c)| {
+                                let d = t.position.distance(feet);
+                                if c.kind == crate::carts::CartKind::Minecart
+                                    && c.rider.is_none()
+                                    && best.is_none_or(|(b, _)| d < b)
+                                {
+                                    best = Some((d, e));
+                                }
+                            });
+                        best.map(|(_, e)| e)
+                            .context("ride : aucun wagonnet libre")?
+                    }
+                };
+                if !self.ride(entity) {
+                    bail!(
+                        "ride : impossible de monter (vol, wagon plein ou ce n'est pas un wagonnet)"
+                    );
+                }
+                Ok(ok())
+            }
+            Command::Dismount => {
+                if !self.dismount() {
+                    bail!("dismount : le joueur n'est pas dans un wagon");
+                }
+                Ok(ok())
+            }
+            Command::Couple(a, b) => {
+                let (Some(x), Some(y)) = (self.cart_by_id(a), self.cart_by_id(b)) else {
+                    bail!("couple : wagon inconnu (voir carts)");
+                };
+                let linked = crate::carts::toggle_coupling(&self.ecs, x, y)
+                    .context("couple : il faut deux wagons différents")?;
+                Ok(format!("{{\"ok\":true,\"coupled\":{linked}}}"))
+            }
+            Command::CartStock(id, item, count) => {
+                let entity = self
+                    .cart_by_id(id)
+                    .with_context(|| format!("cartstock : pas de wagon {id}"))?;
+                let mut cargo = self
+                    .ecs
+                    .get_mut::<crate::carts::CartCargo>(entity)
+                    .context("cartstock : ce wagon n'a pas d'inventaire")?;
+                let put = cargo.0.insert(None, &item, count, false);
+                Ok(format!("{{\"ok\":true,\"put\":{put}}}"))
+            }
             Command::Ships => {
                 let subs = self.mods.subgrids.borrow();
                 let list: Vec<String> = subs
@@ -966,6 +1090,9 @@ impl VoxelGame {
                 Ok(format!("{{\"ok\":true,\"mobs\":[{}]}}", list.join(",")))
             }
             Command::Use => {
+                if self.use_cart() {
+                    return Ok(ok());
+                }
                 let hit = self.aimed()?;
                 if self.use_bed(hit.block_pos) {
                     return Ok(self.state_json());
@@ -1107,8 +1234,14 @@ impl VoxelGame {
             Command::Attack => {
                 let eye = player::eye(&self.ecs, self.player, 1.0);
                 let forward = self.camera.forward();
+                // Un wagon visé : un coup (le second le casse).
+                if crate::mobs::hit_mob(&self.ecs, eye, forward, crate::REACH).is_none()
+                    && self.punch_cart()
+                {
+                    return Ok(ok());
+                }
                 let (mob, _) = crate::mobs::hit_mob(&self.ecs, eye, forward, crate::REACH)
-                    .context("attack : aucune créature visée à portée")?;
+                    .context("attack : aucune créature ni aucun wagon visé à portée")?;
                 let damage = self.player_hit_damage();
                 if !crate::mobs::damage_mob(&mut self.ecs, mob, damage, forward) {
                     bail!("attack : la créature vient d'être frappée (invulnérable)");
