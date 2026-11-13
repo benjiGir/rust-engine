@@ -41,6 +41,7 @@ mod pathfind;
 mod physics;
 mod plants;
 mod raycast;
+mod recipe_index;
 mod registry;
 mod save;
 mod ship;
@@ -107,6 +108,7 @@ pub use pathfind::{Path, PathRules, find_path};
 pub use physics::{GRAVITY, PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
 pub use plants::{Precipitation, precipitation_at};
 pub use raycast::{RayHit, ray_aabb, raycast};
+pub use recipe_index::{Choice, RecipeCategory, RecipeIndex, RecipeLayout, RecipeView};
 pub use registry::{
     BlockBox, BlockDef, BlockRegistry, BlockRotation, BlockSounds, CORE_NAMESPACE, RotationAxis,
     Shape, StateKind, Support, Tint,

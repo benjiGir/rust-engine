@@ -215,6 +215,8 @@ pub struct Settings {
     pub ui_scale: f32,
     pub target_info: bool,
     pub keys: Keys,
+    /// Les favoris de l'explorateur de recettes (identifiants d'objets).
+    pub bookmarks: Vec<String>,
 }
 
 impl Default for Settings {
@@ -232,6 +234,7 @@ impl Default for Settings {
             ui_scale: 1.0,
             target_info: true,
             keys: Keys::default(),
+            bookmarks: Vec::new(),
         }
     }
 }

@@ -72,6 +72,7 @@ mod player;
 mod player_api;
 mod potions;
 mod projectiles;
+mod recipe_browser;
 mod screenshots;
 mod settings;
 mod shared;
@@ -863,9 +864,18 @@ impl VoxelGame {
         self.ui.menu_open = !interactive;
         self.update_console(ctx);
         // E : l'inventaire. Ouvert, il libère la souris ; fermé, la pile tenue est rangée.
+        // Échap ferme d'abord la fenêtre des recettes, puis l'écran.
+        if escape && self.ui.inventory_open && self.ui.browser.view.is_some() {
+            self.ui.browser.close();
+            escape = false;
+        }
+        // On tape dans un champ (la recherche des recettes) : les touches ne sont pas des
+        // commandes du jeu.
+        let typing = self.ui.ctx.egui_wants_keyboard_input();
         let close = self.ui.inventory_open && escape;
         let toggle = interactive
             && !self.console_open()
+            && !typing
             && ctx
                 .input
                 .key_pressed(self.settings.keys.key(Action::Inventory));
@@ -887,7 +897,7 @@ impl VoxelGame {
         if self.mouse_captured {
             self.look(ctx.input.mouse_delta());
         }
-        if interactive && !self.console_open() {
+        if interactive && !self.console_open() && !typing {
             self.handle_keys(ctx);
         }
         self.day.update(dt);

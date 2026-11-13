@@ -255,6 +255,7 @@ impl VoxelGame {
     /// l'inventaire (ce qui n'y tient pas tombe par terre).
     pub(crate) fn close_screen(&mut self) {
         self.forget_mod_menu();
+        self.ui.browser.close();
         self.ui.split = None;
         let loose = self.inventory.put_away(&self.content.items);
         let at = player::body(&self.ecs, self.player)

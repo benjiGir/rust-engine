@@ -405,6 +405,11 @@ impl Smelting {
     pub fn recipes(&self) -> &[SmeltingRecipe] {
         &self.recipes
     }
+
+    /// Les combustibles et combien de ticks chacun brûle.
+    pub fn fuels(&self) -> &[(Ingredient, u32)] {
+        &self.fuels
+    }
 }
 
 /// Une recette de machine de mod : des ingrédients, des résultats, un temps et une énergie.
@@ -516,6 +521,13 @@ impl MachineRecipes {
 
     pub fn recipes(&self, kind: &str) -> &[MachineRecipe] {
         self.by_kind.get(kind).map_or(&[], Vec::as_slice)
+    }
+
+    /// Les types de recettes, triés par nom.
+    pub fn kinds(&self) -> Vec<&str> {
+        let mut kinds: Vec<&str> = self.by_kind.keys().map(String::as_str).collect();
+        kinds.sort_unstable();
+        kinds
     }
 
     pub fn len(&self) -> usize {

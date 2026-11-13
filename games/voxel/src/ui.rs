@@ -59,6 +59,8 @@ pub struct GameUi {
     pub settings_saved: std::time::Instant,
     /// Les clics et touches simulés par `ctl`.
     pub input: crate::ui_input::UiInput,
+    /// L'explorateur de recettes (voir `recipe_browser.rs`).
+    pub browser: crate::recipe_browser::BrowserState,
 }
 
 /// Une pile qu'on s'apprête à diviser, et combien d'objets prendre.
@@ -137,6 +139,7 @@ impl GameUi {
             options_events: Vec::new(),
             settings_saved: std::time::Instant::now(),
             input: Default::default(),
+            browser: Default::default(),
         }
     }
 
@@ -297,6 +300,10 @@ impl VoxelGame {
             None
         };
         if let Some(stack) = stack {
+            if response.hovered() {
+                // Pour les touches R, U et A de l'explorateur de recettes.
+                self.ui.browser.hovered = Some(stack.item);
+            }
             let card = crate::ui_info::item(
                 self.content.items.get(stack.item),
                 stack.count,
@@ -687,6 +694,7 @@ impl VoxelGame {
 
     /// L'écran ouvert, et la pile tenue qui suit la souris.
     fn draw_screen(&mut self, ctx: &egui::Context) {
+        self.ui.browser.hovered = None;
         let title = match self.ui.screen {
             Screen::Inventory => "Inventaire".to_string(),
             Screen::Workbench => "Établi".to_string(),
@@ -747,6 +755,16 @@ impl VoxelGame {
                     ui.label("Clic : prendre ou poser. Clic droit : moitié ou un objet. Maj + clic droit : choisir la quantité. Échap : fermer.");
                 });
             });
+        // Le cadre de l'inventaire, centré (voir `ui_layout::inventory_window`) : l'explorateur
+        // de recettes se place de part et d'autre.
+        let frame = window.as_ref().map(|w| {
+            let safe = crate::ui_layout::safe_rect(ctx);
+            let half = crate::ui_layout::inventory_width(ctx) * 0.5;
+            egui::Rect::from_x_y_ranges(
+                (safe.center().x - half)..=(safe.center().x + half),
+                w.response.rect.y_range(),
+            )
+        });
         if let Some(window) = window {
             skin::inventory_border(&window.response);
         }
@@ -755,6 +773,9 @@ impl VoxelGame {
             return;
         }
         self.split_window(ctx);
+        if let Some(frame) = frame {
+            self.draw_recipe_browser(ctx, frame);
+        }
         // La pile tenue suit la souris.
         if let (Some(held), Some(pointer)) = (self.inventory.cursor, ctx.pointer_hover_pos()) {
             let rect = egui::Rect::from_center_size(
