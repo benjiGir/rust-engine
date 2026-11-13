@@ -435,6 +435,55 @@ avertissement, tests complets du workspace, architecture, hooks et documentation
 Les huit tests de la main passent, y compris les repères du profil de référence et
 les modèles des outils du jeu et de Forge.
 
+## Lot 10 — alignement des menus et taille des icônes
+
+Les cases plafonnaient à 36 points, puis une marge de 14 % de chaque côté réduisait
+les images à environ 26 points. Les cases atteignent maintenant **48 points**, avec
+une image de **44 points** et le même dessin pour l'inventaire, les coffres, les
+machines, la barre d'objets et la pile tenue par le curseur. La réduction sur les
+fenêtres étroites garde les neuf colonnes et conserve au moins 88 % de la largeur
+pour l'image. Aucun PNG de matière ou d'objet n'a été modifié.
+
+Comparaison : [inventaire avant](10-inventaire-avant.png) /
+[inventaire après](10-inventaire-apres.png).
+Autres contrôles : [coffre](10-chest-1280.png), [four](10-furnace-1280.png),
+[alambic](10-brewing-1280.png), [établi](10-workbench-1280.png),
+[four à alliages de Forge](10-mod-1280.png), [infobulle](10-tooltip-1280.png),
+[options](10-options-640.png).
+Les captures de petit format comprennent
+[l'inventaire en 320 × 240](10-inventory-320.png),
+[une machine de mod en 320 × 240](10-mod-320.png) et
+[les options en 320 × 240](10-options-320.png). Les contenus trop hauts défilent.
+
+`ui_layout.rs` partage les dimensions de grille, les colonnes, les en-têtes et les
+compositions du four, de l'alambic et de l'artisanat entre le jeu et sa planche de
+contrôle. Le panneau réserve la largeur réelle du cadre et du défilement, au lieu
+d'un supplément arbitraire. Les grilles de machines ne calculent plus leur nombre
+de colonnes avec l'espacement extérieur de leur ligne : trois cases ne deviennent
+plus deux cases suivies d'une case isolée. Le dessin déclaratif des menus de mods
+est isolé dans `ui_widgets.rs`, sans changement de protocole ou de script. Les
+statuts des jauges de machines occupent leur propre ligne au-dessus des cases.
+Les options réservent réellement la largeur de leur colonne de libellés, et leurs
+trois onglets utilisent toute la largeur disponible.
+
+Les nouveaux tests vérifient les colonnes communes entre coffre et joueur après
+redimensionnement, l'occupation des icônes, les cases d'entrée et de sortie du four
+et de l'alambic, le résultat centré de l'artisanat, les lignes de machines de mods
+avec un long statut et l'alignement des contrôles d'options avec des libellés de
+longueurs différentes. Les tests existants de clic sur les onglets, de défilement,
+d'infobulle et de bornage des fenêtres sont conservés.
+Un titre de machine très long est également testé par un vrai clic sur sa
+fermeture : le nom est tronqué dans l'espace réservé et reste disponible au survol.
+
+Les six contrôles passent : formatage, Clippy sans avertissement, suite complète du
+workspace, architecture, hooks et documentation. Les 18 tests ciblés de l'interface
+passent également.
+
+Ces PNG sont des rendus CPU des fonctions d'interface de production et des vrais
+assets, sur des inventaires de contrôle. Ils ne proviennent pas d'une partie.
+La tentative native de ce lot reste bloquée avant l'ouverture de la fenêtre par
+`com.apple.hiservices-xpcservice` sur macOS ; le processus a été arrêté.
+
 ## Commits et patchs
 
 L’écriture dans `.git` est interdite par l’environnement : `git add` échoue sur

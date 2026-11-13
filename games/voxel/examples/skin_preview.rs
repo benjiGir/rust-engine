@@ -183,13 +183,13 @@ fn main() -> Result<()> {
                         ui.horizontal(|ui| {
                             for col in 0..9 {
                                 let (rect, _) = ui.allocate_exact_size(
-                                    egui::vec2(44.0, 44.0),
+                                    egui::vec2(48.0, 48.0),
                                     egui::Sense::hover(),
                                 );
                                 skin::slot(ui.painter(), rect, row == 1 && col == 3, false);
                                 ui.painter().image(
                                     icons[row * 9 + col].id(),
-                                    rect.shrink(6.0),
+                                    skin::icon_rect(rect),
                                     egui::Rect::from_min_max(
                                         egui::Pos2::ZERO,
                                         egui::pos2(1.0, 1.0),
@@ -277,11 +277,11 @@ fn main() -> Result<()> {
                     ui.horizontal(|ui| {
                         for (i, icon) in icons.iter().take(9).enumerate() {
                             let (rect, _) = ui
-                                .allocate_exact_size(egui::vec2(44.0, 44.0), egui::Sense::hover());
+                                .allocate_exact_size(egui::vec2(48.0, 48.0), egui::Sense::hover());
                             skin::slot(ui.painter(), rect, i == 0, false);
                             ui.painter().image(
                                 icon.id(),
-                                rect.shrink(6.0),
+                                skin::icon_rect(rect),
                                 egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
                                 Color32::WHITE,
                             );

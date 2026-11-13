@@ -89,6 +89,7 @@ mod ui_input;
 mod ui_layout;
 mod ui_options;
 mod ui_target;
+mod ui_widgets;
 mod villagers;
 mod water_fx;
 mod weather;

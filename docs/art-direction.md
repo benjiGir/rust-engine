@@ -64,6 +64,15 @@ jeu. Les losanges rouges indiquent la vitalité, les grains dorés la nourriture
 la barre sauge l'expérience. Les écrans des mods partagent le même thème.
 
 Les fenêtres restent dans le viewport et défilent quand leur contenu est trop haut.
+Les cases mesurent jusqu'à **48 points**, avec un pas commun de **2 points** entre
+elles et une bordure d'icône de **2 points** au plus : une icône occupe 44 points
+dans une case de 48, au lieu d'être réduite par une marge proportionnelle importante.
+Les grilles du joueur et des conteneurs partagent leurs neuf colonnes. La largeur
+des panneaux inclut explicitement le cadre et la barre de défilement ; l'en-tête,
+les séparateurs et les grilles utilisent les mêmes bords. Les entrées et sorties
+des machines restent alignées, les jauges sont centrées sur les cases et leurs
+statuts longs utilisent une ligne séparée. Les libellés et contrôles des options
+ont deux colonnes fixes sur les fenêtres larges.
 Les cases, colonnes et lignes s'adaptent à la largeur disponible ; les options sont
 regroupées par onglets (Affichage, Audio, Commandes) et proposent une échelle
 d'interface de 75 à 150 %. Le bouton Retour reste hors du défilement des réglages.

@@ -20,6 +20,8 @@ mod ui_info;
 mod ui_layout;
 #[path = "../src/ui_options.rs"]
 mod ui_options;
+#[path = "../src/ui_widgets.rs"]
+mod ui_widgets;
 use anyhow::{Context as _, Result};
 use engine_render::egui::{self, Color32, TextureId};
 use engine_voxel::{BlockRegistry, ItemRegistry};
@@ -30,11 +32,26 @@ fn empty_slot(ui: &mut egui::Ui, size: f32) {
     skin::slot(ui.painter(), rect, false, response.hovered());
 }
 
+fn review_slot(ui: &mut egui::Ui, icon: TextureId, count: u32, selected: bool) -> egui::Response {
+    let size = ui_layout::slot_size(ui.ctx());
+    let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click());
+    skin::slot(ui.painter(), rect, selected, response.hovered());
+    skin::stack(
+        ui.painter(),
+        rect,
+        icon,
+        count,
+        selected.then_some(0.62),
+        selected,
+    );
+    response
+}
+
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     anyhow::ensure!(
         args.len() == 4,
-        "ui_review <menu|pause|options|inventory|hud|before> <largeur> <hauteur> <sortie.png>"
+        "ui_review <menu|pause|options|inventory|tooltip|chest|furnace|brewing|workbench|mod|hud|before> <largeur> <hauteur> <sortie.png>"
     );
     let w: usize = args[1].parse()?;
     let h: usize = args[2].parse()?;
@@ -66,6 +83,12 @@ fn main() -> Result<()> {
         "core:chest",
         "core:iron_pickaxe",
         "core:iron_sword",
+        "core:iron_ore",
+        "core:coal",
+        "core:iron_ingot",
+        "core:water_flask",
+        "core:apple",
+        "core:potion_healing",
     ];
     let mut icons = Vec::new();
     for key in keys {
@@ -146,106 +169,87 @@ fn main() -> Result<()> {
                             skin::menu_button(ui, label);
                         }
                     }),
-                    "inventory" => {
+                    "inventory" | "tooltip" | "chest" | "furnace" | "brewing" | "workbench" | "mod" => {
+                        let title = match args[0].as_str() {
+                            "chest" => "Coffre", "furnace" => "Four", "brewing" => "Alambic",
+                            "workbench" => "Établi", "mod" => "Four à alliages", _ => "Inventaire",
+                        };
                         let window = ui_layout::inventory_window(
-                            ctx,
-                            "Inventaire",
-                            egui::Id::unique("review_inventory"),
-                        )
-                        .show(ctx, |ui| {
-                            skin::inventory_style(ui);
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("Inventaire").strong());
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        let _ = ui.small_button("×");
-                                    },
-                                );
-                            });
-                            ui.add_space(8.0);
-                            let slot = ui_layout::slot_size(ctx);
-                            ui_layout::inventory_sections(ui, |ui, section| match section {
-                                ui_layout::InventorySection::Armor => {
-                                    ui.label("Armure");
-                                    for label in ["Casque", "Plastron", "Jambières", "Bottes"] {
-                                        ui.horizontal(|ui| {
-                                            empty_slot(ui, slot);
-                                            ui.label(egui::RichText::new(label).size(11.0));
-                                        });
-                                    }
-                                    ui.label(egui::RichText::new("Protection : 0").size(11.0));
-                                }
-                                ui_layout::InventorySection::Craft => {
-                                    ui.horizontal(|ui| {
-                                        ui.vertical(|ui| {
-                                            for _ in 0..2 {
+                            ctx, title, egui::Id::unique("review_inventory"),
+                        ).show(ctx, |ui| {
+                            ui_layout::inventory_body(ui);
+                            ui_layout::inventory_header(ui, title);
+                            ui.add_space(6.0);
+                            match args[0].as_str() {
+                                "inventory" | "tooltip" => {
+                                    ui_layout::inventory_sections(ui, |ui, section| match section {
+                                        ui_layout::InventorySection::Armor => {
+                                            ui.label("Armure");
+                                            for label in ["Casque", "Plastron", "Jambières", "Bottes"] {
                                                 ui.horizontal(|ui| {
-                                                    empty_slot(ui, slot);
-                                                    empty_slot(ui, slot);
+                                                    empty_slot(ui, ui_layout::slot_size(ui.ctx()));
+                                                    ui.label(egui::RichText::new(label).size(11.0));
                                                 });
                                             }
-                                        });
-                                        ui.label(egui::RichText::new("=>").size(22.0));
-                                        empty_slot(ui, slot);
+                                            ui.label(egui::RichText::new("Protection : 0").size(11.0));
+                                        }
+                                        ui_layout::InventorySection::Craft => ui_layout::crafting(ui, 2, |ui, _| {
+                                            empty_slot(ui, ui_layout::slot_size(ui.ctx()));
+                                        }),
+                                        ui_layout::InventorySection::Recipes => { ui.label("Rien à fabriquer avec ce que tu as."); }
                                     });
                                 }
-                                ui_layout::InventorySection::Recipes => {
-                                    ui.label("Rien à fabriquer avec ce que tu as.");
+                                "chest" => { ui_layout::slots(ui, 27, 9, |ui, i| { let item = i % keys.len();
+                                        let count = items.get(items.id(keys[item]).unwrap()).max_stack.min(64);
+                                        review_slot(ui, icons[item].id(), count, false); }); }
+                                "furnace" => ui_layout::furnace(ui, 0.72, 0.46, |ui, i| {
+                                    review_slot(ui, icons[[9, 10, 11][i]].id(), [12, 32, 6][i], false);
+                                }),
+                                "brewing" => {
+                                    ui_layout::brewing(ui, 0.6, |ui, i| { review_slot(ui, icons[[12, 13, 14][i]].id(), 1, false); });
+                                    ui.label("Pomme : soin. Spores : régénération. Carotte : vitesse. Poussière d'ombre : force. Cinabre : résistance au feu.");
+                                }
+                                "workbench" => {
+                                    ui_layout::crafting(ui, 3, |ui, index| {
+                                        if index.is_some() { empty_slot(ui, ui_layout::slot_size(ui.ctx())); }
+                                        else { review_slot(ui, icons[7].id(), 1, false); }
+                                    });
+                                    ui.collapsing("Livre de recettes", |ui| { ui.label("Rien à fabriquer avec ce que tu as."); });
+                                }
+                                "mod" => {
+                                    use engine_mods::Widget::*;
+                                    let mut widgets = vec![
+                                        Bar { text: "Allumé".into(), value: 0.72 }, RowBegin,
+                                        Slots { first: 0, count: 3, columns: 3 },
+                                        Bar { text: "Alliage : fer + charbon, ou cuivre + malachite".into(), value: 0.46 },
+                                        Slots { first: 3, count: 1, columns: 1 }, RowEnd,
+                                        Label("Combustible (charbon, bâton) :".into()),
+                                        Slots { first: 4, count: 1, columns: 1 },
+                                    ];
+                                    ui_widgets::draw_widgets(ui, &mut widgets, &mut vec![], &mut |ui, first, count, columns| {
+                                        ui_layout::slots(ui, count, columns, |ui, i| { review_slot(ui, icons[[11, 10, 11, 7, 10][first + i]].id(), 8, false); });
+                                    });
+                                }
+                                _ => {}
+                            }
+                            ui.add_space(8.0);
+                            ui.separator();
+                            if title != "Inventaire" { ui.label("Inventaire"); }
+                            ui_layout::player_inventory(ui, |ui, index| {
+                                let i = index % 9;
+                                let response = review_slot(ui, icons[i].id(), if i < 7 { 64 } else { 1 }, i == 7);
+                                if index == 16 { hover = Some(response.rect.center()); }
+                                if args[0] == "tooltip" {
+                                    let def = items.get(items.id(keys[i]).unwrap());
+                                    ui_info::hover(response, &ui_info::item(def, 1, 0));
                                 }
                             });
-                            ui.separator();
-                            let slot = ui_layout::slot_size(ctx);
-                            for row in 0..4 {
-                                if row == 3 {
-                                    ui.add_space(4.0);
-                                }
-                                ui.horizontal(|ui| {
-                                    for col in 0..9 {
-                                        let i = (row * 9 + col) % keys.len();
-                                        let (rect, response) = ui.allocate_exact_size(
-                                            egui::vec2(slot, slot),
-                                            egui::Sense::click(),
-                                        );
-                                        skin::slot(ui.painter(), rect, i == 7, response.hovered());
-                                        ui.painter().image(
-                                            icons[i].id(),
-                                            rect.shrink((slot * 0.14).min(6.0)),
-                                            egui::Rect::from_min_max(
-                                                egui::Pos2::ZERO,
-                                                egui::pos2(1.0, 1.0),
-                                            ),
-                                            Color32::WHITE,
-                                        );
-                                        if row == 0 && col == 7 {
-                                            hover = Some(rect.center());
-                                        }
-                                        let def = items.get(items.id(keys[i]).unwrap());
-                                        let card = ui_info::item(
-                                            def,
-                                            1,
-                                            if i == 7 {
-                                                enchanting::with_enchantment(
-                                                    12,
-                                                    enchanting::Enchantment::Efficiency,
-                                                    2,
-                                                )
-                                            } else {
-                                                0
-                                            },
-                                        );
-                                        ui_info::hover(response, &card);
-                                    }
-                                });
-                            }
-                            ui.separator();
+                            ui.add_space(6.0);
                             ui.collapsing("Aide · déplacer les objets", |ui| {
                                 ui.label("Clic : prendre / poser · Échap : fermer");
                             });
                         });
-                        if let Some(window) = window {
-                            skin::inventory_border(&window.response);
-                        }
+                        if let Some(window) = window { skin::inventory_border(&window.response); }
                     }
                     "hud" => {
                         let mut card =
@@ -273,7 +277,7 @@ fn main() -> Result<()> {
                                     .show(ui, |ui| {
                                         ui.spacing_mut().item_spacing.x = 2.0;
                                         ui.horizontal(|ui| {
-                                            for (i, tex) in icons.iter().enumerate() {
+                                            for (i, tex) in icons.iter().take(9).enumerate() {
                                                 let (rect, _) = ui.allocate_exact_size(
                                                     egui::vec2(slot, slot),
                                                     egui::Sense::hover(),
@@ -281,7 +285,7 @@ fn main() -> Result<()> {
                                                 skin::slot(ui.painter(), rect, i == 7, false);
                                                 ui.painter().image(
                                                     tex.id(),
-                                                    rect.shrink(4.0),
+                                                    skin::icon_rect(rect),
                                                     egui::Rect::from_min_max(
                                                         egui::Pos2::ZERO,
                                                         egui::pos2(1.0, 1.0),

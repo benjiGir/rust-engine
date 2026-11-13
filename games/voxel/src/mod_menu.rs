@@ -4,9 +4,8 @@
 
 use std::time::{Duration, Instant};
 
-use engine_mods::menu::{UI_BUTTON, UI_CLOSED, UI_OPEN, UI_REFRESH, UI_SLIDER, UI_TOGGLE};
-use engine_mods::{ModMenu, Widget};
-use engine_render::egui;
+use engine_mods::ModMenu;
+use engine_mods::menu::{UI_CLOSED, UI_OPEN, UI_REFRESH};
 use engine_voxel::GridPos;
 use glam::IVec3;
 
@@ -131,89 +130,7 @@ impl VoxelGame {
     }
 }
 
-/// Dessine les éléments d'un menu. Les actions du joueur partent dans `events` (type, id,
-/// valeur) ; les valeurs des cases et curseurs sont mises à jour sur place. `slots` dessine
-/// des cases d'inventaire (première case, nombre, colonnes) : une page d'options n'en a pas.
-pub fn draw_widgets(
-    ui: &mut egui::Ui,
-    widgets: &mut [Widget],
-    events: &mut Vec<(i32, i32, i32)>,
-    slots: &mut dyn FnMut(&mut egui::Ui, usize, usize, usize),
-) {
-    let end = widgets.len();
-    draw_range(ui, widgets, 0..end, events, slots);
-}
-
-fn draw_range(
-    ui: &mut egui::Ui,
-    widgets: &mut [Widget],
-    range: std::ops::Range<usize>,
-    events: &mut Vec<(i32, i32, i32)>,
-    slots: &mut dyn FnMut(&mut egui::Ui, usize, usize, usize),
-) {
-    let mut i = range.start;
-    while i < range.end {
-        match &mut widgets[i] {
-            Widget::Label(text) => {
-                ui.label(text.as_str());
-            }
-            Widget::Separator => {
-                ui.separator();
-            }
-            Widget::Bar { text, value } => {
-                ui.add(
-                    egui::ProgressBar::new(*value)
-                        .corner_radius(0)
-                        .text(text.as_str())
-                        .desired_width(ui.available_width().min(200.0)),
-                );
-            }
-            Widget::Button { id, text } => {
-                if ui.button(text.as_str()).clicked() {
-                    events.push((UI_BUTTON, *id as i32, 0));
-                }
-            }
-            Widget::Toggle { id, text, on } => {
-                if ui.checkbox(on, text.as_str()).changed() {
-                    events.push((UI_TOGGLE, *id as i32, *on as i32));
-                }
-            }
-            Widget::Slider {
-                id,
-                text,
-                min,
-                max,
-                value,
-            } => {
-                if ui
-                    .add(egui::Slider::new(value, *min..=*max).text(text.as_str()))
-                    .changed()
-                {
-                    events.push((UI_SLIDER, *id as i32, value.to_bits() as i32));
-                }
-            }
-            Widget::Slots {
-                first,
-                count,
-                columns,
-            } => {
-                let (first, count, columns) = (*first, *count, *columns);
-                ui.vertical(|ui| slots(ui, first, count, columns));
-            }
-            Widget::RowBegin => {
-                // Jusqu'à la fin de la ligne (l'analyse du menu garantit qu'il y en a une).
-                let end = widgets[i + 1..]
-                    .iter()
-                    .position(|w| *w == Widget::RowEnd)
-                    .map_or(range.end, |p| i + 1 + p);
-                ui.horizontal_wrapped(|ui| draw_range(ui, widgets, i + 1..end, events, slots));
-                i = end;
-            }
-            Widget::RowEnd => {}
-        }
-        i += 1;
-    }
-}
+pub use crate::ui_widgets::draw_widgets;
 
 impl VoxelGame {
     /// Le joueur ouvre la page d'options d'un mod (depuis la pause) : le script est prévenu

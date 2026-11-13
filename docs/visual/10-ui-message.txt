@@ -1,0 +1,6 @@
+Interface : aligner les grilles et agrandir les icônes
+
+Partager les dimensions et compositions des inventaires, conteneurs et machines.
+Afficher des icônes de 44 points dans les cases de 48 et réserver correctement le
+cadre et le défilement. Fixer les colonnes d'options et les lignes des menus de mods.
+Ajouter les contrôles visuels et les tests d'alignement après redimensionnement.

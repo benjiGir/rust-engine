@@ -7,10 +7,23 @@ fn row(ui: &mut egui::Ui, label: &str, control: impl FnOnce(&mut egui::Ui)) {
     ui.push_id(label, |ui| {
         if width >= 420.0 {
             ui.horizontal_top(|ui| {
-                ui.allocate_ui(egui::vec2(width * 0.48, 0.0), |ui| {
-                    ui.label(label);
-                });
-                control(ui);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(width * 0.48, 30.0),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_width(width * 0.48);
+                        ui.label(label);
+                    },
+                );
+                let remaining = ui.available_width();
+                ui.allocate_ui_with_layout(
+                    egui::vec2(remaining, 30.0),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_width(remaining);
+                        control(ui);
+                    },
+                );
             });
         } else {
             ui.label(label);
@@ -35,7 +48,7 @@ fn categories(ui: &mut egui::Ui) -> usize {
     let id = ui.scope_id().with("options_category");
     let mut tab = ui.ctx().data_mut(|d| d.get_temp::<usize>(id).unwrap_or(0));
     ui.horizontal_wrapped(|ui| {
-        let width = ((ui.available_width() - 8.0) / 3.0).min(190.0);
+        let width = (ui.available_width() - 2.0 * ui.spacing().item_spacing.x) / 3.0;
         for (i, label) in ["Affichage", "Audio", "Commandes"].into_iter().enumerate() {
             ui.vertical(|ui| {
                 ui.set_width(width);
@@ -124,6 +137,43 @@ fn controls(ui: &mut egui::Ui, s: &mut Settings, waiting: &mut Option<Action>, t
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn controls_share_a_column_regardless_of_label_length() {
+        let ctx = egui::Context::default();
+        crate::skin::apply(&ctx);
+        for width in [600.0, 300.0] {
+            let mut controls = Vec::new();
+            let mut value = 0.5;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width, 400.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    for label in [
+                        "Effets",
+                        "Musique et ambiance",
+                        "Distance de rendu (chunks)",
+                    ] {
+                        row(ui, label, |ui| {
+                            controls.push(ui.add(egui::Slider::new(&mut value, 0.0..=1.0)).rect);
+                        });
+                    }
+                },
+            );
+            assert!(
+                controls
+                    .iter()
+                    .all(|r| (r.left() - controls[0].left()).abs() < 0.1),
+                "{width}: {controls:?}"
+            );
+            output.textures_delta.clear();
+        }
+    }
 
     #[test]
     fn complete_options_page_keeps_its_header_and_footer_inside_small_windows() {

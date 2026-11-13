@@ -168,7 +168,13 @@ pub fn slot(p: &egui::Painter, rect: egui::Rect, selected: bool, hovered: bool) 
             Color32::from_rgb(116, 121, 109)
         },
     );
-    bevel(p, rect, Color32::from_rgb(57, 61, 53), RIM, 2.0);
+    bevel(
+        p,
+        rect,
+        Color32::from_rgb(57, 61, 53),
+        RIM,
+        (rect.width() / 18.0).min(2.0),
+    );
     if selected {
         p.rect_stroke(
             rect.expand(1.0),
@@ -179,6 +185,72 @@ pub fn slot(p: &egui::Painter, rect: egui::Rect, selected: bool, hovered: bool) 
     }
     if hovered {
         p.rect_filled(rect.shrink(2.0), 0, Color32::from_white_alpha(28));
+    }
+}
+
+/// Deux points de bord suffisent : l'image occupe toute la surface utile de la case.
+pub fn icon_rect(rect: egui::Rect) -> egui::Rect {
+    rect.shrink((rect.width() / 18.0).min(2.0))
+}
+
+/// Dessin commun aux inventaires, conteneurs, machines et à la pile sous la souris.
+pub fn stack(
+    p: &egui::Painter,
+    rect: egui::Rect,
+    icon: egui::TextureId,
+    count: u32,
+    durability: Option<f32>,
+    enchanted: bool,
+) {
+    p.image(
+        icon,
+        icon_rect(rect),
+        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+        Color32::WHITE,
+    );
+    if count > 1 {
+        let at = rect.right_bottom() - egui::vec2(3.0, 2.0);
+        let font = FontId::monospace((rect.width() * 0.3).clamp(7.0, 16.0));
+        for (offset, color) in [(egui::vec2(1.0, 1.0), DARK), (egui::Vec2::ZERO, TEXT)] {
+            p.text(
+                at + offset,
+                egui::Align2::RIGHT_BOTTOM,
+                count.to_string(),
+                font.clone(),
+                color,
+            );
+        }
+    }
+    if enchanted {
+        p.rect_stroke(
+            rect.shrink(2.0),
+            0,
+            Stroke::new(2.0, MAGIC),
+            egui::StrokeKind::Inside,
+        );
+    }
+    if let Some(left) = durability {
+        let bar = egui::Rect::from_min_size(
+            rect.left_bottom() + egui::vec2(3.0, -(rect.height() * 0.2).min(7.0)),
+            egui::vec2(
+                (rect.width() - 6.0).max(1.0),
+                (rect.height() * 0.08).clamp(1.0, 3.0),
+            ),
+        );
+        p.rect_filled(bar, 0, Color32::BLACK);
+        let mut fill = bar;
+        fill.set_width(bar.width() * left);
+        p.rect_filled(
+            fill,
+            0,
+            if left > 0.5 {
+                SAGE
+            } else if left > 0.2 {
+                GOLD
+            } else {
+                RED
+            },
+        );
     }
 }
 
