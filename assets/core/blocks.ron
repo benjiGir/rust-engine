@@ -1308,4 +1308,32 @@
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 4.0, tool: Pickaxe,
     ),
+    // L'aventure (phase 2) : les deux tables du butin. Un clic droit ouvre leur écran
+    // (voir games/voxel/src/forge_ui.rs).
+    (
+        id: "core:salvage_table", name: "Table de récupération", color: (0.2200, 0.1500, 0.1000),
+        boxes: [
+            (from: (1, 0, 1), to: (4, 11, 4)),
+            (from: (12, 0, 1), to: (15, 11, 4)),
+            (from: (1, 0, 12), to: (4, 11, 15)),
+            (from: (12, 0, 12), to: (15, 11, 15)),
+            (from: (0, 11, 0), to: (16, 15, 16)),
+        ],
+        textures: (top: "salvage_table_top", side: "salvage_table_side", bottom: "oak_planks"),
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 3.0, tool: Pickaxe, tier: 1,
+    ),
+    (
+        id: "core:reforge_table", name: "Table de réforge", color: (0.2000, 0.1400, 0.1000),
+        boxes: [
+            (from: (1, 0, 1), to: (4, 11, 4)),
+            (from: (12, 0, 1), to: (15, 11, 4)),
+            (from: (1, 0, 12), to: (4, 11, 15)),
+            (from: (12, 0, 12), to: (15, 11, 15)),
+            (from: (0, 11, 0), to: (16, 15, 16)),
+        ],
+        textures: (top: "reforge_table_top", side: "reforge_table_side", bottom: "oak_planks"),
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 3.0, tool: Pickaxe, tier: 1,
+    ),
 ]

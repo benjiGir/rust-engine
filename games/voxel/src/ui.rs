@@ -117,6 +117,12 @@ pub enum Screen {
     Trade(Entity),
     /// La table d'enchantement.
     Enchant,
+    /// La table de récupération (voir `forge_ui.rs`).
+    Salvage,
+    /// La table de réforge (voir `forge_ui.rs`).
+    Reforge,
+    /// Les paliers du monde (voir `tiers_ui.rs`).
+    Tiers,
     /// Le menu d'une machine de mod (voir `mod_menu.rs`).
     Mod(IVec3),
     /// La console de commandes (voir `console.rs`).
@@ -352,14 +358,11 @@ impl VoxelGame {
                 let wear = crate::enchanting::wear(stack.damage);
                 (wear > 0).then(|| (1.0 - wear as f32 / max.max(1) as f32).clamp(0.0, 1.0))
             });
-        skin::stack(
-            painter,
-            rect,
-            icon,
-            stack.count,
-            durability,
-            crate::enchanting::is_enchanted(stack.damage),
-        );
+        // Le liseré : la couleur de la rareté, sinon celle de l'enchantement.
+        let border = crate::affixes::rarity_of(stack.damage)
+            .map(|r| crate::forge_ui::rarity_color(&crate::adventure_data::current(), r))
+            .or_else(|| crate::enchanting::is_enchanted(stack.damage).then_some(skin::MAGIC));
+        skin::stack(painter, rect, icon, stack.count, durability, border);
     }
 
     /// Une case de l'inventaire du joueur (ou de son armure, de sa grille).
@@ -404,7 +407,10 @@ impl VoxelGame {
     fn click_target(&mut self, target: SlotRef, click: Click) -> bool {
         match target {
             SlotRef::Player(slot) => {
-                self.inventory.click(slot, &self.content.items, click);
+                // Une gemme ou un sceau au curseur sur un objet : sertir, retirer, ajouter.
+                if !self.try_gem_click(slot, click) {
+                    self.inventory.click(slot, &self.content.items, click);
+                }
                 true
             }
             SlotRef::Container(pos, index) => self.click_container(pos, index, click),
@@ -649,11 +655,18 @@ impl VoxelGame {
                                 }
                             });
                         });
-                    if let Some(item) = self.inventory.selected_item() {
-                        ui.label(
-                            egui::RichText::new(&self.content.items.get(item).name)
-                                .color(skin::TEXT),
-                        );
+                    if let Some(held) = self.inventory.selected_stack() {
+                        // Un objet à affixes : son nom composé, dans la couleur de sa rareté.
+                        let data = crate::adventure_data::current();
+                        let sheet = crate::item_data::sheet(held.damage);
+                        let color = sheet
+                            .as_ref()
+                            .and_then(crate::affixes::display_rarity)
+                            .map_or(skin::TEXT, |r| crate::forge_ui::rarity_color(&data, r));
+                        let name = sheet
+                            .and_then(|s| s.name)
+                            .unwrap_or_else(|| self.content.items.get(held.item).name.clone());
+                        ui.label(egui::RichText::new(name).color(color));
                     }
                 });
             });
@@ -742,6 +755,9 @@ impl VoxelGame {
             Screen::Cart(cart) => self.cart_title(cart),
             Screen::Trade(_) => "Échange".to_string(),
             Screen::Enchant => "Table d'enchantement".to_string(),
+            Screen::Salvage => "Table de récupération".to_string(),
+            Screen::Reforge => "Table de réforge".to_string(),
+            Screen::Tiers => "Paliers du monde".to_string(),
             Screen::Console => String::new(),
             Screen::Mod(_) => self
                 .ui
@@ -787,17 +803,22 @@ impl VoxelGame {
                     Screen::Cart(cart) => self.cart_panel(ui, cart),
                     Screen::Trade(mob) => self.trade_panel(ui, mob),
                     Screen::Enchant => self.enchant_panel(ui),
+                    Screen::Salvage => self.salvage_panel(ui),
+                    Screen::Reforge => self.reforge_panel(ui),
+                    Screen::Tiers => self.tiers_panel(ui),
                     Screen::Mod(pos) => self.mod_panel(ui, pos),
                     Screen::Console => {}
                 }
-                ui.add_space(8.0);
-                ui.separator();
-                if self.ui.screen != Screen::Inventory { ui.label("Inventaire"); }
-                self.player_slots(ui);
-                ui.add_space(6.0);
-                ui.collapsing("Aide · déplacer les objets", |ui| {
-                    ui.label("Clic : prendre ou poser. Clic droit : moitié ou un objet. Maj + clic : envoyer la pile de l'autre côté (coffre, sac). Maj + clic droit : choisir la quantité. Échap : fermer.");
-                });
+                if self.ui.screen != Screen::Tiers {
+                    ui.add_space(8.0);
+                    ui.separator();
+                    if self.ui.screen != Screen::Inventory { ui.label("Inventaire"); }
+                    self.player_slots(ui);
+                    ui.add_space(6.0);
+                    ui.collapsing("Aide · déplacer les objets", |ui| {
+                        ui.label("Clic : prendre ou poser. Clic droit : moitié ou un objet. Maj + clic : envoyer la pile de l'autre côté (coffre, sac). Maj + clic droit : choisir la quantité. Une gemme ou un sceau au curseur, cliqué sur un objet : sertir, retirer, ajouter un emplacement. Échap : fermer.");
+                    });
+                }
             });
         // Le cadre de l'inventaire, centré (voir `ui_layout::inventory_window`) : l'explorateur
         // de recettes se place de part et d'autre.

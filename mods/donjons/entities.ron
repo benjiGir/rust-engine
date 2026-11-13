@@ -5,7 +5,7 @@
 [
     (
         id: "donjons:warden", name: "Gardien de la crypte", health: 80.0, speed: 2.6, size: (1.0, 2.6),
-        hostile: true, brain: true, xp: (30, 50), weight: 1, dissolves: false,
+        hostile: true, boss: true, brain: true, xp: (30, 50), weight: 1, dissolves: false,
         spawn_on: ["core:bedrock"],
         drops: [
             (item: "donjons:warden_sigil", count: (1, 1)),

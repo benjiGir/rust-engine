@@ -243,11 +243,15 @@ pub fn spawn(world: &mut World) {
                 standable(streamer.world(), &registry, at)
             };
             if ok {
-                mobs::spawn_mob(
+                let spawned = mobs::spawn_mob(
                     world,
                     kind,
                     Vec3::new(at.x as f32 + 0.5, at.y as f32 + 1.0, at.z as f32 + 0.5),
                 );
+                // Une part des hostiles naît élite, selon le palier du monde (voir `elites.rs`).
+                if let Some(entity) = spawned.filter(|_| hostile) {
+                    crate::elites::maybe_promote(world, entity);
+                }
                 if hostile {
                     hostiles += 1;
                 } else {
@@ -259,7 +263,11 @@ pub fn spawn(world: &mut World) {
 }
 
 /// Un sol où se tenir : un bloc plein (pas un liquide), deux cases libres au-dessus.
-fn standable(voxels: &engine_voxel::World, _registry: &MobRegistry, floor: IVec3) -> bool {
+pub(crate) fn standable(
+    voxels: &engine_voxel::World,
+    _registry: &MobRegistry,
+    floor: IVec3,
+) -> bool {
     voxels.is_solid(floor)
         && !voxels.is_solid(floor + IVec3::Y)
         && !voxels.is_solid(floor + IVec3::Y * 2)
@@ -298,7 +306,8 @@ pub fn dissolve(world: &mut World) {
                 gone.push(entity);
                 return;
             }
-            if !def.spawn.dissolves {
+            // Une élite ou un envahisseur reste : on est venu pour elle (voir `elites.rs`).
+            if !def.spawn.dissolves || world.has::<crate::elites::Elite>(entity) {
                 return;
             }
             let head = (transform.position + Vec3::Y * 0.9).floor().as_ivec3();

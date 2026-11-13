@@ -18,6 +18,11 @@
         (pattern: ["ii", "ii", "ii"], key: {"i": "iron_ingot"}, result: ("gate", 1)),
         (pattern: ["PPP", "#i#", "#c#"], key: {"P": "#planks", "#": "cobblestone", "i": "iron_ingot", "c": "cinnabar_dust"}, result: ("piston", 1)),
         (pattern: [" s ", "#s#", "###"], key: {"s": "sapphire", "#": "cobblestone"}, result: ("enchanting_table", 1)),
+        // L'aventure : les tables du butin et les sceaux des gemmes.
+        (pattern: ["ii", "pp"], key: {"i": "iron_ingot", "p": "#planks"}, result: ("salvage_table", 1)),
+        (pattern: ["gsg", "###"], key: {"g": "gold_ingot", "s": "sapphire", "#": "cobblestone"}, result: ("reforge_table", 1)),
+        (pattern: ["d", "i"], key: {"d": "gem_dust", "i": "iron_ingot"}, result: ("seal_unsocket", 1)),
+        (pattern: ["dg"], key: {"d": "gem_dust", "g": "gold_ingot"}, result: ("seal_socket", 1)),
         (pattern: ["g g", " g "], key: {"g": "glass"}, result: ("flask", 3)),
         (pattern: [" i ", "###"], key: {"i": "iron_ingot", "#": "cobblestone"}, result: ("brewing_stand", 1)),
         // Les réseaux (phase 9c).

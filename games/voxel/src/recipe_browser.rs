@@ -378,7 +378,7 @@ impl VoxelGame {
             &self.registry,
             &self.block_textures,
         );
-        skin::stack(&painter, rect, icon, count, None, false);
+        skin::stack(&painter, rect, icon, count, None, None);
         if response.hovered() {
             self.ui.browser.hovered = Some(item);
         }

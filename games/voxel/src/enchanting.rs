@@ -101,7 +101,9 @@ impl Enchantment {
 
 /// L'usure d'une pile (sans les enchantements).
 pub fn wear(damage: u32) -> u32 {
-    if item_data::is_extended(damage) {
+    if item_data::is_pending(damage) {
+        0
+    } else if item_data::is_extended(damage) {
         item_data::sheet(damage).map_or(0, |s| s.wear)
     } else {
         damage & WEAR_MASK

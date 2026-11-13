@@ -78,6 +78,14 @@ impl Content {
         );
         let recipe_index = RecipeIndex::new(&recipes, &smelting, &brewing, &machine_recipes);
         let compact = CompactTable::from_recipes(&recipes, &items);
+        // L'aventure : les fichiers de core et des mods, vérifiés contre les objets, puis installés
+        // pour les modules purs (voir `adventure_data::install`).
+        let adventure = crate::adventure_data::AdventureData::load(assets, mods)
+            .context("chargement des données d'aventure")?;
+        adventure
+            .validate_items(&items)
+            .context("données d'aventure")?;
+        crate::adventure_data::install(Arc::new(adventure));
         Ok(Self {
             compact: Arc::new(compact),
             recipe_index: Arc::new(recipe_index),

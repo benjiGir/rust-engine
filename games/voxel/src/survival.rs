@@ -711,24 +711,29 @@ impl crate::VoxelGame {
 
     /// Le butin des créatures mortes, tombé là où elles sont mortes.
     pub(crate) fn drop_mob_loot(&mut self) {
-        let died: Vec<(String, Vec3)> = self
+        let died: Vec<_> = self
             .readers
             .loot
             .read(&self.ecs.resource::<Events<EntityDied>>())
-            .map(|e| (e.kind.clone(), e.position))
+            .map(|e| (e.kind.clone(), e.position, e.elite.clone()))
             .collect();
         let player_at = player::body(&self.ecs, self.player).position;
-        for (kind, position) in died {
-            let (drops, xp) = self
+        for (kind, position, elite) in died {
+            let (drops, xp, hostile, boss) = self
                 .ecs
                 .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                 .by_key(&kind)
-                .map(|def| (def.drops.clone(), def.xp))
+                .map(|def| (def.drops.clone(), def.xp, def.hostile, def.boss))
                 .unwrap_or_default();
             // L'expérience, si le joueur était là (pas pour une créature morte au loin).
             if position.distance(player_at) <= XP_RADIUS {
                 let points = self.roll_range(xp);
                 self.grant_xp(points);
+                // La progression d'aventure, et le butin à affixes (voir `adventure.rs`).
+                if hostile {
+                    self.credit_kill(boss);
+                }
+                self.adventure_loot(position, hostile, elite.as_ref());
             }
             for drop in drops {
                 let mut rng = engine_voxel::Rng64::new(self.next_random());

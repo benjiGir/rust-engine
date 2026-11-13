@@ -37,6 +37,12 @@ impl VoxelGame {
                 self.open_first_bag();
             }
         }
+        // Les paliers du monde : la même touche ouvre l'écran et le referme.
+        if input.key_pressed(self.settings.keys.key(Action::Tiers))
+            && !self.ui.ctx.egui_wants_keyboard_input()
+        {
+            self.toggle_tiers_screen();
+        }
         if input.key_pressed(self.settings.keys.key(Action::Time)) {
             self.day.cycle_speed();
             log::info!("temps {} ({})", self.day.speed.name(), self.day.clock());

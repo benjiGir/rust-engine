@@ -87,9 +87,9 @@ pub use farming::{
 pub use fluid_sim::{FULL as FLUID_FULL, FluidKind, FluidReport, FluidSim};
 pub use fluids::{FluidDef, FluidRegistry};
 pub use generator::{
-    Blueprint, ChestLoot, ChestLootEntry, Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL, SEA_LEVEL,
-    Spot, StructureDef, StructureKind, StructureSet, StructureSite, TerrainGenerator, TreeSite,
-    WORLD_HEIGHT_CHUNKS,
+    Blueprint, ChestLoot, ChestLootEntry, Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL,
+    PENDING_LOOT, SEA_LEVEL, Spot, StructureDef, StructureKind, StructureSet, StructureSite,
+    TerrainGenerator, TreeSite, WORLD_HEIGHT_CHUNKS, pending_loot,
 };
 pub use grid::{BlockAccess, GridId, GridPos, Grids};
 pub use items::{
@@ -126,8 +126,8 @@ pub use registry::{
     Shape, StateKind, Support, Tint,
 };
 pub use save::{
-    ChunkToSave, FORMAT_VERSION, LoadedChunk, PlayerSave, REGION_SIZE, SaveReport, SaveStore,
-    SavedInventory, SavedStack, UNKNOWN_BLOCK, UnknownBlocks, WorldMeta, write_atomic,
+    AdventureSave, ChunkToSave, FORMAT_VERSION, LoadedChunk, PlayerSave, REGION_SIZE, SaveReport,
+    SaveStore, SavedInventory, SavedStack, UNKNOWN_BLOCK, UnknownBlocks, WorldMeta, write_atomic,
 };
 pub use ship::{ShipInput, StepReport, step as step_ship};
 pub use storage::{

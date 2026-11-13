@@ -1187,6 +1187,6 @@ use features::PlantBlocks;
 pub use features::TreeSite;
 use structures::StructureBlocks;
 pub use structures::{
-    Blueprint, ChestLoot, ChestLootEntry, Spot, StructureDef, StructureKind, StructureSet,
-    StructureSite,
+    Blueprint, ChestLoot, ChestLootEntry, PENDING_LOOT, Spot, StructureDef, StructureKind,
+    StructureSet, StructureSite, pending_loot,
 };

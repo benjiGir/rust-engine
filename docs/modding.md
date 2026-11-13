@@ -42,6 +42,7 @@ mods/example/
 ├── dimensions.ron     # ses dimensions et leurs portails (facultatif)
 ├── items.ron          # ses objets (facultatif)
 ├── machine_recipes.ron # les recettes de ses machines (facultatif)
+├── rarities.ron, affixes.ron, gems.ron, tiers.ron, elites.ron   # l'aventure : raretés, affixes, gemmes, paliers, élites (facultatifs)
 ├── textures/          # PNG 16×16, nommés comme dans blocks.ron
 ├── sounds/            # WAV (ou OGG Vorbis) ; variantes nom_1.wav, nom_2.wav…
 ├── script/            # les sources du script (une crate Rust)
@@ -994,6 +995,28 @@ Le mod **Donjons** (`mods/donjons`) en est la démonstration : une crypte (entr�
 gardiens, salles piégées, salle du trésor, arène), un **boss** (`donjons:warden`, dirigé par script : il poursuit,
 charge, frappe, appelle des renforts à mi-vie, affiche sa jauge et laisse un coffre à sa mort) et trois paliers de
 butin.
+
+## L'aventure : raretés, affixes, gemmes, paliers, élites
+
+Le butin à affixes est entièrement en données (`assets/core/*.ron` est le modèle). Un mod ajoute les siens en
+**plaçant le même fichier** dans son dossier : les listes s'ajoutent à la suite de celles du jeu de base, et chaque
+identifiant porte l'espace de noms du mod.
+
+- `rarities.ron` : les raretés (nom, couleur de la bulle et du liseré, poids, nombre d'affixes et d'emplacements de
+  gemme, matériau, coûts de récupération et de réforge). Leur **ordre** est celui que les objets sauvegardent : on
+  n'en déplace jamais une, on en ajoute à la fin.
+- `affixes.ron` : un nom (`Prefix("acéré", "acérée")` ou `Suffix("de la tempête")`), les catégories d'objets qu'il
+  peut orner (`weapon`, `tool`, `armor`, `head`, `chest`, `legs`, `feet`), un attribut (`Attribute::key` : `damage`,
+  `crit_chance`...) et un intervalle de valeurs **par rareté**. Le nom de l'objet est composé de ces affixes.
+- `gems.ron` : des sortes de gemmes ; chaque qualité (1 à 5) est un objet (`item: "mon_mod:perle_{q}"`, à déclarer
+  dans `items.ron`), et le bonus dépend de la catégorie de l'objet qui la porte.
+- `tiers.ron` : des paliers du monde (vie et dégâts des créatures, élites, envahisseurs, hausse de rareté) et leurs
+  critères de déblocage (`Kills`, `Bosses`, `Rarity`, `Depth`).
+- `elites.ron` : les augmentations d'élite (`Health`, `Damage`, `Speed`, `Armor`, `Regen`) et la liste des objets de
+  base des butins à affixes.
+- Dans `entities.ron`, `boss: true` marque un boss : il ne devient jamais élite et le vaincre compte pour les paliers.
+- Dans les tables de butin d'une structure (`structures.ron`), `affixed: true` (et `min_rarity`) range un objet à
+  affixes dans le coffre ; ses affixes sont tirés à la première ouverture.
 
 ## Les dimensions
 

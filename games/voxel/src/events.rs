@@ -31,6 +31,8 @@ pub struct EntityDied {
     pub kind: String,
     /// Où elle est morte (pour les mods : un butin, une explosion...).
     pub position: glam::Vec3,
+    /// Une élite ou un envahisseur (voir `elites.rs`) : son butin est garanti.
+    pub elite: Option<crate::elites::Elite>,
 }
 
 /// Une créature frappe le joueur : le jeu en fait un coup (armure, invulnérabilité),

@@ -227,6 +227,7 @@ mod tests {
             difficulty: 1,
             dimension: dimension.into(),
             arriving,
+            adventure: Default::default(),
         }
     }
 

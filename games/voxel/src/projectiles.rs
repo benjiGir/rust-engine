@@ -173,7 +173,7 @@ pub fn fly(world: &mut World) {
         events::send(
             world,
             PlayerAttacked {
-                amount,
+                amount: amount * crate::elites::tier_damage(world),
                 from,
                 pierce: 0.0,
             },

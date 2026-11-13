@@ -21,7 +21,8 @@
 //! - **Potions** : Force (dégâts en plus), Vitesse (marche en plus). Régénération et Soin gardent
 //!   leur propre mécanique (voir `potions.rs`).
 //!
-//! Les gemmes viendront avec les emplacements de la fiche : chacune ajoutera une source.
+//! Les gemmes serties dans les emplacements de la fiche ajoutent leurs bonus au même endroit (voir
+//! `gems.rs`) ; leur effet dépend de la catégorie de l'objet qui les porte.
 
 use std::hash::{Hash, Hasher};
 
@@ -175,7 +176,7 @@ fn stack_modifiers(
             ));
         }
     }
-    // Les affixes d'un outil en main ou d'une pièce portée.
+    // Les affixes et les gemmes d'un outil en main ou d'une pièce portée.
     if (held && def.tool.is_some() || !held && def.armor.is_some())
         && let Some(sheet) = item_data::sheet(stack.damage)
     {
@@ -188,6 +189,11 @@ fn stack_modifiers(
                 });
             }
         }
+        modifiers.extend(crate::gems::modifiers(
+            &crate::adventure_data::current(),
+            def,
+            &sheet,
+        ));
     }
     modifiers
 }
@@ -266,6 +272,7 @@ impl VoxelGame {
                     .map(|d| d.armor)
             })
             .unwrap_or(0.0)
+            + crate::elites::armor_of(&self.ecs, mob)
     }
 
     /// Un coup du joueur sur une créature : critique, armure de la cible (que la perforation

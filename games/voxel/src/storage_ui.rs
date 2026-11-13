@@ -787,6 +787,8 @@ impl VoxelGame {
             Some("core:brewing_stand") => Screen::Brewing(hit.block_pos),
             _ if def.key == "core:workbench" => Screen::Workbench,
             _ if def.key == "core:enchanting_table" => Screen::Enchant,
+            _ if def.key == "core:salvage_table" => Screen::Salvage,
+            _ if def.key == "core:reforge_table" => Screen::Reforge,
             _ => return false,
         };
         // Un conteneur ancien (ou posé par un mod) n'a peut-être pas encore son inventaire.
@@ -804,6 +806,10 @@ impl VoxelGame {
                 entity.caps_mut().inventory = Some(engine_voxel::Inventory::new(slots));
                 streamer.set_block_entity(hit.block_pos, Some(entity));
             }
+        }
+        // Les objets à affixes d'un coffre de structure sont tirés à la première ouverture.
+        if let Screen::Chest(pos) = screen {
+            self.resolve_chest_loot(pos);
         }
         self.ui.screen = screen;
         self.ui.inventory_open = true;
@@ -823,6 +829,8 @@ impl VoxelGame {
                 || b == "core:brewing_stand"
         ) || def.key == "core:workbench"
             || def.key == "core:enchanting_table"
+            || def.key == "core:salvage_table"
+            || def.key == "core:reforge_table"
     }
 
     /// Le kit en main sur un coffre, ou le sac en main (hors d'un bloc qui s'ouvre).

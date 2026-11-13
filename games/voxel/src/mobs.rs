@@ -21,6 +21,7 @@ use crate::components::{
 use crate::events::{self, EntityDied, EntitySpawned, PlayerAttacked, Tick};
 use crate::navigation::{DangerBlocks, PathFollow, SEARCHES_PER_STEP, cell_of};
 use crate::survival::{Senses, SurvivalRules, Vitals};
+use crate::tiers::TierEffects;
 
 /// Au plus ce nombre de créatures autour du joueur.
 /// Distance d'apparition (entre les deux) et de disparition, en blocs.
@@ -99,6 +100,9 @@ struct MobFileEntry {
     armor: f32,
     #[serde(default)]
     armor_pierce: f32,
+    /// Un boss : il ne devient jamais élite, et le vaincre compte pour les paliers du monde.
+    #[serde(default)]
+    boss: bool,
 }
 
 /// Ce que lâche une créature à sa mort : un objet, un nombre (min, max), une chance.
@@ -144,6 +148,8 @@ pub struct MobDef {
     pub breeds: Option<crate::breeding::BreedingDef>,
     /// Dirigée par le script de son mod (celui de l'espace de noms de son identifiant).
     pub brain: bool,
+    /// Un boss (voir `elites.rs` et `tiers.rs`).
+    pub boss: bool,
 }
 
 /// Toutes les créatures connues. Leur numéro (`Mob::kind`) est leur place dans la liste.
@@ -240,6 +246,7 @@ impl MobRegistry {
                 ranged: entry.ranged,
                 breeds: entry.breeds,
                 brain: entry.brain,
+                boss: entry.boss,
             });
         }
         Ok(())
@@ -408,13 +415,22 @@ pub fn physics(world: &mut World) {
 /// Crée une créature et prévient les abonnés (`EntitySpawned`).
 pub fn spawn_mob(world: &mut World, kind: u32, position: Vec3) -> Option<Entity> {
     let def = world.resource::<Arc<MobRegistry>>().get(kind)?.clone();
+    // Un hostile naît plus robuste aux paliers hauts du monde (voir `tiers.rs`).
+    let health = if def.hostile {
+        def.health
+            * world
+                .get_resource::<TierEffects>()
+                .map_or(1.0, |t| t.health)
+    } else {
+        def.health
+    };
     let entity = world.spawn((
         Transform { position, yaw: 0.0 },
         PreviousPosition(position),
         Velocity::default(),
         Collider::new(def.width, def.height),
         MoveIntent::default(),
-        Health::full(def.health),
+        Health::full(health),
         Mob { kind },
         Wander::default(),
     ));
@@ -560,7 +576,7 @@ pub fn wander(world: &mut World) {
                     def.speed * 1.5
                 } else {
                     def.speed
-                };
+                } * crate::elites::speed_of(world, entity);
                 intent.walk = direction * speed;
                 wander.direction = direction;
                 if direction != Vec3::ZERO {
@@ -648,9 +664,8 @@ pub fn attack(world: &mut World) {
         return;
     }
     let registry = world.resource::<Arc<MobRegistry>>().clone();
-    world
-        .query::<(&Transform, &mut Wander, &Mob)>()
-        .for_each(|_, (transform, wander, mob)| {
+    world.query::<(&Transform, &mut Wander, &Mob)>().for_each(
+        |entity, (transform, wander, mob)| {
             let Some(def) = registry.get(mob.kind) else {
                 return;
             };
@@ -663,12 +678,13 @@ pub fn attack(world: &mut World) {
             events::send(
                 world,
                 PlayerAttacked {
-                    amount: def.damage,
+                    amount: def.damage * crate::elites::damage_of(world, entity),
                     from: transform.position,
                     pierce: def.armor_pierce,
                 },
             );
-        });
+        },
+    );
 }
 
 /// Les créatures sans vie meurent ; celles trop loin disparaissent ; les coups s'estompent.
@@ -700,6 +716,7 @@ pub fn cleanup(world: &mut World) {
                         entity,
                         kind,
                         position: transform.position,
+                        elite: crate::elites::of(world, entity),
                     },
                 );
                 world.commands().despawn(entity);
@@ -869,6 +886,15 @@ pub fn instances(world: &World, alpha: f32) -> Vec<CubeInstance> {
             } else {
                 1.0
             };
+            let elite = world.get::<crate::elites::Elite>(entity).map(|e| e.clone());
+            // Le faisceau d'un envahisseur, visible de loin.
+            if let Some(elite) = elite.as_ref().filter(|e| e.invader) {
+                out.extend(crate::elites::beam(
+                    position,
+                    elite,
+                    alpha + transform.position.x,
+                ));
+            }
             let (c, s) = (transform.yaw.cos(), transform.yaw.sin());
             let anim = world
                 .get::<MobAnim>(entity)
@@ -934,6 +960,9 @@ pub fn instances(world: &World, alpha: f32) -> Vec<CubeInstance> {
                 }
                 let offset = Vec3::new(ox * c - oz * s, oy, ox * s + oz * c) * scale;
                 let mut color = Vec3::new(part.color.0, part.color.1, part.color.2);
+                if let Some(elite) = &elite {
+                    color = crate::elites::tinted(color, elite);
+                }
                 if hurt {
                     color = color.lerp(Vec3::new(1.0, 0.1, 0.1), 0.6);
                 }
@@ -1519,6 +1548,7 @@ pub(crate) mod tests {
                 entity: mob,
                 kind: "core:pig".into(),
                 position: deaths[0].position,
+                elite: None,
             }]
         );
     }

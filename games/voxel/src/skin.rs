@@ -200,7 +200,7 @@ pub fn stack(
     icon: egui::TextureId,
     count: u32,
     durability: Option<f32>,
-    enchanted: bool,
+    border: Option<Color32>,
 ) {
     p.image(
         icon,
@@ -221,11 +221,12 @@ pub fn stack(
             );
         }
     }
-    if enchanted {
+    // Le liseré de la case : la rareté d'un objet à affixes, ou l'enchantement.
+    if let Some(color) = border {
         p.rect_stroke(
             rect.shrink(2.0),
             0,
-            Stroke::new(2.0, MAGIC),
+            Stroke::new(2.0, color),
             egui::StrokeKind::Inside,
         );
     }

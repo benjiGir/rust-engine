@@ -63,7 +63,7 @@ pub fn draw(ui: &mut egui::Ui, preview: &Preview, icons: &[Option<egui::TextureI
             let painter = ui.painter();
             skin::slot(painter, rect, false, false);
             if let Some(Some(icon)) = icons.get(n) {
-                skin::stack(painter, rect, *icon, *total, None, false);
+                skin::stack(painter, rect, *icon, *total, None, None);
             }
         }
     });

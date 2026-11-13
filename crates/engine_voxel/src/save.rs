@@ -78,6 +78,27 @@ pub struct PlayerSave {
     pub xp: Option<u32>,
 }
 
+/// La progression d'aventure du joueur (phase « aventure » : paliers du monde). Le moteur ne
+/// connaît pas le sens de ces nombres, il les range seulement dans `world.ron` ; le jeu les lit
+/// dans `games/voxel/src/tiers.rs`. Tous les champs ont une valeur par défaut : un monde plus
+/// ancien se charge au palier 0, sans progression.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AdventureSave {
+    /// Le palier choisi (son numéro dans `tiers.ron`).
+    pub tier: u8,
+    /// Le palier le plus haut débloqué.
+    pub unlocked: u8,
+    /// Les hostiles tuées.
+    pub kills: u32,
+    /// Les boss vaincus.
+    pub bosses: u32,
+    /// La plus haute rareté d'objet obtenue : son numéro plus un (0 : aucune).
+    pub best_rarity: u8,
+    /// La plus grande profondeur atteinte, en blocs sous le niveau de la mer.
+    pub depth: i32,
+}
+
 /// Le contenu de `world.ron`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorldMeta {
@@ -108,6 +129,9 @@ pub struct WorldMeta {
     /// coordonnées (x, z) au lieu d'utiliser la hauteur sauvegardée, qui est celle de l'autre dimension.
     #[serde(default)]
     pub arriving: bool,
+    /// Les paliers du monde et ce qui les débloque (absent d'un monde plus ancien).
+    #[serde(default)]
+    pub adventure: AdventureSave,
 }
 
 fn normal_difficulty() -> u8 {
@@ -1012,6 +1036,14 @@ pub(crate) mod tests {
             }),
             dimension: "test:moon".into(),
             arriving: true,
+            adventure: AdventureSave {
+                tier: 2,
+                unlocked: 3,
+                kills: 140,
+                bosses: 1,
+                best_rarity: 3,
+                depth: 31,
+            },
         };
         store.save_meta(&meta).unwrap();
         assert_eq!(store.load_meta().unwrap(), Some(meta));
@@ -1024,6 +1056,11 @@ pub(crate) mod tests {
         std::fs::write(store.dir().join("world.ron"), old).unwrap();
         let meta = store.load_meta().unwrap().unwrap();
         assert!(meta.inventory.is_empty());
+        assert_eq!(
+            meta.adventure,
+            AdventureSave::default(),
+            "palier 0, sans progression"
+        );
     }
 
     #[test]

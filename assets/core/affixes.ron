@@ -1,0 +1,66 @@
+// Les affixes des objets (phase « aventure », voir games/voxel/src/adventure_data.rs et affixes.rs).
+// Un mod ajoute les siens dans son propre `affixes.ron` (même forme, l'identifiant porte son espace
+// de noms).
+//
+// Un objet à affixes tire autant d'affixes que sa rareté le permet (rarities.ron), au plus un par
+// identifiant, parmi ceux qui conviennent à sa catégorie.
+//
+// - id : l'identifiant, sauvegardé dans la fiche de l'objet ;
+// - place : où le nom s'ajoute. Prefix("acéré", "acérée") : un adjectif, au masculin et au féminin,
+//   qui suit le nom de l'objet (« Épée en fer acérée ») ; Suffix("de la tempête") : un complément
+//   en fin de nom. Le nom de l'objet n'en garde qu'un de chaque sorte, le premier tiré ;
+// - categories : ce qu'il peut orner. Les catégories d'un objet sont : weapon (épée, hache), tool
+//   (pioche, hache, pelle, houe, cisailles), armor et, selon la pièce, head, chest, legs, feet ;
+// - attribute : l'attribut touché (voir `Attribute::key` : damage, crit_chance, crit_damage,
+//   life_steal, armor_pierce, armor_pierce_percent, armor, max_health, regen, move_speed,
+//   mining_speed, loot_chance, reach, xp_gain) ;
+// - flat, percent : l'intervalle (min, max) du bonus fixe et de la part (0,1 = +10 %), un par
+//   rareté dans l'ordre de rarities.ron (la dernière valeur sert aux raretés qu'un mod ajoute) ;
+// - weight : sa part au tirage ; min_rarity : la rareté (numéro) à partir de laquelle il sort ;
+// - feminine, plural : les mots qui ouvrent le nom d'un objet féminin ou pluriel (pour accorder
+//   l'adjectif : « Pioche en fer efficace », « Bottes en or agiles »).
+(
+    feminine: ["Épée", "Pioche", "Hache", "Pelle", "Houe", "Cisailles", "Jambières", "Bottes", "Lame", "Armure"],
+    plural: ["Cisailles", "Jambières", "Bottes"],
+    affixes: [
+        // ----- Armes -----
+        (id: "core:sharp", place: Prefix("acéré", "acérée"), categories: ["weapon"], attribute: "damage",
+         flat: [(0.5, 1.0), (1.0, 1.8), (1.6, 2.6), (2.4, 3.6), (3.4, 5.0)], weight: 10),
+        (id: "core:deadly", place: Prefix("mortel", "mortelle"), categories: ["weapon"], attribute: "crit_chance",
+         flat: [(0.02, 0.04), (0.04, 0.07), (0.06, 0.10), (0.09, 0.14), (0.12, 0.20)], weight: 8),
+        (id: "core:vicious", place: Prefix("vicieux", "vicieuse"), categories: ["weapon"], attribute: "crit_damage",
+         flat: [(0.1, 0.2), (0.2, 0.35), (0.3, 0.5), (0.45, 0.7), (0.6, 1.0)], weight: 6, min_rarity: 1),
+        (id: "core:piercing", place: Prefix("perçant", "perçante"), categories: ["weapon"], attribute: "armor_pierce",
+         flat: [(0.5, 1.0), (1.0, 2.0), (2.0, 3.5), (3.0, 5.0), (5.0, 8.0)], weight: 6),
+        (id: "core:storm", place: Suffix("de la tempête"), categories: ["weapon"], attribute: "damage",
+         percent: [(0.03, 0.06), (0.05, 0.10), (0.08, 0.15), (0.12, 0.22), (0.18, 0.32)], weight: 8),
+        (id: "core:vampire", place: Suffix("du vampire"), categories: ["weapon"], attribute: "life_steal",
+         flat: [(0.02, 0.03), (0.03, 0.05), (0.04, 0.07), (0.06, 0.10), (0.08, 0.14)], weight: 6, min_rarity: 1),
+        (id: "core:erosion", place: Suffix("de l'érosion"), categories: ["weapon"], attribute: "armor_pierce_percent",
+         flat: [(0.03, 0.06), (0.05, 0.10), (0.08, 0.15), (0.12, 0.22), (0.18, 0.30)], weight: 5, min_rarity: 2),
+        (id: "core:plunderer", place: Suffix("du pillard"), categories: ["weapon", "tool"], attribute: "loot_chance",
+         flat: [(0.05, 0.10), (0.10, 0.20), (0.15, 0.30), (0.25, 0.45), (0.35, 0.60)], weight: 6),
+        // ----- Outils -----
+        (id: "core:efficient", place: Prefix("efficace", "efficace"), categories: ["tool"], attribute: "mining_speed",
+         percent: [(0.05, 0.10), (0.10, 0.20), (0.15, 0.30), (0.25, 0.45), (0.35, 0.70)], weight: 10),
+        (id: "core:long", place: Prefix("long", "longue"), categories: ["tool"], attribute: "reach",
+         flat: [(0.3, 0.6), (0.5, 1.0), (0.8, 1.5), (1.2, 2.0), (1.5, 2.5)], weight: 6),
+        (id: "core:miner", place: Suffix("du mineur"), categories: ["tool"], attribute: "mining_speed",
+         flat: [(0.05, 0.10), (0.10, 0.18), (0.15, 0.28), (0.25, 0.40), (0.35, 0.60)], weight: 8),
+        (id: "core:scholar", place: Suffix("du sage"), categories: ["tool", "head"], attribute: "xp_gain",
+         percent: [(0.05, 0.10), (0.10, 0.20), (0.15, 0.30), (0.25, 0.45), (0.35, 0.65)], weight: 6),
+        // ----- Armures -----
+        (id: "core:sturdy", place: Prefix("robuste", "robuste"), categories: ["armor"], attribute: "armor",
+         flat: [(0.5, 1.0), (1.0, 1.5), (1.5, 2.5), (2.0, 3.5), (3.0, 5.0)], weight: 10),
+        (id: "core:hardy", place: Prefix("vivace", "vivace"), categories: ["armor"], attribute: "max_health",
+         flat: [(1.0, 2.0), (2.0, 3.0), (3.0, 5.0), (4.0, 7.0), (6.0, 10.0)], weight: 8),
+        (id: "core:nimble", place: Prefix("agile", "agile"), categories: ["legs", "feet"], attribute: "move_speed",
+         percent: [(0.02, 0.04), (0.03, 0.06), (0.05, 0.09), (0.07, 0.12), (0.10, 0.18)], weight: 6),
+        (id: "core:rampart", place: Suffix("du rempart"), categories: ["chest", "legs"], attribute: "armor",
+         percent: [(0.04, 0.08), (0.07, 0.12), (0.10, 0.18), (0.15, 0.25), (0.20, 0.35)], weight: 7, min_rarity: 1),
+        (id: "core:dawn", place: Suffix("de l'aurore"), categories: ["armor"], attribute: "regen",
+         flat: [(0.02, 0.05), (0.04, 0.08), (0.06, 0.12), (0.10, 0.18), (0.15, 0.28)], weight: 5, min_rarity: 1),
+        (id: "core:gale", place: Suffix("du vent"), categories: ["feet"], attribute: "move_speed",
+         percent: [(0.03, 0.06), (0.05, 0.09), (0.08, 0.13), (0.11, 0.17), (0.15, 0.24)], weight: 6),
+    ],
+)

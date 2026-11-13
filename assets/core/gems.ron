@@ -1,0 +1,44 @@
+// Les gemmes (phase « aventure », voir games/voxel/src/gems.rs). Six sortes, cinq qualités : chaque
+// qualité est un objet (`item`, où {q} devient 1 à 5, à déclarer dans items.ron). On pose une gemme
+// en la tenant au curseur et en cliquant sur un objet qui a un emplacement libre ; le sceau de
+// retrait la rend, le sceau d'emplacement en ajoute un.
+//
+// Le bonus d'une gemme dépend de la catégorie de l'objet qui la porte (weapon, tool, armor, ou
+// head, chest, legs, feet : voir affixes.ron) : la première ligne de `bonuses` dont une catégorie
+// convient s'applique. Les listes `flat` et `percent` ont un nombre par qualité (cinq).
+// Un mod ajoute ses sortes dans son propre `gems.ron`.
+(
+    // Les cinq qualités, de la plus basse à la plus haute : (masculin, féminin).
+    qualities: [("fêlé", "fêlée"), ("brut", "brute"), ("taillé", "taillée"), ("pur", "pure"), ("parfait", "parfaite")],
+    gems: [
+        (id: "core:ruby", name: "Rubis", item: "core:gem_ruby_{q}", color: (225, 52, 66), bonuses: [
+            (categories: ["weapon"], attribute: "damage", flat: [0.5, 1.0, 1.8, 2.8, 4.0]),
+            (categories: ["tool"], attribute: "mining_speed", percent: [0.06, 0.12, 0.20, 0.30, 0.45]),
+            (categories: ["armor"], attribute: "max_health", flat: [1.0, 2.0, 3.0, 4.0, 6.0]),
+        ]),
+        (id: "core:topaz", name: "Topaze", feminine: true, item: "core:gem_topaz_{q}", color: (240, 190, 50), bonuses: [
+            (categories: ["weapon"], attribute: "crit_chance", flat: [0.02, 0.04, 0.06, 0.09, 0.13]),
+            (categories: ["tool"], attribute: "reach", flat: [0.2, 0.4, 0.7, 1.0, 1.5]),
+            (categories: ["armor"], attribute: "xp_gain", percent: [0.03, 0.06, 0.10, 0.15, 0.22]),
+        ]),
+        (id: "core:emerald", name: "Émeraude", feminine: true, item: "core:gem_emerald_{q}", color: (60, 200, 110), bonuses: [
+            (categories: ["weapon"], attribute: "life_steal", flat: [0.01, 0.02, 0.035, 0.05, 0.08]),
+            (categories: ["tool"], attribute: "regen", flat: [0.02, 0.04, 0.07, 0.11, 0.17]),
+            (categories: ["armor"], attribute: "regen", flat: [0.03, 0.06, 0.10, 0.16, 0.25]),
+        ]),
+        (id: "core:onyx", name: "Onyx", item: "core:gem_onyx_{q}", color: (82, 84, 110), bonuses: [
+            (categories: ["weapon"], attribute: "armor_pierce", flat: [0.5, 1.0, 2.0, 3.0, 5.0]),
+            (categories: ["tool"], attribute: "armor", flat: [0.5, 1.0, 1.5, 2.0, 3.0]),
+            (categories: ["armor"], attribute: "armor", flat: [0.5, 1.0, 1.5, 2.5, 4.0]),
+        ]),
+        (id: "core:amethyst", name: "Améthyste", feminine: true, item: "core:gem_amethyst_{q}", color: (170, 100, 230), bonuses: [
+            (categories: ["weapon", "tool"], attribute: "loot_chance", flat: [0.04, 0.08, 0.14, 0.22, 0.34]),
+            (categories: ["armor"], attribute: "loot_chance", flat: [0.02, 0.04, 0.07, 0.11, 0.17]),
+        ]),
+        (id: "core:opal", name: "Opale", feminine: true, item: "core:gem_opal_{q}", color: (130, 220, 236), bonuses: [
+            (categories: ["weapon"], attribute: "crit_damage", flat: [0.08, 0.16, 0.28, 0.42, 0.65]),
+            (categories: ["tool"], attribute: "mining_speed", flat: [0.04, 0.08, 0.14, 0.22, 0.34]),
+            (categories: ["armor"], attribute: "move_speed", percent: [0.01, 0.02, 0.035, 0.055, 0.08]),
+        ]),
+    ],
+)

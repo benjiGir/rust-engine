@@ -34,6 +34,10 @@
 //! - `VOXEL_DEMO=1` : le joueur marche, saute, casse et pose des blocs tout seul
 //!   (macOS empêche les outils de test d'envoyer des touches).
 
+mod adventure;
+mod adventure_ctl;
+mod adventure_data;
+mod affixes;
 mod assets;
 mod attributes;
 mod attributes_ui;
@@ -53,10 +57,15 @@ mod daytime;
 mod death;
 mod dimensions;
 mod drops;
+mod elites;
 mod enchanting;
 mod events;
 mod far_terrain;
+mod forge_tables;
+mod forge_ui;
 mod gear;
+mod gem_sockets;
+mod gems;
 mod hand;
 mod hand_model;
 mod hot_reload;
@@ -94,6 +103,8 @@ mod storage_ctl;
 mod storage_ui;
 mod stress;
 mod survival;
+mod tiers;
+mod tiers_ui;
 mod trading;
 mod transfer;
 mod ui;
@@ -243,6 +254,8 @@ struct VoxelGame {
     soundscape: soundscape::Soundscape,
     /// Ce que propose la table d'enchantement : change après chaque enchantement.
     enchant_seed: u32,
+    /// Le palier du monde, la progression d'aventure et l'état des tables du butin.
+    adventure: adventure::Adventure,
     /// Un morceau est en cours jusqu'à cette date.
     music_until: Option<Instant>,
     villages: villagers::Villages,
@@ -580,6 +593,11 @@ impl VoxelGame {
         ecs.insert_resource(mobs::SimClock::default());
         carts::setup(&mut ecs, &settings, &content, store.as_deref());
         ecs.insert_resource(spawning::Difficulty(difficulty));
+        let adventure = adventure::Adventure::load(
+            meta.as_ref().map(|m| &m.adventure),
+            &adventure_data::current(),
+        );
+        ecs.insert_resource(adventure.effects(&adventure_data::current()));
         ecs.insert_resource(spawning::Sky::default());
         let player = player::spawn(&mut ecs, eye, mode);
         ecs.insert_resource(mobs::PlayerEntity(player));
@@ -611,6 +629,7 @@ impl VoxelGame {
             .add(Stage::FixedUpdate, "créatures : attaque", mobs::attack)
             .add(Stage::FixedUpdate, "créatures : tirs", projectiles::shoot)
             .add(Stage::FixedUpdate, "projectiles", projectiles::fly)
+            .add(Stage::FixedUpdate, "élites : régénération", elites::regen)
             .add(Stage::FixedUpdate, "créatures : mort", mobs::cleanup);
         let readers = EventReaders::new(&ecs);
         let mod_readers = EventReaders::new(&ecs);
@@ -737,6 +756,7 @@ impl VoxelGame {
             effects: potions::Effects::default(),
             soundscape: soundscape::Soundscape::new(seed),
             enchant_seed: seed ^ 0xE5C4,
+            adventure,
             music_until: None,
             villages: villagers::Villages::default(),
             trades,
@@ -827,6 +847,7 @@ impl VoxelGame {
         self.update_vitals(ctx.fixed_dt);
         self.update_hunger(ctx.fixed_dt);
         self.drop_mob_loot();
+        self.update_adventure(ctx.fixed_dt);
         self.footsteps(ctx.fixed_dt);
         self.check_death();
     }

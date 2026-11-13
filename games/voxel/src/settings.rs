@@ -24,10 +24,12 @@ pub enum Action {
     Fly,
     Time,
     Backpack,
+    /// L'écran des paliers du monde.
+    Tiers,
 }
 
 impl Action {
-    pub const ALL: [Action; 12] = [
+    pub const ALL: [Action; 13] = [
         Action::Forward,
         Action::Back,
         Action::Left,
@@ -40,6 +42,7 @@ impl Action {
         Action::Fly,
         Action::Time,
         Action::Backpack,
+        Action::Tiers,
     ];
 
     pub fn label(self) -> &'static str {
@@ -56,6 +59,7 @@ impl Action {
             Self::Fly => "Voler",
             Self::Time => "Vitesse du temps",
             Self::Backpack => "Ouvrir le sac à dos",
+            Self::Tiers => "Paliers du monde",
         }
     }
 }
@@ -76,6 +80,8 @@ pub struct Keys {
     pub fly: String,
     pub time: String,
     pub backpack: String,
+    /// L'écran des paliers du monde (absent d'un ancien `settings.ron` : la touche par défaut).
+    pub tiers: String,
 }
 
 impl Default for Keys {
@@ -94,6 +100,7 @@ impl Default for Keys {
             fly: "KeyF".into(),
             time: "KeyT".into(),
             backpack: "KeyB".into(),
+            tiers: "KeyJ".into(),
         }
     }
 }
@@ -113,6 +120,7 @@ impl Keys {
             Action::Fly => &mut self.fly,
             Action::Time => &mut self.time,
             Action::Backpack => &mut self.backpack,
+            Action::Tiers => &mut self.tiers,
         }
     }
 
@@ -130,6 +138,7 @@ impl Keys {
             Action::Fly => &self.fly,
             Action::Time => &self.time,
             Action::Backpack => &self.backpack,
+            Action::Tiers => &self.tiers,
         }
     }
 
@@ -304,6 +313,7 @@ mod tests {
             "l'aperçu des coffres est activé par défaut"
         );
         assert_eq!(loaded.keys.key(Action::Backpack), KeyCode::KeyB);
+        assert_eq!(loaded.keys.key(Action::Tiers), KeyCode::KeyJ);
         assert_eq!(loaded.fov, 80.0);
         assert!(!loaded.show_arm);
     }
@@ -315,6 +325,7 @@ mod tests {
         assert_eq!(loaded.keys.key(Action::Forward), KeyCode::ArrowUp);
         assert_eq!(loaded.keys.key(Action::Inventory), KeyCode::KeyI);
         assert_eq!(loaded.keys.key(Action::Backpack), KeyCode::KeyB);
+        assert_eq!(loaded.keys.key(Action::Tiers), KeyCode::KeyJ);
         assert!(loaded.chest_preview);
     }
 

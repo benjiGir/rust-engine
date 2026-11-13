@@ -1,0 +1,34 @@
+// Les raretés des objets à affixes (phase « aventure », voir games/voxel/src/adventure_data.rs).
+//
+// Leur ORDRE compte : le numéro d'une rareté (0, 1, 2...) est celui qu'une fiche d'objet
+// sauvegarde. On n'en change jamais la place ; un mod en ajoute à la suite (son `rarities.ron`).
+//
+// - id : l'identifiant, cité par `affixes.ron` (les valeurs sont données dans l'ordre des raretés) ;
+// - name : le nom affiché ; color : la couleur de la bulle et du liseré de la case (rouge, vert,
+//   bleu de 0 à 255) ;
+// - weight : la part au tirage (avant la hausse du palier du monde, voir tiers.ron) ;
+// - affixes : combien d'affixes (min, max) ; sockets : combien d'emplacements de gemme (min, max) ;
+// - shard : le matériau que rend la récupération et que demande la réforge ;
+// - salvage : ce que rend la table de récupération (fragments, poussière de gemme) ;
+// - reforge : ce que coûte un tirage à la table de réforge (fragments, poussière, niveaux).
+(
+    // Le plus d'emplacements qu'un objet puisse porter (le sceau d'emplacement s'arrête là).
+    max_sockets: 4,
+    rarities: [
+        (id: "common", name: "Commune", color: (200, 204, 210), weight: 60.0,
+         affixes: (1, 1), sockets: (0, 0), shard: "core:shard_common",
+         salvage: (shards: (1, 2), dust: (0, 0)), reforge: (shards: 3, dust: 0, levels: 1)),
+        (id: "uncommon", name: "Peu commune", color: (96, 214, 112), weight: 25.0,
+         affixes: (1, 2), sockets: (0, 1), shard: "core:shard_uncommon",
+         salvage: (shards: (1, 3), dust: (0, 1)), reforge: (shards: 4, dust: 1, levels: 2)),
+        (id: "rare", name: "Rare", color: (86, 156, 255), weight: 10.0,
+         affixes: (2, 3), sockets: (0, 2), shard: "core:shard_rare",
+         salvage: (shards: (2, 3), dust: (1, 1)), reforge: (shards: 5, dust: 2, levels: 4)),
+        (id: "epic", name: "Épique", color: (190, 106, 255), weight: 4.0,
+         affixes: (3, 4), sockets: (1, 3), shard: "core:shard_epic",
+         salvage: (shards: (2, 4), dust: (1, 2)), reforge: (shards: 6, dust: 3, levels: 7)),
+        (id: "mythic", name: "Mythique", color: (255, 170, 48), weight: 1.0,
+         affixes: (4, 5), sockets: (2, 3), shard: "core:shard_mythic",
+         salvage: (shards: (3, 5), dust: (2, 3)), reforge: (shards: 8, dust: 4, levels: 12)),
+    ],
+)

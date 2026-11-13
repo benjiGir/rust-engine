@@ -1,4 +1,10 @@
 //! Contrôle CPU des fenêtres, cases, infobulles et fiches de visée de production.
+#[path = "../src/adventure_data.rs"]
+#[allow(dead_code)]
+mod adventure_data;
+#[path = "../src/affixes.rs"]
+#[allow(dead_code)]
+mod affixes;
 #[path = "../src/attributes.rs"]
 #[allow(dead_code)]
 mod attributes;
@@ -7,6 +13,9 @@ mod common;
 #[path = "../src/enchanting.rs"]
 #[allow(dead_code)]
 mod enchanting;
+#[path = "../src/gems.rs"]
+#[allow(dead_code)]
+mod gems;
 #[path = "../src/item_art.rs"]
 mod item_art;
 #[path = "../src/item_data.rs"]
@@ -48,7 +57,7 @@ fn review_slot(ui: &mut egui::Ui, icon: TextureId, count: u32, selected: bool) -
         icon,
         count,
         selected.then_some(0.62),
-        selected,
+        selected.then_some(skin::MAGIC),
     );
     response
 }

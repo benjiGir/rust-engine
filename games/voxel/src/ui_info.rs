@@ -6,6 +6,8 @@ use engine_voxel::{BlockDef, Capabilities, Category, FluidRegistry, ItemDef, Too
 #[derive(Debug, Clone)]
 pub struct Card {
     pub name: String,
+    /// La couleur du nom (la rareté d'un objet à affixes).
+    pub name_color: Option<Color32>,
     pub origin: String,
     pub lines: Vec<(String, Color32)>,
 }
@@ -52,16 +54,51 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
             lines.push((label, skin::MAGIC));
         }
     }
-    // Les affixes de la fiche (rien tant que la phase « aventure » n'en donne pas).
+    // La rareté, les affixes et les gemmes de la fiche (objets à affixes, voir `affixes.rs`).
     let sheet = crate::item_data::sheet(damage);
+    let data = crate::adventure_data::current();
+    let rarity = sheet
+        .as_ref()
+        .and_then(crate::affixes::display_rarity)
+        .and_then(|r| data.rarity(r));
+    let rarity_color = rarity.map(|r| Color32::from_rgb(r.color.0, r.color.1, r.color.2));
+    if let (Some(rarity), Some(color)) = (rarity, rarity_color) {
+        lines.insert(0, (rarity.name.clone(), color));
+    }
     for affix in sheet.iter().flat_map(|s| &s.affixes) {
-        if let Some(attribute) = crate::attributes::Attribute::from_id(affix.attribute) {
-            let mut text = format!("{} {}", attribute.name(), attribute.format(affix.flat));
-            if affix.percent != 0.0 {
-                text = format!("{} ({:+.0} %)", attribute.name(), affix.percent * 100.0);
-            }
+        if let Some(text) = crate::affixes::describe(affix) {
             lines.push((text, skin::GOLD));
         }
+    }
+    for socket in sheet.iter().flat_map(|s| &s.sockets) {
+        lines.push(match socket {
+            None => ("Emplacement de gemme : vide".into(), skin::MUTED),
+            Some(key) => match crate::gems::gem_label(&data, key) {
+                Some((name, color)) => (format!("Gemme : {name}"), color),
+                None => ("Gemme inconnue".into(), skin::MUTED),
+            },
+        });
+    }
+    // Une gemme dit ce qu'elle apporte selon l'objet qui la porte ; un sceau, ce qu'il fait.
+    if let Some((_, _)) = data.gem_of(&def.key) {
+        for text in crate::gems::gem_effects(&data, &def.key) {
+            lines.push((text, skin::GOLD));
+        }
+        lines.push((
+            "Tenue au curseur, un clic sur un objet à emplacement libre la sertit".into(),
+            skin::MUTED,
+        ));
+    }
+    match def.key.as_str() {
+        crate::gems::SEAL_UNSOCKET => lines.push((
+            "Au curseur, un clic sur un objet : retire ses gemmes".into(),
+            skin::MUTED,
+        )),
+        crate::gems::SEAL_SOCKET => lines.push((
+            "Au curseur, un clic sur un objet : un emplacement de plus".into(),
+            skin::MUTED,
+        )),
+        _ => {}
     }
     if let Some(tool) = def.tool {
         lines.push((format!("Dégâts : {:.0}", tool.damage), skin::MUTED));
@@ -120,6 +157,7 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
         name: sheet
             .and_then(|s| s.name)
             .unwrap_or_else(|| def.name.clone()),
+        name_color: rarity_color,
         origin: origin(&def.key),
         lines,
     }
@@ -156,6 +194,7 @@ pub fn block(def: &BlockDef, held: Option<&ToolDef>) -> Card {
     }
     Card {
         name: def.name.clone(),
+        name_color: None,
         origin: origin(&def.key),
         lines,
     }
@@ -218,7 +257,7 @@ pub fn draw(ui: &mut egui::Ui, card: &Card, icon: Option<egui::TextureId>) {
                 egui::RichText::new(&card.name)
                     .strong()
                     .size(16.0)
-                    .color(skin::TEXT),
+                    .color(card.name_color.unwrap_or(skin::TEXT)),
             );
             ui.label(
                 egui::RichText::new(&card.origin)
@@ -227,7 +266,7 @@ pub fn draw(ui: &mut egui::Ui, card: &Card, icon: Option<egui::TextureId>) {
             );
         });
     });
-    for (text, color) in card.lines.iter().take(6) {
+    for (text, color) in card.lines.iter().take(16) {
         ui.label(egui::RichText::new(text).size(13.0).color(*color));
     }
 }
@@ -244,7 +283,7 @@ pub fn hover(response: egui::Response, card: &Card) {
         let size = ui.ctx().content_rect().size();
         ui.set_max_width((size.x - 32.0).clamp(80.0, 280.0));
         egui::ScrollArea::vertical()
-            .max_height((size.y - 48.0).clamp(40.0, 240.0))
+            .max_height((size.y - 48.0).clamp(40.0, 380.0))
             .show(ui, |ui| draw(ui, card, None));
     });
 }
@@ -306,6 +345,7 @@ mod tests {
         crate::skin::apply(&ctx);
         let card = Card {
             name: "Pioche en acier".into(),
+            name_color: None,
             origin: "Forge".into(),
             lines: vec![("Durabilité : 697 / 700".into(), skin::TEXT)],
         };

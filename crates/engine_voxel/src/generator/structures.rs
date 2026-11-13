@@ -151,6 +151,24 @@ pub struct ChestLootEntry {
     pub item: String,
     pub count: (u32, u32),
     pub weight: u32,
+    /// Un objet à affixes (phase « aventure ») : le coffre le range « à tirer » (voir
+    /// [`pending_loot`]), et le jeu en tire la rareté et les affixes à sa première ouverture.
+    #[serde(default)]
+    pub affixed: bool,
+    /// La rareté minimale (son numéro) d'un objet `affixed`.
+    #[serde(default)]
+    pub min_rarity: u8,
+}
+
+/// Les deux bits hauts de `ItemStack::damage` qui disent « objet à affixes à tirer » : le moteur
+/// ne connaît ni les raretés ni les affixes, il laisse donc au jeu le soin de les tirer. Le bit 31
+/// seul est déjà pris (fiche d'objet) ; avec le bit 30, le reste du nombre est le tirage : la
+/// rareté minimale dans les bits 16 à 19 et une graine de 16 bits dans les bits 0 à 15.
+pub const PENDING_LOOT: u32 = 0xC000_0000;
+
+/// Le `damage` d'un objet à affixes à tirer, pour cette graine et cette rareté minimale.
+pub fn pending_loot(min_rarity: u8, seed: u16) -> u32 {
+    PENDING_LOOT | (u32::from(min_rarity & 0xF) << 16) | u32::from(seed)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -831,10 +849,24 @@ impl Builder<'_> {
                 .map(|i| (start + i) % len)
                 .find(|&i| inventory.slots[i].is_none())
             {
+                let damage = if entry.affixed {
+                    // Une graine tirée à part (pas dans `self.rng`) : le butin d'un coffre ne
+                    // décale jamais le reste du plan, les structures déjà posées restent justes.
+                    let at = (i64::from(p.x) * 73_856_093)
+                        ^ (i64::from(p.y) * 19_349_663)
+                        ^ (i64::from(p.z) * 83_492_791)
+                        ^ (slot as i64 * 2_654_435_761);
+                    pending_loot(
+                        entry.min_rarity,
+                        (Rng64::new(at as u64).next_u64() & 0xFFFF) as u16,
+                    )
+                } else {
+                    0
+                };
                 inventory.slots[slot] = Some(ItemStack {
                     item: entry.item.clone(),
-                    count,
-                    damage: 0,
+                    count: if entry.affixed { 1 } else { count },
+                    damage,
                 });
             }
         }
@@ -1760,6 +1792,106 @@ mod tests {
             "la mine descend : {deepest} / {surface}"
         );
         assert!(plan.chests().len() >= 3);
+    }
+
+    /// Les coffres des donjons, ruines et mines du jeu de base contiennent des objets à affixes (à tirer
+    /// à l'ouverture) et des gemmes : les données de `structures.ron` sont bien branchées.
+    #[test]
+    fn core_chests_hold_pending_affixed_items_and_gems() {
+        let generator = generator();
+        let (mut pending, mut gems) = (0, 0);
+        for site in generator
+            .structure_sites_in((-4000, -4000), (4000, 4000))
+            .into_iter()
+            .filter(|s| {
+                matches!(
+                    s.kind,
+                    StructureKind::Dungeon | StructureKind::Ruin | StructureKind::Mine
+                )
+            })
+            .take(24)
+        {
+            let plan = generator.blueprint(&site).unwrap();
+            for (_, inventory) in plan.chests() {
+                for stack in inventory.slots.iter().flatten() {
+                    pending += usize::from(stack.damage & PENDING_LOOT == PENDING_LOOT);
+                    gems += usize::from(stack.item.starts_with("core:gem_"));
+                    if stack.damage & PENDING_LOOT == PENDING_LOOT {
+                        assert_eq!(stack.count, 1);
+                    } else {
+                        assert_eq!(stack.damage, 0, "{}", stack.item);
+                    }
+                }
+            }
+        }
+        assert!(
+            pending >= 3,
+            "{pending} objets à affixes dans 24 structures"
+        );
+        assert!(gems >= 2, "{gems} gemmes dans 24 structures");
+    }
+
+    /// Un butin « à affixes » est rangé comme un marqueur à tirer (graine et rareté minimale) : le
+    /// même coffre redonne le même marqueur, et le plan qui suit n'est pas décalé (le générateur
+    /// aléatoire du plan avance comme avec un butin ordinaire).
+    #[test]
+    fn affixed_chest_loot_is_a_stable_pending_marker_that_leaves_the_plan_alone() {
+        let generator = generator();
+        let blocks = generator.structure_blocks.clone().unwrap();
+        let table = |affixed: bool| ChestLoot {
+            rolls: (3, 3),
+            entries: vec![ChestLootEntry {
+                item: "core:iron_sword".into(),
+                count: (2, 2),
+                weight: 1,
+                affixed,
+                min_rarity: 2,
+            }],
+        };
+        let fill = |loot: &ChestLoot| {
+            let mut builder = Builder {
+                world: &generator,
+                b: &blocks,
+                rng: Rng64::new(9),
+                bp: Blueprint::default(),
+                heights: HashMap::new(),
+                loot,
+            };
+            builder.chest_with(IVec3::new(4, 20, 7), loot);
+            let after = builder.rng.next_u64();
+            (builder.bp.chests()[0].1.clone(), after)
+        };
+        let (plain, plain_after) = fill(&table(false));
+        let (marked, marked_after) = fill(&table(true));
+        assert_eq!(plain_after, marked_after, "le plan n'est pas décalé");
+        assert_eq!(
+            marked,
+            fill(&table(true)).0,
+            "le même coffre, les mêmes marqueurs"
+        );
+        let stacks: Vec<_> = marked.slots.iter().flatten().collect();
+        assert_eq!(stacks.len(), 3);
+        for stack in stacks {
+            assert_eq!(stack.item, "core:iron_sword");
+            assert_eq!(stack.count, 1, "un objet à affixes ne s'empile pas");
+            assert_eq!(stack.damage & PENDING_LOOT, PENDING_LOOT);
+            assert_eq!((stack.damage >> 16) & 0xF, 2, "la rareté minimale");
+        }
+        assert!(
+            plain
+                .slots
+                .iter()
+                .flatten()
+                .all(|s| s.damage == 0 && s.count == 2)
+        );
+        // Les marqueurs de deux emplacements diffèrent (la graine dépend de la case).
+        let seeds: std::collections::HashSet<_> = marked
+            .slots
+            .iter()
+            .flatten()
+            .map(|s| s.damage & 0xFFFF)
+            .collect();
+        assert!(seeds.len() >= 2);
     }
 
     /// Chaque chunk dessine sa part seul : le monde généré chunk par chunk contient bien le

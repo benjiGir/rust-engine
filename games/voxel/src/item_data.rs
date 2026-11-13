@@ -22,8 +22,13 @@
 //!   monter `SavedStore::version` et de garder l'ancienne forme pour la relire.
 //! - **La fiche** ([`ItemData`]) : l'usure, les enchantements (plusieurs : sorte et niveau),
 //!   la rareté, les affixes (un bonus d'attribut chacun), les emplacements de gemmes (vide ou
-//!   la clé de la gemme) et un nom. Rareté, affixes, emplacements et nom sont prêts pour la
-//!   phase « aventure » ; ils restent vides tant que rien ne les remplit.
+//!   la clé de la gemme) et un nom. Rareté, affixes, emplacements et nom sont remplis par la phase
+//!   « aventure » (voir `affixes.rs`, `gems.rs`) ; une fiche d'enchantements seule les laisse vides.
+//!   Cette phase n'a **pas** changé la forme de [`ItemData`] : `items.bin` reste en version 1, les
+//!   fiches de la phase précédente se lisent telles quelles.
+//! - **Un marqueur dans `damage`** : les deux bits hauts à 1 ([`is_pending`]) ne sont pas une fiche mais
+//!   un objet à affixes « à tirer » rangé par un coffre de structure ; les numéros de fiche s'arrêtent
+//!   donc à [`MAX_NUMBER`] (2^30 - 1).
 //!
 //! # La migration
 //!
@@ -52,11 +57,21 @@ use serde::{Deserialize, Serialize};
 pub const EXTENDED: u32 = 1 << 31;
 /// Les bits 0 à 30 : le numéro de la fiche.
 pub const NUMBER_MASK: u32 = EXTENDED - 1;
+/// Le plus grand numéro de fiche : les numéros à partir de 2^30 sont réservés au marqueur « objet à
+/// affixes à tirer » que les coffres des structures portent (voir [`is_pending`]).
+pub const MAX_NUMBER: u32 = (1 << 30) - 1;
 const FILE: &str = "items.bin";
+
+/// Cette pile est-elle un objet à affixes pas encore tiré (un coffre de structure) ? Le moteur le
+/// pose à la génération (`engine_voxel::pending_loot`) ; le jeu le remplace par une vraie fiche à la
+/// première ouverture du coffre (voir `affixes::resolve_pending`).
+pub fn is_pending(damage: u32) -> bool {
+    damage & engine_voxel::PENDING_LOOT == engine_voxel::PENDING_LOOT
+}
 
 /// Cette pile a-t-elle une fiche ?
 pub fn is_extended(damage: u32) -> bool {
-    damage & EXTENDED != 0
+    damage & EXTENDED != 0 && !is_pending(damage)
 }
 
 /// Le numéro de fiche d'un `damage` étendu.
@@ -130,7 +145,7 @@ impl ItemStore {
         while self.sheets.contains_key(&self.next) {
             self.next += 1;
         }
-        if self.next > NUMBER_MASK {
+        if self.next > MAX_NUMBER {
             return None;
         }
         let number = self.next;
@@ -290,6 +305,10 @@ mod tests {
         assert!(!is_extended(7));
         assert_eq!(number(EXTENDED | 7), 7);
         assert_eq!(NUMBER_MASK, 0x7FFF_FFFF);
+        // Le marqueur des coffres (bits 31 et 30) n'est jamais une fiche.
+        let pending = engine_voxel::pending_loot(2, 0xBEEF);
+        assert!(is_pending(pending) && !is_extended(pending));
+        assert!(!is_pending(EXTENDED | MAX_NUMBER) && is_extended(EXTENDED | MAX_NUMBER));
         // Les sacs à dos, eux, restent sous les 16 bits.
         const { assert!(crate::backpacks::MAX_NUMBER < EXTENDED) };
     }

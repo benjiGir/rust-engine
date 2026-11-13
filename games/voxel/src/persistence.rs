@@ -104,6 +104,7 @@ impl VoxelGame {
                 .clone()
                 .unwrap_or_else(|| self.dims.current.key.clone()),
             arriving: self.dims.leaving.is_some(),
+            adventure: self.adventure.progress.to_save(),
         }
     }
 

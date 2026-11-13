@@ -578,6 +578,9 @@
             (item: "core:gold_ingot", count: (1, 2), weight: 4),
             (item: "core:shadow_dust", count: (1, 2), weight: 4),
             (item: "core:sapphire", count: (1, 1), weight: 1),
+            (item: "core:iron_sword", count: (1, 1), weight: 2, affixed: true, min_rarity: 1),
+            (item: "core:gem_emerald_2", count: (1, 1), weight: 1),
+            (item: "core:gem_dust", count: (1, 2), weight: 2),
         ]),
         "crypt_3": (rolls: (3, 5), entries: [
             (item: "core:gold_ingot", count: (2, 4), weight: 8),
@@ -585,6 +588,13 @@
             (item: "core:iron_pickaxe", count: (1, 1), weight: 2),
             (item: "core:iron_sword", count: (1, 1), weight: 2),
             (item: "core:malachite", count: (1, 2), weight: 3),
+            (item: "core:iron_chestplate", count: (1, 1), weight: 3, affixed: true, min_rarity: 2),
+            (item: "core:sapphire_sword", count: (1, 1), weight: 1, affixed: true, min_rarity: 2),
+            (item: "core:gem_ruby_3", count: (1, 1), weight: 2),
+            (item: "core:gem_opal_3", count: (1, 1), weight: 2),
+            (item: "core:gem_onyx_2", count: (1, 1), weight: 2),
+            (item: "core:seal_socket", count: (1, 1), weight: 1),
+            (item: "core:seal_unsocket", count: (1, 1), weight: 1),
         ]),
     },
 )

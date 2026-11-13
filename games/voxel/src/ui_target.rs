@@ -60,6 +60,7 @@ impl VoxelGame {
                     .map(|c| crate::chest_preview::summarize(&c.0.slots, c.0.slots.len()));
             }
             Card {
+                name_color: None,
                 name: kind.map_or("Wagon", |k| k.title()).to_string(),
                 origin: ui_info::origin("core:cart"),
                 lines: Vec::new(),
@@ -79,8 +80,27 @@ impl VoxelGame {
                     skin::RED,
                 ));
             }
+            // Une élite ou un envahisseur porte son nom composé et sa teinte.
+            let elite = self
+                .ecs
+                .get::<crate::elites::Elite>(entity)
+                .map(|e| e.clone());
+            if let Some(elite) = &elite {
+                lines.push((
+                    format!("{} augmentation(s)", elite.augmentations.len()),
+                    skin::GOLD,
+                ));
+            }
             Card {
-                name: def.name.clone(),
+                name_color: elite.as_ref().map(|e| {
+                    let c = e.tint;
+                    egui::Color32::from_rgb(
+                        (c.x * 255.0) as u8,
+                        (c.y * 255.0) as u8,
+                        (c.z * 255.0) as u8,
+                    )
+                }),
+                name: elite.map_or_else(|| def.name.clone(), |e| e.name),
                 origin: ui_info::origin(&def.key),
                 lines,
             }
