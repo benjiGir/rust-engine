@@ -17,7 +17,7 @@
         textures: (top: "vault_top", side: "vault_side", bottom: "vault_top"),
         behavior: "vault",
         hardness: 2.5, tool: Axe,
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
     // Le trieur : la case 0 est son modèle (on y dépose un exemplaire de l'objet voulu), les 8
     // autres reçoivent ce qui arrive des conduits. Seul l'objet du modèle entre ; sans modèle,
@@ -36,7 +36,7 @@
         behavior: "sorter",
         ports: (inputs: [1, 2, 3, 4, 5, 6, 7, 8], filter: 0),
         hardness: 2.5, tool: Pickaxe,
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
     // La moissonneuse : récolte les cultures mûres autour d'elle (au même niveau, à 3 blocs) et
     // les replante. Elle garde la récolte dans ses 9 cases, d'où les conduits la retirent.
@@ -58,7 +58,7 @@
         behavior: "harvester",
         ports: (outputs: [0, 1, 2, 3, 4, 5, 6, 7, 8]),
         hardness: 2.0, tool: Axe,
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
     // La foreuse : alimentée (un levier voisin suffit), elle creuse un puits droit sous elle,
     // un bloc à la fois, et garde ce qu'elle trouve dans ses 9 cases.
@@ -78,6 +78,6 @@
         behavior: "drill",
         ports: (outputs: [0, 1, 2, 3, 4, 5, 6, 7, 8]),
         hardness: 3.0, tool: Pickaxe,
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
 ]

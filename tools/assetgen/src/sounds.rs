@@ -1,591 +1,344 @@
-//! Des sons synthétisés : du bruit filtré et des enveloppes, écrits en WAV.
-//!
-//! Un son, c'est une suite d'échantillons (ici 44 100 par seconde) entre -1 et 1.
-//! - Le **bruit blanc** (des valeurs au hasard) sonne comme un « chhh ».
-//! - Un **filtre passe-bas** garde les graves : bruit sourd, pas, souffle du vent.
-//! - Une **enveloppe** règle le volume dans le temps : attaque rapide puis
-//!   décroissance exponentielle pour un choc, montée et descente lentes pour une ambiance.
+//! Banque sonore : prises enregistrées et niveaux reproductibles, sans téléchargement.
+use anyhow::{Context, Result, ensure};
+use serde::Deserialize;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
-use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::path::{Path, PathBuf};
-
-use anyhow::Result;
-
-use crate::Rng;
-
-const RATE: u32 = 44_100;
-/// La musique est écrite à cette fréquence plus basse (elle n'a pas d'aigus à garder).
-const MUSIC_RATE: u32 = 11_025;
-
-/// Du bruit filtré par un passe-bas à un pôle. `cutoff` entre 0 (très sourd) et 1 (brut).
-fn filtered_noise(samples: usize, cutoff: f32, seed: u64) -> Vec<f32> {
-    let mut rng = Rng::new(seed);
-    let mut state = 0.0;
-    (0..samples)
-        .map(|_| {
-            state += cutoff * (rng.signed() - state);
-            state
-        })
-        .collect()
+#[derive(Debug, Clone, Copy, Deserialize)]
+enum Kind {
+    Effect,
+    Ambient,
+    Loop,
+    Music,
+    Chime,
+}
+#[derive(Debug, Deserialize)]
+struct Recipe {
+    name: String,
+    source: String,
+    kind: Kind,
+    #[serde(default)]
+    lowpass: Option<f32>,
+}
+#[derive(Debug, Clone)]
+struct Clip {
+    rate: u32,
+    channels: usize,
+    samples: Vec<f32>,
+}
+fn bank(root: &Path) -> Result<Vec<Recipe>> {
+    Ok(ron::from_str(&fs::read_to_string(
+        root.join("tools/assetgen/audio/bank.ron"),
+    )?)?)
 }
 
-/// Un choc : attaque de `attack` secondes, puis décroissance de constante `decay`.
-fn hit_envelope(i: usize, attack: f32, decay: f32) -> f32 {
-    let t = i as f32 / RATE as f32;
-    if t < attack {
-        t / attack
-    } else {
-        (-(t - attack) / decay).exp()
+/// Les sources sont importées en PCM une fois ; aucun codec externe à la génération.
+fn read_wav(path: &Path) -> Result<Clip> {
+    let bytes = fs::read(path).with_context(|| format!("source audio {}", path.display()))?;
+    ensure!(
+        bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WAVE",
+        "WAV invalide : {}",
+        path.display()
+    );
+    let (mut format, mut data, mut cursor) = (None, None, 12usize);
+    while cursor + 8 <= bytes.len() {
+        let size = u32::from_le_bytes(bytes[cursor + 4..cursor + 8].try_into()?) as usize;
+        let start = cursor + 8;
+        let end = start.checked_add(size).context("taille WAV excessive")?;
+        ensure!(end <= bytes.len(), "chunk WAV tronqué");
+        match &bytes[cursor..cursor + 4] {
+            b"fmt " => {
+                ensure!(size >= 16, "fmt tronqué");
+                let u16_at = |i| u16::from_le_bytes([bytes[start + i], bytes[start + i + 1]]);
+                let rate = u32::from_le_bytes(bytes[start + 4..start + 8].try_into()?);
+                ensure!(
+                    u16_at(0) == 1 && u16_at(14) == 16,
+                    "source attendue : PCM 16 bits"
+                );
+                let channels = u16_at(2) as usize;
+                ensure!(
+                    (1..=2).contains(&channels) && rate == 44_100,
+                    "source attendue : mono/stéréo 44,1 kHz"
+                );
+                format = Some((rate, channels));
+            }
+            b"data" => data = Some(&bytes[start..end]),
+            _ => {}
+        }
+        cursor = end + size % 2;
     }
+    let (rate, channels) = format.context("fmt absent")?;
+    let data = data.context("données absentes")?;
+    ensure!(
+        !data.is_empty() && data.len() % (channels * 2) == 0,
+        "PCM incomplet"
+    );
+    Ok(Clip {
+        rate,
+        channels,
+        samples: data
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 / 32768.0)
+            .collect(),
+    })
 }
-
-/// Ramène le maximum à `peak` (évite la saturation, uniformise les volumes).
-fn normalize(mut samples: Vec<f32>, peak: f32) -> Vec<f32> {
-    let max = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
-    if max > 0.0 {
-        for s in &mut samples {
-            *s *= peak / max;
+fn db(value: f32) -> f32 {
+    10.0f32.powf(value / 20.0)
+}
+fn filter(clip: &mut Clip, lowpass: Option<f32>) {
+    let alpha = (-std::f32::consts::TAU * 35.0 / clip.rate as f32).exp();
+    let low = lowpass.map(|hz| 1.0 - (-std::f32::consts::TAU * hz / clip.rate as f32).exp());
+    for channel in 0..clip.channels {
+        let (mut x, mut y, mut smooth) = (clip.samples[channel], 0.0, 0.0);
+        for sample in clip.samples.iter_mut().skip(channel).step_by(clip.channels) {
+            let input = *sample;
+            y = alpha * (y + input - x);
+            x = input;
+            *sample = if let Some(a) = low {
+                smooth += a * (y - smooth);
+                smooth
+            } else {
+                y
+            };
         }
     }
-    samples
 }
-
-fn seconds(s: f32) -> usize {
-    (s * RATE as f32) as usize
-}
-
-/// Un pas ou un bloc qui casse : du bruit filtré dans une enveloppe de choc.
-fn noise_hit(duration: f32, cutoff: f32, decay: f32, peak: f32, seed: u64) -> Vec<f32> {
-    let noise = filtered_noise(seconds(duration), cutoff, seed);
-    let shaped = noise
+fn trim(clip: &mut Clip) {
+    let peak = clip
+        .samples
         .iter()
-        .enumerate()
-        .map(|(i, n)| n * hit_envelope(i, 0.004, decay))
-        .collect();
-    normalize(shaped, peak)
+        .copied()
+        .fold(0.0f32, |m, s| m.max(s.abs()));
+    let frames = clip.samples.len() / clip.channels;
+    let active = |i: usize| {
+        clip.samples[i * clip.channels..(i + 1) * clip.channels]
+            .iter()
+            .any(|s| s.abs() > peak * 0.003)
+    };
+    let start = (0..frames)
+        .find(|&i| active(i))
+        .unwrap_or(0)
+        .saturating_sub((clip.rate / 200) as usize);
+    let end = (0..frames)
+        .rfind(|&i| active(i))
+        .map_or(frames, |i| (i + (clip.rate / 25) as usize).min(frames));
+    clip.samples = clip.samples[start * clip.channels..end * clip.channels].to_vec();
 }
-
-/// Un « toc » sourd pour poser un bloc : une sinusoïde dont la fréquence chute, plus un peu de bruit.
-fn thump(start_hz: f32, end_hz: f32, duration: f32, seed: u64) -> Vec<f32> {
-    let n = seconds(duration);
-    let noise = filtered_noise(n, 0.3, seed);
-    let mut phase = 0.0f32;
-    let samples = (0..n)
-        .map(|i| {
-            let t = i as f32 / n as f32;
-            let hz = start_hz + (end_hz - start_hz) * t;
-            phase += hz / RATE as f32 * std::f32::consts::TAU;
-            (phase.sin() + 0.3 * noise[i]) * hit_envelope(i, 0.002, duration / 5.0)
-        })
-        .collect();
-    normalize(samples, 0.8)
-}
-
-/// Le verre qui casse : des tintements aigus aléatoires sur un bruit clair.
-fn glass_break(seed: u64) -> Vec<f32> {
-    let n = seconds(0.45);
-    let mut samples = noise_hit(0.45, 0.9, 0.06, 0.5, seed);
-    let mut rng = Rng::new(seed + 1);
-    for _ in 0..6 {
-        let start = (rng.next_f32() * n as f32 * 0.5) as usize;
-        let hz = 2500.0 + rng.next_f32() * 3000.0;
-        for (k, s) in samples[start..].iter_mut().enumerate() {
-            let t = k as f32 / RATE as f32;
-            *s += (t * hz * std::f32::consts::TAU).sin() * (-t / 0.05).exp() * 0.3;
+/// Puissance constante et traitement identique des canaux : pas de trou à la jointure.
+fn loop_crossfade(clip: &mut Clip) {
+    let frames = clip.samples.len() / clip.channels;
+    let fade = (clip.rate as usize * 3 / 4).min(frames / 4);
+    if fade < 2 {
+        return;
+    }
+    let body = frames - fade;
+    for frame in 0..fade {
+        let angle = frame as f32 / (fade - 1) as f32 * std::f32::consts::FRAC_PI_2;
+        for channel in 0..clip.channels {
+            let head = frame * clip.channels + channel;
+            let tail = (body + frame) * clip.channels + channel;
+            clip.samples[head] =
+                clip.samples[tail] * angle.cos() + clip.samples[head] * angle.sin();
         }
     }
-    normalize(samples, 0.8)
+    clip.samples.truncate(body * clip.channels);
 }
-
-/// L'éclaboussure : un bruit clair qui s'éteint lentement, avec quelques gouttes.
-fn splash(seed: u64) -> Vec<f32> {
-    let n = seconds(0.7);
-    let mut samples = noise_hit(0.7, 0.5, 0.15, 0.6, seed);
-    let mut rng = Rng::new(seed + 1);
-    for _ in 0..8 {
-        let start = (rng.next_f32() * n as f32 * 0.8) as usize;
-        let hz = 600.0 + rng.next_f32() * 900.0;
-        for (k, s) in samples[start..].iter_mut().enumerate() {
-            let t = k as f32 / RATE as f32;
-            // Une goutte : une fréquence qui monte vite, comme un « bloup ».
-            let f = hz * (1.0 + t * 8.0);
-            *s += (t * f * std::f32::consts::TAU).sin() * (-t / 0.03).exp() * 0.25;
+fn fades(clip: &mut Clip) {
+    let frames = clip.samples.len() / clip.channels;
+    let attack = (clip.rate as usize / 500).min(frames / 4).max(1);
+    let release = (clip.rate as usize / 30).min(frames / 4).max(1);
+    for frame in 0..frames {
+        let gain = (frame as f32 / attack as f32).min(1.0)
+            * ((frames - 1 - frame) as f32 / release as f32).min(1.0);
+        for sample in &mut clip.samples[frame * clip.channels..(frame + 1) * clip.channels] {
+            *sample *= gain;
         }
     }
-    normalize(samples, 0.8)
 }
-
-/// La pluie : un bruit clair et continu (huit secondes qui bouclent sans à-coup).
-fn rain(duration: f32, seed: u64) -> Vec<f32> {
-    let n = seconds(duration);
-    let hiss = filtered_noise(n, 0.5, seed);
-    let body = filtered_noise(n, 0.12, seed + 1);
-    let samples = hiss
-        .iter()
-        .zip(&body)
-        .map(|(h, b)| h * 0.7 + b * 0.5)
-        .collect();
-    normalize(samples, 0.6)
-}
-
-/// Le tonnerre : un claquement sec, puis un grondement grave qui roule et s'éteint.
-fn thunder(seed: u64) -> Vec<f32> {
-    let n = seconds(4.0);
-    let crack = filtered_noise(n, 0.4, seed);
-    let rumble = filtered_noise(n, 0.012, seed + 1);
-    let samples = (0..n)
-        .map(|i| {
-            let t = i as f32 / RATE as f32;
-            let roll = 0.6 + 0.4 * (t * 7.0).sin().abs();
-            crack[i] * hit_envelope(i, 0.002, 0.06) * 0.6
-                + rumble[i] * 6.0 * hit_envelope(i, 0.15, 1.3) * roll
-        })
-        .collect();
-    normalize(samples, 0.9)
-}
-
-/// La fréquence d'un demi-ton `n` au-dessus de `root`.
-fn note(root: f32, n: f32) -> f32 {
-    root * 2.0f32.powf(n / 12.0)
-}
-
-/// Une note pincée : un son doux, quelques harmoniques, qui s'éteint.
-fn pluck(out: &mut [f32], rate: u32, start: usize, hz: f32, length: f32, volume: f32, bright: f32) {
-    let n = (length * rate as f32) as usize;
-    for k in 0..n {
-        let Some(s) = out.get_mut(start + k) else {
-            break;
-        };
-        let t = k as f32 / rate as f32;
-        let attack = (t / 0.008).min(1.0);
-        let env = attack * (-t / (length * 0.45)).exp();
-        let phase = t * hz * std::f32::consts::TAU;
-        *s += (phase.sin()
-            + 0.35 * bright * (2.0 * phase).sin()
-            + 0.12 * bright * (3.0 * phase).sin())
-            * env
-            * volume;
-    }
-}
-
-/// Un accord tenu : des sinus lents, avec une montée et une descente douces.
-fn pad(out: &mut [f32], rate: u32, start: usize, hz: f32, length: f32, volume: f32) {
-    let n = (length * rate as f32) as usize;
-    for k in 0..n {
-        let Some(s) = out.get_mut(start + k) else {
-            break;
-        };
-        let t = k as f32 / rate as f32;
-        let env = (t / 1.2).min(1.0) * ((length - t) / 1.5).clamp(0.0, 1.0);
-        let phase = t * hz * std::f32::consts::TAU;
-        *s += (phase.sin() + 0.2 * (2.0 * phase + 0.4).sin()) * env * volume;
-    }
-}
-
-/// Un morceau : une suite d'accords tenus et une mélodie qui se promène sur une gamme,
-/// avec un peu d'écho. Pas de répétition exacte : le hasard (la graine) choisit les notes.
-fn music(
-    seconds_total: f32,
-    seed: u64,
-    root: f32,
-    scale: &[f32],
-    bpm: f32,
-    rest: f32,
-    bright: f32,
-) -> Vec<f32> {
-    let rate = MUSIC_RATE;
-    let n = (seconds_total * rate as f32) as usize;
-    let mut out = vec![0.0f32; n];
-    let beat = 60.0 / bpm;
-    let mut rng = Rng::new(seed);
-    // Les accords : quatre degrés de la gamme, chacun tenu huit temps.
-    let degrees = [0usize, 3 % scale.len(), 4 % scale.len(), 2 % scale.len()];
-    let mut t = 0.0;
-    let mut chord = 0;
-    while t < seconds_total {
-        let d = degrees[chord % degrees.len()];
-        let base = scale[d];
-        for (i, interval) in [0.0, 7.0, 12.0].iter().enumerate() {
-            let hz = note(root / 2.0, base + interval);
-            pad(
-                &mut out,
-                rate,
-                (t * rate as f32) as usize,
-                hz,
-                8.0 * beat + 1.0,
-                0.09 - 0.015 * i as f32,
-            );
-        }
-        t += 8.0 * beat;
-        chord += 1;
-    }
-    // La mélodie : une marche aléatoire sur la gamme, deux octaves.
-    let mut degree = (scale.len() * 2) as i32 / 2;
-    let steps = scale.len() as i32 * 2;
-    let mut t = beat * 2.0;
-    while t < seconds_total - 3.0 {
-        let length = if rng.next_f32() < 0.5 {
-            beat
-        } else {
-            beat * 2.0
-        };
-        if rng.next_f32() >= rest {
-            let octave = degree.div_euclid(scale.len() as i32);
-            let step = degree.rem_euclid(scale.len() as i32) as usize;
-            let semitones = scale[step] + 12.0 * octave as f32;
-            pluck(
-                &mut out,
-                rate,
-                (t * rate as f32) as usize,
-                note(root, semitones),
-                length * 2.2,
-                0.2,
-                bright,
-            );
-        }
-        degree = (degree + (rng.next_u64() % 5) as i32 - 2).clamp(0, steps - 1);
-        t += length;
-    }
-    // L'écho : deux copies décalées et affaiblies.
-    for (delay, gain) in [(beat * 0.75, 0.32f32), (beat * 1.5, 0.18)] {
-        let shift = (delay * rate as f32) as usize;
-        for i in (shift..n).rev() {
-            out[i] += out[i - shift] * gain;
-        }
-    }
-    // Un fondu au début et à la fin.
-    let fade = (1.5 * rate as f32) as usize;
-    for i in 0..fade.min(n / 2) {
-        let g = i as f32 / fade as f32;
-        out[i] *= g;
-        out[n - 1 - i] *= g;
-    }
-    normalize(out, 0.55)
-}
-
-/// Une salve de cris d'oiseau : des glissandos courts et aigus.
-fn birds(seed: u64) -> Vec<f32> {
-    let n = seconds(3.2);
-    let mut samples = vec![0.0f32; n];
-    let mut rng = Rng::new(seed);
-    let mut start = seconds(0.1);
-    while start + seconds(0.3) < n {
-        let base = 2400.0 + rng.next_f32() * 1800.0;
-        let slope = (rng.next_f32() - 0.4) * 3000.0;
-        for chirp in 0..(2 + (rng.next_u64() % 3) as usize) {
-            let begin = start + chirp * seconds(0.11);
-            for k in 0..seconds(0.07) {
-                let Some(s) = samples.get_mut(begin + k) else {
-                    break;
-                };
-                let t = k as f32 / RATE as f32;
-                let env = (std::f32::consts::PI * k as f32 / seconds(0.07) as f32).sin();
-                let hz = base + slope * t * 10.0;
-                *s += (t * hz * std::f32::consts::TAU).sin() * env * 0.25;
+/// Motif original monté à partir d'une cloche enregistrée, sans oscillateur continu.
+fn chime(source: &Clip) -> Clip {
+    let mut out = Clip {
+        rate: source.rate,
+        channels: source.channels,
+        samples: vec![0.0; source.rate as usize * source.channels * 3],
+    };
+    for (voice, semitones) in [0.0f32, 7.0, 4.0, 12.0].into_iter().enumerate() {
+        let ratio = 2.0f32.powf(semitones / 12.0);
+        let offset = (voice as f32 * 0.19 * source.rate as f32) as usize;
+        for frame in offset..out.samples.len() / out.channels {
+            let at = (frame - offset) as f32 * ratio;
+            let index = at as usize;
+            if (index + 1) * source.channels >= source.samples.len() {
+                break;
+            }
+            for channel in 0..out.channels {
+                let a = source.samples[index * source.channels + channel];
+                let b = source.samples[(index + 1) * source.channels + channel];
+                out.samples[frame * out.channels + channel] += (a + (b - a) * at.fract()) * 0.45;
             }
         }
-        start += seconds(0.5 + rng.next_f32() * 0.7);
-    }
-    normalize(samples, 0.5)
-}
-
-/// Une goutte dans une grotte : un « ploc » clair suivi d'un petit écho.
-fn drip(seed: u64) -> Vec<f32> {
-    let n = seconds(1.2);
-    let mut samples = vec![0.0f32; n];
-    let mut rng = Rng::new(seed);
-    let hz = 900.0 + rng.next_f32() * 500.0;
-    for (delay, gain) in [(0.0, 1.0), (0.22, 0.35), (0.45, 0.15)] {
-        let start = seconds(delay);
-        for k in 0..seconds(0.25) {
-            let Some(s) = samples.get_mut(start + k) else {
-                break;
-            };
-            let t = k as f32 / RATE as f32;
-            let f = hz * (1.0 + t * 6.0);
-            *s += (t * f * std::f32::consts::TAU).sin() * (-t / 0.035).exp() * gain;
-        }
-    }
-    normalize(samples, 0.6)
-}
-
-/// Un grondement lointain dans la roche.
-fn cave_rumble(seed: u64) -> Vec<f32> {
-    let n = seconds(4.5);
-    let noise = filtered_noise(n, 0.006, seed);
-    let samples = (0..n)
-        .map(|i| noise[i] * hit_envelope(i, 1.2, 1.6))
-        .collect();
-    normalize(samples, 0.7)
-}
-
-/// Des vagues : un bruit qui gonfle et retombe, deux fois.
-fn waves(seed: u64) -> Vec<f32> {
-    let n = seconds(7.0);
-    let noise = filtered_noise(n, 0.07, seed);
-    let samples = (0..n)
-        .map(|i| {
-            let t = i as f32 / n as f32;
-            let swell =
-                (t * std::f32::consts::TAU * 2.0 - std::f32::consts::FRAC_PI_2).sin() * 0.5 + 0.5;
-            let fade = (t * std::f32::consts::PI).sin();
-            noise[i] * swell * fade
-        })
-        .collect();
-    normalize(samples, 0.6)
-}
-
-/// Une chouette : deux « hou » graves.
-fn owl(seed: u64) -> Vec<f32> {
-    let n = seconds(2.2);
-    let mut samples = vec![0.0f32; n];
-    let mut rng = Rng::new(seed);
-    let hz = 330.0 + rng.next_f32() * 40.0;
-    for (delay, drop) in [(0.1, 0.0), (0.75, 40.0)] {
-        let start = seconds(delay);
-        for k in 0..seconds(0.45) {
-            let Some(s) = samples.get_mut(start + k) else {
-                break;
-            };
-            let t = k as f32 / RATE as f32;
-            let env = (std::f32::consts::PI * k as f32 / seconds(0.45) as f32)
-                .sin()
-                .powi(2);
-            let phase = t * (hz - drop - t * 60.0) * std::f32::consts::TAU;
-            *s += (phase.sin() + 0.3 * (2.0 * phase).sin()) * env * 0.5;
-        }
-    }
-    normalize(samples, 0.5)
-}
-
-/// Un scintillement : l'enchantement. Des notes aiguës qui montent et s'estompent.
-fn enchant() -> Vec<f32> {
-    let n = seconds(1.4);
-    let mut samples = vec![0.0f32; n];
-    for (i, semitone) in [0.0f32, 4.0, 7.0, 12.0, 16.0, 19.0, 24.0]
-        .iter()
-        .enumerate()
-    {
-        pluck(
-            &mut samples,
-            RATE,
-            seconds(0.08 * i as f32),
-            note(660.0, *semitone),
-            0.7,
-            0.25,
-            0.6,
-        );
-    }
-    normalize(samples, 0.6)
-}
-
-/// Des bulles : l'alambic.
-fn bubbles(seed: u64) -> Vec<f32> {
-    let n = seconds(0.9);
-    let mut samples = vec![0.0f32; n];
-    let mut rng = Rng::new(seed);
-    for _ in 0..6 {
-        let start = (rng.next_f32() * n as f32 * 0.75) as usize;
-        let hz = 300.0 + rng.next_f32() * 500.0;
-        for k in 0..seconds(0.12) {
-            let Some(s) = samples.get_mut(start + k) else {
-                break;
-            };
-            let t = k as f32 / RATE as f32;
-            *s +=
-                (t * hz * (1.0 + t * 12.0) * std::f32::consts::TAU).sin() * (-t / 0.03).exp() * 0.4;
-        }
-    }
-    normalize(samples, 0.6)
-}
-
-/// Une gorgée : deux glouglous graves.
-fn gulp() -> Vec<f32> {
-    let n = seconds(0.55);
-    let mut samples = vec![0.0f32; n];
-    for delay in [0.02, 0.26] {
-        let start = seconds(delay);
-        for k in 0..seconds(0.2) {
-            let Some(s) = samples.get_mut(start + k) else {
-                break;
-            };
-            let t = k as f32 / RATE as f32;
-            *s += (t * (180.0 + t * 500.0) * std::f32::consts::TAU).sin() * (-t / 0.06).exp();
-        }
-    }
-    normalize(samples, 0.6)
-}
-
-/// Le vent : du bruit très filtré dont le volume ondule. Le nombre de vagues est entier
-/// sur la durée : le son peut boucler sans à-coup de volume.
-fn wind(duration: f32, seed: u64) -> Vec<f32> {
-    let n = seconds(duration);
-    let noise = filtered_noise(n, 0.02, seed);
-    let samples = noise
-        .iter()
-        .enumerate()
-        .map(|(i, s)| {
-            let t = i as f32 / n as f32 * std::f32::consts::TAU;
-            s * (0.6 + 0.25 * (t * 2.0).sin() + 0.15 * (t * 5.0).sin())
-        })
-        .collect();
-    crossfade_loop(normalize(samples, 0.5))
-}
-
-/// La nuit : un vent plus faible et des grillons (des salves de bips aigus).
-fn night(duration: f32, seed: u64) -> Vec<f32> {
-    let n = seconds(duration);
-    let mut samples: Vec<f32> = wind(duration, seed).iter().map(|s| s * 0.4).collect();
-    let mut rng = Rng::new(seed + 1);
-    let mut start = 0;
-    while start < n {
-        let hz = 4200.0 + rng.next_f32() * 600.0;
-        // Une salve de 3 ou 4 « cri » de 30 ms.
-        for chirp in 0..(3 + rng.next_u64() % 2) as usize {
-            let begin = start + chirp * seconds(0.06);
-            for k in 0..seconds(0.03) {
-                if let Some(s) = samples.get_mut(begin + k) {
-                    let t = k as f32 / RATE as f32;
-                    let env = (std::f32::consts::PI * k as f32 / seconds(0.03) as f32).sin();
-                    *s += (t * hz * std::f32::consts::TAU).sin() * env * 0.12;
-                }
-            }
-        }
-        start += seconds(0.7 + rng.next_f32() * 1.2);
-    }
-    crossfade_loop(normalize(samples, 0.5))
-}
-
-/// Fond la fin du son dans son début : en boucle, on n'entend pas la jointure.
-fn crossfade_loop(samples: Vec<f32>) -> Vec<f32> {
-    let fade = seconds(0.5).min(samples.len() / 2);
-    let body = samples.len() - fade;
-    let mut out = samples[..body].to_vec();
-    for i in 0..fade {
-        let t = i as f32 / fade as f32;
-        out[i] = out[i] * t + samples[body + i] * (1.0 - t);
     }
     out
 }
-
-/// Écrit un fichier WAV mono 16 bits. Le format est simple : un en-tête de 44 octets
-/// (« RIFF », « WAVE », le format, la taille), puis les échantillons.
-fn write_wav(path: &Path, samples: &[f32]) -> Result<()> {
-    write_wav_at(path, samples, RATE)
-}
-
-/// Comme [`write_wav`], à une autre fréquence d'échantillonnage (la musique, plus lente,
-/// se contente de 11 025 Hz : quatre fois moins lourde).
-fn write_wav_at(path: &Path, samples: &[f32], rate: u32) -> Result<()> {
-    std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))?;
-    let mut file = BufWriter::new(File::create(path)?);
-    let data_len = (samples.len() * 2) as u32;
-    file.write_all(b"RIFF")?;
-    file.write_all(&(36 + data_len).to_le_bytes())?;
-    file.write_all(b"WAVEfmt ")?;
-    file.write_all(&16u32.to_le_bytes())?; // taille du bloc « fmt »
-    file.write_all(&1u16.to_le_bytes())?; // PCM
-    file.write_all(&1u16.to_le_bytes())?; // mono
-    file.write_all(&rate.to_le_bytes())?;
-    file.write_all(&(rate * 2).to_le_bytes())?; // octets par seconde
-    file.write_all(&2u16.to_le_bytes())?; // octets par échantillon
-    file.write_all(&16u16.to_le_bytes())?; // bits par échantillon
-    file.write_all(b"data")?;
-    file.write_all(&data_len.to_le_bytes())?;
-    for s in samples {
-        let value = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-        file.write_all(&value.to_le_bytes())?;
+fn prepare(root: &Path, recipe: &Recipe) -> Result<Clip> {
+    let mut clip = read_wav(&root.join("tools/assetgen/audio").join(&recipe.source))?;
+    filter(&mut clip, recipe.lowpass);
+    if matches!(recipe.kind, Kind::Chime) {
+        clip = chime(&clip);
     }
-    Ok(())
+    if matches!(recipe.kind, Kind::Loop) {
+        loop_crossfade(&mut clip);
+    } else {
+        trim(&mut clip);
+        fades(&mut clip);
+    }
+    let (rms_db, peak_db) = match recipe.kind {
+        Kind::Effect => (-23.0, -6.0),
+        Kind::Ambient => (-28.0, -10.0),
+        Kind::Loop => (-31.0, -12.0),
+        Kind::Chime => (-27.0, -9.0),
+        Kind::Music => unreachable!("les morceaux sont des masters OGG versionnés"),
+    };
+    let rms = (clip
+        .samples
+        .iter()
+        .map(|s| (*s as f64).powi(2))
+        .sum::<f64>()
+        / clip.samples.len() as f64)
+        .sqrt() as f32;
+    let peak = clip
+        .samples
+        .iter()
+        .copied()
+        .fold(0.0f32, |m, s| m.max(s.abs()));
+    ensure!(
+        rms > 0.000001 && peak.is_finite(),
+        "source silencieuse : {}",
+        recipe.name
+    );
+    // Garder de la marge au mélange, sans amplifier un souffle de plus de 12 dB.
+    let gain = (db(rms_db) / rms).min(db(peak_db) / peak).min(4.0);
+    for sample in &mut clip.samples {
+        *sample *= gain;
+    }
+    Ok(clip)
 }
-
-/// Écrit tous les sons ; renvoie les chemins.
+fn wav_bytes(clip: &Clip) -> Vec<u8> {
+    let size = (clip.samples.len() * 2) as u32;
+    let channels = clip.channels as u16;
+    let mut b = Vec::with_capacity(size as usize + 44);
+    b.extend(b"RIFF");
+    b.extend((36 + size).to_le_bytes());
+    b.extend(b"WAVEfmt ");
+    b.extend(16u32.to_le_bytes());
+    b.extend(1u16.to_le_bytes());
+    b.extend(channels.to_le_bytes());
+    b.extend(clip.rate.to_le_bytes());
+    b.extend((clip.rate * channels as u32 * 2).to_le_bytes());
+    b.extend((channels * 2).to_le_bytes());
+    b.extend(16u16.to_le_bytes());
+    b.extend(b"data");
+    b.extend(size.to_le_bytes());
+    for sample in &clip.samples {
+        let value = (sample.clamp(-1.0, 1.0) * 32767.0).round() as i16;
+        b.extend(value.to_le_bytes());
+    }
+    b
+}
 pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
     let dir = root.join("assets/core/sounds");
-    let sounds: Vec<(&str, Vec<f32>)> = vec![
-        ("step_soft", noise_hit(0.12, 0.08, 0.03, 0.5, 1)),
-        ("step_hard", noise_hit(0.09, 0.35, 0.02, 0.5, 2)),
-        ("step_sand", noise_hit(0.16, 0.5, 0.04, 0.4, 3)),
-        ("step_snow", noise_hit(0.18, 0.25, 0.05, 0.4, 4)),
-        ("break_soft", noise_hit(0.3, 0.12, 0.08, 0.8, 5)),
-        ("break_hard", noise_hit(0.35, 0.45, 0.07, 0.8, 6)),
-        ("break_glass", glass_break(7)),
-        ("place_soft", thump(160.0, 80.0, 0.15, 8)),
-        ("place_hard", thump(320.0, 140.0, 0.12, 9)),
-        ("splash", splash(10)),
-        ("rain", rain(8.0, 13)),
-        ("thunder", thunder(15)),
-        ("ambience_day", wind(8.0, 11)),
-        ("ambience_night", night(8.0, 12)),
-    ];
-    let mut sounds = sounds;
-    sounds.extend([
-        ("birds", birds(21)),
-        ("drip", drip(22)),
-        ("cave_rumble", cave_rumble(23)),
-        ("waves", waves(24)),
-        ("owl", owl(25)),
-        ("enchant", enchant()),
-        ("bubbles", bubbles(26)),
-        ("gulp", gulp()),
-    ]);
+    fs::create_dir_all(&dir)?;
     let mut paths = Vec::new();
-    // La musique : quatre morceaux d'humeurs différentes, à leur propre fréquence.
-    let pentatonic = [0.0, 2.0, 4.0, 7.0, 9.0];
-    let lydian = [0.0, 2.0, 4.0, 6.0, 7.0, 9.0, 11.0];
-    let minor = [0.0, 3.0, 5.0, 7.0, 10.0];
-    let dark = [0.0, 1.0, 5.0, 7.0, 8.0];
-    for (name, samples) in [
-        (
-            "music_day1",
-            music(46.0, 31, 261.6, &pentatonic, 72.0, 0.25, 1.0),
-        ),
-        (
-            "music_day2",
-            music(46.0, 32, 293.7, &lydian, 64.0, 0.3, 0.8),
-        ),
-        (
-            "music_night",
-            music(48.0, 33, 220.0, &minor, 52.0, 0.4, 0.6),
-        ),
-        ("music_cave", music(48.0, 34, 110.0, &dark, 44.0, 0.55, 0.4)),
-    ] {
-        let path = dir.join(format!("{name}.wav"));
-        write_wav_at(&path, &samples, MUSIC_RATE)?;
+    for recipe in bank(root)? {
+        ensure!(!recipe.name.contains(['/', '\\']), "nom de son invalide");
+        let music = matches!(recipe.kind, Kind::Music);
+        let path = dir.join(format!(
+            "{}.{}",
+            recipe.name,
+            if music { "ogg" } else { "wav" }
+        ));
+        if music {
+            fs::copy(
+                root.join("tools/assetgen/audio").join(&recipe.source),
+                &path,
+            )?;
+        } else {
+            fs::write(&path, wav_bytes(&prepare(root, &recipe)?))?;
+        }
         paths.push(path);
     }
-    for (name, samples) in sounds {
-        let path = dir.join(format!("{name}.wav"));
-        write_wav(&path, &samples)?;
-        paths.push(path);
-    }
+    let credits = dir.join("CREDITS.md");
+    fs::copy(root.join("tools/assetgen/audio/CREDITS.md"), &credits)?;
+    paths.push(credits);
     Ok(paths)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    fn root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+    }
     #[test]
-    fn sounds_are_normalized_and_not_silent() {
-        for samples in [
-            noise_hit(0.1, 0.2, 0.03, 0.5, 1),
-            thump(200.0, 80.0, 0.1, 2),
-            splash(3),
-        ] {
-            let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
-            assert!(peak > 0.3 && peak <= 1.0, "pic {peak}");
+    fn masters_are_finite_quiet_enough_and_have_no_abrupt_effect_edges() {
+        let root = root();
+        for recipe in bank(&root).unwrap() {
+            if matches!(recipe.kind, Kind::Music) {
+                continue;
+            }
+            let clip = prepare(&root, &recipe).unwrap();
+            assert!(
+                clip.samples.len() > clip.rate as usize / 25,
+                "{}",
+                recipe.name
+            );
+            let peak = clip
+                .samples
+                .iter()
+                .copied()
+                .fold(0.0f32, |m, s| m.max(s.abs()));
+            assert!(
+                peak > 0.001 && peak <= db(-6.0) + 0.00001,
+                "{} : pic {peak}",
+                recipe.name
+            );
+            if !matches!(recipe.kind, Kind::Loop) {
+                assert_eq!(clip.samples[0], 0.0, "{}", recipe.name);
+                assert_eq!(*clip.samples.last().unwrap(), 0.0, "{}", recipe.name);
+            }
         }
     }
-
     #[test]
-    fn wav_header_is_valid() {
-        let path = std::env::temp_dir().join(format!("assetgen-{}.wav", std::process::id()));
-        write_wav(&path, &[0.0, 0.5, -0.5]).unwrap();
-        let bytes = std::fs::read(&path).unwrap();
-        assert_eq!(&bytes[0..4], b"RIFF");
-        assert_eq!(&bytes[8..12], b"WAVE");
-        assert_eq!(bytes.len(), 44 + 3 * 2);
+    fn loop_joint_is_natural_and_stereo_stays_in_phase() {
+        let samples: Vec<f32> = (0..44_100 * 2)
+            .flat_map(|i| {
+                let s = (i as f32 * std::f32::consts::TAU * 100.0 / 44_100.0).sin() * 0.3;
+                [s, s]
+            })
+            .collect();
+        let mut clip = Clip {
+            rate: 44_100,
+            channels: 2,
+            samples,
+        };
+        loop_crossfade(&mut clip);
+        assert!((clip.samples[0] - clip.samples[clip.samples.len() - 2]).abs() < 0.01);
+        assert!(clip.samples.as_chunks::<2>().0.iter().all(|f| f[0] == f[1]));
+    }
+    #[test]
+    fn wav_keeps_rate_channels_and_exact_pcm_length() {
+        let clip = Clip {
+            rate: 44_100,
+            channels: 2,
+            samples: vec![0.0, 0.5, -0.5, 0.0],
+        };
+        let b = wav_bytes(&clip);
+        assert_eq!(&b[..4], b"RIFF");
+        assert_eq!(b.len(), 52);
+        assert_eq!(&b[22..24], &2u16.to_le_bytes());
+        assert_eq!(&b[24..28], &44_100u32.to_le_bytes());
     }
 }

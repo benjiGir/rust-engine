@@ -19,11 +19,15 @@
 //! comme sur une table de mixage : les effets (pas, blocs) et l'ambiance (vent, grillons).
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use engine_voxel::{BlockId, BlockRegistry};
+use kira::effect::compressor::CompressorBuilder;
+use kira::sound::FromFileError;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
-use kira::track::{TrackBuilder, TrackHandle};
+use kira::sound::streaming::{StreamingSoundData, StreamingSoundHandle};
+use kira::track::{MainTrackBuilder, TrackBuilder, TrackHandle};
 use kira::{AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Tween};
 
 const AMBIENCE_DAY: &str = "core:ambience_day";
@@ -93,13 +97,34 @@ pub enum BlockSound {
     Place,
 }
 
+struct SoundBank {
+    takes: Vec<StaticSoundData>,
+    last: Option<usize>,
+}
+
+/// Tirage uniforme parmi les autres prises : aucune répétition immédiate.
+fn take_index(seed: &mut u32, count: usize, last: Option<usize>) -> usize {
+    *seed ^= *seed << 13;
+    *seed ^= *seed >> 17;
+    *seed ^= *seed << 5;
+    if count <= 1 {
+        return 0;
+    }
+    let excluded = last.filter(|&i| i < count);
+    let pick = *seed as usize % (count - usize::from(excluded.is_some()));
+    pick + usize::from(excluded.is_some_and(|i| pick >= i))
+}
+
 pub struct Audio {
     /// Le gestionnaire doit rester en vie : le détruire coupe le son.
     _manager: AudioManager,
     effects: TrackHandle,
     ambience: TrackHandle,
     /// Les sons décodés, par identifiant (`core:step_soft`...).
-    sounds: HashMap<String, StaticSoundData>,
+    sounds: HashMap<String, SoundBank>,
+    /// Les morceaux longs se décodent au fil de la lecture, pas tous en mémoire.
+    music_paths: HashMap<String, PathBuf>,
+    music: Option<StreamingSoundHandle<FromFileError>>,
     day: Option<StaticSoundHandle>,
     night: Option<StaticSoundHandle>,
     /// La boucle de pluie, et le dernier volume appliqué.
@@ -107,6 +132,7 @@ pub struct Audio {
     last_rain: f32,
     /// Le dernier mélange jour/nuit appliqué, pour ne pas renvoyer la même commande.
     last_mix: f32,
+    environment_gain: f32,
     /// Un petit générateur pseudo-aléatoire : chaque son est joué un peu plus aigu ou
     /// plus grave, pour que des pas répétés ne sonnent pas comme un disque rayé.
     seed: u32,
@@ -129,7 +155,17 @@ impl Audio {
     }
 
     fn try_new(registry: &BlockRegistry, settings: AudioSettings) -> Result<Self> {
-        let mut manager = AudioManager::<DefaultBackend>::new(AudioManagerSettings::default())?;
+        let settings_manager = AudioManagerSettings {
+            main_track_builder: MainTrackBuilder::new().volume(Decibels(-3.0)).with_effect(
+                CompressorBuilder::new()
+                    .threshold(-4.0)
+                    .ratio(8.0)
+                    .attack_duration(std::time::Duration::from_millis(2))
+                    .release_duration(std::time::Duration::from_millis(120)),
+            ),
+            ..Default::default()
+        };
+        let mut manager = AudioManager::<DefaultBackend>::new(settings_manager)?;
         let effects =
             manager.add_sub_track(TrackBuilder::new().volume(to_decibels(settings.effects)))?;
         let ambience =
@@ -139,11 +175,14 @@ impl Audio {
             effects,
             ambience,
             sounds: load_sounds(registry),
+            music_paths: music_paths(registry),
+            music: None,
             day: None,
             night: None,
             rain: None,
             last_rain: -1.0,
             last_mix: -1.0,
+            environment_gain: 1.0,
             seed: 0x9E37_79B9,
         };
         audio.start_ambience();
@@ -169,6 +208,10 @@ impl Audio {
     /// Relit les fichiers (rechargement à chaud) et relance l'ambiance.
     pub fn reload(&mut self, registry: &BlockRegistry) {
         self.sounds = load_sounds(registry);
+        self.music_paths = music_paths(registry);
+        if let Some(mut handle) = self.music.take() {
+            handle.stop(Tween::default());
+        }
         for handle in [self.day.take(), self.night.take(), self.rain.take()]
             .into_iter()
             .flatten()
@@ -185,7 +228,7 @@ impl Audio {
     /// Les deux boucles d'ambiance démarrent ensemble ; leur volume relatif suit l'heure.
     fn start_ambience(&mut self) {
         let start = |key: &str, audio: &mut Self| {
-            let data = audio.sounds.get(key)?.clone();
+            let data = audio.sounds.get(key)?.takes.first()?.clone();
             // `loop_region(..)` : tout le son, en boucle. Volume nul au départ.
             let data = data.loop_region(..).volume(Decibels::SILENCE);
             audio.ambience.play(data).ok()
@@ -198,7 +241,21 @@ impl Audio {
     /// Joue un son d'ambiance ou un morceau de musique sur la piste de l'ambiance (réglée
     /// par « Musique et ambiance »). Renvoie sa durée en secondes.
     pub fn play_ambient(&mut self, key: &str) -> Option<f32> {
-        let data = self.sounds.get(key)?.clone();
+        if let Some(path) = self.music_paths.get(key) {
+            let data = StreamingSoundData::from_file(path)
+                .map_err(|err| log::warn!("musique « {key} » : {err}"))
+                .ok()?;
+            let seconds = data.duration().as_secs_f32();
+            if let Some(mut old) = self.music.take() {
+                old.stop(Tween::default());
+            }
+            self.music = Some(self.ambience.play(data).ok()?);
+            return Some(seconds);
+        }
+        let bank = self.sounds.get_mut(key)?;
+        let index = take_index(&mut self.seed, bank.takes.len(), bank.last);
+        bank.last = Some(index);
+        let data = bank.takes[index].clone();
         let seconds = data.duration().as_secs_f32();
         self.ambience.play(data).ok()?;
         Some(seconds)
@@ -232,25 +289,37 @@ impl Audio {
             ..Tween::default()
         };
         if let Some(day) = &mut self.day {
-            day.set_volume(to_decibels(mix), tween);
+            day.set_volume(to_decibels(mix * self.environment_gain), tween);
         }
         if let Some(night) = &mut self.night {
-            night.set_volume(to_decibels(1.0 - mix), tween);
+            night.set_volume(to_decibels((1.0 - mix) * self.environment_gain), tween);
+        }
+    }
+
+    /// Les boucles de nature ne doivent pas introduire des oiseaux dans une grotte ou un désert.
+    pub fn set_environment(&mut self, place: crate::soundscape::Place) {
+        let gain = if !place.underground && place.green {
+            1.0
+        } else {
+            0.0
+        };
+        if self.environment_gain != gain {
+            self.environment_gain = gain;
+            self.last_mix = -1.0;
         }
     }
 
     /// Joue un son sur le bus des effets, avec une légère variation de hauteur.
     pub fn play(&mut self, key: &str) {
-        let Some(data) = self.sounds.get(key) else {
+        let Some(bank) = self.sounds.get_mut(key) else {
             return;
         };
-        // Xorshift 32 bits : de quoi tirer une hauteur entre 0,92 et 1,08.
-        self.seed ^= self.seed << 13;
-        self.seed ^= self.seed >> 17;
-        self.seed ^= self.seed << 5;
-        let pitch = 0.92 + (self.seed % 1000) as f64 / 1000.0 * 0.16;
+        let index = take_index(&mut self.seed, bank.takes.len(), bank.last);
+        bank.last = Some(index);
+        // Deux pour cent seulement : garder le timbre des prises enregistrées.
+        let pitch = 0.98 + (self.seed.rotate_left(11) % 1000) as f64 / 1000.0 * 0.04;
         // Cloner un `StaticSoundData` ne copie pas les échantillons : ils sont dans un `Arc`.
-        let data = data.clone().playback_rate(pitch);
+        let data = bank.takes[index].clone().playback_rate(pitch);
         if let Err(err) = self.effects.play(data) {
             log::debug!("son « {key} » non joué : {err}");
         }
@@ -272,17 +341,27 @@ impl Audio {
 
 /// Tous les sons cités par le registre, plus l'ambiance et l'éclaboussure.
 /// Le décodage des WAV se fait ici, une fois, loin du thread audio.
-fn load_sounds(registry: &BlockRegistry) -> HashMap<String, StaticSoundData> {
-    let mut keys: Vec<String> = vec![
-        AMBIENCE_DAY.into(),
-        AMBIENCE_NIGHT.into(),
-        SPLASH.into(),
-        RAIN.into(),
-        THUNDER.into(),
-    ];
-    for key in AMBIENT_SOUNDS.iter().chain(MUSIC_TRACKS).chain(UI_SOUNDS) {
-        keys.push((*key).into());
-    }
+fn sound_path(registry: &BlockRegistry, key: &str) -> Option<PathBuf> {
+    ["wav", "ogg"]
+        .into_iter()
+        .filter_map(|ext| registry.asset_path(key, "sounds", ext))
+        .find(|p| p.is_file())
+}
+
+fn music_paths(registry: &BlockRegistry) -> HashMap<String, PathBuf> {
+    MUSIC_TRACKS
+        .iter()
+        .filter_map(|key| Some(((*key).to_string(), sound_path(registry, key)?)))
+        .collect()
+}
+
+fn load_sounds(registry: &BlockRegistry) -> HashMap<String, SoundBank> {
+    let mut keys: Vec<String> = [AMBIENCE_DAY, AMBIENCE_NIGHT, SPLASH, RAIN, THUNDER]
+        .into_iter()
+        .chain(AMBIENT_SOUNDS.iter().copied())
+        .chain(UI_SOUNDS.iter().copied())
+        .map(str::to_owned)
+        .collect();
     for (_, def) in registry.iter() {
         for key in [&def.sounds.step, &def.sounds.break_, &def.sounds.place]
             .into_iter()
@@ -295,14 +374,31 @@ fn load_sounds(registry: &BlockRegistry) -> HashMap<String, StaticSoundData> {
     }
     let mut sounds = HashMap::new();
     for key in keys {
-        let Some(path) = registry.asset_path(&key, "sounds", "wav") else {
+        let Some(path) = sound_path(registry, &key) else {
             continue;
         };
-        match StaticSoundData::from_file(&path) {
-            Ok(data) => {
-                sounds.insert(key, data);
+        let mut takes = Vec::new();
+        let mut paths = vec![path.clone()];
+        for take in 1..8 {
+            let name = format!(
+                "{}_{}.{}",
+                path.file_stem().unwrap().to_string_lossy(),
+                take,
+                path.extension().unwrap().to_string_lossy()
+            );
+            let variant = path.with_file_name(name);
+            if variant.is_file() {
+                paths.push(variant);
             }
-            Err(err) => log::warn!("son « {key} » ({}) : {err}", path.display()),
+        }
+        for path in paths {
+            match StaticSoundData::from_file(&path) {
+                Ok(data) => takes.push(data),
+                Err(err) => log::warn!("son « {key} » ({}) : {err}", path.display()),
+            }
+        }
+        if !takes.is_empty() {
+            sounds.insert(key, SoundBank { takes, last: None });
         }
     }
     sounds
@@ -319,6 +415,36 @@ mod tests {
         assert_eq!(to_decibels(0.0), Decibels::SILENCE);
     }
 
+    #[test]
+    fn take_selection_varies_without_immediate_repetition_and_supports_single_takes() {
+        let mut seed = 42;
+        let mut last = None;
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..200 {
+            let next = take_index(&mut seed, 4, last);
+            assert_ne!(Some(next), last);
+            seen.insert(next);
+            last = Some(next);
+        }
+        assert_eq!(seen.len(), 4);
+        assert_eq!(take_index(&mut seed, 1, Some(0)), 0);
+    }
+
+    #[test]
+    fn music_streams_and_material_banks_have_four_real_takes() {
+        let registry = crate::test_registry();
+        let paths = music_paths(&registry);
+        for key in MUSIC_TRACKS {
+            let data = StreamingSoundData::from_file(paths.get(*key).unwrap()).unwrap();
+            assert!(data.duration().as_secs_f32() > 60.0, "{key}");
+        }
+        let banks = load_sounds(&registry);
+        for material in ["soft", "hard", "sand", "snow", "wood", "metal"] {
+            let key = format!("core:step_{material}");
+            assert_eq!(banks.get(&key).unwrap().takes.len(), 4, "{key}");
+        }
+    }
+
     /// Le décodage marche sans carte son : on vérifie que chaque son cité existe et se lit.
     #[test]
     fn every_referenced_sound_decodes() {
@@ -333,13 +459,12 @@ mod tests {
         ]
         .into_iter()
         .chain(AMBIENT_SOUNDS.iter().copied())
-        .chain(MUSIC_TRACKS.iter().copied())
         .chain(UI_SOUNDS.iter().copied())
         {
             let sound = sounds
                 .get(key)
                 .unwrap_or_else(|| panic!("son « {key} » absent"));
-            assert!(sound.duration().as_secs_f64() > 0.05, "{key}");
+            assert!(sound.takes[0].duration().as_secs_f64() > 0.05, "{key}");
         }
     }
 }

@@ -18,7 +18,7 @@
         ports: (inputs: [0, 1, 2], outputs: [4]),
         light_emission: 4,
         hardness: 3.0, tool: Pickaxe,
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
     // L'enclume : deux cases, un marteau, une sortie. On choisit la pièce à forger par un bouton.
     (
@@ -36,6 +36,6 @@
             (from: (14, 10, 5), to: (16, 13, 11)),
         ],
         hardness: 4.0, tool: Pickaxe,
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
 ]

@@ -99,13 +99,11 @@ impl Soundscape {
     /// un morceau est en cours (on n'en lance pas un second).
     pub fn update(&mut self, dt: f32, place: Place, music_playing: bool) -> Vec<Cue> {
         let mut cues = Vec::new();
-        if !music_playing {
-            self.music_in -= dt;
-            if self.music_in <= 0.0 {
-                cues.push(Cue::Music(self.music_for(place)));
-                // Le morceau fixe la suite : on réarme après sa durée (voir `finished`).
-                self.music_in = f32::INFINITY;
-            }
+        self.music_in -= dt;
+        if !music_playing && self.music_in <= 0.0 {
+            cues.push(Cue::Music(self.music_for(place)));
+            // Le morceau fixe la suite : on réarme selon sa durée (voir `started`).
+            self.music_in = f32::INFINITY;
         }
         self.ambient_in -= dt;
         if self.ambient_in <= 0.0 {
@@ -121,6 +119,11 @@ impl Soundscape {
     /// après sa fin.
     pub fn started(&mut self, seconds: f32) {
         self.music_in = seconds + 60.0 + self.random() * 180.0;
+    }
+
+    /// Le rechargement arrête la lecture : ne pas attendre la fin de l'ancien morceau.
+    pub fn reloaded(&mut self) {
+        self.music_in = 8.0;
     }
 }
 
@@ -226,5 +229,29 @@ mod tests {
                     .any(|c| matches!(c, Cue::Music(_)))
             );
         }
+    }
+
+    #[test]
+    fn the_gap_counts_from_the_end_of_the_track_and_reload_rearms_it() {
+        let mut s = Soundscape::new(5);
+        s.started(180.0);
+        let deadline = s.music_in;
+        assert!(
+            !s.update(deadline - 1.0, SURFACE, true)
+                .iter()
+                .any(|c| matches!(c, Cue::Music(_)))
+        );
+        assert!(
+            s.update(1.1, SURFACE, false)
+                .iter()
+                .any(|c| matches!(c, Cue::Music(_)))
+        );
+        s.started(480.0);
+        s.reloaded();
+        assert!(
+            s.update(8.1, SURFACE, false)
+                .iter()
+                .any(|c| matches!(c, Cue::Music(_)))
+        );
     }
 }

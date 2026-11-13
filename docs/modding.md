@@ -43,7 +43,7 @@ mods/example/
 ├── items.ron          # ses objets (facultatif)
 ├── machine_recipes.ron # les recettes de ses machines (facultatif)
 ├── textures/          # PNG 16×16, nommés comme dans blocks.ron
-├── sounds/            # WAV
+├── sounds/            # WAV (ou OGG Vorbis) ; variantes nom_1.wav, nom_2.wav…
 ├── script/            # les sources du script (une crate Rust)
 └── example.wasm       # le script compilé (cargo xtask build-mods)
 ```

@@ -1,0 +1,6 @@
+Audio : remplacer la synthèse brute par une banque de matières et d'ambiances
+
+Intégrer 82 sons crédités et quatre morceaux calmes en streaming, avec des prises
+alternées, des niveaux maîtrisés et des raccords de boucle. Distinguer bois et métal,
+conserver les identifiants et rendre la préparation reproductible hors ligne.
+Ajouter les écoutes de contrôle et les tests de décodage, de niveaux et de lecture.

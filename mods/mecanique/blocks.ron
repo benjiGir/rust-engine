@@ -8,7 +8,7 @@
         // Rotation décorative continue (rad/s), indépendante du réseau cinétique.
         rotation: (axis: Y, speed: 1.5),
         hardness: 1.0, tool: Axe,
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
     (
         id: "mecanique:gear", name: "Engrenage", color: (0.2599, 0.1304, 0.0814), texture: "gear",
@@ -27,7 +27,7 @@
         states: [Axis], conduit: Kinetic,
         rotation: (axis: Y, speed: 1.5),
         hardness: 1.5, tool: Pickaxe,
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
     // Un portail : le joueur qui s'y tient 1,5 seconde passe dans la dimension `portal` (voir
     // dimensions.ron). Il ne bloque pas le passage (`solid: false`) ; sa surface est translucide.
@@ -37,7 +37,7 @@
                 (from: (2, 14, 6), to: (14, 16, 10)), (from: (2, 0, 7.5), to: (14, 14, 8.5))],
         solid: false, alpha: 0.8, light_emission: 9, portal: "mecanique:foundry",
         hardness: 1.0, tool: Pickaxe,
-        sounds: (step: "core:step_hard", break: "core:break_glass", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_glass", place: "core:place_metal"),
     ),
     // Le portail de retour, posé par le jeu à l'arrivée dans la Fonderie.
     (
@@ -46,7 +46,7 @@
                 (from: (2, 14, 6), to: (14, 16, 10)), (from: (2, 0, 7.5), to: (14, 14, 8.5))],
         solid: false, alpha: 0.8, light_emission: 9, portal: "core:overworld", placeable: false,
         hardness: 1.0, tool: Pickaxe,
-        sounds: (step: "core:step_hard", break: "core:break_glass", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_glass", place: "core:place_metal"),
     ),
     // Une courroie : un conduit d'**objets** (`conduit: Items`). Elle relie les inventaires qui la
     // touchent : les machines rendent par leurs sorties, reçoivent dans leurs entrées, et les
@@ -60,7 +60,7 @@
             (from: (12, 0, 2), to: (15, 2, 14)),
         ], conduit: Items, channel: "belt",
         hardness: 0.8, tool: Pickaxe,
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
     // Une source : un clic droit la fait tourner quelques secondes.
     (
@@ -72,7 +72,7 @@
             (from: (6, 11, 12), to: (10, 16, 15)),
         ],
         behavior: "crank", hardness: 1.5, tool: Pickaxe,
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
     // Une machine : elle consomme de la rotation pour transformer ce qu'on met dedans.
     (
@@ -90,7 +90,7 @@
         // Pour les courroies : la case 0 reçoit (seulement ce que ses recettes consomment), la
         // case 1 rend.
         ports: (inputs: [0], outputs: [1], accepts: "press"),
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
     // Un convoyeur : une courroie **à sens unique** (`flow: true`). Il pointe où regarde le joueur
     // (la flèche), prend les objets par l'arrière et les côtés, et ne les rend que par l'avant.
@@ -107,7 +107,7 @@
             (from: (7, 3, 2), to: (9, 6, 4)),
         ], states: [Facing4], conduit: Items, channel: "belt", flow: true,
         hardness: 0.8, tool: Pickaxe,
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
     // Une diode : un conduit d'**énergie** à sens unique. L'énergie ne va que vers la flèche ; une
     // batterie ou un générateur derrière elle alimente ce qui est devant, jamais l'inverse. Elle
@@ -122,7 +122,7 @@
             (from: (7, 4, 3), to: (9, 7, 5)),
         ], states: [Facing4], conduit: Energy, flow: true,
         hardness: 1.0, tool: Pickaxe,
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
     // Un clapet anti-retour : un conduit de **fluide** à sens unique, relié aux tuyaux du jeu.
     (
@@ -135,6 +135,6 @@
             (from: (7, 8, 3), to: (9, 11, 5)),
         ], states: [Facing4], conduit: Fluid, flow: true,
         hardness: 1.0, tool: Pickaxe,
-        sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
+        sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
     ),
 ]

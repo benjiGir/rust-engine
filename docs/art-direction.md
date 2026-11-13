@@ -51,6 +51,18 @@ PNG sRGB, en excluant les pixels transparents. Elles servent aux objets au sol, 
 terrain lointain et au repli sans texture. Le terrain lointain applique les mêmes
 multiplicateurs de biome que les chunks détaillés.
 
+## Son
+
+Les matières doivent s'entendre : pas discrets sur sol meuble, bois mat, pierre
+courte, métal résonnant et verre atténué dans les aigus. Les banques enregistrées
+ont plusieurs prises sans répétition immédiate, une faible variation de hauteur et
+des niveaux qui laissent de la place aux ambiances. Les boucles naturelles ont des
+raccords fondus ; les musiques sont des morceaux calmes composés, lus en streaming.
+Les sources externes et leurs licences sont créditées dans
+`assets/core/sounds/CREDITS.md`, également livré avec le jeu. Les masters et recettes
+sont dans `tools/assetgen/audio/` ; `cargo run -p assetgen -- --sounds-only` les
+reproduit sans réseau. Voir la [passe sonore](audio/README.md) et ses extraits.
+
 ## Interface et personnages
 
 `games/voxel/src/skin.rs` centralise la palette, les boutons, les cases, les cadres et les

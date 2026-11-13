@@ -67,7 +67,7 @@ image = { version = "0.25.10", default-features = false, features = ["png"] }
 # Rechargement à chaud : surveillance des fichiers.
 notify = "8"
 # Audio.
-kira = { version = "0.12.6", default-features = false, features = ["cpal", "wav", "pcm"] }
+kira = { version = "0.12.6", default-features = false, features = ["cpal", "wav", "pcm", "ogg", "vorbis"] }
 # Interface de debug et d'inventaire (mêmes versions de wgpu et winit que le moteur).
 egui = { version = "0.37.0", features = ["default_fonts"] }
 egui-wgpu = "0.37.0"

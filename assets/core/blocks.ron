@@ -104,7 +104,7 @@
             (from: (4, 14, 5), to: (12, 16, 11)),
         ],
         behavior: "core:clock",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 0.3,
     ),
     // Une lampe : elle s'allume quand un voisin émet un signal.
@@ -232,7 +232,7 @@
     (
         id: "core:oak_log", name: "Bûche de chêne", color: (0.3101, 0.1945, 0.0747),
         textures: (top: "oak_log_top", side: "oak_log", bottom: "oak_log_top"),
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
     ),
     // Les feuilles laissent passer un peu de lumière et disparaissent loin d'un tronc.
@@ -245,7 +245,7 @@
     ),
     (
         id: "core:oak_planks", name: "Planches de chêne", color: (0.3893, 0.2317, 0.0865), texture: "oak_planks",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
     ),
     (
@@ -258,7 +258,7 @@
     (
         id: "core:birch_log", name: "Bûche de bouleau", color: (0.6398, 0.5403, 0.3552),
         textures: (top: "birch_log_top", side: "birch_log", bottom: "birch_log_top"),
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
     ),
     // Les feuilles laissent passer un peu de lumière et disparaissent loin d'un tronc.
@@ -271,7 +271,7 @@
     ),
     (
         id: "core:birch_planks", name: "Planches de bouleau", color: (0.6256, 0.4947, 0.2318), texture: "birch_planks",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
     ),
     (
@@ -284,7 +284,7 @@
     (
         id: "core:spruce_log", name: "Bûche de sapin", color: (0.1645, 0.0923, 0.0430),
         textures: (top: "spruce_log_top", side: "spruce_log", bottom: "spruce_log_top"),
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
     ),
     // Les feuilles laissent passer un peu de lumière et disparaissent loin d'un tronc.
@@ -297,7 +297,7 @@
     ),
     (
         id: "core:spruce_planks", name: "Planches de sapin", color: (0.1571, 0.0859, 0.0351), texture: "spruce_planks",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
     ),
     (
@@ -310,7 +310,7 @@
     (
         id: "core:acacia_log", name: "Bûche de acacia", color: (0.3542, 0.1427, 0.0706),
         textures: (top: "acacia_log_top", side: "acacia_log", bottom: "acacia_log_top"),
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
     ),
     // Les feuilles laissent passer un peu de lumière et disparaissent loin d'un tronc.
@@ -323,7 +323,7 @@
     ),
     (
         id: "core:acacia_planks", name: "Planches de acacia", color: (0.4666, 0.1409, 0.0490), texture: "acacia_planks",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
     ),
     (
@@ -336,7 +336,7 @@
     (
         id: "core:jungle_log", name: "Bûche de bois tropical", color: (0.2544, 0.1453, 0.0549),
         textures: (top: "jungle_log_top", side: "jungle_log", bottom: "jungle_log_top"),
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
     ),
     // Les feuilles laissent passer un peu de lumière et disparaissent loin d'un tronc.
@@ -349,7 +349,7 @@
     ),
     (
         id: "core:jungle_planks", name: "Planches de bois tropical", color: (0.3156, 0.1607, 0.0753), texture: "jungle_planks",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
     ),
     (
@@ -469,7 +469,7 @@
             (from: (4, 9, 1), to: (12, 12, 4)),
         ],
         textures: (top: "workbench_top", side: "workbench_side", bottom: "oak_planks"),
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
     ),
     // Le four : il fond les minerais. Son état (entrée, combustible, sortie) est dans
@@ -516,7 +516,7 @@
         ],
         textures: (top: "chest_top", side: "chest_side", bottom: "chest_top"),
         behavior: "core:chest",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
     ),
     // La terre labourée (phase O6) : la houe la crée ; l'eau à 4 blocs la garde humide.
@@ -687,13 +687,13 @@
     (
         id: "core:wire", name: "Câble de signal", color: (0.1131, 0.0097, 0.0097), texture: "wire",
         shape: Flat, cutout: true, solid: false, transparent: true, light_opacity: 0, support: Floor, behavior: "core:wire",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 0.0,
     ),
     (
         id: "core:wire_on", name: "Câble de signal (actif)", color: (0.8270, 0.0263, 0.0124), texture: "wire_on", placeable: false,
         shape: Flat, cutout: true, solid: false, transparent: true, light_opacity: 0, support: Floor, behavior: "core:wire",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 0.0,
     ),
     (
@@ -705,7 +705,7 @@
             (from: (7, 10, 5), to: (9, 14, 7)),
         ],
         behavior: "core:lever",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 0.5,
     ),
     (
@@ -717,7 +717,7 @@
             (from: (7, 10, 9), to: (9, 14, 11)),
         ],
         behavior: "core:lever",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 0.5,
     ),
     (
@@ -727,7 +727,7 @@
             (from: (5, 2, 6), to: (11, 4, 10)),
         ],
         behavior: "core:button",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 0.5,
     ),
     (
@@ -737,7 +737,7 @@
             (from: (5, 2, 6), to: (11, 3, 10)),
         ],
         behavior: "core:button",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 0.5,
     ),
     (
@@ -753,7 +753,7 @@
             (from: (2, 10, 7), to: (14, 12, 9)),
         ],
         behavior: "core:gate",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0,
     ),
     (
@@ -764,7 +764,7 @@
             (from: (2, 13, 6), to: (14, 16, 10)),
         ],
         behavior: "core:gate", cutout: true, solid: false, transparent: true, light_opacity: 0,
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0,
     ),
     (
@@ -775,7 +775,7 @@
             (from: (6, 7, 5), to: (10, 9, 9)),
         ],
         behavior: "core:inverter",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 0.5,
     ),
     (
@@ -786,7 +786,7 @@
             (from: (6, 7, 5), to: (10, 9, 9)),
         ],
         behavior: "core:inverter",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 0.5,
     ),
     (
@@ -799,7 +799,7 @@
             (from: (10, 6, 11), to: (11, 8, 12)),
         ],
         behavior: "core:repeater",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 0.5,
     ),
     (
@@ -812,7 +812,7 @@
             (from: (10, 6, 11), to: (11, 8, 12)),
         ],
         behavior: "core:repeater",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 0.5,
     ),
     (
@@ -823,7 +823,7 @@
             (from: (1, 12, 1), to: (15, 15, 15)),
         ],
         behavior: "core:piston",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.0,
     ),
     (
@@ -833,7 +833,7 @@
             (from: (6, 9, 6), to: (10, 16, 10)),
         ],
         behavior: "core:piston",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.0,
     ),
     (
@@ -844,7 +844,7 @@
             (from: (1, 12, 1), to: (15, 15, 15)),
         ],
         behavior: "core:sticky_piston",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.0,
     ),
     (
@@ -854,7 +854,7 @@
             (from: (6, 9, 6), to: (10, 16, 10)),
         ],
         behavior: "core:sticky_piston",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.0,
     ),
     (
@@ -864,7 +864,7 @@
             (from: (6, 0, 6), to: (10, 12, 10)),
         ],
         
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.0,
     ),
     // La table d'enchantement (phase O10) : clic droit pour enchanter l'objet en main.
@@ -896,7 +896,7 @@
         ],
         textures: (top: "brewing_stand_top", side: "brewing_stand_side", bottom: "brewing_stand_top"),
         behavior: "core:brewing_stand",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 2.0, tool: Pickaxe, tier: 1,
     ),
     // Les réseaux (phase 9c) : voir engine_voxel/src/networks.rs et tech.rs. Un câble (énergie), un
@@ -905,14 +905,14 @@
         id: "core:cable", name: "Câble", color: (0.1822, 0.0835, 0.0492), texture: "cable",
         connections: (core: 4, arm: 4),
         behavior: "core:cable",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.0, tool: Pickaxe,
     ),
     (
         id: "core:pipe", name: "Tuyau", color: (0.1377, 0.1777, 0.1269), texture: "pipe",
         connections: (core: 8, arm: 6),
         behavior: "core:pipe",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.0, tool: Pickaxe,
     ),
     (
@@ -926,7 +926,7 @@
             (from: (5, 5, 5), to: (11, 11, 11)),
         ],
         behavior: "core:shaft",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.0, tool: Pickaxe,
     ),
     (
@@ -937,7 +937,7 @@
             (from: (12, 0, 12), to: (14, 7, 14)),
         ],
         behavior: "core:solar_panel",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5, tool: Pickaxe,
     ),
     (
@@ -949,7 +949,7 @@
             (from: (10, 13, 6), to: (12, 15, 10)),
         ],
         behavior: "core:battery",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5, tool: Pickaxe,
     ),
     (
@@ -962,7 +962,7 @@
             (from: (6, 14, 6), to: (10, 16, 10)),
         ],
         behavior: "core:power_lamp",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 0.5, tool: Pickaxe,
     ),
     (
@@ -975,7 +975,7 @@
             (from: (6, 14, 6), to: (10, 16, 10)),
         ],
         behavior: "core:power_lamp",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 0.5, tool: Pickaxe,
     ),
     (
@@ -989,7 +989,7 @@
             (from: (7, 13, 7), to: (9, 16, 9)),
         ],
         behavior: "core:pump",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5, tool: Pickaxe,
     ),
     (
@@ -1003,7 +1003,7 @@
             (from: (6, 15, 6), to: (10, 16, 10)),
         ],
         behavior: "core:tank",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5, tool: Pickaxe,
     ),
     (
@@ -1016,7 +1016,7 @@
             (from: (5, 3, 4), to: (11, 5, 10)),
         ],
         behavior: "core:filler",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5, tool: Pickaxe,
     ),
     (
@@ -1030,7 +1030,7 @@
             (from: (5, 13, 6), to: (11, 15, 10)),
         ],
         behavior: "core:motor",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5, tool: Pickaxe,
     ),
     (
@@ -1048,7 +1048,7 @@
             (from: (7, 12, 7), to: (9, 14, 9)),
         ],
         behavior: "core:fan",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5, tool: Pickaxe,
     ),
     (
@@ -1066,7 +1066,7 @@
             (from: (7, 12, 7), to: (9, 14, 9)),
         ],
         behavior: "core:fan",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5, tool: Pickaxe,
     ),
     // Les structures mobiles (phase 9d) : l'assembleur détache une structure du monde (clic droit)
@@ -1085,7 +1085,7 @@
             (from: (3, 3, 3), to: (13, 5, 13)),
         ],
         
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 2.0,
     ),
     (
@@ -1098,7 +1098,7 @@
             (from: (4, 14, 4), to: (12, 16, 12)),
         ],
         
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
         hardness: 0.4,
     ),
     (
@@ -1111,7 +1111,7 @@
             (from: (6, 10, 6), to: (9, 16, 10)),
         ],
         behavior: "core:propeller",
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5,
     ),
     (
@@ -1127,7 +1127,7 @@
             (from: (7, 10, 7), to: (9, 14, 9)),
         ],
         
-        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 1.0,
     ),
     // ----- Les fluides -----

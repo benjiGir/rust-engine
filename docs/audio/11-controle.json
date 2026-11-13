@@ -1,0 +1,682 @@
+[
+  {
+    "file": "ambience_day.wav",
+    "seconds": 9.25,
+    "channels": 2,
+    "rate": 44100,
+    "peak_dbfs": -29.39,
+    "rms_dbfs": -52.14
+  },
+  {
+    "file": "ambience_night.wav",
+    "seconds": 10.702,
+    "channels": 2,
+    "rate": 44100,
+    "peak_dbfs": -15.61,
+    "rms_dbfs": -31.0
+  },
+  {
+    "file": "birds.wav",
+    "seconds": 7.0,
+    "channels": 2,
+    "rate": 44100,
+    "peak_dbfs": -20.57,
+    "rms_dbfs": -39.93
+  },
+  {
+    "file": "break_glass.wav",
+    "seconds": 0.238,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -27.36
+  },
+  {
+    "file": "break_glass_1.wav",
+    "seconds": 0.274,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -28.86
+  },
+  {
+    "file": "break_glass_2.wav",
+    "seconds": 0.244,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -27.25
+  },
+  {
+    "file": "break_glass_3.wav",
+    "seconds": 0.169,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.47,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "break_hard.wav",
+    "seconds": 0.699,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.24
+  },
+  {
+    "file": "break_hard_1.wav",
+    "seconds": 0.665,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.83
+  },
+  {
+    "file": "break_hard_2.wav",
+    "seconds": 0.558,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -26.79
+  },
+  {
+    "file": "break_hard_3.wav",
+    "seconds": 0.676,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -27.6
+  },
+  {
+    "file": "break_metal.wav",
+    "seconds": 0.138,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.98
+  },
+  {
+    "file": "break_metal_1.wav",
+    "seconds": 0.227,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -27.05
+  },
+  {
+    "file": "break_metal_2.wav",
+    "seconds": 0.112,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -23.69
+  },
+  {
+    "file": "break_metal_3.wav",
+    "seconds": 0.162,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -25.26
+  },
+  {
+    "file": "break_soft.wav",
+    "seconds": 0.527,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.4,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "break_soft_1.wav",
+    "seconds": 0.498,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.87,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "break_soft_2.wav",
+    "seconds": 0.508,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.94,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "break_soft_3.wav",
+    "seconds": 0.469,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -7.13,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "break_wood.wav",
+    "seconds": 0.248,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.03,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "break_wood_1.wav",
+    "seconds": 0.244,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -23.24
+  },
+  {
+    "file": "break_wood_2.wav",
+    "seconds": 0.24,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.88,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "break_wood_3.wav",
+    "seconds": 0.215,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.91,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "bubbles.wav",
+    "seconds": 1.26,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -27.54
+  },
+  {
+    "file": "cave_rumble.wav",
+    "seconds": 5.0,
+    "channels": 2,
+    "rate": 44100,
+    "peak_dbfs": -12.87,
+    "rms_dbfs": -28.0
+  },
+  {
+    "file": "drip.wav",
+    "seconds": 0.875,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -10.0,
+    "rms_dbfs": -28.09
+  },
+  {
+    "file": "enchant.wav",
+    "seconds": 1.386,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -9.0,
+    "rms_dbfs": -28.74
+  },
+  {
+    "file": "gulp.wav",
+    "seconds": 0.341,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -28.26
+  },
+  {
+    "file": "gulp_1.wav",
+    "seconds": 0.771,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -20.26,
+    "rms_dbfs": -42.53
+  },
+  {
+    "file": "gulp_2.wav",
+    "seconds": 0.461,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -14.27,
+    "rms_dbfs": -33.9
+  },
+  {
+    "file": "owl.wav",
+    "seconds": 4.393,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -17.4,
+    "rms_dbfs": -30.12
+  },
+  {
+    "file": "place_hard.wav",
+    "seconds": 0.161,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.39
+  },
+  {
+    "file": "place_hard_1.wav",
+    "seconds": 0.115,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.78
+  },
+  {
+    "file": "place_hard_2.wav",
+    "seconds": 0.161,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -23.66
+  },
+  {
+    "file": "place_hard_3.wav",
+    "seconds": 0.124,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.47
+  },
+  {
+    "file": "place_metal.wav",
+    "seconds": 0.21,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.95,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "place_metal_1.wav",
+    "seconds": 0.132,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -7.85,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "place_metal_2.wav",
+    "seconds": 0.112,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -23.01
+  },
+  {
+    "file": "place_metal_3.wav",
+    "seconds": 0.196,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.83,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "place_soft.wav",
+    "seconds": 0.115,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -9.61,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "place_soft_1.wav",
+    "seconds": 0.18,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -9.98,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "place_soft_2.wav",
+    "seconds": 0.132,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -10.06,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "place_soft_3.wav",
+    "seconds": 0.137,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -10.59,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "place_wood.wav",
+    "seconds": 0.235,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.09
+  },
+  {
+    "file": "place_wood_1.wav",
+    "seconds": 0.235,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.19
+  },
+  {
+    "file": "place_wood_2.wav",
+    "seconds": 0.266,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.42
+  },
+  {
+    "file": "place_wood_3.wav",
+    "seconds": 0.235,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -23.74
+  },
+  {
+    "file": "rain.wav",
+    "seconds": 6.077,
+    "channels": 2,
+    "rate": 44100,
+    "peak_dbfs": -12.0,
+    "rms_dbfs": -32.2
+  },
+  {
+    "file": "splash.wav",
+    "seconds": 1.206,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -39.34
+  },
+  {
+    "file": "splash_1.wav",
+    "seconds": 0.637,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -32.02
+  },
+  {
+    "file": "splash_2.wav",
+    "seconds": 0.597,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -34.1
+  },
+  {
+    "file": "splash_3.wav",
+    "seconds": 0.923,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -28.2
+  },
+  {
+    "file": "step_hard.wav",
+    "seconds": 0.092,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -23.13
+  },
+  {
+    "file": "step_hard_1.wav",
+    "seconds": 0.104,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.87
+  },
+  {
+    "file": "step_hard_2.wav",
+    "seconds": 0.104,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -25.61
+  },
+  {
+    "file": "step_hard_3.wav",
+    "seconds": 0.093,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.13
+  },
+  {
+    "file": "step_metal.wav",
+    "seconds": 0.266,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -23.99
+  },
+  {
+    "file": "step_metal_1.wav",
+    "seconds": 0.206,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -23.73
+  },
+  {
+    "file": "step_metal_2.wav",
+    "seconds": 0.195,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.2
+  },
+  {
+    "file": "step_metal_3.wav",
+    "seconds": 0.359,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -23.41
+  },
+  {
+    "file": "step_sand.wav",
+    "seconds": 0.38,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -31.26
+  },
+  {
+    "file": "step_sand_1.wav",
+    "seconds": 0.38,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -9.44,
+    "rms_dbfs": -33.35
+  },
+  {
+    "file": "step_sand_2.wav",
+    "seconds": 0.38,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -30.29
+  },
+  {
+    "file": "step_sand_3.wav",
+    "seconds": 0.38,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -14.71,
+    "rms_dbfs": -38.47
+  },
+  {
+    "file": "step_snow.wav",
+    "seconds": 0.208,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.75
+  },
+  {
+    "file": "step_snow_1.wav",
+    "seconds": 0.216,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -7.99,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "step_snow_2.wav",
+    "seconds": 0.217,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -7.47,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "step_snow_3.wav",
+    "seconds": 0.218,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -25.56
+  },
+  {
+    "file": "step_soft.wav",
+    "seconds": 0.197,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -26.21
+  },
+  {
+    "file": "step_soft_1.wav",
+    "seconds": 0.182,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.18
+  },
+  {
+    "file": "step_soft_2.wav",
+    "seconds": 0.19,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -25.98
+  },
+  {
+    "file": "step_soft_3.wav",
+    "seconds": 0.173,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -26.26
+  },
+  {
+    "file": "step_wood.wav",
+    "seconds": 0.271,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -6.0,
+    "rms_dbfs": -24.95
+  },
+  {
+    "file": "step_wood_1.wav",
+    "seconds": 0.107,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -8.4,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "step_wood_2.wav",
+    "seconds": 0.106,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -8.73,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "step_wood_3.wav",
+    "seconds": 0.096,
+    "channels": 1,
+    "rate": 44100,
+    "peak_dbfs": -7.23,
+    "rms_dbfs": -23.0
+  },
+  {
+    "file": "thunder.wav",
+    "seconds": 6.5,
+    "channels": 2,
+    "rate": 44100,
+    "peak_dbfs": -10.0,
+    "rms_dbfs": -28.83
+  },
+  {
+    "file": "waves.wav",
+    "seconds": 3.561,
+    "channels": 2,
+    "rate": 44100,
+    "peak_dbfs": -10.0,
+    "rms_dbfs": -29.43
+  },
+  {
+    "file": "music_cave.ogg",
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "sample_rate": "44100",
+        "channels": 2
+      }
+    ],
+    "format": {
+      "duration": "229.900000"
+    }
+  },
+  {
+    "file": "music_day1.ogg",
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "sample_rate": "44100",
+        "channels": 2
+      }
+    ],
+    "format": {
+      "duration": "165.000000"
+    }
+  },
+  {
+    "file": "music_day2.ogg",
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "sample_rate": "44100",
+        "channels": 2
+      }
+    ],
+    "format": {
+      "duration": "474.300000"
+    }
+  },
+  {
+    "file": "music_night.ogg",
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "sample_rate": "44100",
+        "channels": 2
+      }
+    ],
+    "format": {
+      "duration": "157.900000"
+    }
+  }
+]

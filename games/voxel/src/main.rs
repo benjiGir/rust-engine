@@ -1365,6 +1365,8 @@ impl VoxelGame {
             && let Some(audio) = &mut self.audio
         {
             audio.reload(&self.registry);
+            self.music_until = None;
+            self.soundscape.reloaded();
         }
         if textures {
             self.block_textures = assets::load_textures(&self.registry);

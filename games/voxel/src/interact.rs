@@ -205,6 +205,7 @@ impl VoxelGame {
         let playing = self.music_until.is_some_and(|t| Instant::now() < t);
         let cues = self.soundscape.update(dt, place, playing);
         let Some(audio) = &mut self.audio else { return };
+        audio.set_environment(place);
         for cue in cues {
             match cue {
                 soundscape::Cue::Music(key) => {
