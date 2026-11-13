@@ -145,6 +145,7 @@ impl VoxelGame {
         }
         crate::carts::save(&self.ecs, store.dir());
         self.save_backpacks();
+        self.save_item_data();
         self.mods.save_world_data();
         if self.streamer_mut().begin_save() {
             self.save_started = Instant::now();
@@ -169,6 +170,7 @@ impl VoxelGame {
         }
         crate::carts::save(&self.ecs, store.dir());
         self.save_backpacks();
+        self.save_item_data();
         self.mods.save_world_data();
         let saved = self.streamer_mut().save_blocking();
         match (meta, saved) {

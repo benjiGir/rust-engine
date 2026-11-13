@@ -16,6 +16,7 @@ use engine_voxel::FLUID_FULL;
 use glam::Vec3;
 use serde::Deserialize;
 
+use crate::attributes::{Pierce, damage_after_armor};
 use crate::components::{Collider, Health};
 use crate::events::{self, EntityDied, PlayerAttacked, PlayerDamaged};
 use crate::player::{self, MoveMode};
@@ -496,26 +497,35 @@ impl Vitals {
     }
 
     /// Un coup : renvoie les dégâts vraiment subis (après l'armure), ou `None` s'il
-    /// tombe pendant l'invulnérabilité. `protection` : le total de l'armure portée.
+    /// tombe pendant l'invulnérabilité. `armor` : les points d'armure portés ; `pierce` : ce que
+    /// l'attaquant en contourne (voir `attributes::damage_after_armor`). L'armure est la seule
+    /// réduction, et elle ne compte ni pour une chute ni pour la noyade.
     pub fn hurt(
         &mut self,
         rules: &SurvivalRules,
         amount: f32,
         cause: DamageCause,
-        protection: u32,
+        armor: f32,
+        pierce: Pierce,
     ) -> Option<f32> {
         if amount <= 0.0 || self.invulnerable > 0.0 {
             return None;
         }
-        let reduction = if cause.ignores_armor() {
-            0.0
+        let dealt = if cause.ignores_armor() {
+            amount
         } else {
-            (protection as f32 * rules.armor_per_point).min(rules.armor_max)
+            damage_after_armor(
+                amount,
+                armor,
+                pierce,
+                rules.armor_per_point,
+                rules.armor_max,
+            )
         };
         self.invulnerable = rules.invulnerable;
         self.since_hit = 0.0;
         self.last_cause = Some(cause);
-        Some(amount * (1.0 - reduction))
+        Some(dealt)
     }
 }
 
@@ -525,17 +535,20 @@ impl crate::VoxelGame {
     pub(crate) fn update_vitals(&mut self, dt: f32) {
         let senses = self.senses();
         let hits = self.vitals.step(&self.survival, senses, dt);
-        let attacks: Vec<(f32, Vec3)> = self
+        let attacks: Vec<(f32, Vec3, f32)> = self
             .readers
             .attacked
             .read(&self.ecs.resource::<Events<PlayerAttacked>>())
-            .map(|e| (e.amount, e.from))
+            .map(|e| (e.amount, e.from, e.pierce))
             .collect();
         for (amount, cause) in hits {
             self.hurt_player(amount, cause);
         }
-        for (amount, from) in attacks {
-            if self.hurt_player(amount, DamageCause::Mob).is_some() {
+        for (amount, from, pierce) in attacks {
+            if self
+                .hurt_player_pierced(amount, DamageCause::Mob, Pierce::flat(pierce))
+                .is_some()
+            {
                 self.knock_back(from);
             }
         }
@@ -729,6 +742,8 @@ impl crate::VoxelGame {
                 let (min, max) = drop.count;
                 let span = max.saturating_sub(min) + 1;
                 let count = min + (rng.next_u64() % u64::from(span)) as u32;
+                // La chance de butin du joueur ajoute des objets (voir `attributes.rs`).
+                let count = self.loot_count(count);
                 if count > 0 {
                     self.drop_stack(
                         position.floor().as_ivec3(),
@@ -750,6 +765,10 @@ impl crate::VoxelGame {
 
     /// Gagne de l'expérience ; un message et un son à chaque niveau.
     pub(crate) fn grant_xp(&mut self, points: u32) {
+        if points == 0 {
+            return;
+        }
+        let points = self.scaled_xp(points);
         if points == 0 {
             return;
         }
@@ -778,6 +797,17 @@ impl crate::VoxelGame {
     /// Un coup au joueur : invulnérabilité, armure, puis la vie et l'événement
     /// [`PlayerDamaged`] (le son, les mods). Renvoie les dégâts vraiment subis.
     pub(crate) fn hurt_player(&mut self, amount: f32, cause: DamageCause) -> Option<f32> {
+        self.hurt_player_pierced(amount, cause, Pierce::NONE)
+    }
+
+    /// Comme [`Self::hurt_player`], pour un coup qui contourne une partie de l'armure (la
+    /// perforation d'une créature, `ctl damage n perce`).
+    pub(crate) fn hurt_player_pierced(
+        &mut self,
+        amount: f32,
+        cause: DamageCause,
+        pierce: Pierce,
+    ) -> Option<f32> {
         // En difficile, les créatures frappent plus fort.
         let amount = if cause == DamageCause::Mob && self.difficulty >= 2 {
             amount * 1.5
@@ -790,12 +820,12 @@ impl crate::VoxelGame {
         {
             return None;
         }
-        let protection = self.inventory.protection(&self.content.items);
+        let armor = self.gear.armor();
         let damage = self
             .vitals
-            .hurt(&self.survival, amount, cause, protection)?;
+            .hurt(&self.survival, amount, cause, armor, pierce)?;
         // L'armure qui a encaissé s'use ; une pièce peut se briser.
-        if protection > 0 && !cause.ignores_armor() {
+        if armor > 0.0 && !cause.ignores_armor() {
             let roll = engine_voxel::Rng64::new(self.next_random()).next_f32();
             for item in self.inventory.wear_armor(&self.content.items, roll) {
                 let name = self.content.items.get(item).name.clone();
@@ -950,14 +980,26 @@ mod tests {
         let rules = SurvivalRules::default();
         let mut v = Vitals::new(&rules);
         // 10 points de protection : 40 % de moins.
-        assert_eq!(v.hurt(&rules, 5.0, DamageCause::Mob, 10), Some(3.0));
+        let none = Pierce::NONE;
+        assert_eq!(v.hurt(&rules, 5.0, DamageCause::Mob, 10.0, none), Some(3.0));
         // Juste après : invulnérable.
-        assert_eq!(v.hurt(&rules, 5.0, DamageCause::Mob, 10), None);
+        assert_eq!(v.hurt(&rules, 5.0, DamageCause::Mob, 10.0, none), None);
         v.step(&rules, standing(0.0), 0.6);
-        assert_eq!(v.hurt(&rules, 5.0, DamageCause::Fall, 10), Some(5.0));
+        assert_eq!(
+            v.hurt(&rules, 5.0, DamageCause::Fall, 10.0, none),
+            Some(5.0)
+        );
+        v.step(&rules, standing(0.0), 0.6);
+        // Perforation : 5 des 10 points sont ignorés, donc 20 % de moins seulement.
+        let pierced = v
+            .hurt(&rules, 5.0, DamageCause::Mob, 10.0, Pierce::flat(5.0))
+            .unwrap();
+        assert!((pierced - 4.0).abs() < 1e-5, "{pierced}");
         v.step(&rules, standing(0.0), 0.6);
         // Au plus 80 %.
-        let hit = v.hurt(&rules, 10.0, DamageCause::Lava, 100).unwrap();
+        let hit = v
+            .hurt(&rules, 10.0, DamageCause::Lava, 100.0, none)
+            .unwrap();
         assert!((hit - 2.0).abs() < 1e-5, "{hit}");
     }
 

@@ -16,7 +16,7 @@ impl VoxelGame {
         let ship = self.ship_hit();
         let block_distance = ship
             .map(|(_, h)| h.distance)
-            .unwrap_or_else(|| self.target.map_or(crate::REACH, |h| h.distance));
+            .unwrap_or_else(|| self.target.map_or(self.gear.reach(), |h| h.distance));
         let mob = crate::mobs::hit_mob(
             &self.ecs,
             self.camera.position,

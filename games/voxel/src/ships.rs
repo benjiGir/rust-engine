@@ -367,7 +367,7 @@ impl VoxelGame {
                 grid.world(),
                 grid.to_local(origin),
                 grid.direction_to_local(direction),
-                REACH,
+                self.gear.reach(),
             );
             if let Some(hit) = hit
                 && best.is_none_or(|(_, b)| hit.distance < b.distance)

@@ -63,6 +63,8 @@ pub struct GameUi {
     pub browser: crate::recipe_browser::BrowserState,
     /// La recherche de l'écran du contrôleur de stockage.
     pub storage_search: String,
+    /// La fiche des attributs (voir `attributes_ui.rs`).
+    pub attributes: crate::attributes_ui::AttributesPanel,
 }
 
 /// Une pile qu'on s'apprête à diviser, et combien d'objets prendre.
@@ -155,6 +157,7 @@ impl GameUi {
             input: Default::default(),
             browser: Default::default(),
             storage_search: String::new(),
+            attributes: Default::default(),
         }
     }
 
@@ -355,7 +358,7 @@ impl VoxelGame {
             icon,
             stack.count,
             durability,
-            crate::enchanting::enchantment_of(stack.damage).is_some(),
+            crate::enchanting::is_enchanted(stack.damage),
         );
     }
 
@@ -814,6 +817,7 @@ impl VoxelGame {
             return;
         }
         self.split_window(ctx);
+        self.attributes_window(ctx, frame);
         if let Some(frame) = frame {
             self.draw_recipe_browser(ctx, frame);
         }
@@ -846,6 +850,7 @@ impl VoxelGame {
             ))
             .size(11.0),
         );
+        self.attributes_button(ui);
     }
 
     fn inventory_panel(&mut self, ui: &mut egui::Ui) {
@@ -995,9 +1000,10 @@ impl VoxelGame {
         true
     }
 
-    /// La table d'enchantement : trois propositions pour l'objet qu'on tient en main.
+    /// La table d'enchantement : trois lots d'enchantements pour l'objet qu'on tient en main.
+    /// Un objet qui en porte déjà peut en recevoir d'autres (jusqu'à `MAX_ENCHANTMENTS`).
     fn enchant_panel(&mut self, ui: &mut egui::Ui) {
-        use crate::enchanting::{enchantment_of, label, offers, wear, with_enchantment};
+        use crate::enchanting::{labels, offers, wear};
         let Some(stack) = self.inventory.selected_stack() else {
             ui.label("Tiens un outil ou une armure dans la barre d'objets, puis reviens.");
             return;
@@ -1005,12 +1011,16 @@ impl VoxelGame {
         let items = self.content.items.clone();
         let def = items.get(stack.item);
         ui.heading(&def.name);
-        if let Some((kind, level)) = enchantment_of(stack.damage) {
-            ui.label(format!("Déjà enchanté : {}", label(kind, level)));
-            return;
+        let owned = labels(stack.damage);
+        if !owned.is_empty() {
+            ui.label(format!("Enchantements : {}", owned.join(", ")));
         }
         let Some(list) = offers(def, stack.damage, self.enchant_seed) else {
-            ui.label("Cet objet ne peut pas être enchanté.");
+            ui.label(if owned.is_empty() {
+                "Cet objet ne peut pas être enchanté."
+            } else {
+                "Cet objet ne peut plus recevoir d'enchantement."
+            });
             return;
         };
         let gem = items.id("core:sapphire");
@@ -1026,7 +1036,7 @@ impl VoxelGame {
             ui.horizontal_wrapped(|ui| {
                 let text = format!(
                     "{} — {} niveau(x) + {} saphir(s)",
-                    label(offer.kind, offer.level),
+                    offer.label(),
                     offer.levels,
                     offer.gems
                 );
@@ -1045,14 +1055,14 @@ impl VoxelGame {
         {
             let selected = self.inventory.selected;
             if let Some(held) = self.inventory.slots[selected].as_mut() {
-                held.damage = with_enchantment(held.damage, offer.kind, offer.level);
+                held.damage = offer.apply(held.damage);
             }
             // La table propose autre chose la prochaine fois.
             self.enchant_seed = self
                 .enchant_seed
                 .wrapping_mul(1664525)
                 .wrapping_add(1013904223);
-            self.toast(&label(offer.kind, offer.level));
+            self.toast(&offer.label());
             if let Some(audio) = &mut self.audio {
                 audio.play("core:enchant");
             }

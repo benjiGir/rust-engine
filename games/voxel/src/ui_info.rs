@@ -47,8 +47,20 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
             ),
             skin::TEXT,
         ));
-        if let Some((kind, level)) = crate::enchanting::enchantment_of(damage) {
-            lines.push((crate::enchanting::label(kind, level), skin::MAGIC));
+        // Tous les enchantements, un par ligne.
+        for label in crate::enchanting::labels(damage) {
+            lines.push((label, skin::MAGIC));
+        }
+    }
+    // Les affixes de la fiche (rien tant que la phase « aventure » n'en donne pas).
+    let sheet = crate::item_data::sheet(damage);
+    for affix in sheet.iter().flat_map(|s| &s.affixes) {
+        if let Some(attribute) = crate::attributes::Attribute::from_id(affix.attribute) {
+            let mut text = format!("{} {}", attribute.name(), attribute.format(affix.flat));
+            if affix.percent != 0.0 {
+                text = format!("{} ({:+.0} %)", attribute.name(), affix.percent * 100.0);
+            }
+            lines.push((text, skin::GOLD));
         }
     }
     if let Some(tool) = def.tool {
@@ -105,7 +117,9 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
         ));
     }
     Card {
-        name: def.name.clone(),
+        name: sheet
+            .and_then(|s| s.name)
+            .unwrap_or_else(|| def.name.clone()),
         origin: origin(&def.key),
         lines,
     }
@@ -341,5 +355,47 @@ mod tests {
             }
             assert!(found, "l'infobulle doit effectivement apparaître à {w}x{h}");
         }
+    }
+
+    #[test]
+    fn the_tooltip_lists_every_enchantment_of_an_item() {
+        use crate::enchanting::{Enchantment, with_enchantment};
+        let blocks = engine_voxel::BlockRegistry::builtin();
+        let items = engine_voxel::ItemRegistry::builtin(&blocks).unwrap();
+        let def = items.get(items.id("core:iron_axe").unwrap());
+        let damage = with_enchantment(
+            with_enchantment(
+                with_enchantment(2, Enchantment::Efficiency, 3),
+                Enchantment::Sharpness,
+                2,
+            ),
+            Enchantment::Unbreaking,
+            1,
+        );
+        let card = item(def, 1, damage);
+        let magic: Vec<&str> = card
+            .lines
+            .iter()
+            .filter(|(_, c)| *c == skin::MAGIC)
+            .map(|(s, _)| s.as_str())
+            .collect();
+        assert_eq!(magic, ["Efficacité III", "Tranchant II", "Solidité I"]);
+        // L'usure vient de la fiche.
+        assert!(card.lines.iter().any(|(s, _)| s
+            == &format!(
+                "Durabilité : {} / {}",
+                def.durability.unwrap() - 2,
+                def.durability.unwrap()
+            )));
+        // Un objet simple n'a toujours qu'une ligne d'enchantement.
+        let single = item(def, 1, with_enchantment(0, Enchantment::Sharpness, 1));
+        assert_eq!(
+            single
+                .lines
+                .iter()
+                .filter(|(_, c)| *c == skin::MAGIC)
+                .count(),
+            1
+        );
     }
 }

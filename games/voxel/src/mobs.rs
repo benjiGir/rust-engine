@@ -13,6 +13,7 @@ use engine_voxel::{BlockRegistry, ChunkStreamer, PlayerBody, ray_aabb};
 use glam::{IVec3, Vec2, Vec3};
 use serde::Deserialize;
 
+use crate::attributes::Pierce;
 use crate::components::{
     Collider, Flying, Health, Hurt, Impulse, Mob, MobAnim, MoveIntent, PreviousPosition, Transform,
     Velocity, Wander,
@@ -94,6 +95,10 @@ struct MobFileEntry {
     /// Le script de son mod la dirige (`Mod::mobs`) au lieu de l'IA du jeu.
     #[serde(default)]
     brain: bool,
+    #[serde(default)]
+    armor: f32,
+    #[serde(default)]
+    armor_pierce: f32,
 }
 
 /// Ce que lâche une créature à sa mort : un objet, un nombre (min, max), une chance.
@@ -120,6 +125,11 @@ pub struct MobDef {
     pub height: f32,
     pub hostile: bool,
     pub damage: f32,
+    /// Ses points d'armure : ils retirent une part des dégâts des coups du joueur (voir
+    /// `attributes.rs`). 0 par défaut.
+    pub armor: f32,
+    /// Les points d'armure du joueur que ses coups ignorent.
+    pub armor_pierce: f32,
     pub hops: bool,
     /// Où et quand elle apparaît (voir `spawning.rs`).
     pub spawn: crate::spawning::SpawnRules,
@@ -209,6 +219,8 @@ impl MobRegistry {
                 height: entry.size.1,
                 hostile: entry.hostile,
                 damage: entry.damage,
+                armor: entry.armor,
+                armor_pierce: entry.armor_pierce,
                 hops: entry.hops,
                 spawn: crate::spawning::SpawnRules {
                     on: spawn_on,
@@ -608,7 +620,11 @@ pub fn environment(world: &mut World) {
                 flying: false,
             };
             for (amount, cause) in vitals.0.step(&rules, senses, dt) {
-                if vitals.0.hurt(&rules, amount, cause, 0).is_some() {
+                if vitals
+                    .0
+                    .hurt(&rules, amount, cause, 0.0, Pierce::NONE)
+                    .is_some()
+                {
                     hurt.push((entity, amount));
                 }
             }
@@ -649,6 +665,7 @@ pub fn attack(world: &mut World) {
                 PlayerAttacked {
                     amount: def.damage,
                     from: transform.position,
+                    pierce: def.armor_pierce,
                 },
             );
         });

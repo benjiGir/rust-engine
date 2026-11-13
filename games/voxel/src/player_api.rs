@@ -70,7 +70,14 @@ impl VoxelGame {
             MachineAction::PlayerHeal { amount } => self.heal(amount),
             MachineAction::PlayerHurt { amount } => {
                 let from = player::body(&self.ecs, self.player).position;
-                crate::events::send(&self.ecs, crate::events::PlayerAttacked { amount, from });
+                crate::events::send(
+                    &self.ecs,
+                    crate::events::PlayerAttacked {
+                        amount,
+                        from,
+                        pierce: 0.0,
+                    },
+                );
             }
             MachineAction::Say { text } => self.chat(&text),
             MachineAction::ConsumeHeld { count } => {

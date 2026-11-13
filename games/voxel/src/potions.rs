@@ -141,16 +141,6 @@ impl Effects {
         self.power(effect).is_some()
     }
 
-    /// Le facteur de vitesse de marche (1 sans potion).
-    pub fn speed_factor(&self) -> f32 {
-        1.0 + self.power(Effect::Speed).unwrap_or(0.0)
-    }
-
-    /// Les dégâts en plus d'un coup.
-    pub fn strength_bonus(&self) -> f32 {
-        self.power(Effect::Strength).unwrap_or(0.0)
-    }
-
     pub fn list(&self) -> &[Active] {
         &self.active
     }
@@ -203,7 +193,7 @@ mod tests {
             power: 0.3,
         };
         assert_eq!(effects.drink(speed), 0.0);
-        assert!((effects.speed_factor() - 1.3).abs() < 1e-6);
+        assert_eq!(effects.power(Effect::Speed), Some(0.3));
         effects.update(9.0);
         assert!(effects.has(Effect::Speed));
         // Reboire : la durée est renouvelée, pas doublée.
@@ -212,7 +202,7 @@ mod tests {
         assert!(effects.has(Effect::Speed));
         effects.update(2.0);
         assert!(!effects.has(Effect::Speed));
-        assert_eq!(effects.speed_factor(), 1.0);
+        assert_eq!(effects.power(Effect::Speed), None);
     }
 
     #[test]
@@ -230,6 +220,6 @@ mod tests {
             seconds: 5.0,
             power: 3.0,
         });
-        assert_eq!(effects.strength_bonus(), 3.0);
+        assert_eq!(effects.power(Effect::Strength), Some(3.0));
     }
 }

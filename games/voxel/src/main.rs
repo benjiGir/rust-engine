@@ -35,6 +35,8 @@
 //!   (macOS empêche les outils de test d'envoyer des touches).
 
 mod assets;
+mod attributes;
+mod attributes_ui;
 mod audio;
 mod backpacks;
 mod bench;
@@ -54,16 +56,19 @@ mod drops;
 mod enchanting;
 mod events;
 mod far_terrain;
+mod gear;
 mod hand;
 mod hand_model;
 mod hot_reload;
 mod interact;
+mod item_ctl;
 mod launch;
 pub use launch::{Launch, Request};
 mod conduit_fx;
 mod conduit_render;
 mod inventory;
 mod item_art;
+mod item_data;
 mod item_models;
 mod menus;
 mod mob_brains;
@@ -144,10 +149,6 @@ const UPLOAD_BUDGET: usize = 16;
 const UNLOAD_BUDGET: usize = 256;
 /// Hauteur de vol au départ et en mode `VOXEL_AUTOFLY`, au-dessus du sol.
 const FLY_ALTITUDE: f32 = 30.0;
-/// Portée du joueur, en blocs.
-const REACH: f32 = 6.0;
-/// Dégâts d'un coup de poing.
-const PUNCH_DAMAGE: f32 = 4.0;
 const HOTBAR_KEYS: [KeyCode; 9] = [
     KeyCode::Digit1,
     KeyCode::Digit2,
@@ -255,6 +256,8 @@ struct VoxelGame {
     dims: dimensions::Dimensions,
     /// Le contenu des sacs à dos du monde (voir `backpacks.rs`).
     backpacks: backpacks::BackpackStore,
+    /// Les attributs du joueur, calculés depuis son équipement (voir `gear.rs`).
+    gear: gear::Gear,
     last_autosave: Instant,
     save_started: Instant,
     /// Le lancement du jeu (pour animer le vent).
@@ -658,6 +661,12 @@ impl VoxelGame {
         let mut hand = hand::Hand::new(hand::ArmColors::load(&assets));
         hand.visible &= settings.show_arm && !launch.title;
         let (survival, hunger_rules) = survival::load_rules(&assets);
+        // Les fiches d'objets du monde ouvert (voir `item_data.rs`).
+        item_data::replace_all(
+            dims.meta_store
+                .as_ref()
+                .map_or_else(Default::default, |s| item_data::ItemStore::load(s.dir())),
+        );
         let vitals = survival::Vitals::new(&survival);
         let mut hunger = survival::Hunger::new(&hunger_rules);
         let mut bed = None;
@@ -736,6 +745,7 @@ impl VoxelGame {
             backpacks: dims.meta_store.as_ref().map_or_else(Default::default, |s| {
                 backpacks::BackpackStore::load(s.dir())
             }),
+            gear: gear::Gear::new(attributes::load_base(&assets)),
             dims,
             last_autosave: Instant::now(),
             save_started: Instant::now(),
@@ -784,18 +794,19 @@ impl VoxelGame {
                     SPRINT_SPEED
                 } else {
                     WALK_SPEED
-                } * self.effects.speed_factor();
+                } * self.gear.move_speed();
                 let jump = input.key_held(keys.key(Action::Jump));
                 let direction = self.wish_direction(ctx, false);
                 (direction * speed, jump)
             }
         };
         player::set_intent(&self.ecs, self.player, walk, jump);
-        let sprinting = walk.length() > WALK_SPEED * self.effects.speed_factor() + 0.01;
+        let sprinting = walk.length() > WALK_SPEED * self.gear.move_speed() + 0.01;
         self.exert_movement(walk, jump, sprinting, ctx.fixed_dt);
         self.schedule.run(Stage::FixedUpdate, &mut self.ecs);
         // Les machines : un tick tous les 3 pas (20 par seconde).
         let eye = player::eye(&self.ecs, self.player, 1.0);
+        self.refresh_gear(ctx.fixed_dt);
         self.pick_up_drops(ctx.fixed_dt);
         self.update_backpacks(ctx.fixed_dt);
         let (actions, machine_tick) = self.mods.fixed_step(eye);
@@ -984,7 +995,7 @@ impl VoxelGame {
             self.streamer().world(),
             self.camera.position,
             self.camera.forward(),
-            REACH,
+            self.gear.reach(),
         );
         self.target = target;
         // Le minage : le bouton gauche maintenu sur le même bloc.
@@ -999,7 +1010,7 @@ impl VoxelGame {
             }
             if ctx.input.mouse_pressed(MouseButton::Left) {
                 // Une créature devant le bloc visé ? On la frappe plutôt que de casser.
-                let block_distance = self.target.map_or(REACH, |hit| hit.distance);
+                let block_distance = self.target.map_or(self.gear.reach(), |hit| hit.distance);
                 match mobs::hit_mob(
                     &self.ecs,
                     self.camera.position,
@@ -1007,8 +1018,7 @@ impl VoxelGame {
                     block_distance,
                 ) {
                     Some((mob, _)) => {
-                        let damage = self.player_hit_damage();
-                        if mobs::damage_mob(&mut self.ecs, mob, damage, self.camera.forward()) {
+                        if self.strike_mob(mob, self.camera.forward()).is_some() {
                             self.exert(self.hunger_rules.attack);
                         }
                         self.hand.punch();
@@ -1435,9 +1445,8 @@ impl VoxelGame {
             Some((p, progress)) if p == pos => progress,
             _ => 0.0,
         };
-        // Efficacité : +30 % de vitesse par niveau.
-        let time = time
-            / (1.0 + 0.3 * f32::from(self.held_enchant_level(enchanting::Enchantment::Efficiency)));
+        // La vitesse de minage (Efficacité, affixes) est un attribut.
+        let time = time / self.gear.value(attributes::Attribute::MiningSpeed);
         let progress = if time <= 0.0 {
             1.0
         } else {
@@ -1449,23 +1458,6 @@ impl VoxelGame {
         } else {
             self.mining = Some((pos, progress));
         }
-    }
-
-    /// Les dégâts d'un coup du joueur : l'arme ou l'outil en main (plus le Tranchant de son
-    /// enchantement), sinon un coup de poing.
-    fn player_hit_damage(&self) -> f32 {
-        let sharp = self.held_enchant_level(enchanting::Enchantment::Sharpness);
-        self.held_tool()
-            .map_or(PUNCH_DAMAGE, |t| t.damage.max(PUNCH_DAMAGE))
-            + 0.75 * f32::from(sharp)
-            + self.effects.strength_bonus()
-    }
-
-    /// Le niveau d'un enchantement sur l'objet en main (0 s'il n'y en a pas).
-    fn held_enchant_level(&self, kind: enchanting::Enchantment) -> u8 {
-        self.inventory
-            .selected_stack()
-            .map_or(0, |s| enchanting::level_of(s.damage, kind))
     }
 
     /// L'objet en main s'use d'un point (Solidité peut l'épargner). `true` s'il se brise.
@@ -1526,6 +1518,7 @@ impl VoxelGame {
             .loot
             .roll(block, tool, harvest, &self.content.items, &mut rng);
         for (item, count) in loot {
+            let count = self.loot_count(count);
             self.drop_stack(pos, inventory::ItemStack::new(item, count));
         }
     }
@@ -1636,7 +1629,7 @@ impl VoxelGame {
             // Le long du rayon, la première cellule de fluide.
             let found = {
                 let streamer = self.streamer();
-                (1..(REACH * 10.0) as i32)
+                (1..(self.gear.reach() * 10.0) as i32)
                     .map(|k| {
                         (self.camera.position + self.camera.forward() * (k as f32 * 0.1))
                             .floor()

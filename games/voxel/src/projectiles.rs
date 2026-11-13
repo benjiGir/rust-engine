@@ -170,7 +170,14 @@ pub fn fly(world: &mut World) {
         });
     drop(streamer);
     for (amount, from) in hits {
-        events::send(world, PlayerAttacked { amount, from });
+        events::send(
+            world,
+            PlayerAttacked {
+                amount,
+                from,
+                pierce: 0.0,
+            },
+        );
     }
     for entity in gone {
         world.commands().despawn(entity);

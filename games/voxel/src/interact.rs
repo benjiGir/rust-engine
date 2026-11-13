@@ -76,7 +76,7 @@ impl VoxelGame {
     }
 
     /// Jette un exemplaire en conservant son usure et son enchantement.
-    fn throw_selected(&mut self) {
+    pub(crate) fn throw_selected(&mut self) {
         let Some(stack) = self.inventory.selected_stack() else {
             return;
         };
@@ -161,7 +161,7 @@ impl VoxelGame {
         };
         let water = {
             let streamer = self.streamer();
-            (1..(REACH * 10.0) as i32)
+            (1..(self.gear.reach() * 10.0) as i32)
                 .map(|k| {
                     (self.camera.position + self.camera.forward() * (k as f32 * 0.1))
                         .floor()
@@ -234,7 +234,7 @@ impl VoxelGame {
 
     /// Un clic droit sur un habitant : l'écran d'échange.
     pub(crate) fn trade_with_villager(&mut self) -> bool {
-        let block_distance = self.target.map_or(REACH, |hit| hit.distance);
+        let block_distance = self.target.map_or(self.gear.reach(), |hit| hit.distance);
         let Some((mob, _)) = mobs::hit_mob(
             &self.ecs,
             self.camera.position,
@@ -315,7 +315,7 @@ impl VoxelGame {
         let Some(item) = self.inventory.selected_item() else {
             return false;
         };
-        let block_distance = self.target.map_or(REACH, |hit| hit.distance);
+        let block_distance = self.target.map_or(self.gear.reach(), |hit| hit.distance);
         let Some((mob, _)) = mobs::hit_mob(
             &self.ecs,
             self.camera.position,

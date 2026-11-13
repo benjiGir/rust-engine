@@ -22,6 +22,18 @@
 // - à heal_food ou plus, 1 point de vie revient toutes les heal_interval secondes (au prix
 //   de heal_exhaustion de fatigue) ; à 0, starve_damage toutes les starve_interval secondes ;
 // - plus de course sous sprint_min_food ; manger prend eat_time secondes, bouton tenu.
+//
+// Les attributs de base (voir `games/voxel/src/attributes.rs` ; l'équipement et les potions s'y
+// ajoutent, tout champ absent garde sa valeur par défaut) :
+// - damage : un coup de poing (un outil en main les remplace s'il fait mieux) ;
+// - crit_chance : chance de coup critique (0 à 1), crit_damage : son facteur ;
+// - life_steal : part des dégâts infligés rendue en vie (0 à 1) ;
+// - armor_pierce, armor_pierce_percent : points et part d'armure ignorés par les coups du joueur ;
+// - armor : points d'armure sans équipement (chacun retire armor_per_point des dégâts reçus) ;
+// - max_health : vie maximale ; regen : points de vie rendus par seconde en plus de la faim ;
+// - move_speed, mining_speed : facteurs de vitesse de marche et de minage ;
+// - loot_chance : part d'objets de butin en plus (0,25 = un quart) ;
+// - reach : portée du bras, en blocs ; xp_gain : facteur du gain d'expérience.
 (
     arm: (
         skin: (0.86, 0.66, 0.52),
@@ -59,5 +71,21 @@
         starve_interval: 4.0,
         sprint_min_food: 6.0,
         eat_time: 1.6,
+    ),
+    attributes: (
+        damage: 4.0,
+        crit_chance: 0.0,
+        crit_damage: 1.5,
+        life_steal: 0.0,
+        armor_pierce: 0.0,
+        armor_pierce_percent: 0.0,
+        armor: 0.0,
+        max_health: 20.0,
+        regen: 0.0,
+        move_speed: 1.0,
+        mining_speed: 1.0,
+        loot_chance: 0.0,
+        reach: 6.0,
+        xp_gain: 1.0,
     ),
 )

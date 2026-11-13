@@ -1,4 +1,7 @@
 //! Contrôle CPU des fenêtres, cases, infobulles et fiches de visée de production.
+#[path = "../src/attributes.rs"]
+#[allow(dead_code)]
+mod attributes;
 #[allow(dead_code)]
 mod common;
 #[path = "../src/enchanting.rs"]
@@ -6,6 +9,9 @@ mod common;
 mod enchanting;
 #[path = "../src/item_art.rs"]
 mod item_art;
+#[path = "../src/item_data.rs"]
+#[allow(dead_code)]
+mod item_data;
 #[path = "../src/settings.rs"]
 #[allow(dead_code)]
 mod settings;

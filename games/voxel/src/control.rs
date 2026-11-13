@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-36 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n | eat | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -178,7 +178,8 @@ pub enum Command {
     /// Le culling des grottes allumé ou non.
     Culling(bool),
     /// Un coup au joueur (armure et invulnérabilité comprises).
-    Damage(f32),
+    /// Dégâts, et les points d'armure que ce coup contourne (perforation).
+    Damage(f32, f32),
     /// Manger tout de suite l'aliment tenu.
     Eat,
     /// Les créatures proches : type, position, vie.
@@ -208,6 +209,8 @@ pub enum Command {
     Console(Option<String>),
     /// Les commandes du stockage : sac, gestes sur un conteneur, contenu (voir `storage_ctl.rs`).
     Storage(crate::storage_ctl::Command),
+    /// Les commandes des objets et des attributs (voir `item_ctl.rs`).
+    Items(crate::item_ctl::Command),
     /// Les textes affichés (avec leur position en points), pour viser un bouton.
     UiTexts,
     /// Un clic de souris en (x, y) points ; vrai : bouton droit.
@@ -558,12 +561,17 @@ pub fn parse(line: &str) -> Result<Command> {
             Command::Hunger(number(0)?)
         }
         "damage" => {
-            count(&[1])?;
+            count(&[1, 2])?;
             let amount = number(0)?;
             if amount <= 0.0 {
                 bail!("damage : un nombre positif");
             }
-            Command::Damage(amount)
+            let pierce = if args.len() == 2 {
+                number(1)?.max(0.0)
+            } else {
+                0.0
+            };
+            Command::Damage(amount, pierce)
         }
         "culling" => {
             count(&[1])?;
@@ -588,7 +596,10 @@ pub fn parse(line: &str) -> Result<Command> {
         "quit" => Command::Quit,
         other => match crate::storage_ctl::parse(other, &args) {
             Some(command) => Command::Storage(command?),
-            None => bail!("commande inconnue « {other} » (voir `help`)"),
+            None => match crate::item_ctl::parse(other, &args) {
+                Some(command) => Command::Items(command?),
+                None => bail!("commande inconnue « {other} » (voir `help`)"),
+            },
         },
     };
     Ok(command)
@@ -625,7 +636,7 @@ impl VoxelGame {
             SPRINT_SPEED
         } else {
             WALK_SPEED
-        };
+        } * self.gear.move_speed();
         let intent = (direction * speed, walk.jump);
         walk.seconds -= dt;
         if walk.seconds <= 0.0 {
@@ -1061,8 +1072,12 @@ impl VoxelGame {
                 self.weather.set(sky);
                 Ok(format!("{{\"ok\":true,\"weather\":\"{}\"}}", sky.name()))
             }
-            Command::Damage(amount) => {
-                let dealt = self.hurt_player(amount, crate::survival::DamageCause::Command);
+            Command::Damage(amount, pierce) => {
+                let dealt = self.hurt_player_pierced(
+                    amount,
+                    crate::survival::DamageCause::Command,
+                    crate::attributes::Pierce::flat(pierce),
+                );
                 Ok(format!(
                     "{{\"ok\":true,\"dealt\":{}}}",
                     dealt.map_or("null".into(), |d| format!("{d:.2}"))
@@ -1188,6 +1203,7 @@ impl VoxelGame {
                 }
             }
             Command::Storage(command) => self.storage_command(command),
+            Command::Items(command) => self.item_command(command),
             Command::Mods => {
                 let disabled = self.mods.disabled();
                 let rows: Vec<String> = self
@@ -1241,19 +1257,21 @@ impl VoxelGame {
                 let eye = player::eye(&self.ecs, self.player, 1.0);
                 let forward = self.camera.forward();
                 // Un wagon visé : un coup (le second le casse).
-                if crate::mobs::hit_mob(&self.ecs, eye, forward, crate::REACH).is_none()
+                if crate::mobs::hit_mob(&self.ecs, eye, forward, self.gear.reach()).is_none()
                     && self.punch_cart()
                 {
                     return Ok(ok());
                 }
-                let (mob, _) = crate::mobs::hit_mob(&self.ecs, eye, forward, crate::REACH)
+                let (mob, _) = crate::mobs::hit_mob(&self.ecs, eye, forward, self.gear.reach())
                     .context("attack : aucune créature ni aucun wagon visé à portée")?;
-                let damage = self.player_hit_damage();
-                if !crate::mobs::damage_mob(&mut self.ecs, mob, damage, forward) {
-                    bail!("attack : la créature vient d'être frappée (invulnérable)");
-                }
+                let strike = self
+                    .strike_mob(mob, forward)
+                    .context("attack : la créature vient d'être frappée (invulnérable)")?;
                 self.exert(self.hunger_rules.attack);
-                Ok(format!("{{\"ok\":true,\"damage\":{damage:.1}}}"))
+                Ok(format!(
+                    "{{\"ok\":true,\"damage\":{:.1},\"crit\":{},\"healed\":{:.2}}}",
+                    strike.damage, strike.crit, strike.healed
+                ))
             }
             Command::Swing => {
                 self.hand.punch();
@@ -1331,7 +1349,7 @@ impl VoxelGame {
             self.streamer().world(),
             eye,
             self.camera.forward(),
-            crate::REACH,
+            self.gear.reach(),
         );
         self.target = hit;
         hit.context("aucun bloc visé à portée")

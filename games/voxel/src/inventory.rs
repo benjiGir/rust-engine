@@ -3,7 +3,8 @@
 //!
 //! On y range des **objets** ([`ItemId`]), pas des blocs : un outil, un lingot ou un bloc
 //! de pierre. Ce qui s'empile s'empile jusqu'à sa pile maximale (64, ou 1 pour un outil) ;
-//! un outil garde son usure (`damage`).
+//! un outil garde son usure (`damage`). Quand `damage` a son bit 31 à 1, il ne porte qu'un
+//! numéro de fiche (usure, enchantements...) : voir `item_data.rs`.
 //!
 //! On le sauvegarde avec une **palette** : la liste des identifiants texte des objets
 //! présents, et pour chaque case un numéro dans cette palette. Les numéros d'objets
@@ -313,8 +314,9 @@ impl Inventory {
         if spared(stack.damage, roll) {
             return false;
         }
-        stack.damage += 1;
+        enchanting::add_wear(&mut stack.damage, 1);
         if enchanting::wear(stack.damage) >= durability {
+            enchanting::release(stack.damage);
             *slot = None;
             return true;
         }
@@ -333,9 +335,10 @@ impl Inventory {
             if spared(stack.damage, roll) {
                 continue;
             }
-            stack.damage += 1;
+            enchanting::add_wear(&mut stack.damage, 1);
             if enchanting::wear(stack.damage) >= durability {
                 broken.push(stack.item);
+                enchanting::release(stack.damage);
                 *slot = None;
             }
         }

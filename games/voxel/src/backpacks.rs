@@ -4,7 +4,8 @@
 //!
 //! L'objet « sac à dos » (`max_stack` 1) ne contient rien lui-même : son champ `damage` porte un
 //! **numéro de sac** (de 1 à 65 535, jamais plus : les bits hauts de `damage` sont ceux de
-//! l'enchantement, que le sac ne doit pas imiter). Le contenu est dans le [`BackpackStore`], le
+//! l'enchantement et des fiches d'objets (bit 31, voir `item_data.rs`), que le sac ne doit pas
+//! imiter). Le contenu est dans le [`BackpackStore`], le
 //! magasin des sacs du monde, sauvegardé dans `backpacks.bin` à la racine du monde, à côté de
 //! `world.ron` (donc partagé par toutes les dimensions). Un sac jeté au sol, rangé dans un coffre
 //! ou ramassé garde son numéro : c'est la pile qui voyage, pas le contenu.
@@ -692,7 +693,11 @@ mod tests {
         };
         let mut last = bag_stack(&items, 0, 0);
         assert_eq!(store.number_for(&mut last, 0), Some(MAX_NUMBER));
-        assert!(crate::enchanting::enchantment_of(last.damage).is_none());
+        assert!(!crate::enchanting::is_enchanted(last.damage));
+        assert!(
+            !crate::item_data::is_extended(last.damage),
+            "jamais le bit des fiches"
+        );
         let mut one_more = bag_stack(&items, 0, 0);
         assert_eq!(
             store.number_for(&mut one_more, 0),

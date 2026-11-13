@@ -37,7 +37,7 @@ impl VoxelGame {
 
     /// Le wagon visé, s'il est plus près que le bloc visé.
     pub(crate) fn aimed_cart(&self) -> Option<Entity> {
-        let block_distance = self.target.map_or(REACH, |hit| hit.distance);
+        let block_distance = self.target.map_or(self.gear.reach(), |hit| hit.distance);
         carts::hit_cart(
             &self.ecs,
             self.camera.position,

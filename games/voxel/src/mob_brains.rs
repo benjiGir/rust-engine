@@ -212,6 +212,7 @@ impl VoxelGame {
                             PlayerAttacked {
                                 amount: damage.min(20.0),
                                 from: position,
+                                pierce: 0.0,
                             },
                         );
                     }

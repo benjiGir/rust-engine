@@ -36,6 +36,13 @@ impl UiInput {
         }]);
     }
 
+    /// Le pointeur reste en `pos` pendant `frames` images (pour qu'une bulle d'aide s'affiche).
+    pub fn hover(&mut self, pos: Pos2, frames: usize) {
+        for _ in 0..frames {
+            self.frames.push_back(vec![Event::PointerMoved(pos)]);
+        }
+    }
+
     /// Du texte tapé (ce que produit le clavier pour les champs de saisie).
     pub fn text(&mut self, text: &str) {
         self.frames.push_back(vec![Event::Text(text.to_string())]);
