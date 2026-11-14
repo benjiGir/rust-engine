@@ -127,7 +127,7 @@ pub fn click_slot_mult(
 /// L'objet est-il épargné par l'usure ce coup-ci ? Solidité de niveau L : une chance
 /// sur L + 1 d'être épargné par coup, par tirage `roll` entre 0 et 1.
 fn spared(damage: u32, roll: f32) -> bool {
-    let level = enchanting::level_of(damage, Enchantment::Unbreaking);
+    let level = enchanting::level_of(damage, Enchantment::UNBREAKING);
     level > 0 && roll < f32::from(level) / f32::from(level + 1)
 }
 
@@ -382,7 +382,7 @@ impl Inventory {
             .flatten()
             .filter_map(|s| {
                 let base = items.get(s.item).armor.map(|a| a.protection)?;
-                Some(base + u32::from(enchanting::level_of(s.damage, Enchantment::Protection)))
+                Some(base + u32::from(enchanting::level_of(s.damage, Enchantment::PROTECTION)))
             })
             .sum()
     }

@@ -1,7 +1,8 @@
 //! Les commandes `ctl` des objets enrichis et des attributs, pour les essais sans clavier.
 //!
 //! - `enchant sorte niveau [sorte niveau...]` : ajoute ces enchantements à l'objet en main
-//!   (`efficiency`, `sharpness`, `unbreaking`, `protection`), comme la table, donc avec la
+//!   (`efficiency`, `sharpness`, `unbreaking`, `protection`, `looting`, `life_steal`, `fortune`,
+//!   `silk_touch`, `magnet`, `thorns`, `feather`, `swiftness`...), comme la table, donc avec la
 //!   migration vers une fiche au deuxième ;
 //! - `affix attribut fixe [part]` : ajoute un affixe d'essai à l'objet en main (`damage`,
 //!   `crit_chance`, `life_steal`, `armor_pierce`, `reach`... : voir `Attribute::key`) ;
@@ -44,13 +45,14 @@ pub enum Panel {
 }
 
 fn enchantment(name: &str) -> Result<Enchantment> {
-    Ok(match name {
-        "efficiency" | "efficacite" | "efficacité" => Enchantment::Efficiency,
-        "sharpness" | "tranchant" => Enchantment::Sharpness,
-        "unbreaking" | "solidite" | "solidité" => Enchantment::Unbreaking,
-        "protection" => Enchantment::Protection,
-        other => bail!("enchant : sorte inconnue « {other} »"),
-    })
+    // Les noms français d'avant la phase 3 restent acceptés.
+    let key = match name {
+        "efficacite" | "efficacité" => "efficiency",
+        "tranchant" => "sharpness",
+        "solidite" | "solidité" => "unbreaking",
+        other => other,
+    };
+    Enchantment::from_key(key).with_context(|| format!("enchant : sorte inconnue « {name} »"))
 }
 
 fn attribute(name: &str) -> Result<Attribute> {
@@ -69,12 +71,19 @@ pub fn parse(name: &str, args: &[&str]) -> Option<Result<Command>> {
             }
             args.chunks(2)
                 .map(|pair| {
+                    let kind = enchantment(pair[0])?;
                     let level: u8 = pair[1]
                         .parse()
                         .ok()
-                        .filter(|l| (1..=3).contains(l))
-                        .context("enchant : le niveau va de 1 à 3")?;
-                    Ok((enchantment(pair[0])?, level))
+                        .filter(|l| (1..=kind.hard_max()).contains(l))
+                        .with_context(|| {
+                            format!(
+                                "enchant : le niveau de {} va de 1 à {}",
+                                kind.name(),
+                                kind.hard_max()
+                            )
+                        })?;
+                    Ok((kind, level))
                 })
                 .collect::<Result<Vec<_>>>()
                 .map(Command::Enchant)
@@ -248,8 +257,8 @@ mod tests {
         assert_eq!(
             parsed,
             Command::Enchant(vec![
-                (Enchantment::Sharpness, 2),
-                (Enchantment::Unbreaking, 1)
+                (Enchantment::SHARPNESS, 2),
+                (Enchantment::UNBREAKING, 1)
             ])
         );
         assert!(parse("enchant", &["sharpness"]).unwrap().is_err());

@@ -47,10 +47,20 @@ pub enum Attribute {
     LootChance = 11,
     Reach = 12,
     XpGain = 13,
+    /// Fortune : les minerais lâchent jusqu'à ce nombre de fois plus (voir `enchant_effects.rs`).
+    Fortune = 14,
+    /// Épines : les dégâts renvoyés à la créature qui frappe le joueur.
+    Thorns = 15,
+    /// Légèreté : la part des dégâts de chute évitée (0 à 1).
+    FallResist = 16,
+    /// Toucher de soie : au moins 1, un bloc lâche le bloc lui-même.
+    SilkTouch = 17,
+    /// Aspiration : au moins 1, le butin va directement dans l'inventaire.
+    Magnet = 18,
 }
 
 /// Le nombre d'attributs.
-pub const COUNT: usize = 14;
+pub const COUNT: usize = 19;
 
 impl Attribute {
     pub const ALL: [Attribute; COUNT] = [
@@ -68,6 +78,11 @@ impl Attribute {
         Self::LootChance,
         Self::Reach,
         Self::XpGain,
+        Self::Fortune,
+        Self::Thorns,
+        Self::FallResist,
+        Self::SilkTouch,
+        Self::Magnet,
     ];
 
     /// Le numéro stable de l'attribut.
@@ -96,6 +111,11 @@ impl Attribute {
             Self::LootChance => "loot_chance",
             Self::Reach => "reach",
             Self::XpGain => "xp_gain",
+            Self::Fortune => "fortune",
+            Self::Thorns => "thorns",
+            Self::FallResist => "fall_resist",
+            Self::SilkTouch => "silk_touch",
+            Self::Magnet => "magnet",
         }
     }
 
@@ -115,6 +135,11 @@ impl Attribute {
             Self::LootChance => "Chance de butin",
             Self::Reach => "Portée",
             Self::XpGain => "Gain d'expérience",
+            Self::Fortune => "Fortune",
+            Self::Thorns => "Épines",
+            Self::FallResist => "Légèreté",
+            Self::SilkTouch => "Toucher de soie",
+            Self::Magnet => "Aspiration",
         }
     }
 
@@ -132,6 +157,9 @@ impl Attribute {
             Self::LootChance => (0.0, 10.0),
             Self::Reach => (1.0, 12.0),
             Self::XpGain => (0.0, 10.0),
+            Self::Fortune | Self::SilkTouch | Self::Magnet => (0.0, 20.0),
+            Self::Thorns => (0.0, 100.0),
+            Self::FallResist => (0.0, 0.9),
         }
     }
 
@@ -149,6 +177,9 @@ impl Attribute {
             }
             Self::Regen => format!("{value:.2} / s"),
             Self::Reach => format!("{value:.1} blocs"),
+            Self::Fortune | Self::Thorns => format!("{value:.1}"),
+            Self::FallResist => format!("{:.0} %", value * 100.0),
+            Self::SilkTouch | Self::Magnet => if value > 0.0 { "oui" } else { "non" }.to_string(),
         };
         text.replace('.', ",")
     }
@@ -252,6 +283,12 @@ impl BaseAttributes {
             Attribute::LootChance => self.loot_chance,
             Attribute::Reach => self.reach,
             Attribute::XpGain => self.xp_gain,
+            // Les effets d'enchantement (phase 3) n'ont pas de valeur de base.
+            Attribute::Fortune
+            | Attribute::Thorns
+            | Attribute::FallResist
+            | Attribute::SilkTouch
+            | Attribute::Magnet => 0.0,
         }
     }
 }

@@ -121,6 +121,9 @@ pub struct BlockDef {
     /// Les cases d'inventaire que les réseaux d'objets remplissent (`inputs`) et vident
     /// (`outputs`) : sans cela, toutes les cases font les deux.
     pub ports: Option<InventoryPorts>,
+    /// Ce que ce bloc apporte à une table d'enchantement proche (étagère) ou à une bibliothèque
+    /// d'enchantements (voir [`EnchantingStats`]).
+    pub enchanting: Option<EnchantingStats>,
     /// Un conduit **à sens unique** (`flow: true`, avec `conduit: Items`, `Energy` ou `Fluid` et un
     /// état `Facing4` ou `Facing6`) : le contenu ne va que vers l'« avant » de la variante (le nord de la forme
     /// écrite). Posé, il pointe là où regarde le joueur. Il accepte par l'arrière et les côtés, et
@@ -137,6 +140,36 @@ pub struct BlockDef {
     pub state_values: Vec<u8>,
     /// D'où vient la définition, pour les messages d'erreur.
     pub source: String,
+}
+
+/// Ce qu'un bloc apporte aux tables d'enchantement (champ `enchanting` de `blocks.ron`). Le jeu lit
+/// les 32 positions autour d'une table (deux anneaux, de l'air entre la table et le bloc) et
+/// additionne ces valeurs : un mod ajoute ses étagères sans toucher au jeu.
+///
+/// Les nombres sont tous facultatifs (0 par défaut). `eterna`, `quanta`, `arcana`, `clues` et
+/// `stability` s'**ajoutent** d'un bloc à l'autre ; `max_eterna` est un **plafond** : l'Eterna de la
+/// table ne dépasse jamais le plus haut plafond des blocs présents (les étagères de bois plafonnent
+/// bas, les plus rares permettent d'aller jusqu'à 100).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct EnchantingStats {
+    /// La puissance : le niveau maximal que la table propose.
+    pub eterna: f32,
+    /// Le plafond d'Eterna que ce bloc permet d'atteindre.
+    pub max_eterna: f32,
+    /// La part de hasard dans les niveaux proposés, en pourcents (0 à 100).
+    pub quanta: f32,
+    /// Le nombre et la rareté des enchantements, en pourcents (0 à 100).
+    pub arcana: f32,
+    /// Les enchantements montrés à l'avance (on compte la partie entière du total, plus un).
+    pub clues: f32,
+    /// La part du hasard qui ne fait que du bien, en pourcents (0 à 100).
+    pub stability: f32,
+    /// Ouvre les enchantements rares (« trésor ») à la table.
+    pub treasure: bool,
+    /// Une bibliothèque d'enchantements : le plus haut niveau qu'elle sait ranger (0 : ce n'est pas
+    /// une bibliothèque). Elle stocke `2^(niveau - 1)` points par niveau.
+    pub library_level: u8,
 }
 
 /// Quelles cases de l'inventaire d'un bloc un réseau d'objets (`conduit: Items`) peut remplir
@@ -446,6 +479,9 @@ struct BlockFileEntry {
     throughput: Option<u32>,
     #[serde(default)]
     ports: Option<InventoryPorts>,
+    /// Les stats d'enchantement du bloc (étagère, bibliothèque).
+    #[serde(default)]
+    enchanting: Option<EnchantingStats>,
     /// Un conduit d'objets à sens unique (voir [`BlockDef::flow`]).
     #[serde(default)]
     flow: bool,
@@ -522,6 +558,7 @@ impl BlockRegistry {
             rail: None,
             throughput: None,
             ports: None,
+            enchanting: None,
             directed: false,
             flow: None,
             base: None,
@@ -810,6 +847,7 @@ impl BlockRegistry {
                     p.accepts = p.accepts.map(|a| qualify(&a, namespace));
                     p
                 }),
+                enchanting: entry.enchanting.clone(),
                 directed: entry.flow,
                 flow: None,
                 base: None,
@@ -1272,7 +1310,7 @@ pub(crate) mod tests {
         assert!(!registry.is_solid(BlockId::AIR) && registry.is_transparent(BlockId::AIR));
         assert_eq!(
             registry.placeable().count(),
-            113,
+            120,
             "sans l'air, l'eau, la lave, le socle, l'inconnu, la lampe allumée et les états actifs"
         );
         let water = registry.id("core:water").unwrap();
@@ -1628,6 +1666,68 @@ pub(crate) mod tests {
             )
             .unwrap_err();
         assert!(err.to_string().contains("conduit"), "{err}");
+    }
+
+    #[test]
+    fn enchanting_stats_are_optional_and_checked() {
+        let mut r = BlockRegistry::empty();
+        r.add_source(
+            "test",
+            r#"[
+                (id: "test:shelf", name: "S", color: (1,1,1), enchanting: (eterna: 2.0, max_eterna: 40.0, arcana: 3.0, treasure: true)),
+                (id: "test:plain", name: "P", color: (1,1,1)),
+                (id: "test:library", name: "L", color: (1,1,1), enchanting: (library_level: 12)),
+            ]"#,
+            "test",
+        )
+        .unwrap();
+        let shelf = r
+            .def(r.id("test:shelf").unwrap())
+            .enchanting
+            .clone()
+            .unwrap();
+        assert_eq!(
+            (shelf.eterna, shelf.max_eterna, shelf.arcana),
+            (2.0, 40.0, 3.0)
+        );
+        assert!(shelf.treasure);
+        // Ce qui n'est pas dit vaut zéro.
+        assert_eq!(
+            (shelf.quanta, shelf.stability, shelf.clues),
+            (0.0, 0.0, 0.0)
+        );
+        assert_eq!(shelf.library_level, 0);
+        assert!(r.def(r.id("test:plain").unwrap()).enchanting.is_none());
+        assert_eq!(
+            r.def(r.id("test:library").unwrap())
+                .enchanting
+                .as_ref()
+                .unwrap()
+                .library_level,
+            12
+        );
+        // Un champ mal orthographié est refusé, comme dans le reste du fichier.
+        let bad = BlockRegistry::empty().add_source(
+            "test",
+            r#"[(id: "test:a", name: "A", color: (1,1,1), enchanting: (eterne: 1.0))]"#,
+            "test",
+        );
+        assert!(bad.is_err());
+        // Les étagères du jeu de base montent en échelle : plafond et Eterna croissants.
+        let core = BlockRegistry::builtin();
+        let caps: Vec<f32> = ["oak", "sapphire", "amethyst", "jade", "volcanic"]
+            .iter()
+            .map(|m| {
+                core.def(core.id(&format!("core:shelf_{m}")).unwrap())
+                    .enchanting
+                    .clone()
+                    .unwrap()
+                    .max_eterna
+            })
+            .collect();
+        assert_eq!(caps, vec![15.0, 40.0, 50.0, 65.0, 100.0]);
+        let table = core.def(core.id("core:enchanting_table").unwrap());
+        assert_eq!(table.enchanting.as_ref().unwrap().quanta, 15.0);
     }
 
     #[test]

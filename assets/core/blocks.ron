@@ -881,6 +881,8 @@
         textures: (top: "enchanting_table_top", side: "enchanting_table_side", bottom: "oak_planks"),
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 1,
+        // La table donne sa base : un peu de hasard, un indice, et un plafond d'Eterna de 15 sans étagère.
+        enchanting: (max_eterna: 15.0, quanta: 15.0, clues: 1.0),
     ),
     // L'alambic (phase O10) : une fiole d'eau et un ingrédient donnent une potion.
     (
@@ -1335,5 +1337,66 @@
         textures: (top: "reforge_table_top", side: "reforge_table_side", bottom: "oak_planks"),
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 1,
+    ),
+    // L'enchantement avancé (phase 3). Les étagères comptent dans les stats d'une table d'enchantement
+    // posée à côté (voir `enchanting` : eterna et plafond, quanta, arcana, indices, stabilité, trésor).
+    // La table elle-même (plus haut) donne le hasard et l'indice de base.
+    (
+        id: "core:shelf_oak", name: "Étagère de chêne", color: (0.2900, 0.1800, 0.0900),
+        textures: (top: "shelf_oak_top", side: "shelf_oak_side", bottom: "shelf_oak_top"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
+        hardness: 2.0, tool: Axe,
+        enchanting: (eterna: 0.5, max_eterna: 15.0),
+    ),
+    (
+        id: "core:shelf_sapphire", name: "Étagère de saphir", color: (0.0900, 0.1900, 0.4800),
+        textures: (top: "shelf_sapphire_top", side: "shelf_sapphire_side", bottom: "shelf_sapphire_top"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
+        hardness: 2.0, tool: Axe,
+        enchanting: (eterna: 1.25, max_eterna: 40.0, quanta: 0.5),
+    ),
+    (
+        id: "core:shelf_amethyst", name: "Étagère d'améthyste", color: (0.2800, 0.1300, 0.4500),
+        textures: (top: "shelf_amethyst_top", side: "shelf_amethyst_side", bottom: "shelf_amethyst_top"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
+        hardness: 2.0, tool: Axe,
+        enchanting: (eterna: 1.0, max_eterna: 50.0, quanta: 3.0, stability: 1.5, clues: 0.1),
+    ),
+    (
+        id: "core:shelf_jade", name: "Étagère de jade", color: (0.1000, 0.3500, 0.2000),
+        textures: (top: "shelf_jade_top", side: "shelf_jade_side", bottom: "shelf_jade_top"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
+        hardness: 2.0, tool: Axe,
+        enchanting: (eterna: 2.0, max_eterna: 65.0, arcana: 1.0, clues: 0.05),
+    ),
+    (
+        id: "core:shelf_volcanic", name: "Étagère d'obsidienne volcanique", color: (0.0700, 0.0500, 0.0800),
+        textures: (top: "shelf_volcanic_top", side: "shelf_volcanic_side", bottom: "shelf_volcanic_top"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
+        hardness: 2.0, tool: Axe,
+        enchanting: (eterna: 3.2, max_eterna: 100.0, arcana: 2.0, stability: 2.0, treasure: true),
+    ),
+    // La bibliothèque : stocke les enchantements en points (voir games/voxel/src/enchant_library.rs).
+    // Les livres entrent par la case 0 (tuyaux d'objets compris) ; la case 1 rend ce qui est refusé.
+    (
+        id: "core:enchant_library", name: "Bibliothèque d'enchantements", color: (0.2000, 0.1000, 0.2200),
+        textures: (top: "enchant_library_top", side: "enchant_library_side", bottom: "oak_planks"),
+        behavior: "core:enchant_library",
+        ports: (inputs: [0], outputs: [1]),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
+        hardness: 3.0, tool: Axe,
+        enchanting: (library_level: 10),
+    ),
+    // L'enclume simple : un livre ou un tome au curseur, un clic sur un objet de l'inventaire.
+    (
+        id: "core:simple_anvil", name: "Enclume simple", color: (0.2200, 0.2300, 0.2600),
+        boxes: [
+            (from: (2, 0, 2), to: (14, 3, 14)),
+            (from: (5, 3, 4), to: (11, 9, 12)),
+            (from: (1, 9, 2), to: (15, 14, 14)),
+        ],
+        textures: (top: "simple_anvil_top", side: "simple_anvil_side", bottom: "simple_anvil_side"),
+        sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
+        hardness: 4.0, tool: Pickaxe, tier: 1,
     ),
 ]

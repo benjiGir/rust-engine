@@ -715,7 +715,9 @@ mod tests {
             assert!(def.durability.is_none() && def.tool.is_none() && def.armor.is_none());
             assert_eq!(def.max_stack, 1);
             assert!(
-                crate::enchanting::offers(def, 7, 1).is_none(),
+                crate::enchanting::Enchantment::all()
+                    .into_iter()
+                    .all(|e| !e.applies_to(def)),
                 "un sac ne s'enchante pas"
             );
         }

@@ -489,14 +489,14 @@ mod tests {
         let data = AdventureData::builtin();
         let items = items();
         let sword = def(&items, "core:iron_sword");
-        let mut damage = enchanting::with_enchantment(7, enchanting::Enchantment::Sharpness, 2);
+        let mut damage = enchanting::with_enchantment(7, enchanting::Enchantment::SHARPNESS, 2);
         let rolled = generate(&data, sword, 0.0, 2, 42).unwrap();
         assert!(apply(&mut damage, rolled.clone()));
         let sheet = item_data::sheet(damage).unwrap();
         assert_eq!(sheet.wear, 7, "l'usure est gardée");
         assert_eq!(
             sheet.enchantments,
-            vec![(enchanting::Enchantment::Sharpness.id(), 2)]
+            vec![(enchanting::Enchantment::SHARPNESS.id(), 2)]
         );
         assert_eq!(sheet.affixes, rolled.affixes);
         assert_eq!(sheet.name, rolled.name);
@@ -541,8 +541,8 @@ mod tests {
     #[test]
     fn plain_enchanted_items_show_no_rarity() {
         let damage = enchanting::with_enchantment(
-            enchanting::with_enchantment(0, enchanting::Enchantment::Sharpness, 1),
-            enchanting::Enchantment::Unbreaking,
+            enchanting::with_enchantment(0, enchanting::Enchantment::SHARPNESS, 1),
+            enchanting::Enchantment::UNBREAKING,
             1,
         );
         assert!(item_data::is_extended(damage));

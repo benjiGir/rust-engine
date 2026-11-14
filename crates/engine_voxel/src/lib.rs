@@ -122,8 +122,8 @@ pub use rails::{
 pub use raycast::{RayHit, ray_aabb, raycast};
 pub use recipe_index::{Choice, RecipeCategory, RecipeIndex, RecipeLayout, RecipeView};
 pub use registry::{
-    BlockBox, BlockDef, BlockRegistry, BlockRotation, BlockSounds, CORE_NAMESPACE, RotationAxis,
-    Shape, StateKind, Support, Tint,
+    BlockBox, BlockDef, BlockRegistry, BlockRotation, BlockSounds, CORE_NAMESPACE, EnchantingStats,
+    RotationAxis, Shape, StateKind, Support, Tint,
 };
 pub use save::{
     AdventureSave, ChunkToSave, FORMAT_VERSION, LoadedChunk, PlayerSave, REGION_SIZE, SaveReport,

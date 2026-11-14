@@ -225,7 +225,7 @@ mod tests {
         assert_eq!(got.gems, ["core:gem_ruby_4"]);
         // Un objet de base, ou seulement enchanté : refusé, rien n'est détruit.
         assert!(salvage(&data, 0, &mut Rng64::new(2)).is_none());
-        let enchanted = enchanting::with_enchantment(0, enchanting::Enchantment::Sharpness, 1);
+        let enchanted = enchanting::with_enchantment(0, enchanting::Enchantment::SHARPNESS, 1);
         assert!(!can_salvage(enchanted));
         assert!(salvage_preview(&data, enchanted).is_none());
     }
@@ -293,14 +293,14 @@ mod tests {
         let done = affixed(&data, &items, "core:iron_sword", 1, 4);
         assert!(!can_reforge(sword, done), "déjà à affixes");
         // Un objet usé et enchanté (un seul enchantement : pile simple).
-        let mut damage = enchanting::with_enchantment(9, enchanting::Enchantment::Sharpness, 2);
+        let mut damage = enchanting::with_enchantment(9, enchanting::Enchantment::SHARPNESS, 2);
         assert!(can_reforge(sword, damage));
         let draw = draws(&data, sword, 3, 1).remove(1);
         assert!(apply_draw(&mut damage, draw.clone()));
         let sheet = item_data::sheet(damage).unwrap();
         assert_eq!(sheet.wear, 9);
         assert_eq!(
-            enchanting::level_of(damage, enchanting::Enchantment::Sharpness),
+            enchanting::level_of(damage, enchanting::Enchantment::SHARPNESS),
             2
         );
         assert_eq!(sheet.affixes, draw.affixes);

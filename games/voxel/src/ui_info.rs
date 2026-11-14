@@ -49,10 +49,17 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
             ),
             skin::TEXT,
         ));
-        // Tous les enchantements, un par ligne.
-        for label in crate::enchanting::labels(damage) {
-            lines.push((label, skin::MAGIC));
-        }
+        // Un charme de potion : son état et ce qui le recharge (voir `charms.rs`).
+        lines.extend(crate::charms::card_lines(
+            &crate::adventure_data::current(),
+            &def.key,
+            damage,
+            Some(max),
+        ));
+    }
+    // Tous les enchantements, un par ligne (outils, armures, livres enchantés).
+    for label in crate::enchanting::labels(damage) {
+        lines.push((label, skin::MAGIC));
     }
     // La rareté, les affixes et les gemmes de la fiche (objets à affixes, voir `affixes.rs`).
     let sheet = crate::item_data::sheet(damage);
@@ -90,6 +97,18 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
         ));
     }
     match def.key.as_str() {
+        crate::enchant_books::ENCHANTED_BOOK => lines.push((
+            "Dans l'écran d'une table d'enchantement ou d'une enclume, tenu au curseur : un clic sur un objet lui apporte ces enchantements".into(),
+            skin::MUTED,
+        )),
+        crate::enchant_books::TOME_EXTRACTION => lines.push((
+            "Dans l'écran d'une table d'enchantement ou d'une enclume, tenu au curseur : un clic sur un objet enchanté en retire les enchantements sur un livre vierge".into(),
+            skin::MUTED,
+        )),
+        key if crate::enchant_books::BookKind::of_key(key).is_some() => lines.push((
+            "En main devant une table d'enchantement : devient un livre enchanté (un tome ne reçoit que les enchantements de son type)".into(),
+            skin::MUTED,
+        )),
         crate::gems::SEAL_UNSOCKET => lines.push((
             "Au curseur, un clic sur un objet : retire ses gemmes".into(),
             skin::MUTED,
@@ -298,7 +317,7 @@ mod tests {
         let items = engine_voxel::ItemRegistry::builtin(&blocks).unwrap();
         let def = items.get(items.id("core:iron_pickaxe").unwrap());
         let damage =
-            crate::enchanting::with_enchantment(3, crate::enchanting::Enchantment::Efficiency, 2);
+            crate::enchanting::with_enchantment(3, crate::enchanting::Enchantment::EFFICIENCY, 2);
         let card = item(def, 1, damage);
         assert!(card.lines.iter().any(|(s, _)| s
             == &format!(
@@ -405,11 +424,11 @@ mod tests {
         let def = items.get(items.id("core:iron_axe").unwrap());
         let damage = with_enchantment(
             with_enchantment(
-                with_enchantment(2, Enchantment::Efficiency, 3),
-                Enchantment::Sharpness,
+                with_enchantment(2, Enchantment::EFFICIENCY, 3),
+                Enchantment::SHARPNESS,
                 2,
             ),
-            Enchantment::Unbreaking,
+            Enchantment::UNBREAKING,
             1,
         );
         let card = item(def, 1, damage);
@@ -428,7 +447,7 @@ mod tests {
                 def.durability.unwrap()
             )));
         // Un objet simple n'a toujours qu'une ligne d'enchantement.
-        let single = item(def, 1, with_enchantment(0, Enchantment::Sharpness, 1));
+        let single = item(def, 1, with_enchantment(0, Enchantment::SHARPNESS, 1));
         assert_eq!(
             single
                 .lines
@@ -437,5 +456,46 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn books_and_charms_have_their_own_tooltip_lines() {
+        use crate::enchanting::{Enchantment, with_enchantment};
+        let blocks = engine_voxel::BlockRegistry::builtin();
+        let items = engine_voxel::ItemRegistry::builtin(&blocks).unwrap();
+        let get = |key: &str| items.get(items.id(key).unwrap());
+        // Un livre enchanté n'a pas de durabilité, mais il liste ses enchantements.
+        let damage = with_enchantment(
+            with_enchantment(0, Enchantment::FORTUNE, 4),
+            Enchantment::SILK_TOUCH,
+            1,
+        );
+        let card = item(get("core:enchanted_book"), 1, damage);
+        let magic: Vec<&str> = card
+            .lines
+            .iter()
+            .filter(|(_, c)| *c == skin::MAGIC)
+            .map(|(s, _)| s.as_str())
+            .collect();
+        assert_eq!(magic, ["Fortune IV", "Toucher de soie"]);
+        assert!(
+            card.lines
+                .iter()
+                .any(|(s, _)| s.contains("table d'enchantement"))
+        );
+        // Un tome et un livre vierge disent ce qu'ils font.
+        for key in ["core:book", "core:tome_armor", "core:tome_extraction"] {
+            let card = item(get(key), 1, 0);
+            assert!(card.lines.len() >= 2, "{key}");
+        }
+        // Un charme dit son état et sa charge.
+        let charm = get("core:charm_strength");
+        let inactive = item(charm, 1, 0);
+        assert!(inactive.lines.iter().any(|(s, _)| s.starts_with("Inactif")));
+        let active = item(charm, 1, crate::charms::ACTIVE);
+        assert!(active.lines.iter().any(|(s, _)| s.starts_with("Actif")));
+        assert!(active.lines.iter().any(|(s, _)| s == "Charge : 100 %"));
+        let empty = item(charm, 1, charm.durability.unwrap());
+        assert!(empty.lines.iter().any(|(s, _)| s.starts_with("Vide")));
     }
 }

@@ -1,0 +1,80 @@
+// Les enchantements (phase 3 d'Apothéose). Un mod ajoute les siens dans `mods/<id>/enchantments.ron`,
+// avec un `number` de 64 à 127 (le numéro est sauvegardé dans les objets : on n'en change jamais un).
+//
+// - `id` : l'identifiant (`core:efficiency`) ; `number` : son numéro stable (1 à 127) ;
+// - `max_level` : le niveau le plus haut qu'une table sans Eterna propose ; `hard_max` : celui qu'on
+//   atteint avec 100 d'Eterna, et que les livres ne dépassent jamais (le niveau monte avec l'Eterna
+//   entre les deux) ;
+// - `weight` : sa part au tirage de la table ; `treasure` : rare, la table ne le propose qu'avec une
+//   étagère « trésor » (un livre, une bibliothèque le donnent toujours) ;
+// - `targets` : ce qui peut le porter. `Weapon` : épée, hache ; `Digger` : pioche, hache, pelle,
+//   houe, cisailles ; `Armor` : toute pièce d'armure ; `Durable` : tout outil ou armure ;
+// - `armor_slots` : si l'enchantement n'est pour que certaines pièces (`Head`, `Chest`, `Legs`, `Feet`) ;
+// - `effects` : ce que chaque niveau ajoute à un attribut (`flat` : bonus fixe, `percent` : part),
+//   quand l'objet est en main (`Held`) ou porté (`Worn`). Voir `attributes.rs` pour les attributs.
+//   Solidité n'a pas d'effet ici : elle agit sur l'usure (voir `inventory.rs`).
+(
+    // Le plus d'enchantements différents sur un même objet.
+    max_per_item: Some(6),
+    enchantments: [
+        (
+            id: "core:efficiency", number: 1, name: "Efficacité",
+            max_level: 3, hard_max: 8, weight: 10, targets: [Digger],
+            effects: [(attribute: "mining_speed", percent: 0.3, on: Held)],
+        ),
+        (
+            id: "core:sharpness", number: 2, name: "Tranchant",
+            max_level: 3, hard_max: 8, weight: 10, targets: [Weapon],
+            effects: [(attribute: "damage", flat: 0.75, on: Held)],
+        ),
+        (
+            id: "core:unbreaking", number: 3, name: "Solidité",
+            max_level: 3, hard_max: 6, weight: 8, targets: [Durable],
+        ),
+        (
+            id: "core:protection", number: 4, name: "Protection",
+            max_level: 3, hard_max: 8, weight: 10, targets: [Armor],
+            effects: [(attribute: "armor", flat: 1.0, on: Worn)],
+        ),
+        (
+            id: "core:looting", number: 5, name: "Butin",
+            max_level: 3, hard_max: 6, weight: 5, targets: [Weapon],
+            effects: [(attribute: "loot_chance", flat: 0.2, on: Held)],
+        ),
+        (
+            id: "core:life_steal", number: 6, name: "Vol de vie",
+            max_level: 3, hard_max: 6, weight: 3, treasure: true, targets: [Weapon],
+            effects: [(attribute: "life_steal", flat: 0.03, on: Held)],
+        ),
+        (
+            id: "core:fortune", number: 7, name: "Fortune",
+            max_level: 3, hard_max: 6, weight: 4, targets: [Digger],
+            effects: [(attribute: "fortune", flat: 1.0, on: Held)],
+        ),
+        (
+            id: "core:silk_touch", number: 8, name: "Toucher de soie",
+            max_level: 1, hard_max: 1, weight: 2, treasure: true, targets: [Digger],
+            effects: [(attribute: "silk_touch", flat: 1.0, on: Held)],
+        ),
+        (
+            id: "core:magnet", number: 9, name: "Aspiration",
+            max_level: 1, hard_max: 1, weight: 2, treasure: true, targets: [Weapon, Digger],
+            effects: [(attribute: "magnet", flat: 1.0, on: Held)],
+        ),
+        (
+            id: "core:thorns", number: 10, name: "Épines",
+            max_level: 3, hard_max: 6, weight: 4, targets: [Armor],
+            effects: [(attribute: "thorns", flat: 1.0, on: Worn)],
+        ),
+        (
+            id: "core:feather", number: 11, name: "Légèreté",
+            max_level: 3, hard_max: 6, weight: 5, targets: [Armor], armor_slots: [Feet],
+            effects: [(attribute: "fall_resist", flat: 0.12, on: Worn)],
+        ),
+        (
+            id: "core:swiftness", number: 12, name: "Vivacité",
+            max_level: 3, hard_max: 6, weight: 4, targets: [Armor], armor_slots: [Legs, Feet],
+            effects: [(attribute: "move_speed", percent: 0.05, on: Worn)],
+        ),
+    ],
+)

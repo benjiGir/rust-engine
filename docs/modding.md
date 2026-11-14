@@ -43,6 +43,7 @@ mods/example/
 ├── items.ron          # ses objets (facultatif)
 ├── machine_recipes.ron # les recettes de ses machines (facultatif)
 ├── rarities.ron, affixes.ron, gems.ron, tiers.ron, elites.ron   # l'aventure : raretés, affixes, gemmes, paliers, élites (facultatifs)
+├── enchantments.ron, charms.ron                                # l'enchantement avancé : enchantements et charmes de potion (facultatifs)
 ├── textures/          # PNG 16×16, nommés comme dans blocks.ron
 ├── sounds/            # WAV (ou OGG Vorbis) ; variantes nom_1.wav, nom_2.wav…
 ├── script/            # les sources du script (une crate Rust)
@@ -1017,6 +1018,36 @@ identifiant porte l'espace de noms du mod.
 - Dans `entities.ron`, `boss: true` marque un boss : il ne devient jamais élite et le vaincre compte pour les paliers.
 - Dans les tables de butin d'une structure (`structures.ron`), `affixed: true` (et `min_rarity`) range un objet à
   affixes dans le coffre ; ses affixes sont tirés à la première ouverture.
+
+## L'enchantement avancé : étagères, enchantements, bibliothèque, charmes
+
+Plan et choix : `docs/plan-apotheose.md` (phase 3). Tout se règle en données, et un mod ajoute les siennes.
+
+- **Les étagères et les stats de la table.** Un bloc peut avoir un champ `enchanting` dans son `blocks.ron` :
+  `enchanting: (eterna: 1.25, max_eterna: 40.0, quanta: 0.5, arcana: 0.0, clues: 0.0, stability: 0.0, treasure: false)`
+  (tout est facultatif). Une table d'enchantement lit les **32 positions** autour d'elle (deux anneaux à deux blocs :
+  à sa hauteur et un bloc au-dessus), à condition qu'il y ait de l'**air** à la même hauteur entre elle et le bloc. Les
+  contributions s'**additionnent** (la table apporte aussi les siennes : elle donne la base de Quanta et un indice) ;
+  `max_eterna` est un **plafond** : l'Eterna ne dépasse jamais le plus haut plafond des blocs présents (bois : 15,
+  saphir : 40, améthyste : 50, jade : 65, obsidienne volcanique : 100). Quanta (hasard des niveaux), Arcana (nombre et
+  rareté des enchantements) et Stabilité (le hasard ne fait que du bien) vont de 0 à 100 ; les indices (partie entière
+  du total) disent combien d'enchantements d'un lot sont montrés avant l'achat ; `treasure: true` ouvre les
+  enchantements rares.
+- `enchantments.ron` : la liste des enchantements. Chacun a un identifiant (`mon_mod:vertu`), un **numéro** stable
+  (de 64 à 127 pour un mod : il est sauvegardé dans les objets, on n'en change jamais un), un niveau maximal sans
+  Eterna (`max_level`) et avec 100 d'Eterna (`hard_max`), un poids, `treasure`, les cibles (`Weapon`, `Digger`,
+  `Armor`, `Durable`), éventuellement des pièces d'armure (`armor_slots`) et des **effets** : un bonus d'attribut par
+  niveau, objet en main (`Held`) ou porté (`Worn`). Les attributs ajoutés par la phase 3 : `fortune`, `thorns`,
+  `fall_resist`, `silk_touch`, `magnet`.
+- **Livres et tomes.** `core:book` (vierge), `core:tome_weapons`, `core:tome_tools`, `core:tome_armor`, `core:tome_extraction`
+  et `core:enchanted_book` sont des objets du jeu de base ; un livre enchanté est un objet à fiche (voir
+  `item_data.rs`) comme les autres.
+- **La bibliothèque** : un bloc avec `behavior: "core:enchant_library"`, `enchanting: (library_level: 10)` (le plus haut
+  niveau rangé ; un niveau `n` vaut `2^(n-1)` points, et la sorte plafonne à `2^library_level` points) et
+  `ports: (inputs: [0], outputs: [1])` : les réseaux d'objets y déposent des livres (case 0) et reprennent ce qu'elle
+  refuse (case 1). Ses points sont dans les octets libres de l'entité du bloc.
+- `charms.ron` : `(item: "mon_mod:charme_x", potion: "mon_mod:potion_x")`. L'objet doit avoir une `durability` (sa
+  charge en secondes) ; la potion doit être dans `potions.ron`.
 
 ## Les dimensions
 

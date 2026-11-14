@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-36 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -213,6 +213,8 @@ pub enum Command {
     Items(crate::item_ctl::Command),
     /// Les commandes de l'aventure : butin, gemmes, paliers, élites (voir `adventure_ctl.rs`).
     Adventure(crate::adventure_ctl::Command),
+    /// Les commandes de l'enchantement avancé : stats de table, livres, bibliothèque (voir `enchant_ctl.rs`).
+    Enchanting(crate::enchant_ctl::Command),
     /// Les textes affichés (avec leur position en points), pour viser un bouton.
     UiTexts,
     /// Un clic de souris en (x, y) points ; vrai : bouton droit.
@@ -602,7 +604,10 @@ pub fn parse(line: &str) -> Result<Command> {
                 Some(command) => Command::Items(command?),
                 None => match crate::adventure_ctl::parse(other, &args) {
                     Some(command) => Command::Adventure(command?),
-                    None => bail!("commande inconnue « {other} » (voir `help`)"),
+                    None => match crate::enchant_ctl::parse(other, &args) {
+                        Some(command) => Command::Enchanting(command?),
+                        None => bail!("commande inconnue « {other} » (voir `help`)"),
+                    },
                 },
             },
         },
@@ -1115,7 +1120,7 @@ impl VoxelGame {
                 Ok(format!("{{\"ok\":true,\"mobs\":[{}]}}", list.join(",")))
             }
             Command::Use => {
-                if self.use_cart() {
+                if self.use_cart() || self.use_charm() {
                     return Ok(ok());
                 }
                 let hit = self.aimed()?;
@@ -1210,6 +1215,7 @@ impl VoxelGame {
             Command::Storage(command) => self.storage_command(command),
             Command::Items(command) => self.item_command(command),
             Command::Adventure(command) => self.adventure_command(command),
+            Command::Enchanting(command) => self.enchant_command(command),
             Command::Mods => {
                 let disabled = self.mods.disabled();
                 let rows: Vec<String> = self

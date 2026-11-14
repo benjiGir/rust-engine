@@ -550,6 +550,7 @@ impl crate::VoxelGame {
                 .is_some()
             {
                 self.knock_back(from);
+                self.reflect_thorns(from);
             }
         }
     }
@@ -749,12 +750,13 @@ impl crate::VoxelGame {
                 let count = min + (rng.next_u64() % u64::from(span)) as u32;
                 // La chance de butin du joueur ajoute des objets (voir `attributes.rs`).
                 let count = self.loot_count(count);
-                if count > 0 {
-                    self.drop_stack(
-                        position.floor().as_ivec3(),
-                        crate::inventory::ItemStack::new(item, count),
-                    );
-                }
+                // Aspiration : le butin d'une créature tuée près du joueur va dans l'inventaire.
+                let near = position.distance(player_at) <= XP_RADIUS;
+                self.give_loot(
+                    position.floor().as_ivec3(),
+                    crate::inventory::ItemStack::new(item, count),
+                    near,
+                );
             }
         }
     }
@@ -813,6 +815,8 @@ impl crate::VoxelGame {
         cause: DamageCause,
         pierce: Pierce,
     ) -> Option<f32> {
+        // Légèreté : une part des dégâts de chute est évitée.
+        let amount = self.environment_damage(amount, cause);
         // En difficile, les créatures frappent plus fort.
         let amount = if cause == DamageCause::Mob && self.difficulty >= 2 {
             amount * 1.5

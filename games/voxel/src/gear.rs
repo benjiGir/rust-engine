@@ -13,11 +13,11 @@
 //!
 //! # Les sources
 //!
-//! - **Objet en main** (un outil seulement) : ses dégâts de base (au-dessus du coup de poing),
-//!   Tranchant (+0,75 dégât par niveau), Efficacité (+30 % de minage par niveau), et les affixes
-//!   de sa fiche ;
-//! - **Armure portée** : les points de protection de chaque pièce, Protection (+1 par niveau), et
-//!   les affixes de sa fiche ;
+//! - **Objet en main** (un outil seulement) : ses dégâts de base (au-dessus du coup de poing), les
+//!   effets de ses enchantements « en main » (Tranchant, Efficacité, Butin, Fortune...) et les
+//!   affixes de sa fiche ;
+//! - **Armure portée** : les points de protection de chaque pièce, les effets de ses enchantements
+//!   « portés » (Protection, Épines, Légèreté, Vivacité...) et les affixes de sa fiche ;
 //! - **Potions** : Force (dégâts en plus), Vitesse (marche en plus). Régénération et Soin gardent
 //!   leur propre mécanique (voir `potions.rs`).
 //!
@@ -33,15 +33,11 @@ use glam::Vec3;
 use crate::VoxelGame;
 use crate::attributes::{self, Attribute, Attributes, BaseAttributes, Modifier, Source};
 use crate::components::{Health, Mob};
-use crate::enchanting::{self, Enchantment};
+use crate::enchant_data::Use;
+use crate::enchanting;
 use crate::inventory::{Inventory, ItemStack};
 use crate::item_data;
 use crate::potions::{Effect, Effects};
-
-/// Dégâts de Tranchant par niveau.
-pub const SHARPNESS_DAMAGE: f32 = 0.75;
-/// Part de vitesse de minage d'Efficacité par niveau.
-pub const EFFICIENCY_MINING: f32 = 0.3;
 
 /// Les attributs du joueur et ce qu'il faut pour les garder à jour.
 pub struct Gear {
@@ -154,26 +150,29 @@ fn stack_modifiers(
     if let Some(armor) = def.armor
         && !held
     {
-        let level = enchanting::level_of(stack.damage, Enchantment::Protection);
-        modifiers.push(Modifier::flat(
-            Attribute::Armor,
-            armor.protection as f32 + f32::from(level),
-        ));
+        // Les points de l'armure ; Protection s'y ajoute par ses effets (ci-dessous).
+        modifiers.push(Modifier::flat(Attribute::Armor, armor.protection as f32));
     }
-    if held && def.tool.is_some() {
-        let sharpness = enchanting::level_of(stack.damage, Enchantment::Sharpness);
-        if sharpness > 0 {
-            modifiers.push(Modifier::flat(
-                Attribute::Damage,
-                SHARPNESS_DAMAGE * f32::from(sharpness),
-            ));
-        }
-        let efficiency = enchanting::level_of(stack.damage, Enchantment::Efficiency);
-        if efficiency > 0 {
-            modifiers.push(Modifier::percent(
-                Attribute::MiningSpeed,
-                EFFICIENCY_MINING * f32::from(efficiency),
-            ));
+    // Les enchantements : leurs effets sont dans les données (`enchantments.ron`), un bonus
+    // d'attribut par niveau, compté quand l'objet est en main (outil) ou porté (armure).
+    let data = crate::adventure_data::current();
+    for (kind, level) in enchanting::enchantments_of(stack.damage) {
+        let Some(enchant) = data.enchant_by_number(kind.id()) else {
+            continue;
+        };
+        for effect in &enchant.effects {
+            let counts = match effect.on {
+                Use::Held => held && def.tool.is_some(),
+                Use::Worn => !held && def.armor.is_some(),
+            };
+            if counts {
+                let level = f32::from(level);
+                modifiers.push(Modifier {
+                    attribute: effect.attribute,
+                    flat: effect.flat * level,
+                    percent: effect.percent * level,
+                });
+            }
         }
     }
     // Les affixes et les gemmes d'un outil en main ou d'une pièce portée.
@@ -340,7 +339,7 @@ impl VoxelGame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::enchanting::with_enchantment;
+    use crate::enchanting::{Enchantment, with_enchantment};
     use crate::potions::PotionDef;
 
     fn items() -> ItemRegistry {
@@ -378,8 +377,8 @@ mod tests {
         let sword_damage = sword.tool.unwrap().damage;
         // Tranchant II + Solidité I : deux enchantements, donc une fiche.
         let damage = with_enchantment(
-            with_enchantment(0, Enchantment::Sharpness, 2),
-            Enchantment::Unbreaking,
+            with_enchantment(0, Enchantment::SHARPNESS, 2),
+            Enchantment::UNBREAKING,
             1,
         );
         assert!(item_data::is_extended(damage));
@@ -409,7 +408,7 @@ mod tests {
         inventory.slots[0] = Some(stack(
             &items,
             "core:iron_pickaxe",
-            with_enchantment(0, Enchantment::Efficiency, 2),
+            with_enchantment(0, Enchantment::EFFICIENCY, 2),
         ));
         let attrs = compute(&inventory, &items, &Effects::default());
         assert!((attrs.value(Attribute::MiningSpeed) - 1.6).abs() < 1e-5);
@@ -430,7 +429,7 @@ mod tests {
         inventory.armor[0] = Some(stack(
             &items,
             "core:iron_helmet",
-            with_enchantment(0, Enchantment::Protection, 2),
+            with_enchantment(0, Enchantment::PROTECTION, 2),
         ));
         let enchanted = compute(&inventory, &items, &Effects::default());
         assert_eq!(
@@ -446,6 +445,56 @@ mod tests {
         held.slots[0] = inventory.armor[0];
         let attrs = compute(&held, &items, &Effects::default());
         assert_eq!(attrs.value(Attribute::Armor), 0.0);
+    }
+
+    #[test]
+    fn the_new_enchantments_become_attributes_through_their_data() {
+        let items = items();
+        let mut inventory = Inventory::default();
+        // Une épée : Butin III, Vol de vie II, Aspiration.
+        let sword = [
+            (Enchantment::LOOTING, 3),
+            (Enchantment::LIFE_STEAL, 2),
+            (Enchantment::MAGNET, 1),
+        ]
+        .iter()
+        .fold(0, |d, &(k, l)| with_enchantment(d, k, l));
+        inventory.slots[0] = Some(stack(&items, "core:iron_sword", sword));
+        let attrs = compute(&inventory, &items, &Effects::default());
+        assert!((attrs.value(Attribute::LootChance) - 0.6).abs() < 1e-5);
+        assert!((attrs.value(Attribute::LifeSteal) - 0.06).abs() < 1e-5);
+        assert_eq!(attrs.value(Attribute::Magnet), 1.0);
+        assert_eq!(attrs.value(Attribute::Fortune), 0.0, "pas pour une épée");
+        // Une pioche : Fortune II et Toucher de soie.
+        let pickaxe = with_enchantment(
+            with_enchantment(0, Enchantment::FORTUNE, 2),
+            Enchantment::SILK_TOUCH,
+            1,
+        );
+        inventory.slots[0] = Some(stack(&items, "core:iron_pickaxe", pickaxe));
+        let attrs = compute(&inventory, &items, &Effects::default());
+        assert_eq!(attrs.value(Attribute::Fortune), 2.0);
+        assert_eq!(attrs.value(Attribute::SilkTouch), 1.0);
+        assert_eq!(attrs.value(Attribute::LootChance), 0.0);
+        // Des bottes : Légèreté IV, Vivacité II, Épines III. Elles comptent portées, pas en main.
+        let boots = [
+            (Enchantment::FEATHER, 4),
+            (Enchantment::SWIFTNESS, 2),
+            (Enchantment::THORNS, 3),
+        ]
+        .iter()
+        .fold(0, |d, &(k, l)| with_enchantment(d, k, l));
+        inventory.slots[0] = Some(stack(&items, "core:iron_boots", boots));
+        let held = compute(&inventory, &items, &Effects::default());
+        assert_eq!(held.value(Attribute::Thorns), 0.0, "tenues en main : rien");
+        inventory.slots[0] = None;
+        inventory.armor[3] = Some(stack(&items, "core:iron_boots", boots));
+        let worn = compute(&inventory, &items, &Effects::default());
+        assert!((worn.value(Attribute::FallResist) - 0.48).abs() < 1e-5);
+        assert!((worn.value(Attribute::MoveSpeed) - 1.1).abs() < 1e-5);
+        assert_eq!(worn.value(Attribute::Thorns), 3.0);
+        // La Légèreté plafonne à 90 % même avec beaucoup de pièces (bornes de l'attribut).
+        assert!(Attribute::FallResist.bounds().1 <= 0.9);
     }
 
     #[test]
@@ -483,18 +532,18 @@ mod tests {
         inventory.slots[0] = Some(stack(
             &items,
             "core:iron_pickaxe",
-            with_enchantment(0, Enchantment::Efficiency, 1),
+            with_enchantment(0, Enchantment::EFFICIENCY, 1),
         ));
         let first = signature(&inventory, &effects);
         // L'usure d'une pile simple ne change rien.
-        let worn = with_enchantment(5, Enchantment::Efficiency, 1);
+        let worn = with_enchantment(5, Enchantment::EFFICIENCY, 1);
         inventory.slots[0] = Some(stack(&items, "core:iron_pickaxe", worn));
         assert_eq!(signature(&inventory, &effects), first);
         // Un autre enchantement, si.
         inventory.slots[0] = Some(stack(
             &items,
             "core:iron_pickaxe",
-            with_enchantment(5, Enchantment::Efficiency, 2),
+            with_enchantment(5, Enchantment::EFFICIENCY, 2),
         ));
         assert_ne!(signature(&inventory, &effects), first);
         // Une armure en plus, si.

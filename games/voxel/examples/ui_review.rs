@@ -8,8 +8,17 @@ mod affixes;
 #[path = "../src/attributes.rs"]
 #[allow(dead_code)]
 mod attributes;
+#[path = "../src/charms.rs"]
+#[allow(dead_code)]
+mod charms;
 #[allow(dead_code)]
 mod common;
+#[path = "../src/enchant_books.rs"]
+#[allow(dead_code)]
+mod enchant_books;
+#[path = "../src/enchant_data.rs"]
+#[allow(dead_code)]
+mod enchant_data;
 #[path = "../src/enchanting.rs"]
 #[allow(dead_code)]
 mod enchanting;

@@ -1,0 +1,14 @@
+// Les charmes de potion (phase 3 d'Apothéose). Un charme est un objet fait d'une potion : tenu en
+// main, un clic droit l'active ou le désactive ; actif, il garde l'effet de la potion tant qu'il est
+// dans l'inventaire, et s'use d'un point par seconde (la durabilité de l'objet, dans `items.ron`).
+// Une fois vide, on le recharge avec la même potion : la potion au curseur, un clic sur le charme.
+// Un mod ajoute les siens dans `mods/<id>/charms.ron`.
+(
+    charms: [
+        (item: "core:charm_healing", potion: "core:potion_healing"),
+        (item: "core:charm_regeneration", potion: "core:potion_regeneration"),
+        (item: "core:charm_speed", potion: "core:potion_speed"),
+        (item: "core:charm_strength", potion: "core:potion_strength"),
+        (item: "core:charm_fire_resistance", potion: "core:potion_fire_resistance"),
+    ],
+)

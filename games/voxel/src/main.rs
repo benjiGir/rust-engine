@@ -44,9 +44,12 @@ mod attributes_ui;
 mod audio;
 mod backpacks;
 mod bench;
+mod book_play;
 mod breeding;
 mod cart_play;
 mod carts;
+mod charm_play;
+mod charms;
 mod chest_preview;
 mod components;
 mod console;
@@ -58,6 +61,13 @@ mod death;
 mod dimensions;
 mod drops;
 mod elites;
+mod enchant_books;
+mod enchant_ctl;
+mod enchant_data;
+mod enchant_effects;
+mod enchant_library;
+mod enchant_table;
+mod enchant_ui;
 mod enchanting;
 mod events;
 mod far_terrain;
@@ -254,6 +264,8 @@ struct VoxelGame {
     soundscape: soundscape::Soundscape,
     /// Ce que propose la table d'enchantement : change après chaque enchantement.
     enchant_seed: u32,
+    /// L'état des écrans d'enchantement avancé et des charmes (voir `enchant_ui.rs`).
+    enchant_ui: enchant_ui::EnchantUi,
     /// Le palier du monde, la progression d'aventure et l'état des tables du butin.
     adventure: adventure::Adventure,
     /// Un morceau est en cours jusqu'à cette date.
@@ -541,6 +553,7 @@ impl VoxelGame {
             content.brewing.clone(),
             &content.recipes,
         );
+        enchant_library::register(&mut mods.machines, &registry);
         // Les structures mobiles du monde : relues, et leurs machines redémarrent.
         if let Some(store) = &store {
             match engine_voxel::load_grids(store.dir(), &registry) {
@@ -756,6 +769,7 @@ impl VoxelGame {
             effects: potions::Effects::default(),
             soundscape: soundscape::Soundscape::new(seed),
             enchant_seed: seed ^ 0xE5C4,
+            enchant_ui: enchant_ui::EnchantUi::default(),
             adventure,
             music_until: None,
             villages: villagers::Villages::default(),
@@ -848,6 +862,7 @@ impl VoxelGame {
         self.update_hunger(ctx.fixed_dt);
         self.drop_mob_loot();
         self.update_adventure(ctx.fixed_dt);
+        self.update_charms(ctx.fixed_dt);
         self.footsteps(ctx.fixed_dt);
         self.check_death();
     }
@@ -1072,6 +1087,7 @@ impl VoxelGame {
                 && !self.feed_mob()
                 && !self.use_hoe()
                 && !self.use_fertilizer()
+                && !self.use_charm()
                 && !self.use_mod_item()
             {
                 self.place_at_target();
@@ -1522,26 +1538,6 @@ impl VoxelGame {
         }
         self.exert(self.hunger_rules.mine);
         true
-    }
-
-    /// Ce que lâche un bloc, par terre à sa place.
-    fn drop_loot(
-        &mut self,
-        pos: IVec3,
-        block: BlockId,
-        tool: Option<engine_voxel::ToolKind>,
-        harvest: bool,
-    ) {
-        let seed = self.next_random();
-        let mut rng = engine_voxel::Rng64::new(seed);
-        let loot = self
-            .content
-            .loot
-            .roll(block, tool, harvest, &self.content.items, &mut rng);
-        for (item, count) in loot {
-            let count = self.loot_count(count);
-            self.drop_stack(pos, inventory::ItemStack::new(item, count));
-        }
     }
 
     pub(crate) fn drop_stack(&mut self, pos: IVec3, stack: inventory::ItemStack) {

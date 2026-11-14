@@ -1,5 +1,6 @@
 //! L'enchantement : des propriétés d'un outil ou d'une armure, achetées à la table
-//! d'enchantement avec des niveaux d'expérience et des saphirs.
+//! d'enchantement (voir `enchant_table.rs`) avec des points d'expérience et des saphirs, ou reçues
+//! d'un livre (voir `enchant_books.rs`).
 //!
 //! # Où elles sont rangées
 //!
@@ -8,7 +9,7 @@
 //!
 //! - **pile simple** (le bit 31 est à 0) : un seul enchantement, dans les bits hauts de l'usure.
 //!   L'usure occupe les 16 bits bas, le niveau les bits 16 à 23, l'enchantement les bits 24 à 30
-//!   (les sortes restent sous 128, donc le bit 31 n'est jamais touché). C'est le format des
+//!   (les numéros restent sous 128, donc le bit 31 n'est jamais touché). C'est le format des
 //!   mondes déjà joués ;
 //! - **pile étendue** (le bit 31 est à 1) : `damage` ne porte qu'un numéro de fiche, et la fiche
 //!   (voir `item_data.rs`) contient l'usure et la liste des enchantements.
@@ -18,84 +19,117 @@
 //! l'enchantement suit l'objet partout (coffres, sauvegarde, inventaire), et un objet enchanté
 //! ne s'empile jamais (son `damage` n'est plus nul).
 //!
-//! # Les effets
+//! # Les enchantements sont des données
 //!
-//! Ils passent par les attributs (voir `attributes.rs`) :
-//!
-//! - **Efficacité** : mine plus vite (+30 % par niveau).
-//! - **Tranchant** : plus de dégâts (+0,75 par niveau), pour l'épée et la hache.
-//! - **Solidité** : l'objet s'use moins (une chance sur « niveau + 1 » d'être épargné).
-//! - **Protection** : chaque pièce d'armure protège d'un point de plus par niveau.
-//!
-//! La table ([`offers`]) propose trois lots ; le plus cher donne jusqu'à trois enchantements
-//! différents, dans la limite de [`MAX_ENCHANTMENTS`] par objet.
+//! Chacun est décrit dans `enchantments.ron` (voir `enchant_data.rs`) : son numéro stable, ses
+//! niveaux (plafonnés selon l'Eterna de la table), ce qui peut le porter et ses effets, des bonus
+//! d'attributs par niveau (voir `attributes.rs` et `gear.rs`). Douze sont fournis : Efficacité,
+//! Tranchant, Solidité, Protection, Butin, Vol de vie, Fortune, Toucher de soie, Aspiration,
+//! Épines, Légèreté et Vivacité. Solidité est la seule qui agit ailleurs que par les attributs :
+//! l'objet s'use moins (une chance sur « niveau + 1 » d'être épargné).
 
-use engine_voxel::{ItemDef, ToolKind};
+use engine_voxel::ItemDef;
 
 use crate::item_data::{self, ItemData};
 
 /// L'usure : les 16 bits bas.
 pub const WEAR_MASK: u32 = 0xFFFF;
-/// Le plus d'enchantements qu'un objet puisse porter.
-pub const MAX_ENCHANTMENTS: usize = 4;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Enchantment {
-    Efficiency = 1,
-    Sharpness = 2,
-    Unbreaking = 3,
-    Protection = 4,
-}
+/// Une sorte d'enchantement : son numéro stable (voir `enchantments.ron`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Enchantment(pub u8);
 
 impl Enchantment {
-    pub const ALL: [Enchantment; 4] = [
-        Self::Efficiency,
-        Self::Sharpness,
-        Self::Unbreaking,
-        Self::Protection,
-    ];
+    // Les sortes du jeu de base. Les données les décrivent toutes ; ces noms ne servent qu'au code
+    // qui doit en désigner une (Solidité à l'usure) et aux tests.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const EFFICIENCY: Self = Self(1);
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const SHARPNESS: Self = Self(2);
+    pub const UNBREAKING: Self = Self(3);
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const PROTECTION: Self = Self(4);
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const LOOTING: Self = Self(5);
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const LIFE_STEAL: Self = Self(6);
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const FORTUNE: Self = Self(7);
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const SILK_TOUCH: Self = Self(8);
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const MAGNET: Self = Self(9);
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const THORNS: Self = Self(10);
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const FEATHER: Self = Self(11);
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const SWIFTNESS: Self = Self(12);
 
     /// Le numéro stable de la sorte (celui qu'on sauvegarde).
     pub fn id(self) -> u8 {
-        self as u8
+        self.0
     }
 
+    /// La sorte de ce numéro, si les données la connaissent (un mod disparu : `None`).
     pub fn from_id(id: u32) -> Option<Self> {
-        Self::ALL.into_iter().find(|e| *e as u32 == id)
+        let number = u8::try_from(id).ok()?;
+        crate::adventure_data::current()
+            .enchant_by_number(number)
+            .map(|_| Self(number))
     }
 
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Efficiency => "Efficacité",
-            Self::Sharpness => "Tranchant",
-            Self::Unbreaking => "Solidité",
-            Self::Protection => "Protection",
-        }
+    /// Toutes les sortes connues, dans l'ordre des données.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn all() -> Vec<Self> {
+        crate::adventure_data::current()
+            .enchantments
+            .iter()
+            .map(|e| Self(e.number))
+            .collect()
     }
 
-    pub fn max_level(self) -> u8 {
-        3
+    /// La sorte d'après son identifiant (`core:fortune`) ou son nom court (`fortune`).
+    pub fn from_key(key: &str) -> Option<Self> {
+        let data = crate::adventure_data::current();
+        let full = if key.contains(':') {
+            key.to_string()
+        } else {
+            format!("core:{key}")
+        };
+        data.enchant_by_id(&full).map(|e| Self(e.number))
+    }
+
+    fn with_def<R>(self, f: impl FnOnce(&crate::enchant_data::EnchantDef) -> R) -> Option<R> {
+        crate::adventure_data::current()
+            .enchant_by_number(self.0)
+            .map(f)
+    }
+
+    pub fn name(self) -> String {
+        self.with_def(|d| d.name.clone())
+            .unwrap_or_else(|| "Enchantement inconnu".into())
+    }
+
+    /// Le niveau le plus haut qu'un livre ou une bibliothèque porte.
+    pub fn hard_max(self) -> u8 {
+        self.with_def(|d| d.hard_max).unwrap_or(1)
+    }
+
+    /// Le niveau le plus haut que propose une table d'Eterna `eterna`.
+    pub fn cap_for(self, eterna: f32) -> u8 {
+        self.with_def(|d| d.cap_for(eterna)).unwrap_or(1)
+    }
+
+    /// Une sorte rare : la table ne la propose qu'avec une étagère « trésor ».
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn is_treasure(self) -> bool {
+        self.with_def(|d| d.treasure).unwrap_or(false)
     }
 
     /// Cet enchantement convient-il à cet objet ?
     pub fn applies_to(self, item: &ItemDef) -> bool {
-        match self {
-            Self::Efficiency => item.tool.is_some_and(|t| {
-                matches!(
-                    t.kind,
-                    ToolKind::Pickaxe
-                        | ToolKind::Axe
-                        | ToolKind::Shovel
-                        | ToolKind::Hoe
-                        | ToolKind::Shears
-                )
-            }),
-            Self::Sharpness => item
-                .tool
-                .is_some_and(|t| matches!(t.kind, ToolKind::Sword | ToolKind::Axe)),
-            Self::Unbreaking => item.durability.is_some(),
-            Self::Protection => item.armor.is_some(),
-        }
+        self.with_def(|d| d.applies_to(item)).unwrap_or(false)
     }
 }
 
@@ -243,10 +277,26 @@ pub fn with_enchantment(damage: u32, kind: Enchantment, level: u8) -> u32 {
     damage
 }
 
-/// « Efficacité II ».
+/// Un nombre en chiffres romains (jusqu'à 39 ; au-delà, en chiffres).
+pub fn roman(level: u8) -> String {
+    const TENS: [&str; 4] = ["", "X", "XX", "XXX"];
+    const ONES: [&str; 10] = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX"];
+    if level == 0 || level >= 40 {
+        return level.to_string();
+    }
+    format!(
+        "{}{}",
+        TENS[usize::from(level / 10)],
+        ONES[usize::from(level % 10)]
+    )
+}
+
+/// « Efficacité II ». Une sorte qui n'a qu'un niveau (Toucher de soie) s'écrit sans chiffre.
 pub fn label(kind: Enchantment, level: u8) -> String {
-    const ROMAN: [&str; 4] = ["", "I", "II", "III"];
-    format!("{} {}", kind.name(), ROMAN[usize::from(level).min(3)])
+    if kind.hard_max() == 1 {
+        return kind.name();
+    }
+    format!("{} {}", kind.name(), roman(level))
 }
 
 /// Les libellés de tous les enchantements d'une pile (pour les bulles d'aide).
@@ -257,72 +307,19 @@ pub fn labels(damage: u32) -> Vec<String> {
         .collect()
 }
 
-/// Un lot de la table : des enchantements (plusieurs à partir du deuxième lot) et ce qu'il coûte.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Offer {
-    pub enchants: Vec<(Enchantment, u8)>,
-    /// Niveaux d'expérience dépensés.
-    pub levels: u32,
-    /// Saphirs dépensés.
-    pub gems: u32,
-}
-
-impl Offer {
-    /// « Efficacité II + Solidité II ».
-    pub fn label(&self) -> String {
-        self.enchants
-            .iter()
-            .map(|&(kind, level)| label(kind, level))
-            .collect::<Vec<_>>()
-            .join(" + ")
+/// Retire tous les enchantements d'une pile (l'usure, les affixes et les gemmes restent) et les
+/// rend. Une pile simple perd les bits hauts ; une pile étendue vide la liste de sa fiche.
+pub fn strip_enchantments(damage: u32) -> (u32, Vec<(Enchantment, u8)>) {
+    let taken = enchantments_of(damage);
+    if taken.is_empty() {
+        return (damage, taken);
     }
-
-    /// Le `damage` de la pile une fois ce lot appliqué.
-    pub fn apply(&self, damage: u32) -> u32 {
-        self.enchants
-            .iter()
-            .fold(damage, |d, &(kind, level)| with_enchantment(d, kind, level))
+    if !item_data::is_extended(damage) {
+        return (damage & WEAR_MASK, taken);
     }
-}
-
-/// Les trois lots pour un objet. Les enchantements proposés dépendent de l'objet, de ceux qu'il
-/// porte déjà (on ne propose jamais deux fois la même sorte) et de la graine de la table (elle
-/// change après chaque enchantement). Plus on paie, plus le niveau est haut, et le deuxième et le
-/// troisième lot donnent jusqu'à deux et trois enchantements. `None` si l'objet ne peut plus rien
-/// recevoir.
-pub fn offers(item: &ItemDef, damage: u32, seed: u32) -> Option<[Offer; 3]> {
-    let owned = enchantments_of(damage);
-    let room = MAX_ENCHANTMENTS.saturating_sub(owned.len());
-    let fitting: Vec<Enchantment> = Enchantment::ALL
-        .into_iter()
-        .filter(|e| e.applies_to(item) && !owned.iter().any(|(k, _)| k == e))
-        .collect();
-    if fitting.is_empty() || room == 0 {
-        return None;
-    }
-    let mut state = u64::from(seed) ^ (item.key.len() as u64).wrapping_mul(0x9E37_79B9);
-    let mut next = || {
-        state = state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        (state >> 33) as usize
-    };
-    let mut lot = |i: usize| {
-        let mut pool = fitting.clone();
-        let count = (i + 1).min(pool.len()).min(room);
-        let enchants = (0..count)
-            .map(|_| {
-                let kind = pool.remove(next() % pool.len());
-                (kind, (i as u8 + 1).min(kind.max_level()))
-            })
-            .collect();
-        Offer {
-            enchants,
-            levels: 2 * i as u32 + 1,
-            gems: i as u32 + 1,
-        }
-    };
-    Some([lot(0), lot(1), lot(2)])
+    let mut damage = damage;
+    edit_sheet(&mut damage, |sheet| sheet.enchantments.clear());
+    (damage, taken)
 }
 
 #[cfg(test)]
@@ -336,48 +333,69 @@ mod tests {
 
     #[test]
     fn the_enchantment_lives_beside_the_wear() {
-        let damage = with_enchantment(17, Enchantment::Sharpness, 2);
+        let damage = with_enchantment(17, Enchantment::SHARPNESS, 2);
         assert_eq!(wear(damage), 17);
-        assert_eq!(enchantments_of(damage), vec![(Enchantment::Sharpness, 2)]);
-        assert_eq!(level_of(damage, Enchantment::Sharpness), 2);
-        assert_eq!(level_of(damage, Enchantment::Efficiency), 0);
+        assert_eq!(enchantments_of(damage), vec![(Enchantment::SHARPNESS, 2)]);
+        assert_eq!(level_of(damage, Enchantment::SHARPNESS), 2);
+        assert_eq!(level_of(damage, Enchantment::EFFICIENCY), 0);
         // Plain objects have none; wear alone never looks like an enchantment.
         assert!(!is_enchanted(0));
         assert!(!is_enchanted(123));
         // Re-enchanting keeps the wear.
         assert_eq!(
-            wear(with_enchantment(damage, Enchantment::Unbreaking, 1)),
+            wear(with_enchantment(damage, Enchantment::UNBREAKING, 1)),
             17
         );
         // Le même enchantement, à un autre niveau : remplacé, et la pile reste simple.
-        let again = with_enchantment(damage, Enchantment::Sharpness, 3);
-        assert_eq!(enchantments_of(again), vec![(Enchantment::Sharpness, 3)]);
+        let again = with_enchantment(damage, Enchantment::SHARPNESS, 3);
+        assert_eq!(enchantments_of(again), vec![(Enchantment::SHARPNESS, 3)]);
         assert!(!item_data::is_extended(again));
-        assert_eq!(label(Enchantment::Efficiency, 3), "Efficacité III");
+        assert_eq!(label(Enchantment::EFFICIENCY, 3), "Efficacité III");
+        assert_eq!(label(Enchantment::EFFICIENCY, 10), "Efficacité X");
+        assert_eq!(label(Enchantment::SILK_TOUCH, 1), "Toucher de soie");
+        assert_eq!(roman(0), "0");
+        assert_eq!(roman(39), "XXXIX");
     }
 
     #[test]
     fn each_enchantment_fits_the_right_items() {
         let items = items();
         let get = |key: &str| items.get(items.id(key).unwrap());
-        assert!(Enchantment::Efficiency.applies_to(get("core:iron_pickaxe")));
-        assert!(!Enchantment::Efficiency.applies_to(get("core:iron_sword")));
-        assert!(Enchantment::Sharpness.applies_to(get("core:iron_sword")));
-        assert!(Enchantment::Sharpness.applies_to(get("core:iron_axe")));
-        assert!(!Enchantment::Sharpness.applies_to(get("core:iron_pickaxe")));
-        assert!(Enchantment::Protection.applies_to(get("core:iron_helmet")));
-        assert!(!Enchantment::Protection.applies_to(get("core:iron_sword")));
-        assert!(Enchantment::Unbreaking.applies_to(get("core:iron_helmet")));
+        assert!(Enchantment::EFFICIENCY.applies_to(get("core:iron_pickaxe")));
+        assert!(!Enchantment::EFFICIENCY.applies_to(get("core:iron_sword")));
+        assert!(Enchantment::SHARPNESS.applies_to(get("core:iron_sword")));
+        assert!(Enchantment::SHARPNESS.applies_to(get("core:iron_axe")));
+        assert!(!Enchantment::SHARPNESS.applies_to(get("core:iron_pickaxe")));
+        assert!(Enchantment::PROTECTION.applies_to(get("core:iron_helmet")));
+        assert!(!Enchantment::PROTECTION.applies_to(get("core:iron_sword")));
+        assert!(Enchantment::UNBREAKING.applies_to(get("core:iron_helmet")));
         // Un bloc ou un aliment ne reçoit rien.
-        assert!(offers(get("core:stone"), 0, 1).is_none());
-        assert!(offers(get("core:bread"), 0, 1).is_none());
+        for key in ["core:stone", "core:bread"] {
+            assert!(
+                Enchantment::all()
+                    .into_iter()
+                    .all(|e| !e.applies_to(get(key)))
+            );
+        }
+        // Les nouveaux : Légèreté pour les bottes seulement, Vivacité pour jambes et bottes.
+        assert!(Enchantment::FEATHER.applies_to(get("core:iron_boots")));
+        assert!(!Enchantment::FEATHER.applies_to(get("core:iron_helmet")));
+        assert!(Enchantment::SWIFTNESS.applies_to(get("core:iron_leggings")));
+        assert!(!Enchantment::SWIFTNESS.applies_to(get("core:iron_chestplate")));
+        assert!(Enchantment::THORNS.applies_to(get("core:iron_chestplate")));
+        assert!(Enchantment::FORTUNE.applies_to(get("core:iron_pickaxe")));
+        assert!(!Enchantment::FORTUNE.applies_to(get("core:iron_sword")));
+        assert!(Enchantment::MAGNET.applies_to(get("core:iron_sword")));
+        assert!(Enchantment::MAGNET.applies_to(get("core:iron_pickaxe")));
+        assert!(!Enchantment::MAGNET.applies_to(get("core:iron_helmet")));
+        assert!(Enchantment::LOOTING.applies_to(get("core:iron_sword")));
     }
 
     #[test]
     fn legacy_kinds_never_touch_the_extended_bit() {
         // Les anciens objets : une sorte (bits 24 à 30) et un niveau, jamais le bit 31.
-        for kind in Enchantment::ALL {
-            for level in 1..=kind.max_level() {
+        for kind in Enchantment::all() {
+            for level in 1..=kind.hard_max() {
                 let damage = with_enchantment(65_535, kind, level);
                 assert!(!item_data::is_extended(damage), "{kind:?} {level}");
                 assert_eq!(wear(damage), 65_535);
@@ -392,25 +410,25 @@ mod tests {
     #[test]
     fn a_second_enchantment_migrates_the_stack_to_a_sheet() {
         // Un vieil objet : usure 17, Tranchant II dans les bits hauts.
-        let old = with_enchantment(17, Enchantment::Sharpness, 2);
+        let old = with_enchantment(17, Enchantment::SHARPNESS, 2);
         assert!(!item_data::is_extended(old));
-        let migrated = with_enchantment(old, Enchantment::Unbreaking, 1);
+        let migrated = with_enchantment(old, Enchantment::UNBREAKING, 1);
         assert!(item_data::is_extended(migrated));
         assert_ne!(migrated, old);
         // L'usure et le premier enchantement sont recopiés, le second s'ajoute.
         assert_eq!(wear(migrated), 17);
         assert_eq!(
             enchantments_of(migrated),
-            vec![(Enchantment::Sharpness, 2), (Enchantment::Unbreaking, 1)]
+            vec![(Enchantment::SHARPNESS, 2), (Enchantment::UNBREAKING, 1)]
         );
-        assert_eq!(level_of(migrated, Enchantment::Sharpness), 2);
-        assert_eq!(level_of(migrated, Enchantment::Unbreaking), 1);
-        assert_eq!(level_of(migrated, Enchantment::Efficiency), 0);
+        assert_eq!(level_of(migrated, Enchantment::SHARPNESS), 2);
+        assert_eq!(level_of(migrated, Enchantment::UNBREAKING), 1);
+        assert_eq!(level_of(migrated, Enchantment::EFFICIENCY), 0);
         // Un troisième s'ajoute dans la même fiche ; le niveau d'une sorte se remplace.
-        let third = with_enchantment(migrated, Enchantment::Efficiency, 3);
+        let third = with_enchantment(migrated, Enchantment::EFFICIENCY, 3);
         assert_eq!(third, migrated, "même numéro de fiche");
-        let raised = with_enchantment(third, Enchantment::Sharpness, 3);
-        assert_eq!(level_of(raised, Enchantment::Sharpness), 3);
+        let raised = with_enchantment(third, Enchantment::SHARPNESS, 3);
+        assert_eq!(level_of(raised, Enchantment::SHARPNESS), 3);
         assert_eq!(enchantments_of(raised).len(), 3);
         // L'usure d'une pile étendue passe par la fiche.
         let mut damage = raised;
@@ -421,6 +439,47 @@ mod tests {
         release(damage);
         assert_eq!(wear(damage), 0);
         assert!(enchantments_of(damage).is_empty());
+    }
+
+    #[test]
+    fn unknown_kinds_are_ignored_and_new_kinds_survive_the_sheet() {
+        // Un numéro que les données ne connaissent pas (un mod retiré) n'est ni lu ni perdu par un autre.
+        assert!(Enchantment::from_id(99).is_none());
+        assert!(Enchantment::from_id(300).is_none());
+        let mut damage = 0;
+        assert!(edit_sheet(&mut damage, |s| {
+            s.enchantments = vec![(99, 3), (Enchantment::FORTUNE.id(), 2)];
+        }));
+        assert_eq!(enchantments_of(damage), vec![(Enchantment::FORTUNE, 2)]);
+        assert_eq!(level_of(damage, Enchantment::FORTUNE), 2);
+        // Un nouvel enchantement tient dans une pile simple, au niveau de la table (jusqu'à 8).
+        for kind in Enchantment::all() {
+            let simple = with_enchantment(21, kind, kind.hard_max());
+            assert!(!item_data::is_extended(simple));
+            assert_eq!(level_of(simple, kind), kind.hard_max());
+            assert_eq!(wear(simple), 21);
+        }
+        assert_eq!(Enchantment::from_key("fortune"), Some(Enchantment::FORTUNE));
+        assert_eq!(
+            Enchantment::from_key("core:thorns"),
+            Some(Enchantment::THORNS)
+        );
+        assert_eq!(Enchantment::from_key("rien"), None);
+    }
+
+    #[test]
+    fn stripping_leaves_the_wear_and_the_other_data() {
+        let two = with_enchantment(
+            with_enchantment(5, Enchantment::LOOTING, 2),
+            Enchantment::MAGNET,
+            1,
+        );
+        let (stripped, taken) = strip_enchantments(two);
+        assert_eq!(taken.len(), 2);
+        assert!(!is_enchanted(stripped));
+        assert_eq!(wear(stripped), 5);
+        // Rien à retirer : la pile ne change pas.
+        assert_eq!(strip_enchantments(7), (7, Vec::new()));
     }
 
     #[test]
@@ -440,75 +499,6 @@ mod tests {
     }
 
     #[test]
-    fn offers_give_several_distinct_enchantments_and_skip_those_owned() {
-        let items = items();
-        let axe = items.get(items.id("core:iron_axe").unwrap());
-        let lots = offers(axe, 0, 11).unwrap();
-        // Une hache accepte trois sortes : le troisième lot les donne toutes, une seule fois.
-        assert_eq!(lots[0].enchants.len(), 1);
-        assert_eq!(lots[1].enchants.len(), 2);
-        assert_eq!(lots[2].enchants.len(), 3);
-        for lot in &lots {
-            let mut kinds: Vec<u8> = lot.enchants.iter().map(|(k, _)| k.id()).collect();
-            kinds.sort_unstable();
-            kinds.dedup();
-            assert_eq!(kinds.len(), lot.enchants.len(), "pas de doublon");
-            assert!(lot.enchants.iter().all(|(k, _)| k.applies_to(axe)));
-        }
-        // Appliquer le troisième lot donne trois enchantements sur la même pile.
-        let damage = lots[2].apply(5);
-        assert_eq!(enchantments_of(damage).len(), 3);
-        assert_eq!(wear(damage), 5);
-        assert!(lots[2].label().contains(" + "));
-        // Ce que l'objet a déjà n'est plus proposé, et quand il ne reste rien, plus d'offre.
-        let after = offers(axe, damage, 11);
-        assert!(after.is_none(), "la hache a reçu toutes ses sortes");
-        let sword = items.get(items.id("core:iron_sword").unwrap());
-        let one = with_enchantment(0, Enchantment::Sharpness, 1);
-        let rest = offers(sword, one, 3).unwrap();
-        for lot in &rest {
-            assert_eq!(lot.enchants.len(), 1, "seule Solidité reste");
-            assert_eq!(lot.enchants[0].0, Enchantment::Unbreaking);
-        }
-    }
-
-    #[test]
-    fn offers_grow_with_the_price_and_change_with_the_table_seed() {
-        let items = items();
-        let sword = items.get(items.id("core:iron_sword").unwrap());
-        let offers = offers(sword, 0, 7).unwrap();
-        for (i, offer) in offers.iter().enumerate() {
-            assert_eq!(offer.enchants.len(), (i + 1).min(2), "épée : 2 sortes");
-            for (kind, level) in &offer.enchants {
-                assert!(kind.applies_to(sword));
-                assert_eq!(*level as usize, i + 1);
-            }
-            assert_eq!(offer.gems as usize, i + 1);
-            assert_eq!(offer.levels as usize, 2 * i + 1);
-        }
-        let again = super::offers(sword, 0, 7).unwrap();
-        assert_eq!(offers, again, "déterministe");
-        let kinds = |seed| {
-            super::offers(sword, 0, seed)
-                .unwrap()
-                .map(|o| o.enchants[0].0.id())
-        };
-        assert!(
-            (0..40).any(|s| kinds(s) != kinds(7)),
-            "la graine change l'offre"
-        );
-        // Déjà enchanté : la même sorte n'est plus proposée.
-        let enchanted = with_enchantment(0, Enchantment::Sharpness, 1);
-        for lot in super::offers(sword, enchanted, 7).unwrap() {
-            assert!(
-                lot.enchants
-                    .iter()
-                    .all(|(k, _)| *k != Enchantment::Sharpness)
-            );
-        }
-    }
-
-    #[test]
     fn unbreaking_spares_wear_and_protection_adds_up() {
         use crate::inventory::{Inventory, ItemStack};
         let items = items();
@@ -518,7 +508,7 @@ mod tests {
         inventory.slots[0] = Some(ItemStack {
             item: pickaxe,
             count: 1,
-            damage: with_enchantment(0, Enchantment::Unbreaking, 3),
+            damage: with_enchantment(0, Enchantment::UNBREAKING, 3),
         });
         // Solidité III : un tirage bas épargne l'objet, un tirage haut non.
         assert!(!inventory.wear_selected(&items, 0.1));
@@ -528,14 +518,14 @@ mod tests {
         // L'enchantement survit à l'usure.
         assert_eq!(
             enchantments_of(inventory.slots[0].unwrap().damage),
-            vec![(Enchantment::Unbreaking, 3)]
+            vec![(Enchantment::UNBREAKING, 3)]
         );
         // Protection : +niveau par pièce.
         let plain = ItemStack::new(helmet, 1);
         inventory.armor[0] = Some(plain);
         let base = inventory.protection(&items);
         inventory.armor[0] = Some(ItemStack {
-            damage: with_enchantment(0, Enchantment::Protection, 2),
+            damage: with_enchantment(0, Enchantment::PROTECTION, 2),
             ..plain
         });
         assert_eq!(inventory.protection(&items), base + 2);
@@ -549,8 +539,8 @@ mod tests {
         let durability = items.get(pickaxe).durability.unwrap();
         // Deux enchantements : la pile est étendue, l'usure vit dans la fiche.
         let damage = with_enchantment(
-            with_enchantment(0, Enchantment::Efficiency, 1),
-            Enchantment::Unbreaking,
+            with_enchantment(0, Enchantment::EFFICIENCY, 1),
+            Enchantment::UNBREAKING,
             3,
         );
         let mut inventory = Inventory::default();
@@ -587,7 +577,7 @@ mod tests {
         let enchanted = ItemStack {
             item: sword,
             count: 1,
-            damage: with_enchantment(5, Enchantment::Sharpness, 2),
+            damage: with_enchantment(5, Enchantment::SHARPNESS, 2),
         };
         inventory.slots[3] = Some(enchanted);
         let saved = inventory.to_save(&items);
@@ -612,7 +602,7 @@ mod tests {
         assert_eq!(wear(sword.damage), 5);
         assert_eq!(
             enchantments_of(sword.damage),
-            vec![(Enchantment::Sharpness, 2)]
+            vec![(Enchantment::SHARPNESS, 2)]
         );
         assert_eq!(inventory.slots[1].unwrap().damage, 0);
         // Il se sauvegarde à l'identique tant qu'il n'a pas reçu de deuxième enchantement...
@@ -622,7 +612,7 @@ mod tests {
         );
         // ... puis migre, et la pile étendue fait l'aller-retour par `world.ron` (RON).
         let mut inventory = inventory;
-        let migrated = with_enchantment(sword.damage, Enchantment::Unbreaking, 2);
+        let migrated = with_enchantment(sword.damage, Enchantment::UNBREAKING, 2);
         inventory.slots[0].as_mut().unwrap().damage = migrated;
         let text = ron::to_string(&inventory.to_save(&items)).unwrap();
         let back = Inventory::from_save(&ron::from_str(&text).unwrap(), &items);
@@ -630,7 +620,7 @@ mod tests {
         assert_eq!(wear(migrated), 5);
         assert_eq!(
             enchantments_of(migrated),
-            vec![(Enchantment::Sharpness, 2), (Enchantment::Unbreaking, 2)]
+            vec![(Enchantment::SHARPNESS, 2), (Enchantment::UNBREAKING, 2)]
         );
     }
 
@@ -640,8 +630,8 @@ mod tests {
         let items = items();
         let sword = items.id("core:iron_sword").unwrap();
         let damage = with_enchantment(
-            with_enchantment(0, Enchantment::Sharpness, 1),
-            Enchantment::Unbreaking,
+            with_enchantment(0, Enchantment::SHARPNESS, 1),
+            Enchantment::UNBREAKING,
             1,
         );
         assert!(item_data::is_extended(damage));
@@ -666,8 +656,8 @@ mod tests {
             damage,
         };
         let other = with_enchantment(
-            with_enchantment(0, Enchantment::Sharpness, 3),
-            Enchantment::Unbreaking,
+            with_enchantment(0, Enchantment::SHARPNESS, 3),
+            Enchantment::UNBREAKING,
             3,
         );
         let b = ItemStack { damage: other, ..a };

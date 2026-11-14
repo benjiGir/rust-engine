@@ -115,8 +115,12 @@ pub enum Screen {
     Cart(Entity),
     /// L'échange avec un habitant.
     Trade(Entity),
-    /// La table d'enchantement.
-    Enchant,
+    /// La table d'enchantement posée à cet endroit (ses étagères sont lues autour d'elle).
+    Enchant(IVec3),
+    /// L'enclume simple (voir `enchant_books.rs`).
+    Anvil,
+    /// La bibliothèque d'enchantements (voir `enchant_library.rs`).
+    Library(IVec3),
     /// La table de récupération (voir `forge_ui.rs`).
     Salvage,
     /// La table de réforge (voir `forge_ui.rs`).
@@ -408,7 +412,11 @@ impl VoxelGame {
         match target {
             SlotRef::Player(slot) => {
                 // Une gemme ou un sceau au curseur sur un objet : sertir, retirer, ajouter.
-                if !self.try_gem_click(slot, click) {
+                // Un livre, un tome ou une potion au curseur : voir `enchant_books.rs` et `charms.rs`.
+                if !self.try_gem_click(slot, click)
+                    && !self.try_book_click(slot, click)
+                    && !self.try_charm_recharge(slot, click)
+                {
                     self.inventory.click(slot, &self.content.items, click);
                 }
                 true
@@ -754,7 +762,9 @@ impl VoxelGame {
             Screen::Chest(_) | Screen::Bag(_) | Screen::Controller(_) => self.storage_title(),
             Screen::Cart(cart) => self.cart_title(cart),
             Screen::Trade(_) => "Échange".to_string(),
-            Screen::Enchant => "Table d'enchantement".to_string(),
+            Screen::Enchant(_) => "Table d'enchantement".to_string(),
+            Screen::Anvil => "Enclume simple".to_string(),
+            Screen::Library(_) => "Bibliothèque d'enchantements".to_string(),
             Screen::Salvage => "Table de récupération".to_string(),
             Screen::Reforge => "Table de réforge".to_string(),
             Screen::Tiers => "Paliers du monde".to_string(),
@@ -802,7 +812,9 @@ impl VoxelGame {
                     Screen::Controller(pos) => self.controller_panel(ui, pos),
                     Screen::Cart(cart) => self.cart_panel(ui, cart),
                     Screen::Trade(mob) => self.trade_panel(ui, mob),
-                    Screen::Enchant => self.enchant_panel(ui),
+                    Screen::Enchant(pos) => self.enchant_panel(ui, pos),
+                    Screen::Anvil => self.anvil_panel(ui),
+                    Screen::Library(pos) => self.library_panel(ui, pos),
                     Screen::Salvage => self.salvage_panel(ui),
                     Screen::Reforge => self.reforge_panel(ui),
                     Screen::Tiers => self.tiers_panel(ui),
@@ -1019,75 +1031,6 @@ impl VoxelGame {
             });
         }
         true
-    }
-
-    /// La table d'enchantement : trois lots d'enchantements pour l'objet qu'on tient en main.
-    /// Un objet qui en porte déjà peut en recevoir d'autres (jusqu'à `MAX_ENCHANTMENTS`).
-    fn enchant_panel(&mut self, ui: &mut egui::Ui) {
-        use crate::enchanting::{labels, offers, wear};
-        let Some(stack) = self.inventory.selected_stack() else {
-            ui.label("Tiens un outil ou une armure dans la barre d'objets, puis reviens.");
-            return;
-        };
-        let items = self.content.items.clone();
-        let def = items.get(stack.item);
-        ui.heading(&def.name);
-        let owned = labels(stack.damage);
-        if !owned.is_empty() {
-            ui.label(format!("Enchantements : {}", owned.join(", ")));
-        }
-        let Some(list) = offers(def, stack.damage, self.enchant_seed) else {
-            ui.label(if owned.is_empty() {
-                "Cet objet ne peut pas être enchanté."
-            } else {
-                "Cet objet ne peut plus recevoir d'enchantement."
-            });
-            return;
-        };
-        let gem = items.id("core:sapphire");
-        let have_gems = gem.map_or(0, |g| self.inventory.count(g));
-        let level = self.experience.level().0;
-        ui.label(format!(
-            "Niveau {level} — {have_gems} saphir(s). Usure {}.",
-            wear(stack.damage)
-        ));
-        let mut chosen = None;
-        for offer in list {
-            let affordable = level >= offer.levels && have_gems >= offer.gems;
-            ui.horizontal_wrapped(|ui| {
-                let text = format!(
-                    "{} — {} niveau(x) + {} saphir(s)",
-                    offer.label(),
-                    offer.levels,
-                    offer.gems
-                );
-                if ui
-                    .add_enabled(affordable, egui::Button::new(text))
-                    .clicked()
-                {
-                    chosen = Some(offer);
-                }
-            });
-        }
-        if let Some(offer) = chosen
-            && let Some(gem) = gem
-            && self.experience.spend_levels(offer.levels)
-            && self.inventory.remove(gem, offer.gems)
-        {
-            let selected = self.inventory.selected;
-            if let Some(held) = self.inventory.slots[selected].as_mut() {
-                held.damage = offer.apply(held.damage);
-            }
-            // La table propose autre chose la prochaine fois.
-            self.enchant_seed = self
-                .enchant_seed
-                .wrapping_mul(1664525)
-                .wrapping_add(1013904223);
-            self.toast(&offer.label());
-            if let Some(audio) = &mut self.audio {
-                audio.play("core:enchant");
-            }
-        }
     }
 
     /// Les échanges d'un habitant : une ligne par échange, un bouton pour le faire.

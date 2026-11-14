@@ -10,6 +10,8 @@
 //! | `gems.ron` | les sortes de gemmes et leur bonus par catégorie | `gems.rs` |
 //! | `tiers.ron` | les paliers du monde et leurs critères de déblocage | `tiers.rs` |
 //! | `elites.ron` | les augmentations des élites | `elites.rs` |
+//! | `enchantments.ron` | les enchantements (niveaux, cibles, effets) | `enchant_data.rs` |
+//! | `charms.ron` | les charmes de potion | `charms.rs` |
 //!
 //! # Les numéros sont des places
 //!
@@ -41,6 +43,8 @@ const BUILTIN_AFFIXES: &str = include_str!("../../../assets/core/affixes.ron");
 const BUILTIN_GEMS: &str = include_str!("../../../assets/core/gems.ron");
 const BUILTIN_TIERS: &str = include_str!("../../../assets/core/tiers.ron");
 const BUILTIN_ELITES: &str = include_str!("../../../assets/core/elites.ron");
+const BUILTIN_ENCHANTMENTS: &str = include_str!("../../../assets/core/enchantments.ron");
+const BUILTIN_CHARMS: &str = include_str!("../../../assets/core/charms.ron");
 
 // ----- Les raretés -----
 
@@ -345,6 +349,11 @@ pub struct AdventureData {
     pub invader_gem: GemDrop,
     /// Les objets de base des butins à affixes : (clé, palier minimal).
     pub loot: Vec<(String, u8)>,
+    /// Les enchantements (voir `enchant_data.rs`) et le plus qu'un objet en porte.
+    pub enchantments: Vec<crate::enchant_data::EnchantDef>,
+    pub max_enchantments: usize,
+    /// Les charmes de potion (voir `charms.rs`).
+    pub charms: Vec<crate::charms::CharmDef>,
     gem_by_item: HashMap<String, (usize, usize)>,
 }
 
@@ -368,6 +377,9 @@ impl Default for AdventureData {
             elite_gem: GemDrop::default(),
             invader_gem: GemDrop::default(),
             loot: Vec::new(),
+            enchantments: Vec::new(),
+            max_enchantments: 4,
+            charms: Vec::new(),
             gem_by_item: HashMap::new(),
         }
     }
@@ -387,6 +399,15 @@ impl AdventureData {
             .and_then(|()| data.add_source("core", "gems", BUILTIN_GEMS, "gems.ron"))
             .and_then(|()| data.add_source("core", "tiers", BUILTIN_TIERS, "tiers.ron"))
             .and_then(|()| data.add_source("core", "elites", BUILTIN_ELITES, "elites.ron"))
+            .and_then(|()| {
+                data.add_source(
+                    "core",
+                    "enchantments",
+                    BUILTIN_ENCHANTMENTS,
+                    "enchantments.ron",
+                )
+            })
+            .and_then(|()| data.add_source("core", "charms", BUILTIN_CHARMS, "charms.ron"))
             .expect("les données d'aventure intégrées sont valides");
         data
     }
@@ -397,7 +418,15 @@ impl AdventureData {
         let mut dirs = vec![("core".to_string(), assets.join("core"))];
         dirs.extend(mods.iter().cloned());
         for (namespace, dir) in dirs {
-            for kind in ["rarities", "affixes", "gems", "tiers", "elites"] {
+            for kind in [
+                "rarities",
+                "affixes",
+                "gems",
+                "tiers",
+                "elites",
+                "enchantments",
+                "charms",
+            ] {
                 let path = dir.join(format!("{kind}.ron"));
                 if !path.exists() {
                     continue;
@@ -593,6 +622,8 @@ impl AdventureData {
                     self.augmentations.push(aug);
                 }
             }
+            "enchantments" => crate::enchant_data::add_source(self, namespace, text, origin)?,
+            "charms" => crate::charms::add_source(self, namespace, text, origin)?,
             other => bail!("{origin} : sorte de données inconnue « {other} »"),
         }
         Ok(())
@@ -656,6 +687,20 @@ impl AdventureData {
         self.gem_by_item
             .get(item_key)
             .map(|&(k, q)| (&self.gems[k], q))
+    }
+
+    /// L'enchantement de ce numéro (celui qu'on sauvegarde).
+    pub fn enchant_by_number(&self, number: u8) -> Option<&crate::enchant_data::EnchantDef> {
+        self.enchantments.iter().find(|e| e.number == number)
+    }
+
+    pub fn enchant_by_id(&self, id: &str) -> Option<&crate::enchant_data::EnchantDef> {
+        self.enchantments.iter().find(|e| e.id == id)
+    }
+
+    /// Le charme que fait cet objet.
+    pub fn charm_of(&self, item_key: &str) -> Option<&crate::charms::CharmDef> {
+        self.charms.iter().find(|c| c.item == item_key)
     }
 
     pub fn tier(&self, index: u8) -> Option<&TierDef> {

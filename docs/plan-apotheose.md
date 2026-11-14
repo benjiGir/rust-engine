@@ -167,6 +167,33 @@ exacts (taux, coûts) ne sont pas publiés : on choisit les nôtres, en données
    dans l'inventaire et qu'on l'active d'un clic droit. Il s'use avec le temps et se recharge avec
    la même potion.
 
+### Phase 3 : ce qui est fait, et ce qui diffère du plan
+
+- **Stats de table** (`enchant_table.rs`) : 32 positions (deux anneaux de 16 à deux blocs de la table ; l'air est exigé
+  entre la table et l'étagère, **à la même hauteur**). Les contributions viennent du champ `enchanting` de
+  `blocks.ron` (`EnchantingStats`, dans le moteur : un mod l'utilise sans toucher au jeu) ; la table a ses propres
+  valeurs (base de Quanta et un indice). Eterna = somme plafonnée par le plus haut `max_eterna` présent (échelle 15, 40, 50,
+  65, 100). Cinq étagères : chêne, saphir, améthyste, jade, obsidienne volcanique.
+- **Niveaux et coût** : trois lots de niveau de table 1 à 100 (un tiers, deux tiers, tout l'Eterna, puis Quanta et
+  Stabilité), prix de `4 × niveau` **points d'expérience** (pas des niveaux) et 1 à 3 saphirs (comme avant). Les
+  enchantements sont en données (`enchantments.ron`) : niveau maximal sans Eterna (`max_level`, 3) et avec 100
+  (`hard_max`, jusqu'à 8). Les anciens objets gardent leur numéro de sorte et leur niveau.
+- **Douze enchantements** : les quatre anciens et Butin, Vol de vie, Fortune, Toucher de soie, Aspiration, Épines,
+  Légèreté, Vivacité. Leurs effets sont des bonus d'attributs par niveau (cinq attributs ajoutés à la fin : `fortune`,
+  `thorns`, `fall_resist`, `silk_touch`, `magnet`). Ils s'appliquent dans `gear.rs` et `enchant_effects.rs`.
+- **Livres, tomes** (`enchant_books.rs`, `book_play.rs`) : un livre vierge, trois tomes par type et le tome
+  d'extraction. Le livre ou le tome **posé en main** devant la table devient un livre enchanté (un tome ne reçoit que
+  les enchantements de son type). Un livre enchanté (ou le tome d'extraction) tenu à la souris, un clic sur un objet,
+  dans l'écran d'une table ou de l'**enclume simple** (nouveau bloc, sans stats ni coût en expérience).
+- **Bibliothèque** (`enchant_library.rs`) : points `2^(n-1)`, plafond de niveau et de points par sorte en données
+  (`library_level`), recherche, filtre « va sur l'objet en main », niveau d'extraction choisi jusqu'au plus haut niveau
+  déposé, entrée par les tuyaux d'objets (case 0, refus rendus par la case 1). Cassée, elle rend ses points en livres.
+- **Charmes** (`charms.rs`, `charm_play.rs`) : un objet par potion (`charms.ron`), clic droit pour l'activer, effet
+  renouvelé chaque seconde tant qu'il est dans l'inventaire, usure d'un point par seconde, recharge par la potion au curseur.
+- **Écarts et limites** : un livre ne coûte rien à appliquer ; une bibliothèque ne range que des livres enchantés (pas
+  les objets) ; les tomes n'ont pas d'autre usage que de filtrer ce que la table y met ; le charme de soin rend de la vie
+  toutes les dix secondes (un soin instantané ne dure pas) ; un charme vide reste dans l'inventaire (il ne se brise jamais).
+
 ## Hors périmètre (à décider plus tard)
 
 - Générateurs de créatures modifiables : seul le mod `donjons` en a. Ce serait une extension de

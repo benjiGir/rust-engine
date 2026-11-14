@@ -176,6 +176,18 @@
         (id: "core:gem_opal_5", name: "Opale parfaite", category: Material, color: (0.2232, 0.7157, 0.8388), icon: "gem_opal_5"),
         (id: "core:seal_unsocket", name: "Sceau de retrait", category: Material, color: (0.5776, 0.1022, 0.1022), icon: "seal_unsocket", max_stack: 16),
         (id: "core:seal_socket", name: "Sceau d'emplacement", category: Material, color: (0.1022, 0.3050, 0.7157), icon: "seal_socket", max_stack: 16),
+        // L'enchantement avancé (phase 3) : livres, tomes et charmes de potion (voir enchantments.ron, charms.ron).
+        (id: "core:book", name: "Livre", category: Material, color: (0.2200, 0.1000, 0.0600), icon: "book", max_stack: 16),
+        (id: "core:enchanted_book", name: "Livre enchanté", category: Material, color: (0.3000, 0.1400, 0.5200), icon: "enchanted_book", max_stack: 1),
+        (id: "core:tome_weapons", name: "Tome d'armes", category: Material, color: (0.4200, 0.0700, 0.0700), icon: "tome_weapons", max_stack: 16),
+        (id: "core:tome_tools", name: "Tome d'outils", category: Material, color: (0.0700, 0.2800, 0.1000), icon: "tome_tools", max_stack: 16),
+        (id: "core:tome_armor", name: "Tome d'armures", category: Material, color: (0.0800, 0.1400, 0.4200), icon: "tome_armor", max_stack: 16),
+        (id: "core:tome_extraction", name: "Tome d'extraction", category: Material, color: (0.4000, 0.3500, 0.0600), icon: "tome_extraction", max_stack: 16),
+        (id: "core:charm_healing", name: "Charme de soin", category: Material, color: (0.4000, 0.1000, 0.1400), icon: "charm_healing", durability: 600),
+        (id: "core:charm_regeneration", name: "Charme de régénération", category: Material, color: (0.4000, 0.1500, 0.3000), icon: "charm_regeneration", durability: 900),
+        (id: "core:charm_speed", name: "Charme de vitesse", category: Material, color: (0.1000, 0.3500, 0.4000), icon: "charm_speed", durability: 900),
+        (id: "core:charm_strength", name: "Charme de force", category: Material, color: (0.3500, 0.2000, 0.1000), icon: "charm_strength", durability: 900),
+        (id: "core:charm_fire_resistance", name: "Charme de résistance au feu", category: Material, color: (0.4000, 0.2500, 0.0800), icon: "charm_fire_resistance", durability: 900),
     ],
     // Des groupes d'objets, utilisables dans les recettes (« #planks » : n'importe quelles planches).
     tags: {

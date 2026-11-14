@@ -786,7 +786,9 @@ impl VoxelGame {
             Some("core:furnace") => Screen::Furnace(hit.block_pos),
             Some("core:brewing_stand") => Screen::Brewing(hit.block_pos),
             _ if def.key == "core:workbench" => Screen::Workbench,
-            _ if def.key == "core:enchanting_table" => Screen::Enchant,
+            Some(crate::enchant_library::BEHAVIOR) => Screen::Library(hit.block_pos),
+            _ if def.key == "core:enchanting_table" => Screen::Enchant(hit.block_pos),
+            _ if def.key == "core:simple_anvil" => Screen::Anvil,
             _ if def.key == "core:salvage_table" => Screen::Salvage,
             _ if def.key == "core:reforge_table" => Screen::Reforge,
             _ => return false,
@@ -829,6 +831,8 @@ impl VoxelGame {
                 || b == "core:brewing_stand"
         ) || def.key == "core:workbench"
             || def.key == "core:enchanting_table"
+            || def.key == "core:simple_anvil"
+            || def.behavior.as_deref() == Some(crate::enchant_library::BEHAVIOR)
             || def.key == "core:salvage_table"
             || def.key == "core:reforge_table"
     }
@@ -891,8 +895,9 @@ impl VoxelGame {
         else {
             return Vec::new();
         };
-        let layout = layout_of(&self.registry, streamer.world().block(pos));
-        inventory
+        let block = streamer.world().block(pos);
+        let layout = layout_of(&self.registry, block);
+        let mut out: Vec<ItemStack> = inventory
             .slots
             .into_iter()
             .enumerate()
@@ -900,7 +905,15 @@ impl VoxelGame {
                 layout.is_none_or(|l| !matches!(l.kind_of(*i), Some(SlotKind::Filter(_))))
             })
             .filter_map(|(_, s)| to_game(&self.content.items, &s?))
-            .collect()
+            .collect();
+        // Une bibliothèque cassée rend ses points sous forme de livres enchantés.
+        out.extend(crate::enchant_library::broken_books(
+            &self.registry,
+            block,
+            streamer.block_entity(pos),
+            &self.content.items,
+        ));
+        out
     }
 }
 

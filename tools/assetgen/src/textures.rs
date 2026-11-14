@@ -10,6 +10,7 @@ use anyhow::Result;
 use crate::Rng;
 
 mod adventure;
+mod enchanting;
 mod items;
 mod machines;
 mod mod_assets;
@@ -1474,6 +1475,7 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
     textures.extend(rails::generate(&core, &root.join("assets/core/items")));
     textures.extend(storage::generate(&core, &root.join("assets/core/items")));
     textures.extend(adventure::generate(&core, &root.join("assets/core/items")));
+    textures.extend(enchanting::generate(&core, &root.join("assets/core/items")));
     for kind in ["shaft", "gear", "crank", "press", "belt"] {
         textures.push((
             root.join(format!("mods/mecanique/textures/{kind}.png")),
