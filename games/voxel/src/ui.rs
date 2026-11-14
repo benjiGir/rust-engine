@@ -65,6 +65,8 @@ pub struct GameUi {
     pub storage_search: String,
     /// La fiche des attributs (voir `attributes_ui.rs`).
     pub attributes: crate::attributes_ui::AttributesPanel,
+    /// La page ouverte du guide (voir `guide_ui.rs`).
+    pub guide: crate::guide_ui::GuideState,
 }
 
 /// Une pile qu'on s'apprête à diviser, et combien d'objets prendre.
@@ -127,6 +129,8 @@ pub enum Screen {
     Reforge,
     /// Les paliers du monde (voir `tiers_ui.rs`).
     Tiers,
+    /// Le Guide du voyageur (voir `guide_ui.rs`).
+    Guide,
     /// Le menu d'une machine de mod (voir `mod_menu.rs`).
     Mod(IVec3),
     /// La console de commandes (voir `console.rs`).
@@ -168,6 +172,7 @@ impl GameUi {
             browser: Default::default(),
             storage_search: String::new(),
             attributes: Default::default(),
+            guide: Default::default(),
         }
     }
 
@@ -769,6 +774,7 @@ impl VoxelGame {
             Screen::Reforge => "Table de réforge".to_string(),
             Screen::Tiers => "Paliers du monde".to_string(),
             Screen::Console => String::new(),
+            Screen::Guide => "Guide du voyageur".to_string(),
             Screen::Mod(_) => self
                 .ui
                 .mod_menu
@@ -819,9 +825,10 @@ impl VoxelGame {
                     Screen::Reforge => self.reforge_panel(ui),
                     Screen::Tiers => self.tiers_panel(ui),
                     Screen::Mod(pos) => self.mod_panel(ui, pos),
+                    Screen::Guide => self.guide_panel(ui),
                     Screen::Console => {}
                 }
-                if self.ui.screen != Screen::Tiers {
+                if !matches!(self.ui.screen, Screen::Tiers | Screen::Guide) {
                     ui.add_space(8.0);
                     ui.separator();
                     if self.ui.screen != Screen::Inventory { ui.label("Inventaire"); }

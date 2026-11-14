@@ -147,6 +147,8 @@
         (pattern: ["#i#", "# #", "###"], key: {"#": "iron_ingot", "i": "sapphire"}, result: ("storage_controller", 1)),
     ],
     shapeless: [
+        // Le Guide du voyageur : une planche et un bâton, dès les premières minutes.
+        (ingredients: ["#planks", "stick"], result: ("guide", 1)),
         (ingredients: ["oak_log"], result: ("oak_planks", 4)),
         (ingredients: ["birch_log"], result: ("birch_planks", 4)),
         (ingredients: ["spruce_log"], result: ("spruce_planks", 4)),

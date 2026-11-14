@@ -1049,6 +1049,27 @@ Plan et choix : `docs/plan-apotheose.md` (phase 3). Tout se règle en données, 
 - `charms.ron` : `(item: "mon_mod:charme_x", potion: "mon_mod:potion_x")`. L'objet doit avoir une `durability` (sa
   charge en secondes) ; la potion doit être dans `potions.ron`.
 
+## Le Guide du voyageur
+
+Le livre `core:guide` (dans le kit de départ, ou une planche et un bâton) s'ouvre d'un clic droit. Un mod
+y ajoute ses chapitres avec un `guide.ron`, lus après ceux du jeu (voir `assets/core/guide.ron`) :
+
+```ron
+(chapters: [
+    (id: "mon_mod:machines", title: "Mes machines", icon: "broyeur",
+     pages: [
+        (title: "Le broyeur", text: "Clic droit pour l'ouvrir. {touche:inventory} : l'inventaire.",
+         items: ["broyeur", "core:iron_ingot"]),
+     ]),
+])
+```
+
+- `id` commence par l'espace de noms du mod ; `icon` et `items` sont des objets (sans espace de noms :
+  celui du mod). Un objet inconnu empêche le chargement.
+- Un clic sur un objet d'une page ouvre ses recettes dans l'explorateur.
+- `{touche:action}` affiche la touche choisie par le joueur (`inventory`, `drop`, `backpack`, `tiers`,
+  `sprint`, `jump`, `fly`…).
+
 ## Les dimensions
 
 Une dimension est un monde parallèle, décrit dans le `dimensions.ron` d'un mod : son générateur, son

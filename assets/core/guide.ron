@@ -1,0 +1,212 @@
+// Le Guide du voyageur : le livre qu'on ouvre d'un clic droit (voir games/voxel/src/guide.rs).
+//
+// - chapters : les chapitres, dans l'ordre (ceux des mods viennent après ceux du jeu) ;
+//   id : `espace:nom`, title : le titre, icon : l'objet dessiné devant le titre ;
+// - pages : (title, text, items) ; `items` est la liste des objets montrés sous le texte : un clic
+//   sur l'un d'eux ouvre ses recettes dans l'explorateur. Sans espace de noms, un objet est
+//   cherché dans celui du fichier (`stick` → `core:stick`).
+// - Dans le texte, `{touche:inventory}` est remplacé par la touche choisie dans les options
+//   (inventory, drop, backpack, tiers, sprint, jump, fly).
+(
+    chapters: [
+        (
+            id: "core:first_steps",
+            title: "Premiers pas",
+            icon: "guide",
+            pages: [
+                (
+                    title: "Bienvenue",
+                    text: "Ce guide résume ce qu'il faut savoir pour bien commencer. Choisis un chapitre à gauche.\n\nUn objet montré en bas d'une page s'ouvre d'un clic dans l'explorateur de recettes, à droite : tu y vois comment le fabriquer. Dans l'explorateur, survole n'importe quel objet et appuie sur R (ses recettes), U (ses usages) ou A (le mettre en favori). Retour arrière revient à la vue précédente.",
+                    items: ["guide"],
+                ),
+                (
+                    title: "Se déplacer et agir",
+                    text: "Clic gauche maintenu : casser un bloc ou frapper. Clic droit : poser un bloc, ouvrir un coffre ou une machine, utiliser l'objet en main (manger se fait en maintenant le clic droit).\n\n{touche:sprint} : courir. {touche:jump} : sauter. {touche:inventory} : l'inventaire. {touche:drop} : jeter l'objet en main. Les touches 1 à 9 ou la molette choisissent la case de la barre d'objets.\n\nToutes les touches se changent dans les options.",
+                    items: [],
+                ),
+                (
+                    title: "Santé et faim",
+                    text: "La faim baisse quand tu cours, sautes ou te bats. Tant qu'elle est haute, la vie remonte toute seule ; à zéro, tu perds de la vie. Mange avant d'avoir faim : la saturation d'un bon repas (pain, viande cuite) tient plus longtemps qu'une simple pomme.\n\nSous l'eau, surveille la barre d'air. La nuit, des créatures hostiles sortent : allume des torches et rentre t'abriter.",
+                    items: ["bread", "cooked_beef", "baked_potato"],
+                ),
+            ],
+        ),
+        (
+            id: "core:wood_and_crafting",
+            title: "Le bois et l'artisanat",
+            icon: "workbench",
+            pages: [
+                (
+                    title: "Les planches et les bâtons",
+                    text: "Tout commence par un arbre : casse ses bûches à la main ou à la hache. Dans la petite grille 2 × 2 de l'inventaire, une bûche donne quatre planches, et deux planches l'une sur l'autre donnent quatre bâtons.",
+                    items: ["oak_log", "oak_planks", "stick"],
+                ),
+                (
+                    title: "L'établi",
+                    text: "Quatre planches en carré donnent l'établi. Posé au sol, un clic droit ouvre sa grille 3 × 3 : la plupart des recettes en ont besoin (outils, armures, four, coffre…).\n\nUne recette en forme peut être placée n'importe où dans la grille, et retournée gauche-droite. Une recette sans forme accepte ses ingrédients dans n'importe quel ordre.",
+                    items: ["workbench", "chest", "bed"],
+                ),
+            ],
+        ),
+        (
+            id: "core:tools",
+            title: "Les outils",
+            icon: "stone_pickaxe",
+            pages: [
+                (
+                    title: "Les quatre outils",
+                    text: "La pioche casse la pierre et les minerais, la hache le bois, la pelle la terre, le sable et le gravier, l'épée sert au combat. La houe laboure la terre (voir « Cultiver »).\n\nChaque outil se fait avec deux bâtons et sa matière : trois en haut pour la pioche, deux pour la hache, un pour la pelle, deux en colonne pour l'épée.",
+                    items: ["wooden_pickaxe", "wooden_axe", "wooden_shovel", "wooden_sword", "wooden_hoe"],
+                ),
+                (
+                    title: "Les niveaux",
+                    text: "Niveau 1 : bois et or. Niveau 2 : pierre et cuivre. Niveau 3 : fer. Niveau 4 : saphir.\n\nUn minerai demande une pioche d'un certain niveau : sinon il se casse sans rien lâcher. Le charbon se prend au bois ; le fer et le cuivre demandent la pierre ; l'or, le cinabre, le saphir et le jade demandent le fer. Une pioche en pierre est donc la première chose à faire.",
+                    items: ["stone_pickaxe", "copper_pickaxe", "iron_pickaxe", "sapphire_pickaxe"],
+                ),
+            ],
+        ),
+        (
+            id: "core:light_and_furnace",
+            title: "La lumière et le four",
+            icon: "furnace",
+            pages: [
+                (
+                    title: "Les torches",
+                    text: "Un charbon (ou un charbon de bois) au-dessus d'un bâton donne quatre torches. Un silex et un lingot de fer en donnent huit. Le silex tombe parfois du gravier.\n\nLes créatures hostiles apparaissent dans le noir : éclaire ta maison et tes galeries.",
+                    items: ["torch", "coal", "charcoal", "flint"],
+                ),
+                (
+                    title: "Le four",
+                    text: "Huit moellons en anneau donnent le four. En haut, ce qu'on cuit ; en bas, le combustible. Une cuisson dure 10 secondes.\n\nCombustibles : le charbon brûle 80 secondes, les bûches et les planches 15, un bâton 5.\n\nLe four fond les minerais bruts en lingots, le sable en verre, les moellons en pierre, les bûches en charbon de bois, et cuit la viande et les pommes de terre.",
+                    items: ["furnace", "iron_ingot", "copper_ingot", "gold_ingot", "glass", "stone"],
+                ),
+            ],
+        ),
+        (
+            id: "core:ores",
+            title: "Les minerais",
+            icon: "raw_iron",
+            pages: [
+                (
+                    title: "Où creuser",
+                    text: "La mer est à la hauteur 62. Les minerais se trouvent à des hauteurs différentes :\n\n• charbon : de 40 à 180, partout ;\n• cuivre : de 30 à 100 ;\n• fer : de 5 à 90 ;\n• or : de 2 à 36 ;\n• cinabre : de 2 à 20 (donne de la poudre de cinabre) ;\n• saphir : de 2 à 16, le plus rare ;\n• jade : de 60 à 180, seulement dans les montagnes.\n\nPlus on descend, plus c'est sombre et dangereux : emporte des torches et de quoi manger.",
+                    items: ["coal", "raw_copper", "raw_iron", "raw_gold", "cinnabar_dust", "sapphire", "jade"],
+                ),
+                (
+                    title: "Les blocs de métal",
+                    text: "Neuf lingots (ou neuf saphirs, ou neuf charbons) se rangent en un bloc, et un bloc se défait en neuf. Pratique pour gagner de la place dans les coffres.",
+                    items: ["iron_block", "copper_block", "gold_block", "sapphire_block", "coal_block"],
+                ),
+            ],
+        ),
+        (
+            id: "core:armor",
+            title: "L'armure",
+            icon: "iron_chestplate",
+            pages: [
+                (
+                    title: "Se protéger",
+                    text: "Casque, plastron, jambières et bottes se font en cuivre, en fer, en or ou en saphir. Pose-les dans les cases d'armure de l'inventaire : chaque pièce retire une part des dégâts reçus. Le saphir protège le plus.\n\nCasque : cinq lingots en arche. Plastron : huit, en laissant le haut du milieu vide. Jambières : sept, en U renversé. Bottes : quatre.",
+                    items: ["copper_helmet", "iron_chestplate", "iron_leggings", "iron_boots", "sapphire_chestplate"],
+                ),
+            ],
+        ),
+        (
+            id: "core:food_and_farming",
+            title: "Se nourrir et cultiver",
+            icon: "wheat",
+            pages: [
+                (
+                    title: "Chasser et cuire",
+                    text: "Les cochons donnent de la viande de porc, les vaches de la viande de bœuf et du cuir. Crue, la viande nourrit peu : cuis-la au four. Les arbres lâchent parfois des fruits en perdant leurs feuilles.",
+                    items: ["raw_pork", "cooked_pork", "raw_beef", "cooked_beef", "leather"],
+                ),
+                (
+                    title: "Cultiver",
+                    text: "Un clic droit avec une houe laboure la terre. Les graines, carottes et pommes de terre se plantent d'un clic droit sur la terre labourée, et il faut de l'eau à 4 blocs au plus pour que la terre reste humide ; sèche, elle redevient de la terre. L'engrais (spores, graines et terre) accélère la pousse.\n\nTrois blés en ligne donnent un pain. Le blé et les carottes servent aussi à attirer et faire se reproduire les animaux.",
+                    items: ["wooden_hoe", "seeds", "wheat", "bread", "carrot", "potato", "fertilizer"],
+                ),
+                (
+                    title: "Dormir",
+                    text: "Un lit se fait avec trois feuilles au-dessus de trois planches. Un clic droit dessus fixe ton point de réapparition ; la nuit, il fait dormir jusqu'au matin, sauf si des créatures rôdent près de toi.",
+                    items: ["bed"],
+                ),
+            ],
+        ),
+        (
+            id: "core:storage",
+            title: "Ranger ses affaires",
+            icon: "chest",
+            pages: [
+                (
+                    title: "Les coffres",
+                    text: "Huit planches en anneau donnent un coffre. En le regardant, tu vois un aperçu de son contenu. Dans son écran : Déposer, Compléter, Tout prendre et Trier ; Maj + clic envoie une pile de l'autre côté.\n\nUn kit (cuivre, fer, or, saphir), utilisé d'un clic droit sur un coffre, l'agrandit sur place. Les coffres agrandis ont des emplacements d'amélioration.",
+                    items: ["chest", "copper_kit", "iron_kit", "upgrade_stack_2"],
+                ),
+                (
+                    title: "Le sac à dos",
+                    text: "Un coffre entouré de cuir donne un sac à dos. {touche:backpack} ouvre le premier sac de ton inventaire. Il monte de palier avec les mêmes kits que les coffres.\n\nPlus tard, le contrôleur de stockage réunit les coffres voisins en un seul écran.",
+                    items: ["backpack_leather", "storage_controller"],
+                ),
+            ],
+        ),
+        (
+            id: "core:circuits",
+            title: "Les circuits",
+            icon: "lever",
+            pages: [
+                (
+                    title: "Courant et commandes",
+                    text: "La poudre de cinabre donne du fil (trois par poudre), qui transporte le courant. Le levier et le bouton s'actionnent d'un clic droit ; l'horloge envoie des impulsions.\n\nL'inverseur coupe le courant quand il en reçoit, le répéteur le relance plus loin avec un délai, et la lampe s'allume. Le piston pousse les blocs ; le piston collant les tire aussi.",
+                    items: ["wire", "lever", "button", "clock", "inverter", "repeater", "lamp", "piston", "sticky_piston"],
+                ),
+            ],
+        ),
+        (
+            id: "core:alchemy",
+            title: "L'alchimie",
+            icon: "brewing_stand",
+            pages: [
+                (
+                    title: "Les potions",
+                    text: "Trois verres en V donnent trois fioles. Une fiole vide tenue face à de l'eau se remplit d'un clic droit.\n\nL'alambic (un lingot de fer sur trois moellons) mélange une fiole d'eau et un ingrédient :\n\n• pomme : soin ;\n• spores : régénération ;\n• carotte : vitesse ;\n• poussière d'ombre : force ;\n• poudre de cinabre : résistance au feu.\n\nUne potion se boit en maintenant le clic droit.",
+                    items: ["flask", "water_flask", "brewing_stand", "potion_healing", "potion_speed"],
+                ),
+            ],
+        ),
+        (
+            id: "core:enchanting",
+            title: "L'enchantement",
+            icon: "enchanting_table",
+            pages: [
+                (
+                    title: "La table d'enchantement",
+                    text: "Deux saphirs et cinq moellons donnent la table. Tiens l'objet à enchanter dans la barre d'objets, puis clic droit sur la table : elle propose trois lots, payés en points d'expérience et en saphirs. Les créatures et les minerais donnent de l'expérience.",
+                    items: ["enchanting_table", "sapphire"],
+                ),
+                (
+                    title: "Les étagères",
+                    text: "Des étagères posées autour de la table, à deux blocs, avec de l'air entre elles et la table, la rendent plus puissante : l'Eterna fixe le niveau des lots, le Quanta leur part de hasard, l'Arcana la chance d'avoir plusieurs enchantements. Chaque matière a son plafond : le chêne s'arrête vite, l'obsidienne volcanique va jusqu'à 100.",
+                    items: ["shelf_oak", "shelf_sapphire", "shelf_amethyst", "shelf_jade", "shelf_volcanic"],
+                ),
+                (
+                    title: "Livres, tomes et bibliothèque",
+                    text: "Trois cuirs et un bâton donnent un livre. Enchanté à la table, il devient un livre enchanté ; à la table ou à l'enclume simple, pris à la souris puis cliqué sur un objet, il lui apporte ses enchantements. Un tome n'accepte que les enchantements de son type ; le tome d'extraction retire ceux d'un objet sur un livre vierge.\n\nLa bibliothèque d'enchantements range les livres en points et en ressort au niveau voulu.\n\nUn charme (une potion entourée de fer) garde son effet tant qu'il est actif dans l'inventaire : clic droit pour l'activer, la même potion pour le recharger.",
+                    items: ["book", "enchanted_book", "tome_extraction", "simple_anvil", "enchant_library", "charm_speed"],
+                ),
+            ],
+        ),
+        (
+            id: "core:adventure",
+            title: "L'aventure",
+            icon: "reforge_table",
+            pages: [
+                (
+                    title: "Raretés et paliers",
+                    text: "Les créatures et les coffres des ruines donnent parfois des objets rares, avec des affixes (des bonus) et des emplacements de gemmes. Le monde monte de palier quand tu progresses : créatures plus fortes, butin plus riche. {touche:tiers} ouvre l'écran des paliers.\n\nLa table de récupération défait un objet rare en matériaux, la table de réforge relance ses affixes. Les sceaux posent ou retirent une gemme.",
+                    items: ["salvage_table", "reforge_table", "seal_socket", "seal_unsocket"],
+                ),
+            ],
+        ),
+    ],
+)

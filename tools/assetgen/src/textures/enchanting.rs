@@ -1,5 +1,5 @@
-//! L'enchantement avancé : étagères (cinq matières), bibliothèque, enclume simple, livres, tomes et
-//! charmes de potion. Les couleurs des matières suivent les stats des étagères de `blocks.ron`.
+//! L'enchantement avancé : étagères (cinq matières), bibliothèque, enclume simple, livres (dont le
+//! Guide du voyageur), tomes et charmes de potion. Les couleurs des matières suivent les stats des étagères de `blocks.ron`.
 
 use std::path::{Path, PathBuf};
 
@@ -197,6 +197,8 @@ const EMBLEM_SWORD: [&str; 6] = ["..#..", "..#..", "..#..", ".###.", "..#..", ".
 const EMBLEM_PICKAXE: [&str; 6] = [".###.", "#.#.#", "..#..", "..#..", "..#..", "..#.."];
 const EMBLEM_SHIELD: [&str; 6] = ["#####", "#####", "#####", ".###.", ".###.", "..#.."];
 const EMBLEM_ARROW: [&str; 6] = ["..#..", "..#..", "..#..", "#####", ".###.", "..#.."];
+/// La rose des vents du Guide du voyageur.
+const EMBLEM_COMPASS: [&str; 6] = ["..#..", "..#..", "#####", ".#.#.", "..#..", "..#.."];
 const EMBLEM_STAR: [&str; 6] = [".....", "..#..", ".###.", "..#..", ".....", "....."];
 
 /// Un livre fermé : couverture de cette couleur, tranche de pages claires, emblème au centre.
@@ -300,6 +302,16 @@ pub(super) fn generate(textures: &Path, items: &Path) -> Vec<(PathBuf, Image)> {
     out.push((
         items.join("book.png"),
         book([0.50, 0.30, 0.18], None, [0.92, 0.72, 0.25], false),
+    ));
+    // Le Guide du voyageur : vert forêt, rose des vents dorée.
+    out.push((
+        items.join("guide.png"),
+        book(
+            [0.16, 0.42, 0.22],
+            Some(&EMBLEM_COMPASS),
+            [0.95, 0.80, 0.30],
+            false,
+        ),
     ));
     out.push((
         items.join("enchanted_book.png"),

@@ -76,6 +76,8 @@ mod forge_ui;
 mod gear;
 mod gem_sockets;
 mod gems;
+mod guide;
+mod guide_ui;
 mod hand;
 mod hand_model;
 mod hot_reload;
@@ -1088,6 +1090,7 @@ impl VoxelGame {
                 && !self.use_hoe()
                 && !self.use_fertilizer()
                 && !self.use_charm()
+                && !self.use_guide()
                 && !self.use_mod_item()
             {
                 self.place_at_target();

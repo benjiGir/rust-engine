@@ -77,12 +77,12 @@ pub fn parse(name: &str, args: &[&str]) -> Option<Result<Command>> {
             Ok(Command::Shelves(at, block, count))
         })(),
         "screen" => (|| match args {
-            ["anvil"] => Ok(Command::Screen("anvil".into(), None)),
+            [name @ ("anvil" | "guide")] => Ok(Command::Screen((*name).into(), None)),
             [screen @ ("enchant" | "library"), rest @ ..] => Ok(Command::Screen(
                 (*screen).into(),
                 Some(pos(rest, "screen")?),
             )),
-            _ => bail!("screen : enchant x y z | anvil | library x y z"),
+            _ => bail!("screen : enchant x y z | anvil | library x y z | guide"),
         })(),
         "book" => (|| {
             anyhow::ensure!(
@@ -201,6 +201,7 @@ impl VoxelGame {
                 let screen = match (screen.as_str(), at) {
                     ("enchant", Some(p)) => Screen::Enchant(p),
                     ("library", Some(p)) => Screen::Library(p),
+                    ("guide", _) => Screen::Guide,
                     _ => Screen::Anvil,
                 };
                 self.ui.screen = screen;

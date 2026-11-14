@@ -177,6 +177,7 @@
         (id: "core:seal_unsocket", name: "Sceau de retrait", category: Material, color: (0.5776, 0.1022, 0.1022), icon: "seal_unsocket", max_stack: 16),
         (id: "core:seal_socket", name: "Sceau d'emplacement", category: Material, color: (0.1022, 0.3050, 0.7157), icon: "seal_socket", max_stack: 16),
         // L'enchantement avancé (phase 3) : livres, tomes et charmes de potion (voir enchantments.ron, charms.ron).
+        (id: "core:guide", name: "Guide du voyageur", category: Material, color: (0.1200, 0.2600, 0.1400), icon: "guide", max_stack: 1),
         (id: "core:book", name: "Livre", category: Material, color: (0.2200, 0.1000, 0.0600), icon: "book", max_stack: 16),
         (id: "core:enchanted_book", name: "Livre enchanté", category: Material, color: (0.3000, 0.1400, 0.5200), icon: "enchanted_book", max_stack: 1),
         (id: "core:tome_weapons", name: "Tome d'armes", category: Material, color: (0.4200, 0.0700, 0.0700), icon: "tome_weapons", max_stack: 16),

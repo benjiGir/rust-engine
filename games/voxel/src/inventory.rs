@@ -619,6 +619,7 @@ impl Inventory {
 pub fn starter_inventory(items: &ItemRegistry) -> Inventory {
     let mut inventory = Inventory::default();
     for (key, count) in [
+        ("core:guide", 1),
         ("core:stone_pickaxe", 1),
         ("core:stone_axe", 1),
         ("core:stone_shovel", 1),

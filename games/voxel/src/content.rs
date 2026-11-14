@@ -25,6 +25,8 @@ pub struct Content {
     pub recipe_index: Arc<RecipeIndex>,
     /// Ce que l'amélioration « compactage » sait regrouper (lu dans les recettes).
     pub compact: Arc<CompactTable>,
+    /// Le Guide du voyageur (voir `guide.rs`).
+    pub guide: Arc<crate::guide::Guide>,
 }
 
 /// Les fichiers `name` de core puis des mods, avec leur espace de noms.
@@ -76,6 +78,10 @@ impl Content {
             recipes.len(),
             smelting.recipes().len()
         );
+        let mut guide = crate::guide::Guide::default();
+        for (ns, text, origin) in sources(assets, mods, "guide.ron")? {
+            guide.add_source(&ns, &text, &origin, &items)?;
+        }
         let recipe_index = RecipeIndex::new(&recipes, &smelting, &brewing, &machine_recipes);
         let compact = CompactTable::from_recipes(&recipes, &items);
         // L'aventure : les fichiers de core et des mods, vérifiés contre les objets, puis installés
@@ -95,6 +101,7 @@ impl Content {
             brewing: Arc::new(brewing),
             loot: Arc::new(loot),
             machine_recipes: Arc::new(machine_recipes),
+            guide: Arc::new(guide),
         })
     }
 }
