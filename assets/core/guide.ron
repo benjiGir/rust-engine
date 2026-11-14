@@ -145,7 +145,7 @@
                 ),
                 (
                     title: "Le sac à dos",
-                    text: "Un coffre entouré de cuir donne un sac à dos. {touche:backpack} ouvre le premier sac de ton inventaire. Il monte de palier avec les mêmes kits que les coffres.\n\nPlus tard, le contrôleur de stockage réunit les coffres voisins en un seul écran.",
+                    text: "Un coffre entouré de cuir donne un sac à dos. {touche:backpack} ouvre le premier sac de ton inventaire ; Maj + clic droit le pose au sol, où il s'ouvre d'un clic droit et se ramasse en le cassant, contenu compris. Il monte de palier avec les mêmes kits que les coffres.\n\nPlus tard, le contrôleur de stockage réunit les coffres voisins en un seul écran.",
                     items: ["backpack_leather", "storage_controller"],
                 ),
             ],

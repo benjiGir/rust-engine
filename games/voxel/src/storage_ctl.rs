@@ -24,6 +24,8 @@ use crate::ui::Screen;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Backpack,
+    /// Maj + clic droit avec le sac en main, sur le bloc visé.
+    PlaceBag,
     Op(Op),
     Container(IVec3),
     Bag(Option<u32>),
@@ -42,6 +44,7 @@ pub fn parse(name: &str, args: &[&str]) -> Option<Result<Command>> {
     };
     Some(match name {
         "backpack" => no_args(Command::Backpack),
+        "placebag" => no_args(Command::PlaceBag),
         "deposit" => no_args(Command::Op(Op::Deposit)),
         "topup" => no_args(Command::Op(Op::TopUp)),
         "takeall" => no_args(Command::Op(Op::TakeAll)),
@@ -112,6 +115,13 @@ impl VoxelGame {
                     bail!("backpack : le sac ne s'est pas ouvert");
                 };
                 Ok(format!("{{\"ok\":true,\"bag\":{number}}}"))
+            }
+            Command::PlaceBag => {
+                self.aimed()?;
+                if !self.place_backpack() {
+                    bail!("placebag : il faut un sac à dos en main");
+                }
+                Ok("{\"ok\":true}".to_string())
             }
             Command::Op(op) => {
                 // Le contrôleur n'a pas de cases : seuls Déposer et Maj + clic y ont un sens.

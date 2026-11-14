@@ -6,6 +6,10 @@ use super::*;
 impl VoxelGame {
     /// Maj + clic droit avec un conduit : poser contre une machine sans ouvrir son menu.
     pub(crate) fn place_conduit_first(&mut self) -> bool {
+        // Un sac à dos en main : Maj + clic droit le pose au sol (voir `backpack_block.rs`).
+        if self.place_backpack() {
+            return true;
+        }
         let Some(block) = self
             .inventory
             .selected_item()

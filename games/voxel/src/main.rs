@@ -42,6 +42,7 @@ mod assets;
 mod attributes;
 mod attributes_ui;
 mod audio;
+mod backpack_block;
 mod backpacks;
 mod bench;
 mod book_play;
@@ -1598,7 +1599,8 @@ impl VoxelGame {
         // Une graine plante son premier stade ; sinon l'objet pose son bloc.
         let block = def
             .block
-            .or_else(|| def.plants.as_deref().and_then(|key| self.registry.id(key)))?;
+            .or_else(|| def.plants.as_deref().and_then(|key| self.registry.id(key)))
+            .or_else(|| def.places.as_deref().and_then(|key| self.registry.id(key)))?;
         // Un bloc à états (escalier, dalle, tuyau...) se pose selon le regard et la face visée.
         let forward = self.camera.forward();
         let hit_y = (self.camera.position + forward * hit.distance).y - hit.block_pos.y as f32;

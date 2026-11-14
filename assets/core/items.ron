@@ -5,7 +5,8 @@
 // icon (`items/<nom>.png` du dossier du mod), max_stack (64 ; 1 pour un outil),
 // durability (utilisations avant de casser), tool (kind, tier, speed, damage),
 // armor (slot : Head, Chest, Legs, Feet ; protection), food (nutrition : points de faim,
-// saturation : une réserve qui s'épuise avant la faim ; voir `player.ron`).
+// saturation : une réserve qui s'épuise avant la faim ; voir `player.ron`), places (le bloc
+// que l'objet pose, quand il n'est pas lui-même un bloc : un sac à dos posé au sol).
 //
 // Les niveaux d'outil : 1 bois et or, 2 pierre et cuivre, 3 fer, 4 saphir. Un bloc qui
 // demande le niveau 3 (l'or brut...) ne lâche rien sous une pioche de niveau 2.
@@ -133,10 +134,10 @@
         (id: "core:upgrade_magnet", name: "Amélioration : aimant", category: Material, color: (0.3430, 0.2117, 0.1715), icon: "upgrade_magnet", max_stack: 16),
         (id: "core:upgrade_restock", name: "Amélioration : réapprovisionnement", category: Material, color: (0.1667, 0.2550, 0.2458), icon: "upgrade_restock", max_stack: 16),
         (id: "core:upgrade_feed", name: "Amélioration : nourriture", category: Material, color: (0.3862, 0.2603, 0.2069), icon: "upgrade_feed", max_stack: 16),
-        (id: "core:backpack_leather", name: "Sac à dos en cuir", category: Material, color: (0.2155, 0.0835, 0.0305), icon: "backpack_leather", max_stack: 1),
-        (id: "core:backpack_copper", name: "Sac à dos de cuivre", category: Material, color: (0.3609, 0.1541, 0.0647), icon: "backpack_copper", max_stack: 1),
-        (id: "core:backpack_iron", name: "Sac à dos de fer", category: Material, color: (0.2784, 0.3220, 0.3188), icon: "backpack_iron", max_stack: 1),
-        (id: "core:backpack_sapphire", name: "Sac à dos de saphir", category: Material, color: (0.0668, 0.1475, 0.4335), icon: "backpack_sapphire", max_stack: 1),
+        (id: "core:backpack_leather", name: "Sac à dos en cuir", category: Material, color: (0.2155, 0.0835, 0.0305), icon: "backpack_leather", max_stack: 1, places: "backpack_leather_placed"),
+        (id: "core:backpack_copper", name: "Sac à dos de cuivre", category: Material, color: (0.3609, 0.1541, 0.0647), icon: "backpack_copper", max_stack: 1, places: "backpack_copper_placed"),
+        (id: "core:backpack_iron", name: "Sac à dos de fer", category: Material, color: (0.2784, 0.3220, 0.3188), icon: "backpack_iron", max_stack: 1, places: "backpack_iron_placed"),
+        (id: "core:backpack_sapphire", name: "Sac à dos de saphir", category: Material, color: (0.0668, 0.1475, 0.4335), icon: "backpack_sapphire", max_stack: 1, places: "backpack_sapphire_placed"),
         // L'aventure (phase 2) : matériaux de rareté, poussière et gemmes, sceaux (voir rarities.ron, gems.ron).
         (id: "core:shard_common", name: "Fragment commun", category: Material, color: (0.5776, 0.6038, 0.6445), icon: "shard_common"),
         (id: "core:shard_uncommon", name: "Fragment peu commun", category: Material, color: (0.1170, 0.6724, 0.1620), icon: "shard_uncommon"),

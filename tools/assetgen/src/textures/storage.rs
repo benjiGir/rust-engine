@@ -325,6 +325,44 @@ fn backpack(color: [f32; 3], buckle: [f32; 3]) -> Image {
     )
 }
 
+/// Le flanc d'un sac posé (toutes ses faces de côté, poche comprise) : le corps dans la matière
+/// du palier, le rabat plus clair en haut avec sa boucle, des coutures, la poche en bas.
+fn placed_backpack_side(color: [f32; 3], buckle: [f32; 3], seed: u64) -> Image {
+    let mut image = Image::filled(color).noise(color, 0.10, seed);
+    let stitch = scale(color, 1.4);
+    // Le rabat (les rangées 3 à 5 tombent sur le rabat du modèle), bordé d'une ombre.
+    rect(&mut image, [0, 2, 16, 6], scale(color, 1.15));
+    rect(&mut image, [0, 6, 16, 7], scale(color, 0.7));
+    rect(&mut image, [7, 4, 9, 8], buckle);
+    image.set(7, 4, scale(buckle, 1.2));
+    // Les coutures des côtés et de la poche.
+    for y in (8..15).step_by(2) {
+        image.set(3, y, stitch);
+        image.set(12, y, stitch);
+    }
+    for x in (4..12).step_by(2) {
+        image.set(x, 9, stitch);
+    }
+    // Le bas, plus sombre, usé par le sol.
+    rect(&mut image, [0, 15, 16, 16], scale(color, 0.6));
+    image
+}
+
+/// Le dessus d'un sac posé : le rabat cousu tout autour, la poignée au milieu.
+fn placed_backpack_top(color: [f32; 3], seed: u64) -> Image {
+    let flap = scale(color, 1.15);
+    let mut image = Image::filled(flap).noise(flap, 0.08, seed);
+    let stitch = scale(color, 1.45);
+    for i in (4..12).step_by(2) {
+        image.set(i, 5, stitch);
+        image.set(i, 11, stitch);
+        image.set(4, i, stitch);
+        image.set(11, i, stitch);
+    }
+    rect(&mut image, [6, 8, 10, 9], scale(color, 0.55));
+    image
+}
+
 /// Toutes les textures de blocs et icônes d'objets du stockage.
 pub(super) fn generate(textures: &Path, items: &Path) -> Vec<(PathBuf, Image)> {
     let mut out = Vec::new();
@@ -371,6 +409,30 @@ pub(super) fn generate(textures: &Path, items: &Path) -> Vec<(PathBuf, Image)> {
     ] {
         out.push((items.join(format!("upgrade_{kind}.png")), upgrade(kind)));
     }
+    // Les sacs posés : flanc et dessus par palier, un dessous commun en cuir sombre.
+    for (n, (name, color, buckle)) in [
+        ("leather", LEATHER, GOLD),
+        ("copper", COPPER, [0.9, 0.9, 0.85]),
+        ("iron", IRON, GOLD),
+        ("sapphire", SAPPHIRE, GOLD),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let seed = 980 + n as u64;
+        out.push((
+            textures.join(format!("backpack_{name}_side.png")),
+            placed_backpack_side(color, buckle, seed),
+        ));
+        out.push((
+            textures.join(format!("backpack_{name}_top.png")),
+            placed_backpack_top(color, seed),
+        ));
+    }
+    out.push((
+        textures.join("backpack_bottom.png"),
+        Image::filled(scale(LEATHER, 0.55)).noise(scale(LEATHER, 0.55), 0.08, 990),
+    ));
     out.push((items.join("backpack_leather.png"), backpack(LEATHER, GOLD)));
     out.push((
         items.join("backpack_copper.png"),

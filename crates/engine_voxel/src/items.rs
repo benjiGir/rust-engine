@@ -114,6 +114,9 @@ pub struct ItemDef {
     pub block: Option<BlockId>,
     /// La clé du bloc planté en posant cet objet sur de la terre labourée (une graine).
     pub plants: Option<String>,
+    /// La clé du bloc que cet objet pose, quand l'objet n'est pas celui d'un bloc (un sac à dos
+    /// garde son icône et son numéro, et pose un bloc à part qui retient ce numéro).
+    pub places: Option<String>,
     pub tool: Option<ToolDef>,
     pub armor: Option<ArmorDef>,
     /// Un aliment : ce qu'il nourrit.
@@ -140,6 +143,8 @@ struct ItemEntry {
     durability: Option<u32>,
     #[serde(default)]
     plants: Option<String>,
+    #[serde(default)]
+    places: Option<String>,
     #[serde(default)]
     tool: Option<ToolDef>,
     #[serde(default)]
@@ -206,6 +211,14 @@ impl ItemRegistry {
                 registry.add_source(&namespace, &text, &path.display().to_string())?;
             }
         }
+        // Un objet qui pose un bloc à part (`places`) doit nommer un bloc qui existe.
+        for def in &registry.defs {
+            if let Some(key) = &def.places
+                && blocks.id(key).is_none()
+            {
+                bail!("l'objet « {} » pose un bloc inconnu « {key} »", def.key);
+            }
+        }
         Ok(registry)
     }
 
@@ -224,6 +237,7 @@ impl ItemRegistry {
                 durability: None,
                 block: Some(id),
                 plants: None,
+                places: None,
                 tool: None,
                 armor: None,
                 food: None,
@@ -278,6 +292,7 @@ impl ItemRegistry {
                 durability: e.durability,
                 block: None,
                 plants: e.plants,
+                places: e.places.map(|k| qualify(&k, namespace)),
                 tool: e.tool,
                 armor: e.armor,
                 food: e.food,

@@ -14,7 +14,8 @@
 //!
 //! Un coffre à paliers et un sac rangent leurs cases en blocs : les cases principales, puis les
 //! emplacements d'amélioration, puis les filtres (voir `engine_voxel::storage`). L'écran dessine
-//! les cases principales à gauche, et à droite une colonne pour les améliorations. Les filtres sont
+//! les améliorations dans un bandeau à part en haut, puis les cases principales, qui défilent si
+//! elles sont nombreuses (l'inventaire du joueur reste visible). Les filtres sont
 //! des cases fantômes : on y pose un exemplaire d'un objet (rien n'est consommé), un clic le retire.
 //! Après chaque geste, les améliorations passives (compactage, néant) s'appliquent tout de suite.
 //!
@@ -504,32 +505,77 @@ impl VoxelGame {
         }
         let layout = view.layout;
         let ups = engine_voxel::installed_upgrades(&view.raw, layout, 0);
-        let columns = if layout.upgrades > 0 { 8 } else { 9 };
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = crate::ui_layout::SLOT_GAP;
-            crate::ui_layout::slots(ui, layout.main, columns, |ui, i| {
-                self.storage_slot(ui, t, i);
-            });
-            if layout.upgrades > 0 {
-                crate::ui_layout::column(ui, crate::ui_layout::slot_size(ui.ctx()), |ui| {
-                    ui.spacing_mut().item_spacing = egui::Vec2::splat(crate::ui_layout::SLOT_GAP);
-                    for n in 0..layout.upgrades {
-                        self.storage_slot(ui, t, layout.main + n);
-                    }
-                });
-            }
-        });
+        // Les améliorations d'abord, dans un bandeau à part : on ne les confond pas avec le stockage.
         if layout.upgrades > 0 {
-            let names: Vec<&str> = ups.iter().map(|u| u.name()).collect();
-            ui.label(
-                egui::RichText::new(if names.is_empty() {
-                    format!("Améliorations ({} emplacements) : aucune", layout.upgrades)
-                } else {
-                    format!("Améliorations : {}", names.join(" · "))
-                })
-                .size(11.0),
-            );
+            egui::Frame::new()
+                .fill(UPGRADE_BAND)
+                .stroke(egui::Stroke::new(1.0, crate::skin::BORDER))
+                .corner_radius(4.0)
+                .inner_margin(6.0)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Améliorations").strong());
+                        ui.add_space(8.0);
+                        ui.spacing_mut().item_spacing.x = crate::ui_layout::SLOT_GAP;
+                        for n in 0..layout.upgrades {
+                            self.storage_slot(ui, t, layout.main + n);
+                        }
+                        ui.add_space(8.0);
+                        if let Target::Bag(number) = t
+                            && !ups.is_empty()
+                        {
+                            // Un sac : chaque amélioration se coupe d'un clic.
+                            ui.vertical(|ui| {
+                                for (n, slot) in layout.upgrade_range().enumerate() {
+                                    let Some(up) = view
+                                        .raw
+                                        .get(slot)
+                                        .and_then(Option::as_ref)
+                                        .and_then(|s| Upgrade::from_key(&s.item))
+                                    else {
+                                        continue;
+                                    };
+                                    let mut on = view.disabled & (1 << n) == 0;
+                                    if ui.checkbox(&mut on, up.name()).changed()
+                                        && let Some(bag) = self.backpacks.bag_mut(number)
+                                    {
+                                        bag.disabled ^= 1 << n;
+                                    }
+                                }
+                            });
+                        } else {
+                            let names: Vec<&str> = ups.iter().map(|u| u.name()).collect();
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(if names.is_empty() {
+                                        "Aucune posée (Maj + clic depuis l'inventaire)".to_string()
+                                    } else {
+                                        names.join(" · ")
+                                    })
+                                    .size(11.0),
+                                )
+                                .wrap(),
+                            );
+                        }
+                    });
+                });
+            ui.add_space(6.0);
         }
+        // Le stockage : il défile, pour que l'inventaire du joueur reste visible dessous.
+        ui.label(
+            egui::RichText::new(format!("Stockage · {} cases", layout.main))
+                .strong()
+                .size(11.0),
+        );
+        egui::ScrollArea::vertical()
+            .id_salt("storage_main")
+            .max_height((ui.ctx().content_rect().height() * 0.2).clamp(96.0, 300.0))
+            .show(ui, |ui| {
+                crate::ui_layout::slots(ui, layout.main, 9, |ui, i| {
+                    self.storage_slot(ui, t, i);
+                });
+            });
         // Les filtres, seulement quand l'amélioration qui les lit est posée.
         for group in 0..layout.filter_groups() {
             let wanted = if group == 0 {
@@ -552,29 +598,6 @@ impl VoxelGame {
             crate::ui_layout::slots(ui, range.len(), range.len(), |ui, i| {
                 self.storage_slot(ui, t, range.start + i);
             });
-        }
-        // Un sac : chaque amélioration se coupe d'un clic.
-        if let Target::Bag(number) = t
-            && layout.upgrades > 0
-        {
-            for (n, slot) in layout.upgrade_range().enumerate() {
-                let Some(up) = view
-                    .raw
-                    .get(slot)
-                    .and_then(Option::as_ref)
-                    .and_then(|s| Upgrade::from_key(&s.item))
-                else {
-                    continue;
-                };
-                let mut on = view.disabled & (1 << n) == 0;
-                if ui
-                    .checkbox(&mut on, format!("{} actif", up.name()))
-                    .changed()
-                    && let Some(bag) = self.backpacks.bag_mut(number)
-                {
-                    bag.disabled ^= 1 << n;
-                }
-            }
         }
         let mut op = None;
         ui.horizontal_wrapped(|ui| {
@@ -778,6 +801,12 @@ impl VoxelGame {
             return true;
         }
         let Some(hit) = self.target else { return false };
+        // Un sac posé : son contenu, comme depuis l'inventaire.
+        if let Some(number) = self.placed_bag_number(hit.block_pos) {
+            self.ui.screen = Screen::Bag(number);
+            self.ui.inventory_open = true;
+            return true;
+        }
         let block = self.streamer().world().block(hit.block_pos);
         let def = self.registry.def(block);
         let screen = match def.behavior.as_deref() {
@@ -833,6 +862,7 @@ impl VoxelGame {
             || def.key == "core:enchanting_table"
             || def.key == "core:simple_anvil"
             || def.behavior.as_deref() == Some(crate::enchant_library::BEHAVIOR)
+            || def.behavior.as_deref() == Some(crate::backpack_block::BEHAVIOR)
             || def.key == "core:salvage_table"
             || def.key == "core:reforge_table"
     }
@@ -889,13 +919,22 @@ impl VoxelGame {
     /// Ce qui tombe quand le bloc en `pos` change : ses objets, sans les filtres (cases fantômes).
     pub(crate) fn container_contents(&self, pos: IVec3) -> Vec<ItemStack> {
         let streamer = self.streamer();
+        let block = streamer.world().block(pos);
+        // Un sac posé qu'on casse rend le même sac, numéro compris.
+        if let Some(bag) = crate::backpack_block::broken_bag(
+            &self.registry,
+            block,
+            streamer.block_entity(pos),
+            &self.content.items,
+        ) {
+            return vec![bag];
+        }
         let Some(inventory) = streamer
             .block_entity(pos)
             .and_then(|e| e.caps.as_ref()?.inventory.clone())
         else {
             return Vec::new();
         };
-        let block = streamer.world().block(pos);
         let layout = layout_of(&self.registry, block);
         let mut out: Vec<ItemStack> = inventory
             .slots
@@ -916,6 +955,9 @@ impl VoxelGame {
         out
     }
 }
+
+/// Le fond du bandeau des améliorations : plus sombre que le panneau, pour le détacher du stockage.
+const UPGRADE_BAND: egui::Color32 = egui::Color32::from_rgb(158, 162, 150);
 
 /// Un emplacement d'amélioration : une seule pose à la fois, que des améliorations.
 fn upgrade_click(

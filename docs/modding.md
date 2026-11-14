@@ -1130,6 +1130,12 @@ clic droit avec cet objet en main, quand le jeu n'a rien d'autre à faire du cli
 un coffre, manger...), prévient les scripts abonnés : `Event::ItemUsed { item }`. Le script décide de ce
 qui se passe, et de consommer l'objet ou non.
 
+**Un objet qui pose un bloc à part** : `places: "mon_bloc"` dans `items.ron`. L'objet garde son icône et
+sa pile, et pose ce bloc (déclaré avec `placeable: false`, pour qu'il n'ait pas d'objet à lui). Le jeu s'en
+sert pour les sacs à dos posés : Maj + clic droit pose le sac, l'entité du bloc retient le numéro du
+sac, et le bloc cassé rend le même sac (voir `games/voxel/src/backpack_block.rs`). Un `places` qui nomme
+un bloc inconnu empêche le chargement.
+
 Le mod **Magie** (`mods/magie`) est bâti uniquement avec cela : un **mana** qui se régénère (1 par
 seconde, réglable dans sa page d'options) avec une jauge à l'écran et un maximum qui monte avec le niveau,
 une **table des runes** (menu à trois cases) où l'on compose un sort (une rune d'effet : flamme, soin ou

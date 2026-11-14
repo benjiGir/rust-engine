@@ -1399,4 +1399,68 @@
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 4.0, tool: Pickaxe, tier: 1,
     ),
+    // Les sacs à dos posés (Maj + clic droit avec un sac) : le bloc retient le numéro du sac dans
+    // son entité, s'ouvre d'un clic droit, et rend le même sac quand on le casse. Il n'a pas
+    // d'objet à lui (placeable: false) : c'est l'objet sac qui le pose (`places` dans items.ron).
+    // La forme est écrite poche vers le nord ; Facing4 la tourne vers le joueur.
+    (
+        id: "core:backpack_leather_placed", name: "Sac à dos en cuir", color: (0.2155, 0.0835, 0.0305),
+        boxes: [
+            (from: (3, 0, 5), to: (13, 11, 12)),
+            (from: (3, 11, 5), to: (13, 13, 12)),
+            (from: (4, 1, 3), to: (12, 7, 5)),
+            (from: (4, 1, 12), to: (6, 10, 13)),
+            (from: (10, 1, 12), to: (12, 10, 13)),
+            (from: (6, 13, 8), to: (10, 14, 9)),
+        ],
+        textures: (top: "backpack_leather_top", side: "backpack_leather_side", bottom: "backpack_bottom"),
+        states: [Facing4], placeable: false, behavior: "core:placed_backpack",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.6,
+    ),
+    (
+        id: "core:backpack_copper_placed", name: "Sac à dos de cuivre", color: (0.3609, 0.1541, 0.0647),
+        boxes: [
+            (from: (3, 0, 5), to: (13, 11, 12)),
+            (from: (3, 11, 5), to: (13, 13, 12)),
+            (from: (4, 1, 3), to: (12, 7, 5)),
+            (from: (4, 1, 12), to: (6, 10, 13)),
+            (from: (10, 1, 12), to: (12, 10, 13)),
+            (from: (6, 13, 8), to: (10, 14, 9)),
+        ],
+        textures: (top: "backpack_copper_top", side: "backpack_copper_side", bottom: "backpack_bottom"),
+        states: [Facing4], placeable: false, behavior: "core:placed_backpack",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.6,
+    ),
+    (
+        id: "core:backpack_iron_placed", name: "Sac à dos de fer", color: (0.2784, 0.3220, 0.3188),
+        boxes: [
+            (from: (3, 0, 5), to: (13, 11, 12)),
+            (from: (3, 11, 5), to: (13, 13, 12)),
+            (from: (4, 1, 3), to: (12, 7, 5)),
+            (from: (4, 1, 12), to: (6, 10, 13)),
+            (from: (10, 1, 12), to: (12, 10, 13)),
+            (from: (6, 13, 8), to: (10, 14, 9)),
+        ],
+        textures: (top: "backpack_iron_top", side: "backpack_iron_side", bottom: "backpack_bottom"),
+        states: [Facing4], placeable: false, behavior: "core:placed_backpack",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.6,
+    ),
+    (
+        id: "core:backpack_sapphire_placed", name: "Sac à dos de saphir", color: (0.0668, 0.1475, 0.4335),
+        boxes: [
+            (from: (3, 0, 5), to: (13, 11, 12)),
+            (from: (3, 11, 5), to: (13, 13, 12)),
+            (from: (4, 1, 3), to: (12, 7, 5)),
+            (from: (4, 1, 12), to: (6, 10, 13)),
+            (from: (10, 1, 12), to: (12, 10, 13)),
+            (from: (6, 13, 8), to: (10, 14, 9)),
+        ],
+        textures: (top: "backpack_sapphire_top", side: "backpack_sapphire_side", bottom: "backpack_bottom"),
+        states: [Facing4], placeable: false, behavior: "core:placed_backpack",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.6,
+    ),
 ]
