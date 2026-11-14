@@ -22,10 +22,17 @@ use crate::lines::Lines;
 use crate::mesh::{self, ColorVertex, Vertex};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-/// Côté des textures de blocs, en pixels.
+/// Côté par défaut des textures de blocs. Un pack peut utiliser 32 pixels.
 pub const TEXTURE_SIZE: u32 = 16;
-/// 16, 8, 4, 2, 1 : cinq niveaux de mipmap.
-const TEXTURE_MIPS: u32 = 5;
+
+/// Résolutions RGBA prises en charge par le rendu et les icônes.
+pub fn texture_side(pixels: &[u8]) -> Option<u32> {
+    match pixels.len() {
+        1024 => Some(16),
+        4096 => Some(32),
+        _ => None,
+    }
+}
 /// Le shader des chunks, intégré au binaire. Son chemin sur le disque permet au jeu
 /// de le surveiller et de le recharger à chaud pendant le développement.
 pub const CHUNK_SHADER_SOURCE: &str = include_str!("chunk_shader.wgsl");
@@ -589,7 +596,7 @@ impl Renderer {
 
     /// Remplace les textures des blocs. `layers[i]` devient la couche `i + 1`
     /// (la couche 0 est blanche : les blocs sans texture gardent leur couleur).
-    /// Chaque couche : 16 × 16 pixels RGBA, 1 024 octets.
+    /// Chaque couche : même résolution, 16 × 16 ou 32 × 32 pixels RGBA.
     pub fn set_block_textures(&mut self, layers: &[Vec<u8>]) {
         self.texture_bind_group =
             create_texture_bind_group(&self.device, &self.queue, &self.texture_layout, layers);
@@ -1390,7 +1397,13 @@ fn create_texture_bind_group(
     layout: &wgpu::BindGroupLayout,
     layers: &[Vec<u8>],
 ) -> wgpu::BindGroup {
-    let pixels = (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize;
+    let side = layers
+        .iter()
+        .filter_map(|l| texture_side(l))
+        .max()
+        .unwrap_or(TEXTURE_SIZE);
+    let mips = side.ilog2() + 1;
+    let pixels = (side * side * 4) as usize;
     let white = vec![255u8; pixels];
     let all: Vec<&[u8]> = std::iter::once(white.as_slice())
         .chain(layers.iter().map(|l| l.as_slice()))
@@ -1398,11 +1411,11 @@ fn create_texture_bind_group(
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("block textures"),
         size: wgpu::Extent3d {
-            width: TEXTURE_SIZE,
-            height: TEXTURE_SIZE,
+            width: side,
+            height: side,
             depth_or_array_layers: all.len() as u32,
         },
-        mip_level_count: TEXTURE_MIPS,
+        mip_level_count: mips,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         // sRGB : les PNG sont en sRGB, le GPU les reconvertit en linéaire à la lecture.
@@ -1417,8 +1430,8 @@ fn create_texture_bind_group(
         } else {
             white.clone()
         };
-        let mut size = TEXTURE_SIZE;
-        for mip in 0..TEXTURE_MIPS {
+        let mut size = side;
+        for mip in 0..mips {
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &texture,
@@ -1552,4 +1565,68 @@ fn create_pipeline(
         multiview_mask: None,
         cache: None,
     })
+}
+
+#[cfg(test)]
+mod texture_pack_tests {
+    use super::*;
+
+    #[test]
+    fn rgba_sizes_and_the_full_mip_chain_keep_the_32_pixel_image() {
+        let mut data = [180, 90, 30, 255].repeat(32 * 32);
+        assert_eq!(texture_side(&data), Some(32));
+        for side in [32, 16, 8, 4, 2, 1] {
+            assert_eq!(data.len(), side * side * 4);
+            assert!(
+                data.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|p| *p == [180, 90, 30, 255])
+            );
+            data = downsample(&data, side as u32);
+        }
+        assert_eq!(texture_side(&[0; 1024]), Some(16));
+        assert_eq!(texture_side(&[0; 4]), None);
+    }
+
+    #[test]
+    #[ignore = "nécessite un adaptateur GPU ; lancer explicitement pour valider l'upload 16/32"]
+    fn gpu_texture_pack_32_uploads_all_mips_and_can_return_to_16() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+                .expect("adaptateur GPU");
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+                .expect("périphérique GPU");
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("texture pack test"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        for side in [16, 32, 16] {
+            let layers = vec![[120, 180, 90, 255].repeat(side * side); 3];
+            let _binding = create_texture_bind_group(&device, &queue, &layout, &layers);
+            queue.submit([]);
+        }
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        assert!(pollster::block_on(scope.pop()).is_none());
+    }
 }

@@ -516,6 +516,9 @@ pub struct BlockRegistry {
     /// Le dossier de chaque espace de noms : `assets/core`, `mods/example`...
     /// Les fichiers d'un mod sont cherchés dans le sien.
     asset_dirs: HashMap<String, PathBuf>,
+    /// Remplacements graphiques uniquement ; les données du registre ne changent pas.
+    visual_pack: Option<PathBuf>,
+    texture_size: u32,
 }
 
 impl BlockRegistry {
@@ -571,6 +574,8 @@ impl BlockRegistry {
             defs: vec![air],
             textures: Vec::new(),
             asset_dirs: HashMap::new(),
+            visual_pack: None,
+            texture_size: 16,
         }
     }
 
@@ -1065,7 +1070,35 @@ impl BlockRegistry {
     pub fn asset_path(&self, key: &str, kind: &str, extension: &str) -> Option<PathBuf> {
         let (namespace, name) = key.split_once(':')?;
         let dir = self.asset_dirs.get(namespace)?;
+        if extension == "png"
+            && matches!(kind, "textures" | "items")
+            && let Some(root) = &self.visual_pack
+        {
+            let path = root.join(namespace).join(kind).join(format!("{name}.png"));
+            if path.is_file() {
+                return Some(path);
+            }
+        }
         Some(dir.join(kind).join(format!("{name}.{extension}")))
+    }
+
+    /// Active un dossier `assets/<espace de noms>/{textures,items}` de remplacement.
+    /// Les fichiers absents reviennent aux ressources du jeu ou du mod.
+    pub fn set_visual_pack(&mut self, assets: Option<PathBuf>, size: u32) -> Result<()> {
+        anyhow::ensure!(
+            matches!(size, 16 | 32),
+            "résolution de pack non prise en charge : {size}"
+        );
+        if let Some(root) = &assets {
+            anyhow::ensure!(root.is_dir(), "pack absent : {}", root.display());
+        }
+        self.texture_size = if assets.is_some() { size } else { 16 };
+        self.visual_pack = assets;
+        Ok(())
+    }
+
+    pub fn texture_size(&self) -> u32 {
+        self.texture_size
     }
 
     /// Le numéro d'un bloc à partir de son identifiant texte.

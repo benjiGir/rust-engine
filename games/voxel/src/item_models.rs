@@ -58,6 +58,9 @@ fn sprite(key: &str, folder: &str, blocks: &BlockRegistry) -> Vec<CubeInstance> 
 }
 
 fn extrude(pixels: &[u8]) -> Vec<CubeInstance> {
+    let Some(side) = engine_render::texture_side(pixels).map(|s| s as usize) else {
+        return Vec::new();
+    };
     let mut parts = Vec::new();
     let linear = |c: u8| {
         let c = c as f32 / 255.0;
@@ -67,10 +70,10 @@ fn extrude(pixels: &[u8]) -> Vec<CubeInstance> {
             ((c + 0.055) / 1.055).powf(2.4)
         }
     };
-    for y in 0..16 {
+    for y in 0..side {
         let mut x = 0;
-        while x < 16 {
-            let at = (x + y * 16) * 4;
+        while x < side {
+            let at = (x + y * side) * 4;
             let pixel = &pixels[at..at + 4];
             if pixel[3] < 128 {
                 x += 1;
@@ -78,16 +81,20 @@ fn extrude(pixels: &[u8]) -> Vec<CubeInstance> {
             }
             let start = x;
             x += 1;
-            while x < 16 && pixels[(x + y * 16) * 4..(x + y * 16) * 4 + 4] == *pixel {
+            while x < side && pixels[(x + y * side) * 4..(x + y * side) * 4 + 4] == *pixel {
                 x += 1;
             }
             parts.push(CubeInstance::new(
                 Vec3::new(
-                    (start + x) as f32 / 32.0 - 0.5,
-                    0.5 - (y as f32 + 0.5) / 16.0,
+                    (start + x) as f32 / (2.0 * side as f32) - 0.5,
+                    0.5 - (y as f32 + 0.5) / side as f32,
                     0.0,
                 ),
-                Vec3::new((x - start) as f32 / 16.0, 1.0 / 16.0, 1.0 / 16.0),
+                Vec3::new(
+                    (x - start) as f32 / side as f32,
+                    1.0 / side as f32,
+                    1.0 / 16.0,
+                ),
                 Vec3::new(linear(pixel[0]), linear(pixel[1]), linear(pixel[2])),
             ));
         }
@@ -98,6 +105,34 @@ fn extrude(pixels: &[u8]) -> Vec<CubeInstance> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_32_pixel_sprite_uses_the_same_extent_and_depth_as_the_16_pixel_one() {
+        let mut small = vec![0; 16 * 16 * 4];
+        let mut large = vec![0; 32 * 32 * 4];
+        for y in 3..7 {
+            for x in 2..6 {
+                small[(x + y * 16) * 4..(x + y * 16) * 4 + 4].copy_from_slice(&[160, 80, 40, 255]);
+                for dy in 0..2 {
+                    for dx in 0..2 {
+                        let at = ((x * 2 + dx) + (y * 2 + dy) * 32) * 4;
+                        large[at..at + 4].copy_from_slice(&[160, 80, 40, 255]);
+                    }
+                }
+            }
+        }
+        let bounds = |parts: Vec<CubeInstance>| {
+            parts.into_iter().fold(
+                (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+                |(min, max), p| {
+                    let c = Vec3::from_array(p.center);
+                    let r = Vec3::from_array(p.size) * 0.5;
+                    (min.min(c - r), max.max(c + r))
+                },
+            )
+        };
+        assert_eq!(bounds(extrude(&small)), bounds(extrude(&large)));
+    }
 
     #[test]
     fn sprites_keep_holes_colours_and_thickness_and_merge_matching_pixels() {

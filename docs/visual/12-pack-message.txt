@@ -1,0 +1,6 @@
+Textures : proposer un pack 32 × 32 depuis le menu principal
+
+Générer un pack optionnel de 406 images, préserver les raccords et affiner les
+matières et contours. Mémoriser le choix avant le chargement des mondes et conserver
+le pack classique. Adapter le GPU, les mipmaps, les icônes et les objets 3D aux deux
+résolutions ; inclure le pack dans l’archive Windows et ajouter les contrôles.

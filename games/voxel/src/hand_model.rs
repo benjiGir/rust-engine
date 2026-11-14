@@ -366,7 +366,7 @@ fn load_sprite(key: &str, blocks: &BlockRegistry) -> Sprite {
     };
     // Le PNG est en sRGB ; le shader travaille en couleurs linéaires.
     let linear = |c: u8| (c as f32 / 255.0).powf(2.2);
-    let size = engine_render::TEXTURE_SIZE as usize;
+    let size = engine_render::texture_side(&pixels).unwrap_or(16) as usize;
     (0..size * size)
         .filter(|&i| pixels[i * 4 + 3] > 128)
         .map(|i| {
@@ -465,6 +465,69 @@ mod tests {
             (lowered - rest.transform_point3(Vec3::ZERO)).distance(Vec3::new(0.0, -0.6, 0.0))
                 < 1e-5
         );
+    }
+
+    #[test]
+    fn axe_blades_face_away_from_the_player_with_both_texture_packs() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for packed in [false, true] {
+            let mut blocks = crate::test_registry();
+            if packed {
+                blocks
+                    .set_visual_pack(Some(root.join("texture_packs/earth-copper-32/assets")), 32)
+                    .unwrap();
+            }
+            let items = ItemRegistry::load_mods(
+                &blocks,
+                &root.join("assets"),
+                &[("forge".into(), root.join("mods/forge"))],
+            )
+            .unwrap();
+            let mut hand = Hand::new(ArmColors::default());
+            hand.visible = true;
+            for key in [
+                "core:wooden_axe",
+                "core:stone_axe",
+                "core:copper_axe",
+                "core:iron_axe",
+                "core:golden_axe",
+                "core:sapphire_axe",
+                "forge:steel_axe",
+            ] {
+                let item = items.id(key).unwrap();
+                // Centre de l'emmanchement dans chaque dessin ; le manche descend
+                // en diagonale vers le bas gauche du sprite. On examine seulement
+                // la tête et son col, à partir du vrai modèle extrudé et de la pose.
+                let socket = if packed {
+                    Vec3::new(20.5 / 32.0 - 0.5, 0.5 - 11.5 / 32.0, 0.0)
+                } else {
+                    Vec3::new(9.5 / 16.0 - 0.5, 0.5 - 4.5 / 16.0, 0.0)
+                };
+                let source = crate::item_models::build(item, &items, &blocks);
+                let actual = hand.instances(Some(item), &items, &blocks);
+                let socket_z = hand.held_pose().transform_point3(socket).z;
+                let (mut front, mut back) = (0.0f32, 0.0f32);
+                for (raw, held) in source.iter().zip(&actual) {
+                    let from_socket = Vec3::from_array(raw.center) - socket;
+                    let along_handle = from_socket.dot(Vec3::new(-1.0, -1.0, 0.0).normalize());
+                    if !(-0.3..0.16).contains(&along_handle) {
+                        continue;
+                    }
+                    let z = Mat4::from_cols_array_2d(&held.model)
+                        .transform_point3(Vec3::ZERO)
+                        .z
+                        - socket_z;
+                    front = front.max(-z);
+                    back = back.max(z);
+                }
+                // La caméra regarde vers -Z : le grand débord de la lame doit
+                // se trouver devant l'emmanchement, plutôt que vers le joueur.
+                assert!(
+                    front > 0.1 && front > back * 1.5,
+                    "{key}, pack32={packed} : lame avant={front}, arrière={back}"
+                );
+            }
+        }
     }
 
     #[test]

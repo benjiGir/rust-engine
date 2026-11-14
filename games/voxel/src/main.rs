@@ -84,6 +84,7 @@ mod hot_reload;
 mod interact;
 mod item_ctl;
 mod launch;
+mod texture_packs;
 pub use launch::{Launch, Request};
 mod conduit_fx;
 mod conduit_render;
@@ -345,7 +346,9 @@ impl VoxelGame {
         let assets = assets_dir();
         let mod_order = modding::resolve_order(&assets);
         let mod_dirs = modding::mod_dirs(&mod_order);
-        let registry = Arc::new(load_registry(&mod_dirs)?);
+        let mut registry = load_registry(&mod_dirs)?;
+        texture_packs::configure(&mut registry, settings.texture_pack, &project_root());
+        let registry = Arc::new(registry);
         let block_textures = assets::load_textures(&registry);
         renderer.set_block_textures(&block_textures);
         let mob_registry =
@@ -1429,7 +1432,12 @@ impl VoxelGame {
         let mut textures = changes.textures;
         if changes.blocks {
             match hot_reload::reload_registry(&self.registry, &assets_dir(), &self.mod_dirs) {
-                hot_reload::RegistryReload::Applied(fresh) => {
+                hot_reload::RegistryReload::Applied(mut fresh) => {
+                    texture_packs::configure(
+                        &mut fresh,
+                        self.settings.texture_pack,
+                        &project_root(),
+                    );
                     self.registry = Arc::new(fresh);
                     let registry = self.registry.clone();
                     self.streamer_mut().replace_registry(registry);
@@ -2294,6 +2302,7 @@ fn start_hot_reload() -> Option<hot_reload::HotReload> {
     let mut dirs = vec![assets.clone()];
     if let Some(root) = assets.parent() {
         dirs.push(root.join("mods"));
+        dirs.push(root.join("texture_packs"));
     }
     if let Some(shaders) = std::path::Path::new(engine_render::CHUNK_SHADER_PATH).parent() {
         dirs.push(shaders.to_path_buf());

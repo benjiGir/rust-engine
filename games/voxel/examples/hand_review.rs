@@ -160,8 +160,8 @@ fn render(parts: &[HandInstance], w: usize, h: usize) -> Vec<u8> {
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     anyhow::ensure!(
-        args.len() == 2,
-        "hand_review <rest|swing|portrait|mods> <sortie.png>"
+        args.len() == 2 || (args.len() == 3 && args[2] == "--pack32"),
+        "hand_review <rest|swing|portrait|mods|axes> <sortie.png> [--pack32]"
     );
     let (view_w, view_h) = if args[0] == "portrait" {
         (216, 288)
@@ -171,7 +171,10 @@ fn main() -> Result<()> {
     let board_w = 3 * (view_w + 8) + 8;
     let board_h = 2 * (view_h + 28) + 82;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let blocks = BlockRegistry::load(&root.join("assets"), Some(&root.join("mods")))?;
+    let mut blocks = BlockRegistry::load(&root.join("assets"), Some(&root.join("mods")))?;
+    if args.get(2).is_some_and(|arg| arg == "--pack32") {
+        blocks.set_visual_pack(Some(root.join("texture_packs/earth-copper-32/assets")), 32)?;
+    }
     let mods: Vec<_> = [
         "example",
         "mecanique",
@@ -186,7 +189,16 @@ fn main() -> Result<()> {
     let items = ItemRegistry::load_mods(&blocks, &root.join("assets"), &mods)?;
     let ctx = egui::Context::default();
     skin::apply(&ctx);
-    let keys = if args[0] == "mods" {
+    let keys = if args[0] == "axes" {
+        [
+            ("Hache en bois", "core:wooden_axe"),
+            ("Hache en pierre", "core:stone_axe"),
+            ("Hache en fer", "core:iron_axe"),
+            ("Hache en or", "core:golden_axe"),
+            ("Hache en saphir", "core:sapphire_axe"),
+            ("Hache en acier", "forge:steel_axe"),
+        ]
+    } else if args[0] == "mods" {
         [
             ("Marteau scripté", "forge:bronze_hammer"),
             ("Pioche en acier", "forge:steel_pickaxe"),

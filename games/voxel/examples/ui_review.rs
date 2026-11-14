@@ -36,6 +36,9 @@ mod settings;
 #[path = "../src/skin.rs"]
 #[allow(dead_code)]
 mod skin;
+#[path = "../src/texture_packs.rs"]
+#[allow(dead_code)]
+mod texture_packs;
 #[path = "../src/ui_info.rs"]
 #[allow(dead_code)]
 mod ui_info;
@@ -75,7 +78,7 @@ fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     anyhow::ensure!(
         args.len() == 4,
-        "ui_review <menu|pause|options|inventory|tooltip|chest|furnace|brewing|workbench|mod|hud|before> <largeur> <hauteur> <sortie.png>"
+        "ui_review <menu|packs|pause|options|inventory|tooltip|chest|furnace|brewing|workbench|mod|hud|before> <largeur> <hauteur> <sortie.png>"
     );
     let w: usize = args[1].parse()?;
     let h: usize = args[2].parse()?;
@@ -185,8 +188,13 @@ fn main() -> Result<()> {
                     "menu" => ui_layout::menu(ctx, "Voxel", 500.0, |ui| {
                         skin::menu_button(ui, "Jouer");
                         skin::menu_button(ui, "Nouveau monde");
+                        skin::menu_button(ui, "Packs de textures…");
                         ui.add_space(10.0);
                         ui_layout::paired_buttons(ui, "Options…", "Quitter");
+                    }),
+                    "packs" => ui_layout::menu(ctx, "Packs de textures", 640.0, |ui| {
+                        let mut selected = settings.texture_pack;
+                        texture_packs::panel(ui, &root, &mut selected, settings::TexturePack::Classic);
                     }),
                     "pause" => ui_layout::menu(ctx, "Pause", 360.0, |ui| {
                         for label in ["Reprendre", "Options", "Sauvegarder et retourner au menu"] {

@@ -1,0 +1,6 @@
+Redessine les matières et équipements du pack 32 × 32
+
+Remplace la finition du 16 × 16 par des motifs natifs pour les sols, bois,
+minerais, mobilier, machines, plantes et équipements. Préserve les raccords,
+la palette et les moyennes linéaires de repli. Ajoute les comparaisons visuelles
+et les contrôles de composition, silhouettes et régénération des 406 PNG.

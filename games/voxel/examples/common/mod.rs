@@ -155,9 +155,10 @@ pub fn scene_image(
                     .checked_sub(1)
                     .and_then(|i| textures.get(i as usize))
                     .map_or([255; 4], |pixels| {
-                        let x = (coords[0].rem_euclid(1.0) * 16.0) as usize;
-                        let y = (coords[1].rem_euclid(1.0) * 16.0) as usize;
-                        let p = (x + y * 16) * 4;
+                        let side = engine_render::texture_side(pixels).unwrap_or(16) as usize;
+                        let x = (coords[0].rem_euclid(1.0) * side as f32) as usize;
+                        let y = (coords[1].rem_euclid(1.0) * side as f32) as usize;
+                        let p = (x + y * side) * 4;
                         [pixels[p], pixels[p + 1], pixels[p + 2], pixels[p + 3]]
                     });
                 if texel[3] < 128 {

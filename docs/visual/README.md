@@ -484,6 +484,134 @@ assets, sur des inventaires de contrôle. Ils ne proviennent pas d'une partie.
 La tentative native de ce lot reste bloquée avant l'ouverture de la fenêtre par
 `com.apple.hiservices-xpcservice` sur macOS ; le processus a été arrêté.
 
+## Lot 12 — pack optionnel 32 × 32
+
+Le menu principal propose **Packs de textures…**, avec le pack classique 16 × 16
+et **Terre, ardoise et cuivre · 32 × 32**. Le choix est préparé sur cette page,
+puis mémorisé avec **Appliquer** ; **Retour** abandonne la sélection en cours.
+Il est utilisé au prochain chargement, pour un nouveau monde ou une sauvegarde
+existante. Les anciennes options conservent le rendu classique par défaut.
+
+Contrôles visuels : [comparaison 16/32](12-pack-comparaison.png),
+[page des packs](12-packs-menu.png), [page en 640 × 360](12-packs-menu-640.png),
+[page compacte en 320 × 240](12-packs-menu-320.png),
+[menu principal en 1280 × 720](12-menu-1280.png) et
+[menu principal en 320 × 240](12-menu-320.png).
+
+Le pack comprend **406 PNG**, un par image de bloc ou d'objet du jeu et des mods de
+référence, dans `texture_packs/earth-copper-32/assets/<namespace>/`. Le générateur
+part des dessins originaux du projet et ajoute des détails adaptés à la matière,
+des biseaux d'objets et une reconstruction des contours. Les tests imposent des
+pixels réellement différents d'un simple agrandissement, des raccords périodiques,
+la palette, l'alpha et des moyennes de couleurs proches de l'origine. Un test
+reproduit tous les fichiers à partir des générateurs des dessins de base, dans un
+dossier temporaire, puis les compare octet pour octet au pack livré.
+
+Le chemin graphique conserve maintenant la résolution native : couches GPU
+uniformes en 16 ou 32, cinq ou six mipmaps, icônes adaptées, miniatures de blocs et
+objets extrudés. La géométrie normalisée et l'épaisseur des outils ne changent pas.
+Les images absentes d'un pack utilisent les originaux ; les couches de blocs sont
+alors agrandies au plus proche voisin. Un pack absent revient au rendu classique.
+Les remplacements du registre ne concernent que les PNG de `textures` et `items` :
+les identifiants, l'ordre des blocs et toutes les données de jeu restent inchangés.
+Le rechargement à chaud conserve le pack et invalide les caches de modèles et
+l'aperçu du menu. L'archive Windows inclut désormais `texture_packs/`.
+
+```sh
+cargo run -p assetgen -- --pack32-only
+cargo run -p voxel --example texture_pack_review -- /tmp/pack32.png
+cargo run -p voxel --example ui_review -- packs 1280 720 /tmp/packs-menu.png
+```
+
+Les tests couvrent le clic sur le choix 32 puis sur Appliquer, la persistance des
+options, le retour au 16, les fichiers manquants, toutes les couches du registre,
+les quatre quadrants d'une image 32 dans une miniature, l'étendue des objets 3D,
+les six niveaux de mipmaps et les actions visibles sur petit écran. Les planches
+CPU emploient les PNG et les modèles réellement chargés par ces fonctions.
+
+Les six contrôles demandés passent : formatage, Clippy sans avertissement, tests
+complets du workspace, architecture, hooks et documentation. La régénération des
+406 PNG du pack est également identique octet pour octet.
+
+La tentative de lancement natif reste bloquée avant la fenêtre par
+`com.apple.hiservices-xpcservice` sur macOS. Le contrôle GPU supplémentaire,
+explicitement hors de la suite ordinaire car il nécessite un adaptateur, a aussi
+été tenté : le backend Metal ne trouve aucun adaptateur dans cet environnement.
+Il n'a pas été assoupli pour masquer cette limite. Le rendu en partie et l'upload
+GPU restent donc à confirmer sur une machine exposant un périphérique graphique :
+
+```sh
+cargo test -p engine_render gpu_texture_pack_32 -- --ignored --nocapture
+```
+
+## Lot 13 — dessins natifs du pack 32 × 32
+
+La finition discrète du lot 12 est remplacée par des motifs distincts du classique.
+Le même pack optionnel et son identifiant restent disponibles dans le menu ; un
+choix déjà enregistré charge les nouveaux dessins au prochain lancement du monde.
+La [comparaison des matières, raccords et modèles](13-pack-comparaison.png) et la
+[planche des équipements, cultures et détails](13-details-comparaison.png)
+présentent le classique à gauche et le nouveau pack à droite. Les images du lot 12
+restent les témoins de la première version, désormais remplacée.
+L'[aperçu du menu](13-packs-menu.png) utilise les nouveaux PNG et leur description.
+
+Les principaux sols, roches, minerais, cinq essences de bois, feuillages, coffres,
+fours, lits, établis, surfaces de machines, cultures et familles d'équipement sont
+dessinés à leurs coordonnées natives 32. Les lames ont des faces éclairées et
+biseaux, les manches des ligatures, les armures des plaques et rivets, les fioles
+une étiquette et des reflets. Les accessoires qui gardent leur silhouette de base
+ont une finition adaptée à leur matière. Les champs de jeu et les images du pack
+classique ne changent pas.
+
+Le générateur est réparti dans `tools/assetgen/src/texture_pack32/`. La moyenne
+linéaire de chaque image est accordée à sa source : les couleurs de repli et le
+terrain lointain restent cohérents malgré les nouveaux motifs. Le test de
+régénération vérifie les 406 fichiers octet pour octet, leur résolution, leur
+palette et leurs moyennes. Le contrôle des raccords et de la transparence est
+conservé ; deux tests supplémentaires vérifient les nouvelles silhouettes, la
+bouche du four et une différence de composition à résolution commune 8 × 8.
+Ce dernier contrôle empêche de valider à nouveau un simple ajout de micro-grain.
+
+Les six contrôles passent : `cargo fmt --check`, `cargo clippy --workspace
+--all-targets` sans avertissement, `cargo test --workspace`, `cargo xtask check-arch`,
+`cargo xtask hooks --check` et `cargo xtask docs --check`.
+
+```sh
+cargo run -p assetgen -- --pack32-only
+cargo run -p voxel --example texture_pack_review -- docs/visual/13-pack-comparaison.png
+cargo run -p voxel --example texture_pack_details -- docs/visual/13-details-comparaison.png
+```
+
+Les planches sont des rendus CPU des PNG et des modèles de production. La limite
+macOS / Metal décrite au lot 12 empêche toujours la validation dans une fenêtre de
+jeu dans cet environnement. Aucun monde de test n'a été créé ni modifié.
+
+## Lot 14 — tranchant des haches en main
+
+Les sept haches du pack 32 (bois, pierre, cuivre, fer, or, saphir et acier Forge)
+portaient leur grande lame du côté du joueur. Le générateur dessine maintenant
+la tête de l'autre côté de l'axe du manche, avec son biseau, en conservant le
+manche et le profil d'affichage en main. Seuls ces sept PNG changent parmi les
+406 images du pack. Les dessins classiques et le gameplay sont conservés.
+
+Les vues à la première personne [avant](14-haches-avant.png) et
+[après](14-haches-apres.png) utilisent les vrais modèles extrudés, les matrices
+de la main et sa projection à 70°. Le contrôle des deux packs vérifie que le
+débord de la lame se trouve devant l'emmanchement en coordonnées de vue. Il
+échouait sur le pack 32 avant la correction et passe pour les sept haches
+après. La [planche des équipements](13-details-comparaison.png) est actualisée.
+Les six contrôles du projet passent, dont la suite complète du workspace et
+Clippy sans avertissement. La régénération déterministe des 406 PNG reste vérifiée.
+
+```sh
+cargo run -p assetgen -- --pack32-only
+cargo run -p voxel --example hand_review -- axes docs/visual/14-haches-apres.png --pack32
+cargo test -p voxel --bin voxel axe_blades_face_away
+```
+
+Les captures sont des planches CPU ; le rendu natif reste soumis à la limite
+macOS / Metal du lot 12. Aucun monde de test n'est créé.
+
 ## Commits et patchs
 
 L’écriture dans `.git` est interdite par l’environnement : `git add` échoue sur

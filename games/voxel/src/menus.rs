@@ -31,6 +31,9 @@ pub enum TitlePage {
         error: Option<String>,
     },
     Options,
+    TexturePacks {
+        selected: crate::settings::TexturePack,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,7 +168,7 @@ impl VoxelGame {
             title,
             if title == "Voxel" {
                 500.0
-            } else if title == "Options" {
+            } else if title == "Options" || title == "Packs de textures" {
                 640.0
             } else if title == "Mondes" {
                 600.0
@@ -189,6 +192,11 @@ impl VoxelGame {
                         seed: String::new(),
                         difficulty: 1,
                         error: None,
+                    });
+                }
+                if button(ui, "Packs de textures…") {
+                    self.mode = Mode::Title(TitlePage::TexturePacks {
+                        selected: self.settings.texture_pack,
                     });
                 }
                 ui.add_space(10.0);
@@ -342,6 +350,26 @@ impl VoxelGame {
                     self.mode = Mode::Title(TitlePage::Main);
                 }
             }),
+            TitlePage::TexturePacks { mut selected } => {
+                let mut action = crate::texture_packs::Action::None;
+                Self::menu_window(ctx, "Packs de textures", |ui| {
+                    action = crate::texture_packs::panel(
+                        ui,
+                        &project_root(),
+                        &mut selected,
+                        self.settings.texture_pack,
+                    );
+                });
+                self.mode = Mode::Title(match action {
+                    crate::texture_packs::Action::Apply => {
+                        self.settings.texture_pack = selected;
+                        self.settings.save(&project_root());
+                        TitlePage::Main
+                    }
+                    crate::texture_packs::Action::Back => TitlePage::Main,
+                    crate::texture_packs::Action::None => TitlePage::TexturePacks { selected },
+                });
+            }
         }
     }
 

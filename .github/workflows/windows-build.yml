@@ -19,7 +19,7 @@ jobs:
         run: |
           mkdir dist
           cp target/release/voxel.exe dist/
-          cp -r assets mods dist/
+          cp -r assets mods texture_packs dist/
           find dist/mods -name script -type d -prune -exec rm -rf {} +
       - uses: actions/upload-artifact@v4
         with:

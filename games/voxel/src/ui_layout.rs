@@ -308,25 +308,31 @@ pub fn menu(ctx: &egui::Context, title: &str, width: f32, add: impl FnOnce(&mut 
         .frame(egui::Frame::NONE.inner_margin(8))
         .fixed_pos(egui::pos2(safe.center().x - width * 0.5, y))
         .fixed_size(egui::vec2(width, safe.bottom() - y))
-        .vscroll(title != "Options")
+        .vscroll(!matches!(title, "Options" | "Packs de textures"))
         .title_bar(false)
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 if main {
-                    crate::skin::logo(ui);
-                    ui.add_space(6.0);
-                    ui.label(
-                        egui::RichText::new("TERRES SAUVAGES · ATELIERS · AVENTURES")
-                            .size(10.0)
-                            .color(crate::skin::TEXT),
-                    );
-                    ui.add_space(if safe.height() > 400.0 {
-                        42.0
-                    } else if safe.height() < 300.0 {
-                        8.0
+                    if safe.height() < 300.0 {
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(128.0, 32.0),
+                            egui::Layout::top_down(egui::Align::Center),
+                            |ui| {
+                                ui.set_width(128.0);
+                                crate::skin::logo(ui);
+                            },
+                        );
+                        ui.add_space(4.0);
                     } else {
-                        20.0
-                    });
+                        crate::skin::logo(ui);
+                        ui.add_space(6.0);
+                        ui.label(
+                            egui::RichText::new("TERRES SAUVAGES · ATELIERS · AVENTURES")
+                                .size(10.0)
+                                .color(crate::skin::TEXT),
+                        );
+                        ui.add_space(if safe.height() > 400.0 { 42.0 } else { 20.0 });
+                    }
                 } else {
                     ui.label(
                         egui::RichText::new(title)
@@ -547,13 +553,20 @@ mod tests {
                         menu(ui.ctx(), "Voxel", 500.0, |ui| {
                             crate::skin::menu_button(ui, "Jouer");
                             crate::skin::menu_button(ui, "Nouveau monde");
+                            crate::skin::menu_button(ui, "Packs de textures…");
                             ui.add_space(10.0);
                             paired_buttons(ui, "Options…", "Quitter");
                         })
                     },
                 );
                 if frame > 0 {
-                    for label in ["Jouer", "Nouveau monde", "Options…", "Quitter"] {
+                    for label in [
+                        "Jouer",
+                        "Nouveau monde",
+                        "Packs de textures…",
+                        "Options…",
+                        "Quitter",
+                    ] {
                         assert!(
                             output.shapes.iter().any(|shape| match &shape.shape {
                                 egui::Shape::Text(t) =>

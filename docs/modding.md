@@ -1166,3 +1166,18 @@ jeu, puis le décomposer avec les briques ci-dessus :
 
 Le casseur du mod d'exemple suit ce schéma : il réagit à une impulsion (comme un distributeur),
 range son orientation et son état dans `data`, casse le bloc devant lui et donne l'objet.
+
+## Packs graphiques optionnels
+
+Le menu principal permet de choisir le pack classique 16 × 16 ou le pack 32 × 32
+fourni avec le jeu, avant l'ouverture d'un monde. La sélection est une préférence
+visuelle du joueur, indépendante des sauvegardes. Voir
+[`texture_packs/README.md`](../texture_packs/README.md).
+
+Un remplacement graphique réside dans
+`texture_packs/earth-copper-32/assets/<namespace>/textures/<nom>.png` ou
+`.../items/<nom>.png`. Les noms restent ceux des assets du mod ; aucun nouveau
+champ n'est requis dans `blocks.ron`. Les PNG absents reviennent aux images du mod.
+Le tableau de textures GPU utilise la résolution du pack choisi : une texture
+16 × 16 non remplacée est agrandie au plus proche voisin dans le pack 32.
+Le pack ne remplace pas les scripts, sons, recettes ou définitions de blocs.

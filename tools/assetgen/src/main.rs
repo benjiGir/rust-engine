@@ -7,6 +7,7 @@
 //! pour les modifier.
 
 mod sounds;
+mod texture_pack32;
 mod textures;
 
 use std::path::{Path, PathBuf};
@@ -18,14 +19,20 @@ fn main() -> Result<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let args: Vec<_> = std::env::args().skip(1).collect();
     anyhow::ensure!(
-        args.is_empty() || args == ["--textures-only"] || args == ["--sounds-only"],
-        "usage : cargo run -p assetgen -- [--textures-only|--sounds-only]"
+        args.is_empty()
+            || args == ["--textures-only"]
+            || args == ["--sounds-only"]
+            || args == ["--pack32-only"],
+        "usage : cargo run -p assetgen -- [--textures-only|--sounds-only|--pack32-only]"
     );
     let mut written: Vec<PathBuf> = Vec::new();
-    if args != ["--sounds-only"] {
+    if args != ["--sounds-only"] && args != ["--pack32-only"] {
         written.extend(textures::generate(&root)?);
     }
-    if args != ["--textures-only"] {
+    if args != ["--sounds-only"] {
+        written.extend(texture_pack32::generate(&root)?);
+    }
+    if args.is_empty() || args == ["--sounds-only"] {
         written.extend(sounds::generate(&root)?);
     }
     for path in &written {

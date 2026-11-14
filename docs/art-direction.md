@@ -115,6 +115,7 @@ Minecraft n'est intégré au jeu.
 
 ```sh
 cargo run -p assetgen -- --textures-only
+cargo run -p assetgen -- --pack32-only
 cargo run -p voxel --example skin_preview -- docs/images/skin-preview.png
 ```
 
@@ -125,6 +126,32 @@ Example, Mécanique, Entrepôt, Forge, Magie et Donjons, et reste déterministe.
 `textures/machines.rs` dessine circuits et machines ; `textures/mod_assets.rs`
 couvre notamment les runes, les pièces forgées et les blocs de crypte. Un test
 régénère et compare chaque PNG versionné du jeu et des six mods.
+
+Un [pack optionnel 32 × 32](../texture_packs/README.md) se choisit depuis le menu
+principal avant de lancer un monde. Il possède une direction plus travaillée que
+le classique : touffes d'herbe ombrées, terre avec racines et cailloux, éclats de
+roche, minerais facettés, fibres et nœuds dans les planches, écorces et cernes,
+bouquets de feuilles, maçonnerie du four et ferrures rivetées. Les outils, armures,
+fioles, livres et gemmes ont des silhouettes et des détails dessinés directement
+sur la grille 32 ; les autres petits accessoires conservent leurs repères avec
+une finition propre à leur matière. Les cultures gardent leurs types et stades.
+
+`texture_pack32.rs` orchestre les modules `texture_pack32/{terrain,wood,fixtures,
+items,detail,draw}.rs`. Les motifs principaux ne dépendent plus de l'arrangement
+des pixels du 16 × 16. Un contrôle à résolution commune 8 × 8 vérifie que leur
+composition diffère encore après suppression du grain fin. Les sols et feuillages
+se raccordent sur les deux axes, le côté enherbé horizontalement, sans cadre
+sombre autour des blocs. La palette conserve 32 niveaux par canal et la bouche
+du four conserve ses coordonnées UV (8..23, 16..27 en pixels 32).
+
+La moyenne linéaire de chaque dessin, pixels transparents exclus, est accordée
+à celle de sa source. Les 406 images sont contrôlées (écart inférieur à 0,02 par
+canal) afin de garder les couleurs de repli et du terrain lointain cohérentes,
+sans modifier les définitions de base. Les masques de végétation et d'équipement
+sont adaptés au nouveau dessin ; le rôle de l'alpha reste inchangé. Le profil
+d'affichage en main et l'épaisseur physique d'un seizième restent les mêmes.
+Les haches placent leur grande lame du côté avant du manche dans ce profil,
+comme les dessins classiques : le tranchant s'éloigne du joueur.
 
 ## Mobilier et machines
 

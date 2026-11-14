@@ -1,0 +1,6 @@
+Oriente le tranchant des haches 32 vers l'avant
+
+Replace la lame du bon côté du manche dans les sept dessins du pack 32,
+sans modifier la pose en main. Vérifie l'orientation à partir des modèles
+extrudés et des matrices de la main pour les deux packs. Ajoute les vues
+à la première personne avant et après la correction.

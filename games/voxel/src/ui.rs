@@ -206,6 +206,7 @@ impl GameUi {
     /// Les textures des blocs ont changé (rechargement) : on refera les icônes.
     pub fn clear_icons(&mut self) {
         self.icons.clear();
+        crate::texture_packs::clear_previews(&self.ctx);
     }
 
     /// L'icône d'un objet : la texture de côté de son bloc, ou son image à lui
@@ -249,6 +250,7 @@ impl GameUi {
                         .and_then(|path| crate::assets::load_png(&path).ok())
                         .unwrap_or_else(|| plain(def.color)),
                 };
+                let size = engine_render::texture_side(&pixels).unwrap_or(size as u32) as usize;
                 let image = egui::ColorImage::from_rgba_unmultiplied([size, size], &pixels);
                 // `NEAREST` : des pixels nets, le style pixel art.
                 ctx.load_texture(def.key.clone(), image, TextureOptions::NEAREST)
@@ -773,8 +775,8 @@ impl VoxelGame {
             Screen::Salvage => "Table de récupération".to_string(),
             Screen::Reforge => "Table de réforge".to_string(),
             Screen::Tiers => "Paliers du monde".to_string(),
-            Screen::Console => String::new(),
             Screen::Guide => "Guide du voyageur".to_string(),
+            Screen::Console => String::new(),
             Screen::Mod(_) => self
                 .ui
                 .mod_menu
@@ -824,8 +826,8 @@ impl VoxelGame {
                     Screen::Salvage => self.salvage_panel(ui),
                     Screen::Reforge => self.reforge_panel(ui),
                     Screen::Tiers => self.tiers_panel(ui),
-                    Screen::Mod(pos) => self.mod_panel(ui, pos),
                     Screen::Guide => self.guide_panel(ui),
+                    Screen::Mod(pos) => self.mod_panel(ui, pos),
                     Screen::Console => {}
                 }
                 if !matches!(self.ui.screen, Screen::Tiers | Screen::Guide) {

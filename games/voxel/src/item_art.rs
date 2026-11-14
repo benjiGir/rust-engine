@@ -49,9 +49,10 @@ pub fn block_icon(def: &BlockDef, textures: &[Vec<u8>]) -> Vec<u8> {
                     .checked_sub(1)
                     .and_then(|i| textures.get(i))
                     .map(|image| {
-                        let u = (uv[0].clamp(0.0, 0.999) * 16.0) as usize;
-                        let v = (uv[1].clamp(0.0, 0.999) * 16.0) as usize;
-                        let index = (u + v * 16) * 4;
+                        let side = engine_render::texture_side(image).unwrap_or(16) as usize;
+                        let u = (uv[0].clamp(0.0, 0.999) * side as f32) as usize;
+                        let v = (uv[1].clamp(0.0, 0.999) * side as f32) as usize;
+                        let index = (u + v * side) * 4;
                         [
                             image[index],
                             image[index + 1],
@@ -81,6 +82,39 @@ pub fn block_icon(def: &BlockDef, textures: &[Vec<u8>]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_32_pixel_texture_samples_all_four_quadrants_instead_of_cropping_it() {
+        let mut def = engine_voxel::BlockRegistry::builtin()
+            .def(
+                engine_voxel::BlockRegistry::builtin()
+                    .id("core:stone")
+                    .unwrap(),
+            )
+            .clone();
+        def.face_textures = [1; 3];
+        let mut texture = Vec::new();
+        for y in 0..32 {
+            for x in 0..32 {
+                texture.extend(match (x >= 16, y >= 16) {
+                    (false, false) => [255, 0, 0, 255],
+                    (true, false) => [0, 255, 0, 255],
+                    (false, true) => [0, 0, 255, 255],
+                    _ => [255, 255, 0, 255],
+                });
+            }
+        }
+        let image = block_icon(&def, &[texture]);
+        for channel in 0..3 {
+            assert!(
+                image
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|p| p[channel] > 100 && p[(channel + 1) % 3] == 0)
+            );
+        }
+    }
 
     #[test]
     fn thumbnails_show_the_top_and_sides_on_a_transparent_background() {
