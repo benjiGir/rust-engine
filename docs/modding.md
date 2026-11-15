@@ -43,6 +43,7 @@ mods/example/
 ├── items.ron          # ses objets (facultatif)
 ├── machine_recipes.ron # les recettes de ses machines (facultatif)
 ├── rarities.ron, affixes.ron, gems.ron, tiers.ron, elites.ron   # l'aventure : raretés, affixes, gemmes, paliers, élites (facultatifs)
+├── guide.ron, quests.ron                                       # le Guide du voyageur et le livre de quêtes : ses chapitres (facultatifs)
 ├── enchantments.ron, charms.ron                                # l'enchantement avancé : enchantements et charmes de potion (facultatifs)
 ├── textures/          # PNG 16×16, nommés comme dans blocks.ron
 ├── sounds/            # WAV (ou OGG Vorbis) ; variantes nom_1.wav, nom_2.wav…
@@ -1105,6 +1106,70 @@ y ajoute ses chapitres avec un `guide.ron`, lus après ceux du jeu (voir `assets
 - Un clic sur un objet d'une page ouvre ses recettes dans l'explorateur.
 - `{touche:action}` affiche la touche choisie par le joueur (`inventory`, `drop`, `backpack`, `tiers`,
   `sprint`, `jump`, `fly`…).
+
+## Le livre de quêtes
+
+Un mod y ajoute un chapitre avec un `quests.ron`, lu après celui du jeu (`assets/core/quests.ron`).
+Le livre dit **quoi viser, pas comment** : chaque quête demande d'avoir ou de faire quelque chose, avec
+un court texte qui donne une piste. Rien ne se joue sans le fichier : un mod sans `quests.ron` n'a pas
+de chapitre.
+
+```ron
+(
+    // `settings` n'existe que dans le fichier de core.
+    groups: [(id: "mon_mod:groupe", title: "Mon groupe", icon: "broyeur")],
+    // Des tables de tirage, pour les récompenses `Loot` : `rolls` tirages, un choix par poids.
+    loot: { "gouter": (rolls: (1, 2), entries: [(item: "core:bread", count: (1, 2), weight: 3), (item: "core:apple")]) },
+    chapters: [(
+        id: "mon_mod:broyage",
+        group: "core:mods",                    // le groupe d'un autre espace de noms est permis
+        title: "Broyer",
+        icon: "broyeur",
+        progression: Flexible,                 // facultatif : Flexible ou Linear pour tout le chapitre
+        quests: [
+            (
+                id: "mon_mod:broyage/broyeur",
+                title: "Un broyeur",
+                subtitle: "Pour commencer",    // facultatif
+                text: "Une phrase ou deux. {touche:inventory} devient la touche choisie.",
+                x: 0.0, y: 0.0, shape: Hexagon, size: 2.0,   // le plan : une case de grille chacune
+                after: ["core:first_steps/pickaxe"],        // dépendances (autre espace permis)
+                requires: All,                              // All (défaut) ou One
+                tasks: [Item(item: "broyeur")],
+                rewards: [Item(item: "core:bread", count: 2), Xp(10), Loot("gouter")],
+                guide: "mon_mod:machines",                  // un chapitre du guide (facultatif)
+            ),
+        ],
+    )],
+)
+```
+
+- **Identifiants** : `espace:nom` ; un mod n'ajoute que des groupes, chapitres et quêtes de son espace
+  de noms. Un objet, bloc, créature, biome, dimension ou structure sans espace de noms prend celui du
+  mod. `#logs` désigne un groupe d'objets de `items.ron`.
+- **Une quête** : `id`, `title`, `subtitle`, `text`, `x`, `y`, `shape` (`Circle`, `Square`, `RoundSquare`,
+  `Hexagon`, `Diamond`, `Pentagon`), `size`, `icon` (par défaut l'objet de la première tâche), `after`,
+  `requires`, `optional` (ne compte pas dans le pourcentage du chapitre), `hidden` (cachée tant que ses
+  dépendances ne sont pas finies), `secret` (cachée jusqu'à ce qu'elle soit finie), `progression`,
+  `tasks`, `rewards`, `autoclaim` (récompenses données dès la fin, sauf s'il y a un choix), `guide`.
+- **Progression** : `Flexible` (défaut) : les compteurs avancent toujours, la quête se termine quand ses
+  dépendances le sont ; `Linear` : rien n'avance tant que les dépendances ne sont pas finies. Elle se règle
+  par quête, par chapitre, ou dans `settings` du fichier de core.
+- **Tâches** : `Item(item, count, consume, crafted)` (avoir `count` objets sur soi ; `consume: true` : on
+  les remet à la main ; `crafted: true` : seuls comptent ceux qu'on fabrique), `Check` (une case à
+  cocher), `Break(block, count)`, `Place(block, count)`, `Kill(creature, count)` (sans `creature` :
+  n'importe quelle hostile, tuée à moins de 16 blocs du joueur), `Dimension(id)`, `Biome(id)`,
+  `Structure(id)`, `Depth(y)` (descendre sous cette hauteur), `Level(n)`, `Tier(n)`. Un compteur ne
+  redescend jamais : jeter l'objet ensuite ne défait rien.
+- **Récompenses** : `Item(item, count)`, `Xp(points)`, `Loot("table")`, `Choice([(item: ..., count: ...), ...])`
+  (le joueur choisit un objet). Elles se récupèrent à la main et ne sont données **qu'une fois**.
+- **Vérifications au chargement** (une erreur claire, comme pour `guide.ron`) : objet, groupe d'objets, bloc,
+  créature, biome, dimension, structure, palier, table de tirage ou chapitre du guide inconnus ;
+  identifiants en double ou hors de l'espace de noms ; dépendance inconnue ou en boucle ; chapitre
+  vide ; quête sans tâche. Une dépendance vers un mod **absent** (désactivé) est ignorée avec un
+  avertissement dans le journal. Un `quests.ron` de mod invalide est laissé de côté sans empêcher de jouer.
+- **La progression** est dans `quests.ron` à la racine du monde. Les identifiants inconnus (un mod
+  retiré) y sont conservés : la progression revient avec le mod.
 
 ## Les dimensions
 

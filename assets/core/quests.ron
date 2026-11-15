@@ -1,0 +1,109 @@
+// Le livre de quêtes : un fil conducteur qui dit quoi viser, pas comment (voir
+// games/voxel/src/quests.rs et docs/modding.md pour le format complet).
+//
+// - settings : la progression (Flexible ou Linear) et la forme (Circle, Square, RoundSquare,
+//   Hexagon, Diamond, Pentagon) par défaut. Seulement ici, dans le fichier de core.
+// - groups : les groupes de chapitres, dans l'ordre. Un mod peut y ranger ses chapitres.
+// - chapters : un chapitre a des quêtes, placées sur un plan (x vers la droite, y vers le bas, une
+//   case de grille chacune). `after` : les quêtes à finir d'abord ; `size` : 1 par défaut.
+// - tasks : Item (avoir, `#groupe` accepté), Check (case à cocher), Break, Place, Kill, Dimension,
+//   Biome, Structure, Depth, Level, Tier.
+// - rewards : Item, Xp, Loot (une table de `loot` de ce fichier), Choice (un objet au choix).
+//   Les récompenses se récupèrent à la main, et ne sont données qu'une fois.
+// - Dans `text`, `{touche:inventory}` devient la touche choisie dans les options.
+(
+    settings: (progression: Flexible, shape: Circle),
+    groups: [
+        (id: "core:basics", title: "Les bases", icon: "workbench"),
+        (id: "core:adventure", title: "Aventure", icon: "iron_sword"),
+        (id: "core:mods", title: "Mods", icon: "guide"),
+    ],
+    chapters: [
+        (
+            id: "core:first_steps",
+            group: "core:basics",
+            title: "Premiers pas",
+            icon: "oak_log",
+            quests: [
+                (
+                    id: "core:first_steps/log",
+                    title: "Un arbre, enfin",
+                    subtitle: "Tout commence par du bois",
+                    text: "Frappe un tronc en gardant le clic gauche enfoncé : une bûche vaut mieux que mille idées.",
+                    x: 0.0, y: 0.0, shape: Hexagon, size: 2.0,
+                    tasks: [Item(item: "#logs", count: 1)],
+                    rewards: [Item(item: "bread", count: 2), Xp(5)],
+                ),
+                (
+                    id: "core:first_steps/planks",
+                    title: "Des planches",
+                    text: "Dans la petite grille 2 × 2 de ton inventaire ({touche:inventory}), une bûche donne quatre planches.",
+                    x: 2.5, y: 0.0,
+                    after: ["core:first_steps/log"],
+                    tasks: [Item(item: "#planks", count: 4)],
+                    rewards: [Xp(5)],
+                    guide: "core:wood_and_crafting",
+                ),
+                (
+                    id: "core:first_steps/workbench",
+                    title: "Un plan de travail",
+                    text: "Quatre planches en carré font un établi. Pose-le au sol : un clic droit ouvre sa grille 3 × 3, où se fabrique la plupart des objets.",
+                    x: 4.5, y: 0.0, shape: Square,
+                    after: ["core:first_steps/planks"],
+                    tasks: [Item(item: "workbench")],
+                    rewards: [Item(item: "torch", count: 4), Xp(5)],
+                    guide: "core:wood_and_crafting",
+                ),
+                (
+                    id: "core:first_steps/pickaxe",
+                    title: "De quoi creuser",
+                    text: "Sur l'établi : trois planches en rangée, et deux bâtons l'un sous l'autre au milieu. Deux planches l'une sur l'autre donnent des bâtons.",
+                    x: 6.5, y: 0.0, shape: RoundSquare,
+                    after: ["core:first_steps/workbench"],
+                    tasks: [Item(item: "wooden_pickaxe")],
+                    rewards: [Item(item: "bread", count: 2), Xp(10)],
+                    guide: "core:tools",
+                ),
+                (
+                    id: "core:first_steps/read_guide",
+                    title: "Lire le guide",
+                    subtitle: "Un clic droit, un livre",
+                    text: "Le Guide du voyageur explique les bases, chapitre par chapitre. Ouvre-le d'un clic droit, feuillette-le, puis coche cette case.",
+                    x: 0.0, y: 2.5, shape: Diamond,
+                    tasks: [Check],
+                    rewards: [Xp(5)],
+                    guide: "core:first_steps",
+                ),
+                (
+                    id: "core:first_steps/torch",
+                    title: "Chasser le noir",
+                    text: "Une torche se fabrique avec du charbon (ou du charbon de bois) et un bâton : quatre torches d'un coup. Pose-en une d'un clic droit sur un bloc.",
+                    x: 4.5, y: 2.5,
+                    after: ["core:first_steps/read_guide"],
+                    tasks: [Place(block: "torch", count: 1)],
+                    rewards: [Xp(5)],
+                    guide: "core:light_and_furnace",
+                ),
+                (
+                    id: "core:first_steps/stone",
+                    title: "Sous l'herbe",
+                    text: "Sous l'herbe, la pierre. Avec une pioche en bois elle lâche des moellons : casses-en cinq blocs.",
+                    x: 6.5, y: 2.5, shape: Pentagon,
+                    after: ["core:first_steps/pickaxe"],
+                    tasks: [Break(block: "stone", count: 5)],
+                    rewards: [Item(item: "cobblestone", count: 8), Xp(10)],
+                ),
+                (
+                    id: "core:first_steps/fight",
+                    title: "Premier combat",
+                    text: "Une créature hostile te poursuit et te blesse : frappe-la avant qu'elle ne te vienne dessus. Elle donne de l'expérience.",
+                    x: 8.5, y: 1.25, size: 1.5, shape: Hexagon,
+                    after: ["core:first_steps/pickaxe", "core:first_steps/torch"],
+                    tasks: [Kill(count: 1)],
+                    rewards: [Item(item: "bread", count: 3), Xp(10)],
+                    guide: "core:adventure",
+                ),
+            ],
+        ),
+    ],
+)

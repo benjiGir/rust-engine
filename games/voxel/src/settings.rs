@@ -34,10 +34,12 @@ pub enum Action {
     Backpack,
     /// L'écran des paliers du monde.
     Tiers,
+    /// Le livre de quêtes.
+    Quests,
 }
 
 impl Action {
-    pub const ALL: [Action; 13] = [
+    pub const ALL: [Action; 14] = [
         Action::Forward,
         Action::Back,
         Action::Left,
@@ -51,6 +53,7 @@ impl Action {
         Action::Time,
         Action::Backpack,
         Action::Tiers,
+        Action::Quests,
     ];
 
     pub fn label(self) -> &'static str {
@@ -68,6 +71,7 @@ impl Action {
             Self::Time => "Vitesse du temps",
             Self::Backpack => "Ouvrir le sac à dos",
             Self::Tiers => "Paliers du monde",
+            Self::Quests => "Livre de quêtes",
         }
     }
 }
@@ -90,6 +94,8 @@ pub struct Keys {
     pub backpack: String,
     /// L'écran des paliers du monde (absent d'un ancien `settings.ron` : la touche par défaut).
     pub tiers: String,
+    /// Le livre de quêtes (absent d'un ancien `settings.ron` : la touche par défaut).
+    pub quests: String,
 }
 
 impl Default for Keys {
@@ -109,6 +115,7 @@ impl Default for Keys {
             time: "KeyT".into(),
             backpack: "KeyB".into(),
             tiers: "KeyJ".into(),
+            quests: "KeyL".into(),
         }
     }
 }
@@ -129,6 +136,7 @@ impl Keys {
             Action::Time => &mut self.time,
             Action::Backpack => &mut self.backpack,
             Action::Tiers => &mut self.tiers,
+            Action::Quests => &mut self.quests,
         }
     }
 
@@ -147,6 +155,7 @@ impl Keys {
             Action::Time => &self.time,
             Action::Backpack => &self.backpack,
             Action::Tiers => &self.tiers,
+            Action::Quests => &self.quests,
         }
     }
 
@@ -326,6 +335,7 @@ mod tests {
         );
         assert_eq!(loaded.keys.key(Action::Backpack), KeyCode::KeyB);
         assert_eq!(loaded.keys.key(Action::Tiers), KeyCode::KeyJ);
+        assert_eq!(loaded.keys.key(Action::Quests), KeyCode::KeyL);
         assert_eq!(loaded.fov, 80.0);
         assert!(!loaded.show_arm);
     }
@@ -338,6 +348,7 @@ mod tests {
         assert_eq!(loaded.keys.key(Action::Inventory), KeyCode::KeyI);
         assert_eq!(loaded.keys.key(Action::Backpack), KeyCode::KeyB);
         assert_eq!(loaded.keys.key(Action::Tiers), KeyCode::KeyJ);
+        assert_eq!(loaded.keys.key(Action::Quests), KeyCode::KeyL);
         assert!(loaded.chest_preview);
     }
 

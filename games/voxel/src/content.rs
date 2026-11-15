@@ -30,7 +30,7 @@ pub struct Content {
 }
 
 /// Les fichiers `name` de core puis des mods, avec leur espace de noms.
-fn sources(
+pub(crate) fn sources(
     assets: &Path,
     mods: &[(String, PathBuf)],
     name: &str,

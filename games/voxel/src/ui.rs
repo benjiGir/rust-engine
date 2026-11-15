@@ -706,11 +706,16 @@ impl VoxelGame {
                     let (item, count) = r.result();
                     ItemStack::new(item, count)
                 });
-                if self.stack_widget(ui, result, recipe.is_some()) == Some(Press::Primary)
+                let clicked =
+                    self.stack_widget(ui, result, recipe.is_some()) == Some(Press::Primary);
+                if clicked
                     && let Some(recipe) = &recipe
+                    && self
+                        .inventory
+                        .take_craft_result(recipe, size, &self.content.items)
                 {
-                    self.inventory
-                        .take_craft_result(recipe, size, &self.content.items);
+                    let (item, count) = recipe.result();
+                    self.quest_book.note_crafted(item, count);
                 }
             }
         });
@@ -737,10 +742,16 @@ impl VoxelGame {
                 for recipe in craftable {
                     let (item, count) = recipe.result();
                     ui.horizontal(|ui| {
-                        if self.stack_widget(ui, Some(ItemStack::new(item, count)), false)
-                            == Some(Press::Primary)
+                        let clicked =
+                            self.stack_widget(ui, Some(ItemStack::new(item, count)), false)
+                                == Some(Press::Primary);
+                        if clicked
+                            && self
+                                .inventory
+                                .craft_from_book(&recipe, &self.content.items)
+                                .is_some()
                         {
-                            self.inventory.craft_from_book(&recipe, &self.content.items);
+                            self.quest_book.note_crafted(item, count);
                         }
                         let names: Vec<String> = recipe
                             .ingredients()

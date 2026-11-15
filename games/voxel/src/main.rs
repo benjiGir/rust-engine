@@ -106,6 +106,10 @@ mod player;
 mod player_api;
 mod potions;
 mod projectiles;
+mod quest_ctl;
+mod quest_play;
+mod quest_progress;
+mod quests;
 mod recipe_browser;
 mod screenshots;
 mod settings;
@@ -288,6 +292,7 @@ struct VoxelGame {
     dims: dimensions::Dimensions,
     /// Le contenu des sacs à dos du monde (voir `backpacks.rs`).
     backpacks: backpacks::BackpackStore,
+    quest_book: quest_play::QuestBook,
     /// Les attributs du joueur, calculés depuis son équipement (voir `gear.rs`).
     gear: gear::Gear,
     last_autosave: Instant,
@@ -789,6 +794,7 @@ impl VoxelGame {
             backpacks: dims.meta_store.as_ref().map_or_else(Default::default, |s| {
                 backpacks::BackpackStore::load(s.dir())
             }),
+            quest_book: Default::default(),
             gear: gear::Gear::new(attributes::load_base(&assets)),
             dims,
             last_autosave: Instant::now(),
@@ -853,6 +859,7 @@ impl VoxelGame {
         self.refresh_gear(ctx.fixed_dt);
         self.pick_up_drops(ctx.fixed_dt);
         self.update_backpacks(ctx.fixed_dt);
+        self.update_quests(ctx.fixed_dt);
         let (actions, machine_tick) = self.mods.fixed_step(eye);
         self.apply_machine_actions(actions);
         let snapshot = self.player_snapshot();

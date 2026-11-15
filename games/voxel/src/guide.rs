@@ -139,6 +139,7 @@ fn action_of(name: &str) -> Option<Action> {
         "time" => Action::Time,
         "backpack" => Action::Backpack,
         "tiers" => Action::Tiers,
+        "quests" => Action::Quests,
         _ => return None,
     })
 }
@@ -269,6 +270,7 @@ mod tests {
             engine_core::winit::keyboard::KeyCode::KeyI,
         );
         assert_eq!(expand_keys("{touche:inventory}", &keys), "[I]");
+        assert_eq!(expand_keys("{touche:quests}", &keys), "[L]");
         assert_eq!(expand_keys("{touche:sprint}", &keys), "[Ctrl gauche]");
         assert_eq!(
             expand_keys("{touche:licorne} {touche:", &keys),
