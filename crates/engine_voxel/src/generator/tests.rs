@@ -231,6 +231,8 @@ fn ores_appear_at_their_depths() {
         "core:copper_ore",
         "core:gold_ore",
         "core:sapphire_ore",
+        // Pas un minerai, mais des poches profondes : la seule source de pierre lumineuse.
+        "core:glowstone",
     ] {
         assert!(
             found.get(&id(&generator, key)).is_some_and(|&n| n > 0),

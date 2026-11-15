@@ -17,4 +17,8 @@
     (block: "malachite_ore", height: (5, 40), size: 6, per_chunk: 1.5),
     (block: "sapphire_ore", height: (2, 16), size: 5, per_chunk: 3.0),
     (block: "jade_ore", height: (60, 180), size: 2, per_chunk: 3.0, biomes: ["mountains", "snowy_peaks"]),
+    // La pierre lumineuse : des poches profondes, qui éclairent les grottes qu'elles touchent.
+    // À la fin de la liste : chaque minerai tire ses filons avec son numéro, et un ajout ici ne
+    // déplace pas ceux des mondes existants.
+    (block: "glowstone", height: (2, 28), size: 5, per_chunk: 2.0),
 ]

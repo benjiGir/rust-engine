@@ -456,6 +456,17 @@
                     guide: "core:ores",
                 ),
                 (
+                    id: "core:depths/glowstone",
+                    title: "Une lueur sous la roche",
+                    text: "Sous la hauteur 28, des poches de pierre lumineuse éclairent parfois les grottes. Elle se casse vite, même à la main. Entourée de quatre poudres de cinabre, elle fait une lampe pour les circuits.",
+                    x: 6.0, y: 5.0, shape: Diamond,
+                    optional: true,
+                    after: ["core:depths/cinnabar"],
+                    tasks: [Item(item: "glowstone", count: 1)],
+                    rewards: [Xp(10)],
+                    guide: "core:ores",
+                ),
+                (
                     id: "core:depths/sapphire",
                     title: "Un saphir",
                     subtitle: "Le plus rare",

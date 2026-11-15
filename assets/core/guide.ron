@@ -89,7 +89,7 @@
             pages: [
                 (
                     title: "Où creuser",
-                    text: "La mer est à la hauteur 62. Les minerais se trouvent à des hauteurs différentes :\n\n• charbon : de 40 à 180, partout ;\n• cuivre : de 30 à 100 ;\n• fer : de 5 à 90 ;\n• or : de 2 à 36 ;\n• cinabre : de 2 à 20 (donne de la poudre de cinabre) ;\n• saphir : de 2 à 16, le plus rare ;\n• jade : de 60 à 180, seulement dans les montagnes.\n\nPlus on descend, plus c'est sombre et dangereux : emporte des torches et de quoi manger.",
+                    text: "La mer est à la hauteur 62. Les minerais se trouvent à des hauteurs différentes :\n\n• charbon : de 40 à 180, partout ;\n• cuivre : de 30 à 100 ;\n• fer : de 5 à 90 ;\n• or : de 2 à 36 ;\n• cinabre : de 2 à 20 (donne de la poudre de cinabre) ;\n• saphir : de 2 à 16, le plus rare ;\n• jade : de 60 à 180, seulement dans les montagnes ;\n• pierre lumineuse : de 2 à 28, en poches qui éclairent les grottes (elle se casse à la main).\n\nPlus on descend, plus c'est sombre et dangereux : emporte des torches et de quoi manger.",
                     items: ["coal", "raw_copper", "raw_iron", "raw_gold", "cinnabar_dust", "sapphire", "jade"],
                 ),
                 (
