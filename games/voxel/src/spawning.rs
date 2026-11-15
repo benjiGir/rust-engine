@@ -34,6 +34,8 @@ pub const SIM_DISTANCE: f32 = 48.0;
 /// Les limites, dans la zone de simulation.
 pub const HOSTILE_CAP: usize = 16;
 pub const PASSIVE_CAP: usize = 10;
+/// Les bancs de poissons ne prennent pas la place des animaux terrestres.
+pub const AQUATIC_CAP: usize = 12;
 /// L'anneau où elles apparaissent autour du joueur (ni sous son nez, ni trop loin).
 const SPAWN_MIN: f32 = 16.0;
 const SPAWN_MAX: f32 = 44.0;
@@ -95,6 +97,7 @@ pub struct Spot<'a> {
     pub light: u8,
     pub night: bool,
     pub biome: &'a str,
+    pub in_water: bool,
 }
 
 /// Cette créature peut-elle apparaître ici ?
@@ -115,8 +118,11 @@ pub fn choose(registry: &MobRegistry, hostile: bool, spot: &Spot, roll: f32) -> 
     let candidates: Vec<(u32, u32)> = (0..registry.len() as u32)
         .filter_map(|kind| {
             let def = registry.get(kind)?;
-            (def.hostile == hostile && def.spawn.weight > 0 && allowed(&def.spawn, spot))
-                .then_some((kind, def.spawn.weight))
+            (def.hostile == hostile
+                && def.aquatic == spot.in_water
+                && def.spawn.weight > 0
+                && allowed(&def.spawn, spot))
+            .then_some((kind, def.spawn.weight))
         })
         .collect();
     let total: u32 = candidates.iter().map(|(_, w)| w).sum();
@@ -133,9 +139,9 @@ pub fn choose(registry: &MobRegistry, hostile: bool, spot: &Spot, roll: f32) -> 
     None
 }
 
-/// Les créatures de la zone de simulation : (hostiles, autres).
-fn census(world: &World, center: Vec3, registry: &MobRegistry) -> (usize, usize) {
-    let mut counts = (0, 0);
+/// Les créatures de la zone de simulation : (hostiles, terrestres passives, aquatiques).
+fn census(world: &World, center: Vec3, registry: &MobRegistry) -> (usize, usize, usize) {
+    let mut counts = (0, 0, 0);
     world
         .query::<(&Transform, &Mob)>()
         .for_each(|_, (transform, mob)| {
@@ -146,6 +152,7 @@ fn census(world: &World, center: Vec3, registry: &MobRegistry) -> (usize, usize)
                 Some(def) if def.hostile => counts.0 += 1,
                 // Un poids nul : un habitant, qui n'apparaît pas seul et ne compte pas.
                 Some(def) if def.spawn.weight == 0 => {}
+                Some(def) if def.aquatic => counts.2 += 1,
                 _ => counts.1 += 1,
             }
         });
@@ -183,14 +190,18 @@ pub fn spawn(world: &mut World) {
     };
     let registry = world.resource::<Arc<MobRegistry>>().clone();
     let sky = *world.resource::<Sky>();
-    let (mut hostiles, mut passives) = census(world, center, &registry);
+    let (mut hostiles, mut passives, mut aquatics) = census(world, center, &registry);
     for _ in 0..ATTEMPTS {
         let [r_kind, r_angle, r_dist, r_cave, r_y, r_pick, r_group] = {
             let mut rng = world.resource_mut::<GameRng>();
             std::array::from_fn(|_| rng.next_f32())
         };
         let hostile = world.resource::<Difficulty>().0 > 0 && r_kind < 0.5;
-        if (hostile && hostiles >= HOSTILE_CAP) || (!hostile && passives >= PASSIVE_CAP) {
+        let aquatic = !hostile && r_cave < 0.35;
+        if (hostile && hostiles >= HOSTILE_CAP)
+            || (aquatic && aquatics >= AQUATIC_CAP)
+            || (!hostile && !aquatic && passives >= PASSIVE_CAP)
+        {
             continue;
         }
         let angle = r_angle * std::f32::consts::TAU;
@@ -199,7 +210,12 @@ pub fn spawn(world: &mut World) {
         let z = (center.z + angle.sin() * distance).floor() as i32;
         // La moitié des essais en surface, l'autre à une hauteur proche de celle du
         // joueur (les grottes quand il est sous terre).
-        let start_y = if r_cave < 0.5 {
+        let land_height_roll = if hostile {
+            r_cave
+        } else {
+            (r_cave - 0.35) / 0.65
+        };
+        let start_y = if land_height_roll < 0.5 {
             None
         } else {
             Some(center.y.floor() as i32 + (r_y * 32.0) as i32 - 16)
@@ -210,22 +226,45 @@ pub fn spawn(world: &mut World) {
             let generator = streamer.generator();
             let column = generator.column(x, z);
             let voxels = streamer.world();
-            let floor = match start_y {
-                None => Some(IVec3::new(x, column.height, z)),
-                Some(y) => (0..12)
-                    .map(|dy| IVec3::new(x, y - dy, z))
-                    .find(|p| standable(voxels, &registry, *p)),
-            }
-            .filter(|p| standable(voxels, &registry, *p))
-            .filter(|p| streamer.is_lit(engine_voxel::World::split(*p).0));
+            let floor = if aquatic {
+                let top = center.y.floor() as i32 + 16;
+                let wet: Vec<_> = (0..64)
+                    .map(|dy| IVec3::new(x, top - dy, z))
+                    .filter(|p| streamer.is_lit(engine_voxel::World::split(*p).0))
+                    .filter(|p| {
+                        crate::aquatic::fits(
+                            voxels,
+                            p.as_vec3() + Vec3::new(0.5, 0.15, 0.5),
+                            0.1,
+                            0.1,
+                        )
+                    })
+                    .collect();
+                if wet.is_empty() {
+                    None
+                } else {
+                    wet.get((r_y * wet.len() as f32) as usize).copied()
+                }
+            } else {
+                match start_y {
+                    None => Some(IVec3::new(x, column.height, z)),
+                    Some(y) => (0..12)
+                        .map(|dy| IVec3::new(x, y - dy, z))
+                        .find(|p| standable(voxels, &registry, *p)),
+                }
+                .filter(|p| standable(voxels, &registry, *p))
+                .filter(|p| streamer.is_lit(engine_voxel::World::split(*p).0))
+            };
             floor.and_then(|floor| {
-                let (sky_light, block_light) = voxels.light(floor + IVec3::Y);
+                let (sky_light, block_light) =
+                    voxels.light(if aquatic { floor } else { floor + IVec3::Y });
                 let biome = &generator.biome(column.biome).key;
                 let spot = Spot {
                     floor: voxels.block(floor),
                     light: effective_light(sky_light, block_light, sky.daylight),
                     night: sky.night,
                     biome,
+                    in_water: aquatic,
                 };
                 choose(&registry, hostile, &spot, r_pick).map(|kind| (kind, floor))
             })
@@ -234,26 +273,42 @@ pub fn spawn(world: &mut World) {
         let (min, max) = registry.get(kind).map_or((1, 1), |d| d.spawn.group);
         let count = min + ((max.saturating_sub(min) + 1) as f32 * r_group) as u32;
         for i in 0..count.min(max.max(1)) {
+            if (hostile && hostiles >= HOSTILE_CAP)
+                || (aquatic && aquatics >= AQUATIC_CAP)
+                || (!hostile && !aquatic && passives >= PASSIVE_CAP)
+            {
+                break;
+            }
             // Le groupe autour du premier, sur le même sol.
             let offset = IVec3::new((i % 3) as i32 - 1, 0, (i / 3) as i32 - 1);
             let at = if i == 0 { floor } else { floor + offset };
-            let ok = i == 0 || {
+            let position = Vec3::new(
+                at.x as f32 + 0.5,
+                at.y as f32 + if aquatic { 0.15 } else { 1.0 },
+                at.z as f32 + 0.5,
+            );
+            let ok = if aquatic {
                 let shared = world.streamer();
                 let streamer = shared.borrow();
-                standable(streamer.world(), &registry, at)
+                let def = registry.get(kind).unwrap();
+                crate::aquatic::fits(streamer.world(), position, def.width, def.height)
+            } else {
+                i == 0 || {
+                    let shared = world.streamer();
+                    let streamer = shared.borrow();
+                    standable(streamer.world(), &registry, at)
+                }
             };
             if ok {
-                let spawned = mobs::spawn_mob(
-                    world,
-                    kind,
-                    Vec3::new(at.x as f32 + 0.5, at.y as f32 + 1.0, at.z as f32 + 0.5),
-                );
+                let spawned = mobs::spawn_mob(world, kind, position);
                 // Une part des hostiles naît élite, selon le palier du monde (voir `elites.rs`).
                 if let Some(entity) = spawned.filter(|_| hostile) {
                     crate::elites::maybe_promote(world, entity);
                 }
                 if hostile {
                     hostiles += 1;
+                } else if aquatic {
+                    aquatics += 1;
                 } else {
                     passives += 1;
                 }
@@ -347,6 +402,7 @@ mod tests {
             light,
             night,
             biome,
+            in_water: false,
         }
     }
 
@@ -413,5 +469,76 @@ mod tests {
         assert_eq!(choose(&registry, true, &here, 0.5), None, "aucune hostile");
         let night = Spot { light: 2, ..here };
         assert_eq!(choose(&registry, false, &night, 0.5), None, "trop sombre");
+    }
+
+    #[test]
+    fn fish_are_chosen_only_in_water_and_land_animals_keep_their_daylight_rules() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let blocks = crate::test_registry();
+        let registry = MobRegistry::load(&root.join("assets"), &[], &blocks).unwrap();
+        let wet = Spot {
+            floor: blocks.id("core:water").unwrap(),
+            light: 2,
+            night: true,
+            biome: "core:river",
+            in_water: true,
+        };
+        for i in 0..100 {
+            let kind = choose(&registry, false, &wet, i as f32 / 100.0).unwrap();
+            assert_eq!(registry.get(kind).unwrap().key, "core:fish");
+        }
+        assert!(
+            choose(
+                &registry,
+                false,
+                &Spot {
+                    in_water: false,
+                    ..wet
+                },
+                0.0
+            )
+            .is_none()
+        );
+        assert!(
+            choose(
+                &registry,
+                false,
+                &Spot {
+                    floor: blocks.id("core:lava").unwrap(),
+                    ..wet
+                },
+                0.0
+            )
+            .is_none()
+        );
+        let land = Spot {
+            floor: blocks.id("core:grass").unwrap(),
+            light: 15,
+            night: false,
+            biome: "core:plains",
+            in_water: false,
+        };
+        let mut kinds = std::collections::HashSet::new();
+        for i in 0..100 {
+            let def = registry
+                .get(choose(&registry, false, &land, i as f32 / 100.0).unwrap())
+                .unwrap();
+            assert!(!def.aquatic);
+            kinds.insert(def.key.as_str());
+        }
+        assert!(kinds.contains("core:sheep") && kinds.contains("core:chicken"));
+        assert!(
+            choose(
+                &registry,
+                false,
+                &Spot {
+                    light: 2,
+                    night: true,
+                    ..land
+                },
+                0.0
+            )
+            .is_none()
+        );
     }
 }

@@ -38,6 +38,7 @@ mod adventure;
 mod adventure_ctl;
 mod adventure_data;
 mod affixes;
+mod aquatic;
 mod assets;
 mod attributes;
 mod attributes_ui;
@@ -95,6 +96,7 @@ mod item_data;
 mod item_models;
 mod menus;
 mod mob_brains;
+mod mob_model;
 mod mobs;
 mod mod_menu;
 mod modding;
@@ -108,6 +110,7 @@ mod recipe_browser;
 mod screenshots;
 mod settings;
 mod shared;
+mod sheep_colors;
 mod ships;
 mod skin;
 mod soundscape;
@@ -349,11 +352,12 @@ impl VoxelGame {
         let mod_dirs = modding::mod_dirs(&mod_order);
         let mut registry = load_registry(&mod_dirs)?;
         texture_packs::configure(&mut registry, settings.texture_pack, &project_root());
+        let mut mob_registry =
+            MobRegistry::load(&assets, &mod_dirs, &registry).context("chargement des créatures")?;
+        mob_registry.bind_textures(&mut registry);
         let registry = Arc::new(registry);
         let block_textures = assets::load_textures(&registry);
         renderer.set_block_textures(&block_textures);
-        let mob_registry =
-            MobRegistry::load(&assets, &mod_dirs, &registry).context("chargement des créatures")?;
         let content = content::Content::load(&registry, &assets, &mod_dirs)
             .context("chargement des objets")?;
         let trades =
@@ -1439,6 +1443,9 @@ impl VoxelGame {
                         self.settings.texture_pack,
                         &project_root(),
                     );
+                    let mut creatures = self.ecs.resource::<Arc<MobRegistry>>().as_ref().clone();
+                    creatures.bind_textures(&mut fresh);
+                    self.ecs.insert_resource(Arc::new(creatures));
                     self.registry = Arc::new(fresh);
                     let registry = self.registry.clone();
                     self.streamer_mut().replace_registry(registry);

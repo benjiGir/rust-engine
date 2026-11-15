@@ -47,6 +47,23 @@ fn main() -> Result<()> {
         ("entrepot", "textures", "vault_side"),
         ("forge", "textures", "anvil_top"),
     ];
+    let names: Vec<_> = if std::env::args().nth(2).as_deref() == Some("--fauna") {
+        [
+            "wool",
+            "feather",
+            "raw_mutton",
+            "cooked_mutton",
+            "raw_chicken",
+            "cooked_chicken",
+            "raw_fish",
+            "cooked_fish",
+        ]
+        .into_iter()
+        .map(|name| ("core", "items", name))
+        .collect()
+    } else {
+        names.to_vec()
+    };
     let mut pairs = Vec::new();
     for (namespace, kind, name) in names {
         let original = if namespace == "core" {
@@ -75,7 +92,7 @@ fn main() -> Result<()> {
         }
         pairs.push((name, textures));
     }
-    let (w, h) = (1280usize, 870usize);
+    let (w, h) = (1280usize, 66 + pairs.len().div_ceil(6) * 134);
     let mut atlas = HashMap::new();
     let mut shapes = Vec::new();
     for _ in 0..3 {

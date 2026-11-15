@@ -33,6 +33,8 @@ pub struct EntityDied {
     pub position: glam::Vec3,
     /// Une élite ou un envahisseur (voir `elites.rs`) : son butin est garanti.
     pub elite: Option<crate::elites::Elite>,
+    /// Conservée avant la disparition du mouton pour déterminer sa laine.
+    pub coat: Option<crate::sheep_colors::SheepCoat>,
 }
 
 /// Une créature frappe le joueur : le jeu en fait un coup (armure, invulnérabilité),

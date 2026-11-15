@@ -716,10 +716,10 @@ impl crate::VoxelGame {
             .readers
             .loot
             .read(&self.ecs.resource::<Events<EntityDied>>())
-            .map(|e| (e.kind.clone(), e.position, e.elite.clone()))
+            .map(|e| (e.kind.clone(), e.position, e.elite.clone(), e.coat))
             .collect();
         let player_at = player::body(&self.ecs, self.player).position;
-        for (kind, position, elite) in died {
+        for (kind, position, elite, coat) in died {
             let (drops, xp, hostile, boss) = self
                 .ecs
                 .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
@@ -741,8 +741,9 @@ impl crate::VoxelGame {
                 if rng.next_f32() >= drop.chance {
                     continue;
                 }
-                let Some(item) = self.content.items.id(&drop.item) else {
-                    log::warn!("butin de {kind} : objet « {} » inconnu", drop.item);
+                let key = crate::sheep_colors::drop_key(&drop.item, coat);
+                let Some(item) = self.content.items.id(key) else {
+                    log::warn!("butin de {kind} : objet « {key} » inconnu");
                     continue;
                 };
                 let (min, max) = drop.count;

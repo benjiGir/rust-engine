@@ -69,6 +69,7 @@
         (pattern: ["www"], key: {"w": "wheat"}, result: ("bread", 1)),
         (pattern: ["###", "# #", "###"], key: {"#": "#planks"}, result: ("chest", 1)),
         (pattern: ["LLL", "PPP"], key: {"L": "#leaves", "P": "#planks"}, result: ("bed", 1)),
+        (pattern: ["LLL", "PPP"], key: {"L": "#wools", "P": "#planks"}, result: ("bed", 1)),
         (pattern: ["c", "s"], key: {"c": "#coals", "s": "stick"}, result: ("torch", 4)),
         (pattern: ["##", "##"], key: {"#": "sand"}, result: ("sandstone", 1)),
         (pattern: ["###", "#c#", "###"], key: {"#": "cobblestone", "c": "cinnabar_dust"}, result: ("clock", 1)),

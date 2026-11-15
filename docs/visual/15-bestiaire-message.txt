@@ -1,0 +1,6 @@
+Redessine les animaux et ennemis avec des matières en 16 et 32
+
+Revoit les volumes et articulations de sept créatures du jeu et des mods,
+avec seize matières natives reproductibles par assetgen. Lie les textures au
+tableau graphique partagé en conservant les identifiants et le gameplay.
+Ajoute les planches avant/après et les contrôles des pivots et des deux packs.

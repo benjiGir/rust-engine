@@ -1060,6 +1060,11 @@ impl BlockRegistry {
         index as u32 + 1
     }
 
+    /// Ajoute une surface d'entité au tableau partagé, sans créer de bloc ni modifier ses identifiants.
+    pub fn register_texture(&mut self, key: &str) -> u32 {
+        self.texture_layer(key)
+    }
+
     /// Les textures dans l'ordre de leurs couches : la couche `i + 1` est `textures()[i]`.
     pub fn textures(&self) -> &[String] {
         &self.textures

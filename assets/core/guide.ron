@@ -118,8 +118,8 @@
             pages: [
                 (
                     title: "Chasser et cuire",
-                    text: "Les cochons donnent de la viande de porc, les vaches de la viande de bœuf et du cuir. Crue, la viande nourrit peu : cuis-la au four. Les arbres lâchent parfois des fruits en perdant leurs feuilles.",
-                    items: ["raw_pork", "cooked_pork", "raw_beef", "cooked_beef", "leather"],
+                    text: "Les cochons donnent de la viande de porc, les vaches du bœuf et du cuir, les moutons de la laine et de la viande, et les poules du poulet et parfois des plumes. Crue, la viande nourrit peu : cuis-la au four. Les arbres lâchent parfois des fruits en perdant leurs feuilles.",
+                    items: ["raw_pork", "cooked_beef", "raw_mutton", "cooked_chicken", "wool", "feather"],
                 ),
                 (
                     title: "Cultiver",
@@ -127,8 +127,23 @@
                     items: ["wooden_hoe", "seeds", "wheat", "bread", "carrot", "potato", "fertilizer"],
                 ),
                 (
+                    title: "Élever les animaux",
+                    text: "Donne du blé à deux vaches, moutons ou poules adultes proches l'un de l'autre pour les faire se reproduire. Les cochons préfèrent les carottes. Les parents se reposent après une naissance ; les petits grandissent avec le temps. La laine des moutons peut aussi servir à fabriquer un lit.",
+                    items: ["wheat", "carrot", "wool", "bed"],
+                ),
+                (
+                    title: "Les couleurs de laine",
+                    text: "Les moutons ont seize couleurs de toison. Les blancs, gris, noirs et bruns sont les plus fréquents ; les teintes plus vives sont rares. La laine obtenue a la couleur du mouton. Un agneau hérite de la couleur de l'un de ses parents et la conserve en grandissant. Toutes les couleurs de laine peuvent servir au lit, même mélangées dans la recette.",
+                    items: ["wool", "wool_gray", "wool_brown", "wool_red", "wool_blue", "wool_pink"],
+                ),
+                (
+                    title: "Les poissons",
+                    text: "Les poissons apparaissent en petits bancs dans l'eau. Ils nagent à différentes profondeurs et évitent les berges ; hors de l'eau, ils finissent par s'asphyxier. Leur population ne prend pas la place des animaux terrestres. Le poisson cru se grille au four pour mieux nourrir.",
+                    items: ["raw_fish", "cooked_fish"],
+                ),
+                (
                     title: "Dormir",
-                    text: "Un lit se fait avec trois feuilles au-dessus de trois planches. Un clic droit dessus fixe ton point de réapparition ; la nuit, il fait dormir jusqu'au matin, sauf si des créatures rôdent près de toi.",
+                    text: "Un lit se fait avec trois laines ou trois feuilles au-dessus de trois planches. Un clic droit dessus fixe ton point de réapparition ; la nuit, il fait dormir jusqu'au matin, sauf si des créatures rôdent près de toi.",
                     items: ["bed"],
                 ),
             ],

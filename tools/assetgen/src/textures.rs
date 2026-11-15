@@ -1491,7 +1491,10 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
     for (path, image) in &textures {
         image.save(path)?;
     }
-    Ok(textures.into_iter().map(|(path, _)| path).collect())
+    let mut written: Vec<_> = textures.into_iter().map(|(path, _)| path).collect();
+    written.extend(crate::creature_skins::generate(root)?);
+    written.extend(crate::fauna_items::generate(root)?);
+    Ok(written)
 }
 
 #[cfg(test)]

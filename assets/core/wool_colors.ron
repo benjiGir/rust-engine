@@ -1,0 +1,20 @@
+// Palette sRGB de la toison et de son objet ; weight règle les apparitions naturelles.
+// L'ordre est stable : le blanc garde core:wool et le numéro de couleur 0.
+[
+    (id: "white", name: "Blanc", item: "core:wool", rgb: (215, 207, 179), weight: 55),
+    (id: "light_gray", name: "Gris clair", item: "core:wool_light_gray", rgb: (170, 175, 169), weight: 9),
+    (id: "gray", name: "Gris", item: "core:wool_gray", rgb: (104, 111, 112), weight: 8),
+    (id: "black", name: "Noir", item: "core:wool_black", rgb: (48, 49, 53), weight: 8),
+    (id: "brown", name: "Brun", item: "core:wool_brown", rgb: (117, 84, 60), weight: 8),
+    (id: "red", name: "Rouge", item: "core:wool_red", rgb: (177, 76, 61), weight: 1),
+    (id: "orange", name: "Orange", item: "core:wool_orange", rgb: (207, 126, 67), weight: 1),
+    (id: "yellow", name: "Jaune", item: "core:wool_yellow", rgb: (216, 184, 88), weight: 1),
+    (id: "lime", name: "Vert clair", item: "core:wool_lime", rgb: (145, 168, 83), weight: 1),
+    (id: "green", name: "Vert", item: "core:wool_green", rgb: (86, 126, 69), weight: 1),
+    (id: "cyan", name: "Cyan", item: "core:wool_cyan", rgb: (75, 149, 152), weight: 1),
+    (id: "light_blue", name: "Bleu clair", item: "core:wool_light_blue", rgb: (127, 175, 193), weight: 1),
+    (id: "blue", name: "Bleu", item: "core:wool_blue", rgb: (72, 88, 164), weight: 1),
+    (id: "purple", name: "Violet", item: "core:wool_purple", rgb: (127, 93, 161), weight: 1),
+    (id: "magenta", name: "Magenta", item: "core:wool_magenta", rgb: (173, 100, 145), weight: 1),
+    (id: "pink", name: "Rose", item: "core:wool_pink", rgb: (210, 146, 154), weight: 1),
+]

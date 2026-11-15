@@ -145,13 +145,49 @@ sombre autour des blocs. La palette conserve 32 niveaux par canal et la bouche
 du four conserve ses coordonnées UV (8..23, 16..27 en pixels 32).
 
 La moyenne linéaire de chaque dessin, pixels transparents exclus, est accordée
-à celle de sa source. Les 406 images sont contrôlées (écart inférieur à 0,02 par
+à celle de sa source. Les 459 images sont contrôlées (écart inférieur à 0,02 par
 canal) afin de garder les couleurs de repli et du terrain lointain cohérentes,
 sans modifier les définitions de base. Les masques de végétation et d'équipement
 sont adaptés au nouveau dessin ; le rôle de l'alpha reste inchangé. Le profil
 d'affichage en main et l'épaisseur physique d'un seizième restent les mêmes.
 Les haches placent leur grande lame du côté avant du manche dans ce profil,
 comme les dessins classiques : le tranchant s'éloigne du joueur.
+
+## Animaux et ennemis
+
+Le cochon et la vache ont des volumes de poitrail, de croupe et d'encolure,
+un museau en relief, des oreilles et des sabots distincts. Le rôdeur porte une
+capuche et des vêtements plissés ; le cracheur de spores a un chapeau étagé, des
+lamelles et un orifice de tir. Le slime a une enveloppe à paliers et des reflets.
+Les gardiens portent des plaques séparées, épaulières, gantelets et bottes ;
+celui de la crypte garde sa silhouette massive de pierre et sa visière chaude.
+Ces dessins restent originaux et conservent les collisions et règles de combat.
+
+Les vingt et une matières de peau, pelage, tissu, cuir, gel, champignon et armure viennent
+de `tools/assetgen/src/creature_skins.rs`. Elles sont dessinées directement sur
+les grilles 16 et 32 : fibres, coutures, rayures de forge et pores utilisent les
+pixels supplémentaires. Les couleurs de repli des pièces sont les moyennes
+linéaires des dessins 16 ; les dessins 32 sont accordés à ces moyennes.
+La géométrie reste identique entre les deux packs. Le modèle animé commun est
+dans `mob_model.rs` : tête et détails pivotent ensemble, patte et sabot partagent
+leur hanche. Les petits utilisent les mêmes formes à l'échelle prévue par le jeu.
+Les [planches du bestiaire](visual/README.md#lot-15--animaux-et-ennemis-en-16-et-32)
+montrent les modèles réels sous quatre vues, dont la marche avec le regard tourné.
+Les moutons ajoutent des volumes de toison et une face découverte ; les poules,
+un bec, une petite crête, des ailes et des pattes distinctes ; les poissons, un
+corps effilé, des branchies et des nageoires à rayons. La queue des poissons
+possède un pivot commun et une oscillation latérale. Les huit butins associés
+(laine, plume, viandes et poisson crus ou cuits) sont dessinés par `fauna_items.rs`
+aux deux résolutions. Les nouvelles [planches de faune](visual/16-faune-32.png)
+et [de butins](visual/16-butins.png) les présentent.
+Les moutons ont seize teintes de toison, dans une palette sRGB commune aux fibres
+du modèle et aux icônes de laine (`assets/core/wool_colors.ron`). La teinte est
+appliquée en linéaire uniquement aux surfaces de laine : peau, yeux et sabots
+gardent leur matière. Les teintes naturelles sont fréquentes et les couleurs vives
+plus rares. Les petits reprennent la couleur d'un parent. La laine blanche garde
+l'identifiant `core:wool`, avec quinze nouveaux objets et leurs dessins natifs
+16 et 32. Les [planches de couleurs](visual/17-moutons-32.png) rapprochent chaque
+mouton de sa laine.
 
 ## Mobilier et machines
 

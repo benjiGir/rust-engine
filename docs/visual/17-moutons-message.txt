@@ -1,0 +1,5 @@
+Ajoute seize couleurs de moutons et leurs laines
+
+Partage la palette entre les toisons et les icônes natives 16 et 32, avec des
+apparitions pondérées, l'héritage d'un parent et le bon butin après la mort.
+Ajoute les laines au groupe de la recette du lit et vérifie toute la chaîne.

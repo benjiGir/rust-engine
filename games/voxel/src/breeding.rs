@@ -166,7 +166,18 @@ pub fn update(world: &mut World) {
         if mobs::census(world).get(&kind).copied().unwrap_or(0) >= MAX_PER_KIND {
             continue;
         }
-        if let Some(baby) = mobs::spawn_mob(world, kind, at) {
+        let coat_a = world.get::<crate::sheep_colors::SheepCoat>(a).map(|c| *c);
+        let coat_b = world.get::<crate::sheep_colors::SheepCoat>(b).map(|c| *c);
+        let inherited = if coat_a.is_some() || coat_b.is_some() {
+            crate::sheep_colors::SheepCoat::inherit(
+                coat_a,
+                coat_b,
+                world.resource_mut::<crate::mobs::GameRng>().next_f32(),
+            )
+        } else {
+            None
+        };
+        if let Some(baby) = mobs::spawn_mob_with_coat(world, kind, at, inherited) {
             world.insert(
                 baby,
                 Baby {
@@ -228,6 +239,71 @@ mod tests {
         world.apply_commands();
         assert!(!world.has::<Baby>(baby));
         assert_eq!(world.get::<Collider>(baby).unwrap().height, adult);
+    }
+
+    #[test]
+    fn sheep_and_chickens_breed_with_wheat_and_keep_their_own_species() {
+        let mut world = sim();
+        for key in ["core:sheep", "core:chicken"] {
+            let kind = world.resource::<Arc<MobRegistry>>().id(key).unwrap();
+            let a = mobs::spawn_mob(&mut world, kind, Vec3::new(5.5, 80.0, 5.5)).unwrap();
+            let b = mobs::spawn_mob(&mut world, kind, Vec3::new(6.0, 80.0, 5.5)).unwrap();
+            assert!(!feed(&mut world, a, "core:stone"));
+            assert!(feed(&mut world, a, "core:wheat") && feed(&mut world, b, "core:wheat"));
+            update(&mut world);
+            world.apply_commands();
+            let mut babies = Vec::new();
+            world
+                .query::<(&Baby, &Mob, &Collider)>()
+                .for_each(|_, (_, mob, c)| {
+                    if mob.kind == kind {
+                        babies.push(c.height);
+                    }
+                });
+            assert_eq!(babies.len(), 1);
+            assert!(babies[0] < world.get::<Collider>(a).unwrap().height);
+            assert_eq!(mobs::census(&world)[&kind], 3);
+        }
+    }
+
+    #[test]
+    fn lamb_inherits_a_parent_coat_and_keeps_it_when_growing_up() {
+        use crate::sheep_colors::SheepCoat;
+        let mut world = sim();
+        let kind = world
+            .resource::<Arc<MobRegistry>>()
+            .id("core:sheep")
+            .unwrap();
+        let parents = [SheepCoat(3), SheepCoat(15)];
+        let a = mobs::spawn_mob_with_coat(
+            &mut world,
+            kind,
+            Vec3::new(5.5, 80.0, 5.5),
+            Some(parents[0]),
+        )
+        .unwrap();
+        let b = mobs::spawn_mob_with_coat(
+            &mut world,
+            kind,
+            Vec3::new(6.0, 80.0, 5.5),
+            Some(parents[1]),
+        )
+        .unwrap();
+        assert!(feed(&mut world, a, "core:wheat") && feed(&mut world, b, "core:wheat"));
+        update(&mut world);
+        world.apply_commands();
+        let mut lambs = Vec::new();
+        world
+            .query::<(&Baby, &SheepCoat)>()
+            .for_each(|e, (_, coat)| lambs.push((e, *coat)));
+        assert_eq!(lambs.len(), 1);
+        let (lamb, coat) = lambs[0];
+        assert!(parents.contains(&coat));
+        world.get_mut::<Baby>(lamb).unwrap().age_left = 0.0;
+        update(&mut world);
+        world.apply_commands();
+        assert!(!world.has::<Baby>(lamb));
+        assert_eq!(*world.get::<SheepCoat>(lamb).unwrap(), coat);
     }
 
     #[test]

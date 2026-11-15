@@ -80,6 +80,10 @@ pub struct Mob {
     pub kind: u32,
 }
 
+/// Une créature qui nage en trois dimensions et respire sous l'eau.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Aquatic;
+
 /// L'IA d'errance : une direction gardée quelques secondes, puis une autre.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Inspect)]
 pub struct Wander {

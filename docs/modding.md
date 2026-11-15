@@ -919,6 +919,42 @@ pour une hostile), par moments, et font un petit coup d'œil au hasard le reste 
 de mod en profite sans script : `parts: [(offset: (0.3, 0.1, 0.2), size: (0.2, 0.3, 0.2), color: (..),
 bone: Leg), ...]`.
 
+**Les matières** : une pièce peut ajouter `texture: "pelage"` (dans
+`mods/mon_mod/textures/pelage.png`) ou un nom qualifié comme
+`texture: "core:mob_pig_skin"`. Le PNG RGBA remplit chaque face de la boîte ; il
+est étiré avec cette pièce, puis suit son articulation. Sans `texture`, la pièce
+conserve sa couleur unie. Avec une texture, `color` reste sa couleur de repli :
+utiliser la moyenne linéaire des pixels sRGB, pixels transparents exclus.
+Les surfaces sont ajoutées au tableau graphique après celles des blocs, sans
+ajouter de bloc ni changer ses identifiants. Le pack sélectionné remplace aussi
+ces PNG, en 16 ou en 32 ; les mêmes formes et pivots servent aux deux résolutions.
+F5 recharge les images ; changer les boîtes de `entities.ron` demande de relancer.
+
+Une créature avec `aquatic: true` apparaît dans le liquide de `spawn_on` (actuellement
+l'eau `core:water`), avec sa boîte entièrement immergée. Elle nage en trois dimensions,
+évite les volumes secs et respire dans l'eau ; hors de l'eau elle chute et perd sa
+réserve d'air. Les bancs ont une limite distincte de douze créatures dans la zone
+de simulation. Le champ est facultatif et vaut `false` pour les anciens modèles.
+La queue et toutes ses nageoires caudales peuvent porter `bone: Tail` : elles
+partagent le pivot à l'avant de la plus grosse boîte de queue et oscillent latéralement.
+`bone: Head`, `Leg` et `Arm` conservent leurs rôles habituels.
+
+Le mouton de base conserve le même type `core:sheep` quelle que soit sa couleur.
+Son composant de toison choisit une entrée de `assets/core/wool_colors.ron` ; ce
+fichier contient les RGB sRGB des teintes, leur objet de laine et leur poids
+d'apparition. Il est intégré à la compilation : après modification, régénérer
+les PNG et reconstruire le jeu. Les valeurs `color` des objets restent les
+moyennes linéaires des PNG. Les teintes s'appliquent seulement aux pièces portant
+la texture `core:mob_sheep_wool`. La couleur est héritée d'un parent à la naissance
+et copiée dans l'événement interne de mort pour le butin après disparition de
+l'entité ; l'événement envoyé aux scripts garde son format. Le groupe d'objets
+`#wools` contient les seize laines ; `core:wool` est toujours la blanche.
+
+```ron
+(offset: (0.0, 0.5, 0.0), size: (0.8, 0.6, 0.5),
+ color: (0.2, 0.3, 0.1), texture: "pelage")
+```
+
 ```rust
 fn init(&mut self) {
     self.gardien = mod_sdk::mob_kind("mon_mod:gardien");          // son numéro de type

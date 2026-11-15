@@ -6,9 +6,12 @@
 //! Les fichiers produits sont versionnés dans le dépôt ; on ne relance l'outil que
 //! pour les modifier.
 
+mod creature_skins;
+mod fauna_items;
 mod sounds;
 mod texture_pack32;
 mod textures;
+mod wool_palette;
 
 use std::path::{Path, PathBuf};
 

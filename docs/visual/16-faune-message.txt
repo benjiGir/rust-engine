@@ -1,0 +1,5 @@
+Ajoute moutons, poules et poissons aux deux packs
+
+Ajoute les modèles, matières et butins, l'élevage des moutons et des poules,
+la nage et l'apparition aquatique des poissons, les cuissons et le lit en laine.
+Vérifie les habitats, bancs, articulations, reproduction et données de butin.

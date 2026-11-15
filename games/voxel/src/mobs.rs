@@ -31,30 +31,7 @@ const CHASE_DISTANCE: f32 = 14.0;
 
 // ----- La description des créatures -----
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MobPart {
-    pub offset: (f32, f32, f32),
-    pub size: (f32, f32, f32),
-    pub color: (f32, f32, f32),
-    /// Ce que fait la boîte quand la créature vit (voir `entities.ron`).
-    #[serde(default)]
-    pub bone: Bone,
-}
-
-/// Le rôle d'une boîte du modèle d'une créature dans son animation.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
-pub enum Bone {
-    /// Immobile.
-    #[default]
-    Fixed,
-    /// Une patte : elle se balance en marchant, par le haut.
-    Leg,
-    /// Un bras : il se balance en marchant, à l'opposé de la patte du même côté.
-    Arm,
-    /// La tête : elle se tourne vers le joueur proche, par moments.
-    Head,
-}
+pub use crate::mob_model::MobPart;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -70,6 +47,8 @@ struct MobFileEntry {
     damage: f32,
     #[serde(default)]
     hops: bool,
+    #[serde(default)]
+    aquatic: bool,
     spawn_on: Vec<String>,
     parts: Vec<MobPart>,
     #[serde(default)]
@@ -135,6 +114,7 @@ pub struct MobDef {
     /// Les points d'armure du joueur que ses coups ignorent.
     pub armor_pierce: f32,
     pub hops: bool,
+    pub aquatic: bool,
     /// Où et quand elle apparaît (voir `spawning.rs`).
     pub spawn: crate::spawning::SpawnRules,
     pub parts: Vec<MobPart>,
@@ -228,6 +208,7 @@ impl MobRegistry {
                 armor: entry.armor,
                 armor_pierce: entry.armor_pierce,
                 hops: entry.hops,
+                aquatic: entry.aquatic,
                 spawn: crate::spawning::SpawnRules {
                     on: spawn_on,
                     // Par défaut : les hostiles dans le noir, les autres au jour.
@@ -250,6 +231,14 @@ impl MobRegistry {
             });
         }
         Ok(())
+    }
+
+    /// Ajoute les surfaces des créatures après celles des blocs, pour le pack actif.
+    pub fn bind_textures(&mut self, blocks: &mut BlockRegistry) {
+        for def in &mut self.defs {
+            let namespace = def.key.split_once(':').unwrap().0;
+            crate::mob_model::bind_textures(&mut def.parts, namespace, blocks);
+        }
     }
 
     /// Les identifiants des types de créatures, dans l'ordre de leur numéro.
@@ -398,7 +387,11 @@ pub fn physics(world: &mut World) {
                     velocity.0 = Vec3::ZERO;
                     return;
                 }
-                body.step(streamer.world(), intent.walk, intent.jump, dt);
+                if !world.has::<crate::components::Aquatic>(entity)
+                    || !crate::aquatic::step(&mut body, streamer.world(), intent.walk, dt)
+                {
+                    body.step(streamer.world(), intent.walk, intent.jump, dt);
+                }
                 transform.position = body.position;
                 velocity.0 = body.velocity;
                 if let Some(mut impulse) = world.get_mut::<Impulse>(entity) {
@@ -414,6 +407,16 @@ pub fn physics(world: &mut World) {
 
 /// Crée une créature et prévient les abonnés (`EntitySpawned`).
 pub fn spawn_mob(world: &mut World, kind: u32, position: Vec3) -> Option<Entity> {
+    spawn_mob_with_coat(world, kind, position, None)
+}
+
+/// Une naissance peut fournir une couleur héritée ; les apparitions ordinaires la tirent au sort.
+pub fn spawn_mob_with_coat(
+    world: &mut World,
+    kind: u32,
+    position: Vec3,
+    inherited: Option<crate::sheep_colors::SheepCoat>,
+) -> Option<Entity> {
     let def = world.resource::<Arc<MobRegistry>>().get(kind)?.clone();
     // Un hostile naît plus robuste aux paliers hauts du monde (voir `tiers.rs`).
     let health = if def.hostile {
@@ -437,6 +440,16 @@ pub fn spawn_mob(world: &mut World, kind: u32, position: Vec3) -> Option<Entity>
     // À part : un « bundle » prend au plus 8 composants.
     world.insert(entity, PathFollow::default());
     world.insert(entity, MobAnim::default());
+    if def.key == "core:sheep" {
+        let coat = inherited.unwrap_or_else(|| {
+            crate::sheep_colors::SheepCoat::choose(world.resource_mut::<GameRng>().next_f32())
+        });
+        log::debug!("mouton : {} ({})", coat.data().name, coat.data().id);
+        world.insert(entity, coat);
+    }
+    if def.aquatic {
+        world.insert(entity, crate::components::Aquatic);
+    }
     let rules = world.resource::<Arc<SurvivalRules>>().clone();
     world.insert(entity, MobVitals(Vitals::new(&rules)));
     events::send(
@@ -493,6 +506,24 @@ pub fn wander(world: &mut World) {
                 wander.timer -= dt;
                 wander.panic = (wander.panic - dt).max(0.0);
                 wander.attack_cooldown = (wander.attack_cooldown - dt).max(0.0);
+                if def.aquatic {
+                    let direction = crate::aquatic::wander(
+                        streamer.world(),
+                        position,
+                        collider,
+                        wander,
+                        &mut rng,
+                        target,
+                    );
+                    intent.walk =
+                        direction * def.speed * if wander.panic > 0.0 { 1.5 } else { 1.0 };
+                    intent.jump = false;
+                    if direction.x != 0.0 || direction.z != 0.0 {
+                        let wanted = direction.z.atan2(direction.x);
+                        transform.yaw += wrap_angle(wanted - transform.yaw) * (dt * 5.0).min(1.0);
+                    }
+                    return;
+                }
                 let chasing =
                     def.hostile && target.is_some_and(|t| t.distance(position) < CHASE_DISTANCE);
 
@@ -596,7 +627,7 @@ pub fn wander(world: &mut World) {
 }
 
 /// L'état de survie d'une créature : chute, lave, feu (les mêmes règles que le joueur,
-/// sans la noyade : les animaux nagent à la surface).
+/// sans la noyade pour les terrestres ; les poissons perdent leur air hors de l'eau).
 #[derive(Debug, Clone)]
 pub struct MobVitals(pub Vitals);
 
@@ -631,7 +662,13 @@ pub fn environment(world: &mut World) {
                 on_ground: collider.on_ground,
                 in_liquid: collider.in_liquid,
                 in_water,
-                head_under: false,
+                head_under: world.has::<crate::components::Aquatic>(entity)
+                    && !crate::aquatic::fits(
+                        voxels,
+                        transform.position,
+                        collider.width,
+                        collider.height,
+                    ),
                 fluid_damage,
                 flying: false,
             };
@@ -717,6 +754,9 @@ pub fn cleanup(world: &mut World) {
                         kind,
                         position: transform.position,
                         elite: crate::elites::of(world, entity),
+                        coat: world
+                            .get::<crate::sheep_colors::SheepCoat>(entity)
+                            .map(|c| *c),
                     },
                 );
                 world.commands().despawn(entity);
@@ -792,18 +832,12 @@ pub fn damage_mob(world: &mut World, entity: Entity, amount: f32, from: Vec3) ->
     true
 }
 
-fn volume(part: &MobPart) -> f32 {
-    part.size.0 * part.size.1 * part.size.2
-}
-
 /// À quelle distance (blocs) une créature remarque le joueur et peut tourner la tête vers lui ; une
 /// hostile le suit de plus loin.
 const LOOK_RANGE: f32 = 8.0;
 const LOOK_RANGE_HOSTILE: f32 = 16.0;
 /// De combien la tête peut se tourner de chaque côté (radians).
 const LOOK_LIMIT: f32 = 1.1;
-/// L'ampleur du balancement des pattes à pleine marche (radians).
-const LEG_SWING: f32 = 0.65;
 /// La phase avance de tant de radians par bloc parcouru.
 const PHASE_PER_BLOCK: f32 = 5.0;
 
@@ -829,7 +863,9 @@ pub fn animate(world: &mut World) {
             let speed = Vec2::new(velocity.0.x, velocity.0.z).length();
             let goal = (speed / def.speed.max(0.5)).min(1.4);
             anim.stride += (goal - anim.stride) * (1.0 - (-10.0 * dt).exp());
-            anim.phase = (anim.phase + dt * speed * PHASE_PER_BLOCK) % std::f32::consts::TAU;
+            anim.phase = (anim.phase
+                + dt * (speed + if def.aquatic { 0.4 } else { 0.0 }) * PHASE_PER_BLOCK)
+                % std::f32::consts::TAU;
 
             // Le regard : près du joueur, la créature s'y intéresse un moment, puis passe à autre chose.
             let to = target.map(|t| t - transform.position);
@@ -899,83 +935,38 @@ pub fn instances(world: &World, alpha: f32) -> Vec<CubeInstance> {
             let anim = world
                 .get::<MobAnim>(entity)
                 .map_or_else(MobAnim::default, |a| *a);
-            // Le cou : le pivot de la tête, à l'arrière de sa plus grosse boîte.
-            let neck = def
-                .parts
-                .iter()
-                .filter(|p| p.bone == Bone::Head)
-                .max_by(|a, b| volume(a).total_cmp(&volume(b)))
-                .map(|p| {
-                    let back = if p.offset.0 > 0.3 {
-                        p.size.0 * 0.4
-                    } else {
-                        0.0
-                    };
-                    (p.offset.0 - back, p.offset.2)
-                });
-            for part in &def.parts {
-                let (mut ox, oy, mut oz) = part.offset;
-                let mut yaw = transform.yaw;
-                let mut swing = None;
-                match part.bone {
-                    Bone::Fixed => {}
-                    Bone::Head => {
-                        if let Some((nx, nz)) = neck {
-                            // La tête pivote autour du cou : ses boîtes tournent ensemble.
-                            let (lc, ls) = (anim.look.cos(), anim.look.sin());
-                            let (rx, rz) = (ox - nx, oz - nz);
-                            (ox, oz) = (nx + rx * lc - rz * ls, nz + rx * ls + rz * lc);
-                            yaw += anim.look;
-                        }
-                    }
-                    Bone::Leg | Bone::Arm => {
-                        // Les pattes en diagonale (avant gauche avec arrière droite) ; un bras à
-                        // l'opposé de la patte de son côté.
-                        let left = part.offset.2 > 0.0;
-                        let offset = if part.bone == Bone::Leg {
-                            if (part.offset.0 > 0.01) ^ left {
-                                std::f32::consts::PI
-                            } else {
-                                0.0
-                            }
-                        } else if left {
-                            0.0
-                        } else {
-                            std::f32::consts::PI
-                        };
-                        let angle = LEG_SWING * anim.stride * (anim.phase + offset).sin();
-                        // Le pivot : le haut de la plus haute boîte de la même patte (le sabot suit).
-                        let hip = def
-                            .parts
-                            .iter()
-                            .filter(|q| {
-                                q.bone == part.bone
-                                    && (q.offset.0 - part.offset.0).abs() < 0.02
-                                    && (q.offset.2 - part.offset.2).abs() < 0.02
-                            })
-                            .map(|q| q.offset.1 + q.size.1 / 2.0)
-                            .fold(f32::MIN, f32::max);
-                        swing = Some((angle, (hip - oy) * scale));
-                    }
+            let coat = world
+                .get::<crate::sheep_colors::SheepCoat>(entity)
+                .map(|c| *c);
+            for (part, mut cube) in def.parts.iter().zip(crate::mob_model::instances(
+                &def.parts,
+                anim.phase,
+                anim.stride,
+                anim.look,
+            )) {
+                let local = Vec3::from_array(cube.center);
+                cube.center = (position
+                    + Vec3::new(
+                        local.x * c - local.z * s,
+                        local.y,
+                        local.x * s + local.z * c,
+                    ) * scale)
+                    .to_array();
+                cube.size = (Vec3::from_array(cube.size) * scale).to_array();
+                cube.yaw += transform.yaw;
+                cube.swing[1] *= scale;
+                let mut color = Vec3::from_array(cube.color);
+                if let Some(coat) = coat {
+                    color *= coat.tint_part(part);
                 }
-                let offset = Vec3::new(ox * c - oz * s, oy, ox * s + oz * c) * scale;
-                let mut color = Vec3::new(part.color.0, part.color.1, part.color.2);
                 if let Some(elite) = &elite {
                     color = crate::elites::tinted(color, elite);
                 }
                 if hurt {
                     color = color.lerp(Vec3::new(1.0, 0.1, 0.1), 0.6);
                 }
-                let mut cube = CubeInstance::new(
-                    position + offset,
-                    Vec3::new(part.size.0, part.size.1, part.size.2) * scale,
-                    color,
-                )
-                .with_yaw(yaw)
-                .with_light(sky as f32 / 15.0, block as f32 / 15.0);
-                if let Some((angle, pivot)) = swing {
-                    cube = cube.with_swing(angle, pivot);
-                }
+                cube.color = color.to_array();
+                cube.light = [sky as f32 / 15.0, block as f32 / 15.0];
                 out.push(cube);
             }
         });
@@ -1017,6 +1008,255 @@ pub(crate) mod tests {
         assert!(!pig.hostile && pig.parts.len() > 3);
         let slime = registry.get(registry.id("example:slime").unwrap()).unwrap();
         assert!(slime.hostile && slime.hops);
+    }
+
+    #[test]
+    fn sheep_colours_tint_only_fleece_and_survive_despawning_in_the_death_event() {
+        use crate::sheep_colors::{SheepCoat, drop_key, palette};
+        let mut world = sim();
+        let registry = world.resource::<Arc<MobRegistry>>().clone();
+        let kind = registry.id("core:sheep").unwrap();
+        let mob = spawn_mob_with_coat(
+            &mut world,
+            kind,
+            Vec3::new(5.5, 80.0, 5.5),
+            Some(SheepCoat(0)),
+        )
+        .unwrap();
+        let plain = instances(&world, 1.0);
+        world.insert(mob, SheepCoat(3));
+        let dyed = instances(&world, 1.0);
+        for ((part, a), b) in registry
+            .get(kind)
+            .unwrap()
+            .parts
+            .iter()
+            .zip(&plain)
+            .zip(&dyed)
+        {
+            assert_eq!(a.center, b.center);
+            assert_eq!(a.size, b.size);
+            assert_eq!(a.textures, b.textures);
+            if part.texture.as_deref() == Some("core:mob_sheep_wool") {
+                assert_ne!(a.color, b.color);
+            } else {
+                assert_eq!(
+                    a.color, b.color,
+                    "peau, yeux et sabots gardent leur matière"
+                );
+            }
+        }
+        world.commands().despawn(mob);
+        world.apply_commands();
+        let items = engine_voxel::ItemRegistry::builtin(&crate::test_registry()).unwrap();
+        let mut reader = world.resource::<Events<EntityDied>>().reader();
+        for (i, color) in palette().iter().enumerate() {
+            let coat = SheepCoat(i as u8);
+            let e = spawn_mob_with_coat(&mut world, kind, Vec3::new(5.5, 80.0, 5.5), Some(coat))
+                .unwrap();
+            world.get_mut::<Health>(e).unwrap().current = 0.0;
+            cleanup(&mut world);
+            world.apply_commands();
+            assert!(!world.is_alive(e));
+            let died: Vec<_> = reader
+                .read(&world.resource::<Events<EntityDied>>())
+                .cloned()
+                .collect();
+            assert_eq!(died.len(), 1);
+            assert_eq!(died[0].coat, Some(coat));
+            assert_eq!(drop_key("core:wool", died[0].coat), color.item);
+            assert!(items.id(drop_key("core:wool", died[0].coat)).is_some());
+        }
+    }
+
+    #[test]
+    fn every_wool_colour_has_native_icons_and_can_make_a_bed_even_when_mixed() {
+        use crate::sheep_colors::palette;
+        let blocks = crate::test_registry();
+        let items = engine_voxel::ItemRegistry::builtin(&blocks).unwrap();
+        let recipes = engine_voxel::Recipes::builtin(&items).unwrap();
+        let plank = items.id("core:oak_planks");
+        for (i, color) in palette().iter().enumerate() {
+            let wool = items.id(&color.item);
+            assert!(wool.is_some());
+            let other = items.id(&palette()[(i + 1) % palette().len()].item);
+            let grid = [wool, other, wool, plank, plank, plank, None, None, None];
+            assert_eq!(
+                recipes.find(&grid, 3).unwrap().result(),
+                (items.id("core:bed").unwrap(), 1)
+            );
+            for packed in [false, true] {
+                let mut registry = blocks.clone();
+                if packed {
+                    registry
+                        .set_visual_pack(
+                            Some(repo().join("texture_packs/earth-copper-32/assets")),
+                            32,
+                        )
+                        .unwrap();
+                }
+                let pixels = crate::assets::load_png(
+                    &registry.asset_path(&color.item, "items", "png").unwrap(),
+                )
+                .unwrap();
+                assert_eq!(pixels.len(), if packed { 32 * 32 * 4 } else { 16 * 16 * 4 });
+                let opaque: Vec<_> = pixels
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .filter(|p| p[3] > 0)
+                    .collect();
+                assert!(!opaque.is_empty());
+                for c in 0..3 {
+                    let mean = opaque
+                        .iter()
+                        .map(|p| {
+                            let s = p[c] as f32 / 255.0;
+                            if s <= 0.04045 {
+                                s / 12.92
+                            } else {
+                                ((s + 0.055) / 1.055).powf(2.4)
+                            }
+                        })
+                        .sum::<f32>()
+                        / opaque.len() as f32;
+                    assert!(
+                        (mean - items.get(wool.unwrap()).color[c]).abs()
+                            < if packed { 0.02 } else { 0.00001 }
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn farm_loot_has_icons_food_and_cooking_and_wool_can_make_a_bed() {
+        use engine_voxel::{ItemRegistry, Recipes, Smelting};
+        let blocks = crate::test_registry();
+        let items = ItemRegistry::builtin(&blocks).unwrap();
+        let creatures = MobRegistry::load(&repo().join("assets"), &[], &blocks).unwrap();
+        for key in ["core:sheep", "core:chicken", "core:fish"] {
+            for drop in &creatures.by_key(key).unwrap().drops {
+                assert!(
+                    items.id(&drop.item).is_some(),
+                    "butin inconnu : {}",
+                    drop.item
+                );
+            }
+        }
+        let cooking = Smelting::builtin(&items).unwrap();
+        for name in ["mutton", "chicken", "fish"] {
+            let raw = items.id(&format!("core:raw_{name}")).unwrap();
+            let cooked = items.id(&format!("core:cooked_{name}")).unwrap();
+            assert_eq!(cooking.recipe(raw).unwrap().output, cooked);
+            assert!(
+                items.get(cooked).food.unwrap().nutrition > items.get(raw).food.unwrap().nutrition
+            );
+            for packed in [false, true] {
+                let base = if packed {
+                    repo().join("texture_packs/earth-copper-32/assets/core/items")
+                } else {
+                    repo().join("assets/core/items")
+                };
+                for prefix in ["raw", "cooked"] {
+                    let image = crate::assets::load_png(&base.join(format!("{prefix}_{name}.png")))
+                        .unwrap();
+                    assert_eq!(image.len(), if packed { 32 * 32 * 4 } else { 16 * 16 * 4 });
+                    assert!(image.as_chunks::<4>().0.iter().any(|p| p[3] == 255));
+                    assert!(image.as_chunks::<4>().0.iter().any(|p| p[3] == 0));
+                }
+            }
+        }
+        let wool = items.id("core:wool");
+        let plank = items.id("core:oak_planks");
+        let recipes = Recipes::builtin(&items).unwrap();
+        let grid = [wool, wool, wool, plank, plank, plank, None, None, None];
+        assert_eq!(
+            recipes.find(&grid, 3).unwrap().result(),
+            (items.id("core:bed").unwrap(), 1)
+        );
+    }
+
+    #[test]
+    fn creature_skins_use_both_packs_without_changing_block_ids_and_keep_fallback_colours() {
+        let root = repo();
+        let mods = [
+            ("example".into(), root.join("mods/example")),
+            ("donjons".into(), root.join("mods/donjons")),
+        ];
+        for packed in [false, true] {
+            let mut blocks = crate::test_registry();
+            let ids: Vec<_> = blocks
+                .iter()
+                .map(|(id, def)| (id, def.key.clone()))
+                .collect();
+            let original_layers = blocks.textures().to_vec();
+            if packed {
+                blocks
+                    .set_visual_pack(Some(root.join("texture_packs/earth-copper-32/assets")), 32)
+                    .unwrap();
+            }
+            let mut creatures = MobRegistry::load(&root.join("assets"), &mods, &blocks).unwrap();
+            creatures.bind_textures(&mut blocks);
+            let keys = blocks.textures().to_vec();
+            creatures.bind_textures(&mut blocks);
+            assert_eq!(
+                keys,
+                blocks.textures(),
+                "le rechargement réutilise les couches"
+            );
+            assert_eq!(
+                ids,
+                blocks
+                    .iter()
+                    .map(|(id, def)| (id, def.key.clone()))
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(&blocks.textures()[..original_layers.len()], original_layers);
+            let textures = crate::assets::load_textures(&blocks);
+            for key in [
+                "core:pig",
+                "core:cow",
+                "core:sheep",
+                "core:chicken",
+                "core:fish",
+                "core:prowler",
+                "core:spore_spitter",
+                "example:slime",
+                "example:guard",
+                "donjons:warden",
+            ] {
+                let def = creatures.by_key(key).unwrap();
+                assert!(def.parts.iter().any(|p| p.texture.is_some()));
+                for part in def.parts.iter().filter(|p| p.texture.is_some()) {
+                    assert!(part.texture_layer as usize > original_layers.len());
+                    let image = &textures[part.texture_layer as usize - 1];
+                    let side = if packed { 32 } else { 16 };
+                    assert_eq!(image.len(), side * side * 4);
+                    let fallback = [part.color.0, part.color.1, part.color.2];
+                    for channel in 0..3 {
+                        let mean = image
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
+                            .map(|p| {
+                                let c = p[channel] as f32 / 255.0;
+                                if c <= 0.04045 {
+                                    c / 12.92
+                                } else {
+                                    ((c + 0.055) / 1.055).powf(2.4)
+                                }
+                            })
+                            .sum::<f32>()
+                            / (side * side) as f32;
+                        assert!(
+                            (mean - fallback[channel]).abs() < if packed { 0.02 } else { 0.00001 },
+                            "{key} : moyenne de repli"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -1170,7 +1410,7 @@ pub(crate) mod tests {
 
     /// Le jour, des cochons ; la nuit, des slimes (le mod d'exemple), jamais l'inverse.
     #[test]
-    fn day_spawns_animals_and_monsters_only_in_the_dark() {
+    fn day_spawns_land_animals_and_monsters_only_in_the_dark() {
         // (hostiles au jour, hostiles dans le noir, animaux) : la lumière du ciel à
         // l'endroit où chacune est apparue, en plein jour.
         let census = |world: &World| {
@@ -1190,7 +1430,7 @@ pub(crate) mod tests {
                         } else {
                             found.1 += 1;
                         }
-                    } else {
+                    } else if registry.get(mob.kind).is_some_and(|d| !d.aquatic) {
                         found.2 += 1;
                     }
                 });
@@ -1549,6 +1789,7 @@ pub(crate) mod tests {
                 kind: "core:pig".into(),
                 position: deaths[0].position,
                 elite: None,
+                coat: None,
             }]
         );
     }

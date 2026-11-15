@@ -13,6 +13,9 @@
         (input: "cactus", output: "malachite", time: 10.0),
         (input: "raw_pork", output: "cooked_pork", time: 10.0),
         (input: "raw_beef", output: "cooked_beef", time: 10.0),
+        (input: "raw_mutton", output: "cooked_mutton", time: 10.0),
+        (input: "raw_chicken", output: "cooked_chicken", time: 9.0),
+        (input: "raw_fish", output: "cooked_fish", time: 8.0),
         (input: "potato", output: "baked_potato", time: 10.0),
     ],
     fuels: [

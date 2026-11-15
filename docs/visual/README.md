@@ -612,6 +612,176 @@ cargo test -p voxel --bin voxel axe_blades_face_away
 Les captures sont des planches CPU ; le rendu natif reste soumis à la limite
 macOS / Metal du lot 12. Aucun monde de test n'est créé.
 
+## Lot 15 — animaux et ennemis en 16 et 32
+
+Les sept créatures concernées ont de nouvelles formes dans `entities.ron`, avec
+seize matières originales générées aux résolutions natives 16 et 32. Les formes
+sont communes aux deux packs ; les détails de pelage, fibre, couture et métal
+emploient les pixels supplémentaires du 32. Les trois habitants ne changent pas.
+
+| Créature | Forme et détails |
+| --- | --- |
+| Cochon | Poitrail et croupe étagés, joues, groin avec narines, oreilles à intérieur distinct, queue en crochet et sabots |
+| Vache | Encolure, museau large, oreilles, cornes à deux étages, pelage pie, pattes affinées, sabots et touffe de queue |
+| Rôdeur | Capuche, masque en retrait, manteau plissé, gants, ceinture, bottes et fermoir cuivré |
+| Cracheur de spores | Pied élargi, chapeau à trois niveaux, lamelles, taches et bouche tubulaire |
+| Slime | Enveloppe à paliers, bulles, reflets et visage en relief |
+| Gardien Example | Casque à visière, plastron, épaulières, gantelets, deux jambes et bottes articulées |
+| Gardien de la crypte | Corps massif, pierre fissurée, plaques distinctes, épaulières, gantelets, genouillères et couronne |
+
+Contrôles visuels : [avant](15-bestiaire-avant.png), [nouveau 16](15-bestiaire-16.png),
+[nouveau 32](15-bestiaire-32.png). Chaque ligne montre trois-quarts avant, profil,
+trois-quarts arrière, puis marche et regard. Les planches appliquent les vraies
+formes, pivots, rotations, UV et PNG de production avec une lumière de contrôle.
+Elles ne simulent pas l'IA ni l'éclairage du monde.
+
+`mob_model.rs` partage les articulations entre le rendu du jeu et les planches,
+sans allocation par créature. Le balancement diagonal et le regard conservent les
+paramètres antérieurs. Les petits gardent leur échelle, les élites leur teinte et
+les dégâts leur signal rouge. Une pièce peut maintenant déclarer `texture` ; les
+anciens modèles à couleur unie restent compatibles. Les surfaces sont enregistrées
+après les textures de blocs et de nouveau liées après un rechargement du registre.
+F5 recharge les PNG ; les modifications de forme demandent de relancer le jeu.
+
+Les matières sont dans `tools/assetgen/src/creature_skins.rs` et les deux commandes
+de génération habituelles les reproduisent. Les moyennes linéaires des PNG 16 ont
+été reportées dans les couleurs de repli des pièces. Le pack 32 est accordé à ces
+moyennes et contient désormais 431 PNG (les seize matières s'ajoutent aux 415 images
+présentes avant ce lot). La régénération reste entièrement déterministe.
+
+Un contrôle compare les trois fichiers de créatures à leurs versions antérieures
+en excluant seulement `parts` : tous les autres champs, dont identifiants, ordre,
+vie, vitesses, collisions, attaques, apparition, reproduction et butins, sont
+identiques. Les scripts et WASM des mods ne changent pas. Les nouveaux tests
+contrôlent les hanches communes, le cou commun, l'enregistrement des textures sans
+changement d'identifiants, les couleurs de repli et la résolution des deux packs.
+
+Les six contrôles passent : formatage, Clippy sans avertissement, tests complets
+du workspace, architecture, hooks et documentation. La première exécution complète
+a échoué sur le test existant `gear::tests::refresh_only_recomputes_when_the_gear_changes` :
+son empreinte inclut la révision du magasin global des objets, que d'autres tests
+modifient en parallèle. Il passe isolément et lors de la relance complète, sans
+modifier ni ignorer ce test ou la logique d'équipement.
+
+```sh
+cargo run -p assetgen -- --textures-only
+cargo run -p voxel --example creature_review -- . 16 docs/visual/15-bestiaire-16.png
+cargo run -p voxel --example creature_review -- . 32 docs/visual/15-bestiaire-32.png
+```
+
+Le lancement natif a été retenté avec un monde jetable, sans `VOXEL_WORLD` ni
+sauvegarde. macOS bloque encore avant la fenêtre sur
+`com.apple.hiservices-xpcservice` ; le processus de contrôle a été arrêté. Les
+captures en partie restent donc à confirmer sur une session graphique. Aucun
+fichier de `saves/` ni de `.idea/` n'a été modifié par ce lot.
+
+## Lot 16 — moutons, poules et poissons
+
+Trois espèces s'ajoutent à la fin de `assets/core/entities.ron` : `core:sheep`,
+`core:chicken` et `core:fish`. Les moutons ont une toison à volumes superposés,
+un museau découvert, des oreilles et des sabots ; les poules ont bec, petite crête,
+ailes, queue et pattes ; les poissons ont écailles, branchies, nageoires et queue
+articulée. Cinq matières natives et huit icônes de butin complètent les deux packs.
+Les couleurs de repli sont les moyennes linéaires des PNG 16, et les PNG 32 sont
+accordés à ces moyennes. Le pack contient désormais 444 images.
+
+Contrôles visuels : [faune 16](16-faune-16.png), [faune 32](16-faune-32.png),
+[butins 16/32](16-butins.png). Les modèles et articulations sont ceux du jeu.
+Les planches sont des rendus CPU ; la limite macOS du lot précédent empêche encore
+les captures natives en partie dans cet environnement.
+
+Les moutons et les poules apparaissent en groupes sur l'herbe, de jour, avec les
+règles des autres animaux terrestres. Ils mangent du blé et se reproduisent via
+le système existant, avec petits, croissance et repos des parents. Leurs butins
+sont laine et viande de mouton, poulet et plumes. Les poissons donnent un poisson
+cru. Les trois aliments ont une cuisson au four ; une recette de lit en laine
+s'ajoute à la recette en feuilles. Le guide du voyageur décrit ces ajouts.
+
+`aquatic: true` sépare l'habitat des poissons de celui des animaux terrestres.
+L'apparition vérifie un volume entièrement sous l'eau, à différentes profondeurs,
+en groupes de trois à cinq, de jour comme de nuit. Leur limite de douze dans la
+zone de simulation s'ajoute aux limites existantes. `aquatic.rs` gère la nage 3D,
+les courants, le recul et l'évitement des volumes secs ou solides, par petits pas
+pour éviter les traversées. Hors de l'eau, la physique normale reprend et la
+réserve d'air s'épuise. Aucun comportement terrestre n'est transformé en nage.
+`bone: Tail` anime la queue et sa nageoire autour d'un pivot partagé.
+
+Les tests couvrent le choix d'habitat, les limites de banc, une apparition réelle
+avec le système ECS, la nage et les changements de profondeur, le maintien dans
+l'eau, les berges, les solides, la lave, l'asphyxie à sec, la reproduction des deux
+espèces, la queue articulée, les butins connus, les icônes, les cuissons et le lit.
+Le test de nuit existant compte désormais explicitement les animaux terrestres :
+les poissons restent actifs de nuit et leur habitat est vérifié séparément.
+La régénération déterministe vérifie aussi les nouveaux PNG aux deux résolutions.
+Les six contrôles passent (formatage, Clippy sans avertissement, tests complets,
+architecture, hooks et documentation), ainsi que `cargo build -p voxel`. Les
+310 tests du binaire passent. Le contraste des plumes 32 a été accordé à la moyenne
+de leur PNG 16 pour conserver le seuil de couleur existant, sans assouplir le test.
+
+```sh
+cargo run -p assetgen -- --textures-only
+cargo run -p voxel --example creature_review -- . 16 docs/visual/16-faune-16.png --fauna
+cargo run -p voxel --example creature_review -- . 32 docs/visual/16-faune-32.png --fauna
+cargo run -p voxel --example texture_pack_details -- docs/visual/16-butins.png --fauna
+```
+
+Relancer le jeu applique les nouveaux types et leurs données ; F5 reste réservé
+aux images et au registre des blocs. Aucun bloc n'est ajouté, et les identifiants
+et paramètres des anciennes espèces restent inchangés. Les numéros des créatures
+ajoutées par les mods sont reconstruits au démarrage ; ces créatures ne sont pas
+sauvegardées. Les objets sont sauvegardés par leur clé texte. Aucun fichier de
+`saves/`, `.idea/` ni aucun script ou WASM de mod n'a été modifié par ce lot.
+
+## Lot 17 — moutons et laines de couleur
+
+Seize toisons partagent la palette sRGB de `assets/core/wool_colors.ron` : blanc,
+gris clair, gris, noir, brun, rouge, orange, jaune, vert clair, vert, cyan, bleu
+clair, bleu, violet, magenta et rose. Les teintes naturelles sont plus fréquentes ;
+les teintes vives ont un poids plus faible. Chaque mouton porte un composant de
+couleur choisi à son apparition. Les animaux gardent le même type `core:sheep`
+et les mêmes paramètres de vie, collision et apparition.
+
+Contrôles visuels : [couleurs 16](17-moutons-16.png) et [couleurs 32](17-moutons-32.png).
+Chaque case rapproche le vrai modèle texturé de son icône de laine. La teinte
+linéaire s'applique exclusivement aux surfaces de laine, y compris le bonnet,
+les pattes et la queue ; le visage, les yeux et les sabots restent inchangés.
+Les dessins de laine proviennent d'assetgen aux deux résolutions, sans image
+écrite à la main. Les quinze nouveaux objets s'ajoutent en fin de registre ;
+`core:wool` reste la laine blanche et les piles de couleurs différentes sont
+des objets distincts. Le pack contient désormais 459 PNG.
+
+Deux moutons de couleurs différentes restent compatibles pour la reproduction.
+L'agneau reprend la couleur d'un parent à parts égales, sans nouvelle couleur
+tirée au hasard, puis la garde à l'âge adulte. La couleur est capturée au moment
+de la mort et transmise au calcul du butin, même après suppression de l'entité :
+seule la laine est remplacée, la viande et les quantités restent identiques.
+Toutes les couleurs se trouvent dans le groupe `#wools`, accepté par la recette
+du lit, y compris avec des couleurs mélangées. Le guide du voyageur les décrit.
+
+Les tests couvrent toutes les teintes et leurs poids, l'héritage, la croissance,
+le matériau teinté, l'événement de mort après disparition, le nom de butin, les
+icônes 16 et 32, leurs moyennes linéaires et le lit en laines mélangées. Le test
+de mort existant est actualisé avec `coat: None` pour le cochon : le nouveau
+champ interne est réservé aux moutons. Aucun test existant n'est assoupli.
+
+```sh
+cargo run -p assetgen -- --textures-only
+cargo run -p voxel --example creature_review -- . 16 docs/visual/17-moutons-16.png --sheep-colors
+cargo run -p voxel --example creature_review -- . 32 docs/visual/17-moutons-32.png --sheep-colors
+```
+
+Validation : `cargo fmt --check`, `cargo clippy --workspace --all-targets`,
+`cargo test --workspace`, `cargo xtask check-arch`, `cargo xtask hooks --check`
+et `cargo xtask docs --check` passent. Les 314 tests du jeu sont verts ;
+`cargo build -p voxel` et la génération des deux planches réussissent également.
+
+Le jeu doit être reconstruit puis relancé pour charger la palette et les nouveaux
+objets. Les créatures, comme auparavant, ne sont pas sauvegardées ; l'héritage
+porte sur leur vie dans le monde ouvert. Les laines collectées sont sauvegardées
+par leur clé d'objet. Les planches sont des rendus CPU : la limite graphique
+macOS décrite aux lots précédents empêche encore les captures natives ici.
+Aucun monde, fichier de `.idea/`, script ou WASM de mod n'a été modifié par ce lot.
+
 ## Commits et patchs
 
 L’écriture dans `.git` est interdite par l’environnement : `git add` échoue sur

@@ -105,9 +105,13 @@ fn harmonize(canvas: &mut draw::Canvas, source: &[Pixel]) {
 }
 fn refine(source: &[Pixel], name: &str, item: bool) -> Vec<Pixel> {
     let mut image = if item {
-        items::draw(source, name)
+        crate::fauna_items::draw(name, 32)
+            .map(draw::Canvas)
+            .or_else(|| items::draw(source, name))
     } else {
-        terrain::draw(source, name)
+        crate::creature_skins::draw(name, 32)
+            .map(draw::Canvas)
+            .or_else(|| terrain::draw(source, name))
             .or_else(|| wood::draw(name))
             .or_else(|| fixtures::draw(name))
             .or_else(|| detail::plant(source, name))
