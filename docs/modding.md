@@ -1160,7 +1160,7 @@ de chapitre.
   cocher), `Break(block, count)`, `Place(block, count)`, `Kill(creature, count)` (sans `creature` :
   n'importe quelle hostile, tuée à moins de 16 blocs du joueur), `Dimension(id)`, `Biome(id)`,
   `Structure(id)`, `Depth(y)` (descendre sous cette hauteur), `Level(n)`, `Tier(n)`. Un compteur ne
-  redescend jamais : jeter l'objet ensuite ne défait rien.
+  redescend jamais : jeter l'objet ensuite ne défait rien. `Break` et `Place` ignorent les états du bloc (`core:stairs[facing=west]` compte comme `core:stairs`).
 - **Récompenses** : `Item(item, count)`, `Xp(points)`, `Loot("table")`, `Choice([(item: ..., count: ...), ...])`
   (le joueur choisit un objet). Elles se récupèrent à la main et ne sont données **qu'une fois**.
 - **Vérifications au chargement** (une erreur claire, comme pour `guide.ron`) : objet, groupe d'objets, bloc,

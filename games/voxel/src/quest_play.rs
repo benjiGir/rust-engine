@@ -218,6 +218,12 @@ impl QuestBook {
     }
 }
 
+/// L'identifiant d'un bloc sans ses états (`core:backpack_leather_placed[facing=west]` devient
+/// `core:backpack_leather_placed`) : une quête cite le bloc, pas la manière dont il est tourné.
+fn plain_key(key: &str) -> String {
+    key.split('[').next().unwrap_or(key).to_string()
+}
+
 impl VoxelGame {
     /// Le dossier où vit `quests.ron` : la racine du monde.
     fn quest_dir(&self) -> Option<PathBuf> {
@@ -291,14 +297,14 @@ impl VoxelGame {
             .broken
             .read(&self.ecs.resource::<Events<BlockBroken>>())
         {
-            events.push(Event::Broken(registry.def(e.block).key.clone()));
+            events.push(Event::Broken(plain_key(&registry.def(e.block).key)));
         }
         for e in loaded
             .readers
             .placed
             .read(&self.ecs.resource::<Events<BlockPlaced>>())
         {
-            events.push(Event::Placed(registry.def(e.block).key.clone()));
+            events.push(Event::Placed(plain_key(&registry.def(e.block).key)));
         }
         for e in loaded
             .readers
@@ -509,6 +515,15 @@ impl VoxelGame {
 pub(crate) mod tests {
     use super::*;
     use crate::quest_progress::{Progress, Snapshot, Status};
+
+    #[test]
+    fn block_states_are_dropped_from_event_keys() {
+        assert_eq!(
+            plain_key("core:backpack_leather_placed[facing=west]"),
+            "core:backpack_leather_placed"
+        );
+        assert_eq!(plain_key("core:torch"), "core:torch");
+    }
 
     fn assets() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets")

@@ -406,6 +406,61 @@ Une phase à la fois, chacune verte et vérifiée avant la suivante, avec un com
 - Un ajout à la progression : `Progress::choice(id, récompense)` (lecture du choix fait, pour la fiche).
 - `quest_play::press_quests_key` (le résumé provisoire) a disparu.
 
+### Phase 3 : le contenu (faite)
+
+Le kit de départ ne contient plus que le Guide du voyageur et trois pains : la progression part du bois.
+132 quêtes de plus (dont 22 facultatives) en 16 chapitres, 150 au total avec « Premiers pas » et
+« Les outils » (les nombres du tableau comptent les facultatives). Un nouveau groupe « Machines » (entre « Aventure » et « Mods »).
+
+| Groupe | Chapitre | Quêtes | Étape marquante |
+|---|---|---|---|
+| Les bases | L'âge du métal | 7 | Le métal des outils (fer en lingots) |
+| Les bases | Se nourrir et s'installer | 9 | Un champ irrigué |
+| Les bases | Les profondeurs | 6 | Une pioche en saphir |
+| Aventure | Le combat | 10 | La Frontière (palier 2) |
+| Aventure | L'enchantement | 10 | Enchanter (la table) |
+| Aventure | L'alchimie | 8 | De l'eau en fiole |
+| Aventure | L'exploration | 8 | Un village |
+| Machines | Les circuits | 8 | Un piston |
+| Machines | Les réseaux | 11 | Un moteur électrique |
+| Machines | Rails et wagons | 8 | Une locomotive |
+| Machines | Le stockage | 9 | Un contrôleur de stockage |
+| Mods | La forge (`forge`) | 8 | Une pioche en acier |
+| Mods | Les runes (`magie`) | 9 | Un premier sort |
+| Mods | Mécanique (`mecanique`) | 9 | Une presse |
+| Mods | L'entrepôt (`entrepot`) | 5 | Une moissonneuse |
+| Mods | La crypte (`donjons`) | 7 | Le gardien de la crypte |
+
+- **Dépendances d'entrée des mods** : la forge après le premier lingot de fer (`core:metal/ingot`), les runes
+  après le premier saphir (`core:depths/sapphire`), Mécanique après les arbres de transmission du jeu de
+  base (`core:networks/shaft`), l'entrepôt après le premier kit de coffre (`core:storage/copper_kit`), la
+  crypte après l'armure complète (`core:combat/armor`). Quelques quêtes de mod citent une quête d'un autre
+  mod (le portail de la Fonderie après la lumière de la crypte, la chaîne de l'entrepôt après les courroies
+  de Mécanique) : la dépendance est ignorée si ce mod est absent.
+- **Le plan** : des éventails (une quête et ses suites) plutôt que de longues files, cases espacées de 2,5 à 3,
+  2 pour les potions ; titres courts (un titre trop long est coupé quand le chapitre est large et se dézoome
+  tout seul). Chaque chapitre a été regardé en 1280 × 720 : aucun trait ne traverse une quête.
+- **Exactitude** : chaque recette, hauteur de minerai, durabilité, durée et effet cité a été relu dans
+  `recipes.ron`, `smelting.ron`, `ores.ron`, `brewing.ron`, `potions.ron`, `charms.ron`, `tiers.ron`,
+  `structures.ron`, `trades.ron`, `items.ron`, `blocks.ron`, `entities.ron`, `guide.ron` et dans ceux des
+  mods (et leurs scripts pour la manivelle, la presse, la baguette, la foreuse, la moissonneuse).
+- **Un petit correctif de code** : `Place` et `Break` ignorent maintenant les états d'un bloc
+  (`core:backpack_leather_placed[facing=west]` compte pour `core:backpack_leather_placed`), sans quoi une quête
+  « pose un sac » ne se validait que si le sac était tourné vers la première orientation
+  (`quest_play::plain_key`, testé).
+
+**Écarts, manques et limites** :
+- Pas de tâche « objet d'une rareté donnée » ni « a enchanté un objet » ni « a élevé un petit » : ces quêtes
+  (« Un premier trésor », « Un premier enchantement », « Un élevage ») sont des cases à cocher.
+- La pierre lumineuse (`core:glowstone`) ne se trouve que dans les cryptes du mod Donjons (le toit des
+  couloirs) : la lampe du jeu de base et le portail de la Fonderie en dépendent, donc aucune quête du jeu de
+  base ne demande de lampe, et le portail de la Fonderie est facultatif.
+- Un chapitre de mod ne peut pas demander l'objet d'un autre mod (il ne se chargerait pas si l'autre manque) :
+  la chaîne de l'entrepôt est une case à cocher qui parle des courroies de Mécanique.
+- Les quêtes `Structure` n'ont pas de repère en jeu (pas de carte) : le texte donne seulement les biomes où
+  chercher. Non essayé en jeu : les récompenses `Choice` et `Loot` de ces chapitres (elles sont testées par la
+  suite), le troc, les structures elles-mêmes (seuls l'écran et la détection d'une pose ont été vus).
+
 ## Hors périmètre (à décider plus tard)
 
 - Éditeur de quêtes en jeu.
