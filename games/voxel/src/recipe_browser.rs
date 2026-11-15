@@ -178,6 +178,13 @@ impl VoxelGame {
         self.browser_keys(ctx);
     }
 
+    /// Les recettes d'un objet cliqué hors d'un inventaire (le livre de quêtes) : la fenêtre des
+    /// recettes seule, par-dessus, dans `area`, avec les touches R, U et Retour arrière.
+    pub(crate) fn draw_recipe_overlay(&mut self, ctx: &egui::Context, area: egui::Rect) {
+        self.draw_recipe_view(ctx, area);
+        self.browser_keys(ctx);
+    }
+
     /// Les objets qui correspondent à la recherche, dans l'ordre du registre.
     fn browser_items(&self) -> Vec<ItemId> {
         let query = self.ui.browser.search.trim();

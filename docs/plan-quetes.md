@@ -334,8 +334,8 @@ Une phase à la fois, chacune verte et vérifiée avant la suivante, avec un com
   instantané du joueur une fois par seconde (objets portés, dimension, biome, hauteur, niveau, palier,
   structure) ; bannière « Quête terminée : ... » avec la cloche ; récompenses récupérées à la main (ou
   tout de suite pour `autoclaim`). Passer une dimension recharge le monde : la progression est relue.
-- **Touche L** (`Action::Quests`, ancien `settings.ron` : valeur par défaut) : en attendant l'écran de la
-  phase 2, elle affiche un résumé et récupère les récompenses en attente (sauf les choix).
+- **Touche L** (`Action::Quests`, ancien `settings.ron` : valeur par défaut) : en attendant l'écran, elle
+  affichait un résumé (remplacée en phase 2 : elle ouvre le livre).
 - **Commandes `ctl`** (`quest_ctl.rs`) : `quests [chapitre|quête]`, `quest done|claim|check|handin|choose|
   scan|reset|pin`, `questpin id`.
 - **Contenu** : un chapitre « Premiers pas » (8 quêtes) dans le groupe « Les bases ». Chaque recette citée
@@ -356,6 +356,55 @@ Une phase à la fois, chacune verte et vérifiée avant la suivante, avec un com
 - `Signal` n'existe pas encore (phase 4).
 - Non essayé en jeu : `crafted`, `consume` (testés en unitaire), `Choice` (idem, et `quest choose`),
   l'ouverture des recettes d'un clic et « Lire dans le guide » (phase 2).
+
+### Phase 2 : l'écran (faite)
+
+- **Fenêtre plein écran** (`quest_ui.rs`, `Screen::Quests`) : touche **L** (ouvre et referme), bouton
+  « Quêtes » dans l'écran d'inventaire (avec « n récompenses attendent » quand il y en a), Échap ferme (la
+  fenêtre des recettes d'abord, comme partout). Elle s'ouvre au dernier chapitre regardé et fait une revue
+  des objets portés. Le dessin ne change rien : les clics deviennent des `Act` appliqués après l'image.
+- **Haut** : icône, titre et progression du chapitre, « Tout récupérer (n) », « Recentrer », zoom + / −, fermer.
+- **Gauche** : groupes repliables, chapitres (icône, titre, barre et `n / total`, pastille dorée avec le
+  nombre de récompenses en attente ; un groupe replié affiche la somme).
+- **Centre, le plan** (`quest_ui/map.rs`) : quêtes à leur `x, y` (40 points par case au zoom 1), dans leur
+  forme et leur taille, avec leur icône d'objet ; traits de dépendance fléchés (gris : verrouillé, clair : la
+  suite à faire, vert : chemin parcouru) ; états : verrouillée (assombrie, cadenas), disponible (contour
+  clair), en cours (contour doré), finie avec récompense (contour vert épais et pastille qui pulse),
+  récupérée (vert, coche) ; `hidden` et `secret` ne sont ni dessinées ni reliées tant qu'elles sont cachées ;
+  glisser (clic gauche ou milieu), molette ou pincement pour zoomer autour du curseur, cadrage automatique à
+  l'ouverture et au changement de chapitre (et quand la fiche s'ouvre, tant qu'on n'a pas déplacé le plan),
+  titre sous chaque quête (à partir du zoom 0,6), infobulle au survol (titre, sous-titre, état, tâches).
+- **Droite, la fiche** (`quest_ui/sheet.rs`) : titre, sous-titre, état, texte (`{touche:...}` remplacé),
+  dépendances manquantes cliquables (le plan saute à la quête, même d'un autre chapitre), tâches avec icône,
+  progression et barre ; un clic sur l'icône ouvre les recettes de l'objet (fenêtre de l'explorateur, par-dessus
+  le livre) ; « Remettre (n sur toi) » pour une tâche `consume`, case « C'est fait » pour `Check` ; récompenses,
+  choix d'un objet pour `Choice` (« Récupérer » attend le choix), « Récupérer », « Épingler » / « Désépingler »,
+  « Lire dans le guide » (ouvre le guide à ce chapitre).
+- **En jeu** (`quest_ui/hud.rs`) : les quêtes épinglées (3 au plus) en haut à droite, sous les potions : titre et
+  tâches restantes (trois lignes, puis « + n autres »), « Terminée : à récupérer » quand c'est fini.
+- **Fonctions pures et testées** (`quest_ui/geometry.rs`, `labels.rs`) : conversion grille ↔ écran, glisser, zoom
+  autour du curseur, cadrage, quête sous le clic, ordre des traits et leur tracé (raccourci au bord des quêtes),
+  sommets des formes, lignes de la grille, place des quêtes épinglées, groupes de chapitres ; textes d'états, de
+  tâches et de récompenses, quêtes restantes.
+- **`ctl`** : `screen quests [chapitre]`, `quest select id`, `quest ui` (chapitre, fiche, zoom et position
+  écran de chaque quête, pour `click x y`), `quest view fit|zoom`, `quest close`. Les boutons se cliquent avec
+  `clicktext « Récupérer »`, `clicktext « Remettre »`, etc. ; l'infobulle se voit avec `hover x y`.
+- **Contenu** : le chapitre « Premiers pas » est inchangé ; nouveau chapitre « Les outils » (10 quêtes, dont 2
+  facultatives, une cachée, une tâche `consume`, un `Choice` et un `Loot`), relié à « Premiers pas » par une
+  dépendance d'un autre chapitre. Chaque recette citée a été relue dans `recipes.ron`, `smelting.ron`,
+  `ores.ron`, `blocks.ron` et le guide (pierre : 3 moellons pour une pioche ou une hache, 2 pour l'épée ; four :
+  8 moellons en anneau ; cuivre : hauteurs 30 à 100, pioche de niveau 2 ; charbon : 40 à 180, brûle 80 s ;
+  cuisson 10 s ; pioche en cuivre : 3 lingots, 190 de durabilité contre 132 pour la pierre).
+
+**Écarts au plan, et limites** :
+- La fiche s'ouvre à droite et le plan se recadre ; elle n'est pas flottante. Le cadenas se dessine pour toute
+  quête verrouillée (pas d'option `show_lock`).
+- Le livre est dessiné au fond (`Order::Background`) pour que les bannières et les infobulles restent
+  au-dessus ; les recettes d'un objet cliqué s'ouvrent au milieu, par-dessus.
+- Pas de clic droit ni de pastille « récompense » dans la barre du jeu hors du livre (seulement la bannière
+  « Quête terminée » et l'indicateur de l'inventaire).
+- Un ajout à la progression : `Progress::choice(id, récompense)` (lecture du choix fait, pour la fiche).
+- `quest_play::press_quests_key` (le résumé provisoire) a disparu.
 
 ## Hors périmètre (à décider plus tard)
 

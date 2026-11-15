@@ -189,6 +189,11 @@ impl Progress {
             .unwrap_or(0)
     }
 
+    /// L'option choisie pour la récompense `Choice` numéro `reward` d'une quête, s'il y en a une.
+    pub fn choice(&self, id: &str, reward: usize) -> Option<usize> {
+        self.records.get(id)?.choices.get(&reward).copied()
+    }
+
     pub fn status(&self, quests: &Quests, index: usize) -> Status {
         let quest = &quests.quests[index];
         if let Some(record) = self.records.get(&quest.id) {

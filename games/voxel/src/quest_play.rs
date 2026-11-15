@@ -33,7 +33,7 @@ use serde::Deserialize;
 use crate::VoxelGame;
 use crate::events::{BlockBroken, BlockPlaced, EntityDied};
 use crate::inventory::ItemStack;
-use crate::quest_progress::{ClaimError, Event, Grant, Progress, Snapshot, Status};
+use crate::quest_progress::{ClaimError, Event, Grant, Progress, Snapshot};
 use crate::quests::{Catalog, ItemSpec, Quests, Task};
 
 /// Les créatures tuées à moins de cette distance du joueur comptent pour lui.
@@ -190,6 +190,13 @@ impl QuestBook {
             .as_mut()
             .map(|l| &mut l.progress)
             .context("quêtes pas chargées")
+    }
+
+    /// Combien de quêtes finies attendent leurs récompenses (`None` : le livre n'est pas chargé).
+    pub fn loaded_pending(&self) -> Option<usize> {
+        self.loaded
+            .as_ref()
+            .map(|l| l.progress.pending(&l.quests).len())
     }
 
     pub fn quests(&self) -> Option<Arc<Quests>> {
@@ -481,29 +488,6 @@ impl VoxelGame {
             .count()
     }
 
-    /// La touche des quêtes. En attendant l'écran du livre (phase 2) : un résumé, et les
-    /// récompenses en attente sont récupérées.
-    pub(crate) fn press_quests_key(&mut self) {
-        self.open_quests();
-        let claimed = self.claim_all_quests();
-        let Some(loaded) = self.quest_book.loaded.as_ref() else {
-            return;
-        };
-        let (quests, progress) = (&loaded.quests, &loaded.progress);
-        let done = (0..quests.quests.len())
-            .filter(|&i| matches!(progress.status(quests, i), Status::Done | Status::Claimed))
-            .count();
-        let waiting = progress.pending(quests).len();
-        let mut text = format!("Quêtes : {done} sur {} terminées", quests.quests.len());
-        if claimed > 0 {
-            text.push_str(&format!(", {claimed} récompense(s) récupérée(s)"));
-        }
-        if waiting > 0 {
-            text.push_str(&format!(", {waiting} attendent un choix"));
-        }
-        self.toast(&text);
-    }
-
     /// Écrit la progression dans le monde (si quelque chose a changé).
     pub(crate) fn save_quests(&mut self) {
         let Some(dir) = self.quest_dir() else {
@@ -522,9 +506,9 @@ impl VoxelGame {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use crate::quest_progress::{Progress, Snapshot};
+    use crate::quest_progress::{Progress, Snapshot, Status};
 
     fn assets() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets")
@@ -603,6 +587,39 @@ mod tests {
             }
         }
         let _ = content;
+    }
+
+    /// Tous les chapitres livrés se terminent depuis rien, et chaque récompense se récupère (avec un
+    /// choix fait pour celles qui en demandent un) : aucune quête n'est un cul-de-sac.
+    #[test]
+    fn every_shipped_quest_can_be_finished_and_claimed() {
+        use crate::quests::Reward;
+        let (_, _, quests) = shipped();
+        let mut progress = Progress::default();
+        for index in 0..quests.quests.len() {
+            progress.force_done(&quests, index);
+            for (r, reward) in quests.quests[index].rewards.iter().enumerate() {
+                if matches!(reward, Reward::Choice(_)) {
+                    assert!(progress.choose(&quests, index, r, 0));
+                }
+            }
+        }
+        for c in 0..quests.chapters.len() {
+            let (done, total) = progress.chapter_progress(&quests, c);
+            assert_eq!(done, total, "{}", quests.chapters[c].id);
+        }
+        for index in progress.pending(&quests) {
+            assert!(
+                progress.claim(&quests, index, &mut |_| 0).is_ok(),
+                "{}",
+                quests.quests[index].id
+            );
+        }
+        assert!(progress.pending(&quests).is_empty());
+        // Les quêtes cachées se montrent une fois leurs dépendances finies.
+        for index in 0..quests.quests.len() {
+            assert!(progress.visible(&quests, index));
+        }
     }
 
     /// Une progression neuve termine, dans l'ordre, tout un chapitre dont on force les tâches ; et

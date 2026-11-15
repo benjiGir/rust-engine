@@ -9,7 +9,13 @@
 //! - `quest choose id récompense option` : choisit l'objet d'une récompense `Choice` ;
 //! - `quest scan` : refait la revue tout de suite (au lieu d'attendre la seconde suivante) ;
 //! - `quest reset [id]` : efface la progression d'une quête, ou de toutes ;
-//! - `quest pin id` ou `questpin id` : épingle une quête (trois au plus), ou la désépingle.
+//! - `quest pin id` ou `questpin id` : épingle une quête (trois au plus), ou la désépingle ;
+//! - `screen quests [chapitre]` : ouvre le livre (au chapitre donné, sinon au dernier regardé) ;
+//! - `quest select id` : ouvre la fiche d'une quête (le plan saute dessus, même d'un autre chapitre) ;
+//! - `quest ui` : l'état de l'écran (chapitre, fiche, zoom) et où chaque quête est dessinée, en points,
+//!   pour la cliquer avec `click x y` ; les boutons se cliquent avec `clicktext « Récupérer »` ;
+//! - `quest view fit | zoom` : recadre le plan, ou fixe le zoom (de 0,3 à 3) ;
+//! - `quest close` : ferme l'écran, comme Échap.
 //!
 //! Un identifiant sans espace de noms est cherché dans `core` (`steps/log` → `core:steps/log`).
 
@@ -34,6 +40,13 @@ pub enum Command {
     Scan,
     Reset(Option<String>),
     Pin(String),
+    /// `screen quests [chapitre]`.
+    Open(Option<String>),
+    Select(String),
+    Ui,
+    Close,
+    /// `None` : cadrer ; `Some(zoom)` : fixer le zoom.
+    View(Option<f32>),
 }
 
 fn qualified(key: &str) -> String {
@@ -76,8 +89,18 @@ pub fn parse(name: &str, args: &[&str]) -> Option<Result<Command>> {
         ("quest", ["reset"]) => Ok(Command::Reset(None)),
         ("quest", ["reset", id]) => Ok(Command::Reset(Some(qualified(id)))),
         ("quest", ["pin", id]) => Ok(Command::Pin(qualified(id))),
+        ("screen", ["quests"]) => Ok(Command::Open(None)),
+        ("screen", ["quests", chapter]) => Ok(Command::Open(Some(qualified(chapter)))),
+        ("quest", ["select", id]) => Ok(Command::Select(qualified(id))),
+        ("quest", ["ui"]) => Ok(Command::Ui),
+        ("quest", ["close"]) => Ok(Command::Close),
+        ("quest", ["view", "fit"]) => Ok(Command::View(None)),
+        ("quest", ["view", zoom]) => zoom
+            .parse::<f32>()
+            .map(|z| Command::View(Some(z)))
+            .with_context(|| format!("quest view : fit ou un zoom, pas « {zoom} »")),
         ("quest", _) => Err(anyhow::anyhow!(
-            "quest : done id | claim id|all | check id [tâche] | handin id [tâche] | choose id récompense option | scan | reset [id] | pin id"
+            "quest : done id | claim id|all | check id [tâche] | handin id [tâche] | choose id récompense option | scan | reset [id] | pin id | select id | ui | view fit|zoom | close"
         )),
         _ => return None,
     })
@@ -202,6 +225,23 @@ impl VoxelGame {
                 }
                 self.quest_book.progress_mut()?.reset(id.as_deref());
                 Ok("{\"ok\":true}".into())
+            }
+            Command::Open(chapter) => {
+                self.open_quest_book(chapter.as_deref())?;
+                Ok(self.quest_screen_json())
+            }
+            Command::Select(id) => {
+                self.select_quest(&id)?;
+                Ok(self.quest_screen_json())
+            }
+            Command::Ui => Ok(self.quest_screen_json()),
+            Command::Close => {
+                self.close_screen();
+                Ok(self.quest_screen_json())
+            }
+            Command::View(zoom) => {
+                self.set_quest_view(zoom);
+                Ok(self.quest_screen_json())
             }
             Command::Pin(id) => {
                 self.quest_lookup(&id)?;

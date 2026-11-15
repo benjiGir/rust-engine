@@ -1168,6 +1168,12 @@ de chapitre.
   identifiants en double ou hors de l'espace de noms ; dépendance inconnue ou en boucle ; chapitre
   vide ; quête sans tâche. Une dépendance vers un mod **absent** (désactivé) est ignorée avec un
   avertissement dans le journal. Un `quests.ron` de mod invalide est laissé de côté sans empêcher de jouer.
+- **Le plan** : `x` vers la droite, `y` vers le bas, une case de grille = 40 points au zoom 1 ; une quête
+  de taille 1 occupe une case. Garde au moins **2 cases** entre deux quêtes voisines (3 pour une quête de
+  taille 2) : le titre s'écrit en dessous, sur deux lignes. L'écran (touche L, ou le bouton « Quêtes » de
+  l'inventaire) cadre le plan tout seul ; une quête `hidden` ou `secret` n'est ni dessinée ni reliée tant
+  qu'elle est cachée ; une dépendance d'un autre chapitre n'a pas de trait, mais la fiche la propose
+  en bouton cliquable. Une quête qui a un `guide` offre « Lire dans le guide ».
 - **La progression** est dans `quests.ron` à la racine du monde. Les identifiants inconnus (un mod
   retiré) y sont conservés : la progression revient avec le mod.
 

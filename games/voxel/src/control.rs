@@ -33,7 +33,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-36 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin ... | questpin id | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin|select|ui|view|close ... | questpin id | screen quests [chapitre] | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -600,6 +600,9 @@ pub fn parse(line: &str) -> Result<Command> {
             Command::Screenshot(PathBuf::from(args[0]), width, height)
         }
         "quit" => Command::Quit,
+        "screen" if args.first() == Some(&"quests") => {
+            Command::Quests(crate::quest_ctl::parse(&name, &args).expect("screen quests")?)
+        }
         other => match crate::storage_ctl::parse(other, &args) {
             Some(command) => Command::Storage(command?),
             None => match crate::item_ctl::parse(other, &args) {

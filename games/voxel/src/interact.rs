@@ -47,12 +47,11 @@ impl VoxelGame {
         {
             self.toggle_tiers_screen();
         }
-        // Le livre de quêtes (en attendant son écran : un résumé, et les récompenses en attente).
+        // Le livre de quêtes : la même touche l'ouvre et le referme.
         if input.key_pressed(self.settings.keys.key(Action::Quests))
-            && self.mouse_captured
-            && !self.ui.inventory_open
+            && !self.ui.ctx.egui_wants_keyboard_input()
         {
-            self.press_quests_key();
+            self.toggle_quests_screen();
         }
         if input.key_pressed(self.settings.keys.key(Action::Time)) {
             self.day.cycle_speed();

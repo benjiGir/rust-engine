@@ -67,6 +67,8 @@ pub struct GameUi {
     pub attributes: crate::attributes_ui::AttributesPanel,
     /// La page ouverte du guide (voir `guide_ui.rs`).
     pub guide: crate::guide_ui::GuideState,
+    /// Le livre de quêtes : chapitre, fiche, plan (voir `quest_ui.rs`).
+    pub quests: crate::quest_ui::QuestScreen,
 }
 
 /// Une pile qu'on s'apprête à diviser, et combien d'objets prendre.
@@ -131,6 +133,8 @@ pub enum Screen {
     Tiers,
     /// Le Guide du voyageur (voir `guide_ui.rs`).
     Guide,
+    /// Le livre de quêtes, plein écran (voir `quest_ui.rs`).
+    Quests,
     /// Le menu d'une machine de mod (voir `mod_menu.rs`).
     Mod(IVec3),
     /// La console de commandes (voir `console.rs`).
@@ -173,6 +177,7 @@ impl GameUi {
             storage_search: String::new(),
             attributes: Default::default(),
             guide: Default::default(),
+            quests: Default::default(),
         }
     }
 
@@ -277,6 +282,7 @@ impl VoxelGame {
             // Au menu principal et à l'écran de mort, ni barre d'objets ni vie.
             if self.mode == crate::Mode::Playing && !self.ui.inventory_open {
                 self.draw_hud(ui.ctx());
+                self.draw_pinned_quests(ui.ctx());
             }
             self.draw_toast(ui.ctx());
             self.draw_menus(ui.ctx());
@@ -285,6 +291,8 @@ impl VoxelGame {
             if self.ui.inventory_open {
                 if self.ui.screen == Screen::Console {
                     self.draw_console(ui.ctx());
+                } else if self.ui.screen == Screen::Quests {
+                    self.draw_quests_screen(ui.ctx());
                 } else {
                     self.draw_screen(ui.ctx());
                 }
@@ -787,7 +795,7 @@ impl VoxelGame {
             Screen::Reforge => "Table de réforge".to_string(),
             Screen::Tiers => "Paliers du monde".to_string(),
             Screen::Guide => "Guide du voyageur".to_string(),
-            Screen::Console => String::new(),
+            Screen::Console | Screen::Quests => String::new(),
             Screen::Mod(_) => self
                 .ui
                 .mod_menu
@@ -839,7 +847,7 @@ impl VoxelGame {
                     Screen::Tiers => self.tiers_panel(ui),
                     Screen::Guide => self.guide_panel(ui),
                     Screen::Mod(pos) => self.mod_panel(ui, pos),
-                    Screen::Console => {}
+                    Screen::Console | Screen::Quests => {}
                 }
                 if !matches!(self.ui.screen, Screen::Tiers | Screen::Guide) {
                     ui.add_space(8.0);
@@ -910,7 +918,10 @@ impl VoxelGame {
         use crate::ui_layout::{InventorySection, inventory_sections};
         inventory_sections(ui, |ui, section| match section {
             InventorySection::Armor => self.armor_panel(ui),
-            InventorySection::Craft => self.craft_grid(ui, 2),
+            InventorySection::Craft => {
+                self.craft_grid(ui, 2);
+                self.quests_button(ui);
+            }
             InventorySection::Recipes => self.recipe_book(ui, 2),
         });
     }

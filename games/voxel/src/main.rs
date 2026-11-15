@@ -109,6 +109,7 @@ mod projectiles;
 mod quest_ctl;
 mod quest_play;
 mod quest_progress;
+mod quest_ui;
 mod quests;
 mod recipe_browser;
 mod screenshots;
