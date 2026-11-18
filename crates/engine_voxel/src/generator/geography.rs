@@ -168,6 +168,9 @@ pub struct GeoSample {
     pub coast_distance: f32,
     /// Distance estimée à l'axe de chaîne le plus proche, en blocs (bornée).
     pub axis_distance: f32,
+    /// Distance estimée à l'axe de la crête secondaire la plus proche, en blocs (bornée ; la borne
+    /// hors du voisinage de la chaîne). Les escarpements du relief s'alignent dessus.
+    pub ridge_distance: f32,
     /// L'intensité locale de la chaîne, de 0 (aucune) à 1 : cols et fins de chaîne comprises.
     pub chain_strength: f32,
     /// La hauteur ajoutée par les chaînes (axe principal et crêtes secondaires), en blocs.
@@ -202,6 +205,7 @@ struct Core {
     continent: f64,
     coast_distance: f64,
     axis_distance: f64,
+    ridge_distance: f64,
     strength: f64,
     chain: f64,
     macro_height: f64,
@@ -367,6 +371,7 @@ impl Geography {
                 + 0.4 * (0.5 + 0.5 * fbm(self.seed, SALT_WIDTH, x / 3500.0, z / 3500.0, 1, 0.5)));
         let mut chain = 0.0;
         let mut axis = CHAIN_HALF_WIDTH * 1.6;
+        let mut ridge = CHAIN_HALF_WIDTH * 1.6;
         if strength > 0.002 {
             // L'orientation des chaînes passe lentement d'une direction à l'autre : des arcs.
             let blend = smooth(
@@ -405,6 +410,7 @@ impl Geography {
                         warp: (SALT_AXIS2_WARP_X, SALT_AXIS2_WARP_Z, 1800.0, 300.0),
                     },
                 );
+                ridge = d2;
                 let u = (d2 / (0.26 * half_width)).min(1.0);
                 secondary = 0.32 * near * (1.0 - u) * (1.0 - u);
             }
@@ -416,6 +422,7 @@ impl Geography {
             continent,
             coast_distance,
             axis_distance: axis,
+            ridge_distance: ridge,
             strength,
             chain,
             macro_height,
@@ -457,6 +464,7 @@ impl Geography {
             continent: c.continent as f32,
             coast_distance: c.coast_distance as f32,
             axis_distance: c.axis_distance as f32,
+            ridge_distance: c.ridge_distance as f32,
             chain_strength: c.strength as f32,
             chain_height: c.chain as f32,
             macro_elevation: (sea + c.macro_height) as f32,

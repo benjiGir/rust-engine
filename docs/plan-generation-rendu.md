@@ -682,9 +682,10 @@ près des îles.
 ## Statut du lot 4 (relief 3D, surface et sous-sol)
 
 **Ce qui est livré :** `GenerationVersion::V2` et un générateur de blocs v2 (`generator/v2.rs`,
-`v2_context.rs`, `density.rs`, `surface.rs`, `underground.rs`), des cartes et coupes issues des **blocs**
-(`worldmap_blocks.rs`, `cargo xtask map --generator v2`), des tests dédiés (`tests/generation_v2.rs`) et des
-empreintes v2 figées (`tests/support/reference_v2.rs`). `FOR_NEW_WORLDS` reste **v1** : rien n'est activé pour
+`v2_context.rs`, `scarp.rs`, `density.rs`, `surface.rs`, `underground.rs`), des cartes et coupes issues des **blocs**
+(`worldmap_blocks.rs`, `cargo xtask map --generator v2`), des tests dédiés (`tests/generation_v2.rs`,
+`tests/relief_v2.rs` pour les parois, surplombs, arches et la forme des parois, avec `tests/support/walls.rs`) et des empreintes v2 figées
+(`tests/support/reference_v2.rs`). `FOR_NEW_WORLDS` reste **v1** : rien n'est activé pour
 les joueurs (lot 9).
 
 ### Créer un monde de test v2 et aiguillage
@@ -707,35 +708,82 @@ les joueurs (lot 9).
    `clear_caches`. Chaque valeur est une fonction pure de la position.
 2. **Relief** : géographie macro tous les 4 blocs (interpolée), cours et lacs lus une fois par zone
    (`Hydrology::river_candidates`), vallées et lits comme `MacroWorld::sample`, mais remblai des berges jusqu'à
-   10 blocs et lits creusés **en blocs**. Détail de massif (gradins par plages, crêtes) là où la chaîne est
-   forte, atténué dans les vallées.
+   10 blocs et lits creusés **en blocs**. Détail de massif là où la chaîne est forte (atténué dans les
+   vallées) : des bosses douces (une vingtaine de blocs de haut, 90 blocs de long) et un relief rugueux plus
+   fin, d'intensité lentement variable. Ni gradins réguliers (leurs paliers de 8 blocs donnaient l'allure de
+   courbes de niveau), ni arêtes tirées d'un bruit (le « ridged » du premier jet serpentait en boucles et
+   couvrait les cartes de bandes de roche).
+   **Escarpements** (`scarp.rs`) : dans les massifs et les contreforts (chaîne >= 24 qui monte vers 46,
+   altitude à plus de 8 blocs au-dessus de la mer), le relief **saute de 10 à 44 blocs** sur des parois qui
+   suivent la **structure macro** de la géographie, jamais un bruit isotrope (une isoligne de bruit boucle
+   partout où il oscille : vers, anneaux, murs doublés, c'était le défaut du premier jet). Trois familles :
+   (1) les **flancs de chaîne**, lignes parallèles à l'axe (distance à l'axe `GeoSample::axis_distance`,
+   déjà une distance) à 35 blocs de l'axe puis tous les 84 blocs, décalées lentement de ±28 blocs ; chaque
+   ligne n'existe que par **plages** de quelques centaines de blocs (un masque lent propre à la ligne) et
+   s'éteint aux bouts (la hauteur décroît avec le masque) ; (2) les **crêtes secondaires** (nouvelle valeur
+   `GeoSample::ridge_distance`) : deux parois face à face de part et d'autre de l'axe d'une crête, qui la
+   relèvent entre elles, large de 50 à 110 blocs et, par zones de 140 blocs, affinée jusqu'à 14 blocs (les
+   arches) ; (3) de rares **failles** droites de 280 à 540 blocs (une case de 1 000 blocs sur trois environ,
+   jamais à moins de 160 blocs d'une autre). Un zonage de 700 blocs réserve chaque zone aux flancs **ou** aux
+   crêtes (les poids se croisent à zéro à la frontière) ; une faille et une autre paroi s'effacent toutes deux
+   à moins d'une trentaine de blocs l'une de l'autre : pas de croisement en grille, pas de mur doublé hors des
+   deux faces d'une crête fine. Le profil : une marche franche de `H` blocs sur la ligne (un à deux blocs de
+   large) compensée par une rampe de 30 blocs de part et d'autre (côté bas seulement pour une crête), si bien
+   que l'effet s'éteint à 30 blocs de la ligne (une falaise suivie d'un glacis, comme une cuesta) ; les
+   déplacements des deux parois d'un point se somment (aucune distance ne saute quand l'une cède la place à
+   l'autre) ; les 3 premiers blocs de `H` sont retranchés (aucune marche de moins de 3 blocs). Le pied n'est
+   jamais ramené à moins de 12 blocs de la mer, ni le sommet au-dessus du plafond du monde. `H` croît avec la
+   chaîne. Jamais dans une vallée (le ressaut s'efface avant 40 blocs d'un cours ou d'un lac), un lit ni une
+   zone réservée.
 3. **Eau** : l'eau d'un cours est à `floor(niveau)` (le niveau ne remonte pas vers l'aval, l'arrondi le
    conserve) ; celle d'un lac à `floor(niveau du lac)` partout. Toute colonne de terre voisine d'une eau plus
    haute est relevée à son niveau : l'eau ne déborde jamais d'un côté, le seul écoulement est vers l'aval.
 4. **Réservation** : un poids 0..1 (plein dans le lit, les berges et les lacs, décroissant sur 6 blocs). Il
-   annule l'amplitude des surplombs, impose 10 blocs de roche pleine sous un lit, et fixe la distance de
+   annule les escarpements et leurs entailles, impose 10 blocs de roche pleine sous un lit, et fixe la distance de
    dégagement des arbres et des structures (Chebyshev, 9 au plus).
-5. **Densité** (`density.rs`) : `D = (top + 0,5 - y) - A s(prof) max(0, 0,15 - n) + dureté`, bruit 3D sur une
-   grille de 4 blocs interpolée (une fois par verticale), plus l'**entaille** du pied d'une paroi (colonne à
-   1 ou 2 blocs d'une voisine plus basse de 3 blocs ou plus). Sans amplitude (plaines, côtes, mers, zones
-   réservées) `D > 0` revient exactement à `y <= top` : aucun bruit n'y ouvre ni n'y ferme quoi que ce soit.
+5. **Densité et entaille du pied des parois** (`density.rs`) : le bloc `(x, y, z)` est solide quand `y <= top`,
+   sauf dans l'**entaille** du pied d'une paroi. Une colonne d'escarpement connaît le pied de la paroi (`base`,
+   relief sans le ressaut), la hauteur du ressaut (`jump`), la distance à la ligne de rupture (`dist`, positive du
+   côté haut), la profondeur d'entaille `reach` (0 presque partout), l'exposant `shape` du profil et la fraction
+   `lid` de la paroi qu'occupe l'entaille. Avec `t = (y - base) / jump` entre 0 et `lid`, le bloc est de l'air
+   quand `dist < reach (1 - (t / lid)^shape) - 0,4 saillie(y)` : l'entaille est la plus profonde au pied
+   (jusqu'à 10 blocs derrière la paroi) et se referme jusqu'à `t = lid` ; le **toit** reste plein et avance donc
+   de plusieurs blocs au-dessus du pied. La **variété** : `shape` (de 0,7, voûte basse et longue qui se resserre
+   vite, à 2,2, porche haut qui reste profond avant de se fermer) et `lid` (de 0,45 à 0,75) varient lentement le
+   long de la paroi (bruits de 60 et 80 blocs), la profondeur par plages de 70 blocs avec une rugosité fine, et
+   la saillie (de -1 à 1, par tranche de 3 blocs d'altitude, fonction de `y` seul) fait reculer ou saillir des
+   couches : des marches sur la voûte. Le profil reste décroissant avec `dist` : l'argument « rien ne flotte »
+   ne change pas. L'entaille n'existe que sur des parois de 12 blocs ou plus, jamais sous une zone réservée, un
+   lit ou l'eau, jamais à moins de 6 blocs au-dessus de la mer, jamais plus profonde que la moitié de la paroi.
+   Une **arche** apparaît sur une crête affinée : la profondeur (jusqu'à 2 fois plus grande, plafonnée à la
+   moitié de la paroi) est partout forte sur la zone affinée, les deux entailles se rejoignent sous la crête dont
+   la roche reste en toit (au moins le quart de la paroi) ; `reach` est plafonné en chaque point par l'épaisseur
+   locale de la masse haute (le plus grand `dist` à moins de 8 blocs, moins 2,5 blocs, mais plus 6 blocs sous
+   une crête affinée), si bien qu'un pilier ou une dalle isolés ne sont jamais évidés de part en part ; le toit
+   d'une arche est tenu par les deux bouts de la zone. Sans escarpement (plaines, plateaux, côtes, mers,
+   vallées, zones réservées) `y <= top` est la seule règle. Il n'y a plus de bruit 3D ni de poches sous la
+   peau : les « tunnels près de la surface » du premier jet ont disparu, et la densité ne coûte plus une grille
+   de bruit par verticale.
 6. **Surface** (`surface.rs`) : règles ordonnées par colonne, sur la pente de la hauteur de surface (+-2 blocs)
    : lit (gravier, sable, argile), fond marin, falaise (pente >= 1,0 ou marche >= 3 : roche nue), éboulis
    (0,75 à 1,0 : gravier en altitude, terre grossière), neige (température ressentie : altitude, ombre des
    pentes exposées au pôle), berges (gravier, sable, argile), roche affleurante, sol du biome. Blocs existants
    uniquement, aucun identifiant changé.
 7. **Strates** : couches de 3 blocs dont l'altitude ondule en continu (deux bruits de valeurs) et dont la
-   nature (pierre, grès, roche volcanique) suit deux champs régionaux lents ; la dureté entre dans la densité
-   (le grès recule, la pierre saillit). Posées après les minerais (`ores.ron`, fonction de la v1 inchangée).
+   nature (pierre, grès, roche volcanique) suit deux champs régionaux lents ; la saillie des couches entre dans
+   l'entaille des parois (voir 5). Posées après les minerais (`ores.ron`, fonction de la v1 inchangée).
    Un **éventail** (±0,25 bloc par bloc autour de y = 96, bruit de 83 blocs) écarte ou resserre les couches
    avec la profondeur : sans lui, toutes les couches d'une colonne sautaient d'un bloc à la même abscisse et
    les coupes montraient de fausses failles verticales. Les sites de structures refusent toute colonne à
-   surplombs dans leur emprise (grille de 2 blocs), car les couches tendres y creusent sous la peau.
+   surplombs et tout point à moins de 8 blocs d'une ligne de rupture dans leur emprise (grille de 2 blocs) ; les
+   arbres refusent toute colonne à surplomb.
 8. **Sous-sol** (`underground.rs`) : formes de la v1 (spaghetti et fromage, mêmes tampons par worker `CaveGrid`),
    règles nouvelles : plafond 4 blocs sous le relief (9 sous l'eau, plus de 10 sous une zone réservée), entrées
    contrôlées rares sur la roche nue, nappes liées au niveau des cours et lacs voisins (2 blocs sous leur
    niveau, +0,1 par bloc d'éloignement, effacées à 140 blocs), lave sous `LAVA_LEVEL`, eau jamais sous
-   `LAVA_LEVEL + 4` : aucun contact eau/lave.
+   `LAVA_LEVEL + 4` : aucun contact eau/lave. À moins de 16 blocs derrière une paroi (de 4 blocs ou plus) et de
+   3 blocs devant, aucune caverne ne monte au-dessus du pied de la paroi : elle trancherait la face ou le toit
+   d'une entaille et en détacherait des blocs (vu au premier essai : quelques blocs flottants).
 9. **Biomes provisoires** (lot 5 les remplacera) : le climat de la v1 (température, humidité, variété) lu
    tous les 16 blocs, humidité relevée près de l'eau ; la **famille** vient de la géographie (lit -> rivière,
    sous la mer -> océan ou océan profond, rivage bas -> plage, massif -> montagnes ou pics, sinon terre) ; dans
@@ -754,9 +802,79 @@ parallèle sur 4 threads, caches vide/plein/vidé/évincé, bords et coins de qu
 ou non, coordonnées négatives), rivières (4 graines : eau non remontante, cuvette sans sortie impossible, lit
 ouvert, berges fermées), lacs (niveau constant, rives fermées sauf déversoir ou entrée de cours), arbres (sol
 réel, jamais dans l'eau, jamais flottants avec leurs branches) et structures (jamais près d'un lit ou d'un lac),
-surface/pente (aucune herbe, neige ou sable sur une pente >= 1,0), surplombs (rares, jamais en zone réservée),
-sous-sol (dix blocs de roche sous un lit, jamais d'eau contre la lave), fluides (la simulation s'endort sur
-l'eau d'un cours et d'un lac), couture entre chunks, empreintes figées (7 graines).
+surface/pente (aucune herbe, neige ou sable sur une pente >= 1,0), surplombs (rares, jamais en zone réservée, ni
+dans un lit : une entaille n'existe qu'au pied d'une paroi de 12 blocs ou plus, côté haut, dans un massif ou un
+contrefort), sous-sol (dix blocs de roche sous un lit, jamais d'eau contre la lave), fluides (la simulation
+s'endort sur l'eau d'un cours et d'un lac), couture entre chunks, empreintes figées (7 graines, **régénérées au
+lot des surplombs puis à celui des escarpements structurels** : la v2 n'est portée par aucun monde réel ;
+deux générations successives donnent la même table).
+
+### Tests du relief vertical (`tests/relief_v2.rs`)
+
+Tous passent (9 tests, 2 ignorés qui impriment le tableau chiffré et listent les surplombs les plus avancés).
+Les mesures lisent les **blocs** d'un générateur `relief_only()` (ni cavernes, ni arbres, ni structures : les
+cavernes ne comptent pas comme surplombs) sur douze zones de massif de 160 x 160 blocs (trois par graine) et sur
+un balayage de 81 zones de 96 x 96 par graine. Définitions : *colonne à surplomb* = au moins un bloc d'air sous un
+bloc plein (hors bois et feuillage) à moins de 30 blocs sous le sol, ouvert sur le côté ; *avancée* = le plus long
+alignement d'air abrité sous un toit, mesuré vers l'intérieur depuis l'ouverture ; *colonne de paroi* = sol à 8
+blocs ou plus au-dessus de celui d'une colonne à un ou deux blocs (les marches des lits et des lacs, à moins de
+3 blocs d'une zone réservée ou d'eau, sont de l'hydrologie et ne comptent pas) ; *arche* = passage d'air sous un
+toit, ouvert aux deux bouts ; *famille autorisée* = massif, contrefort ou côte haute (macro à plus de 25 blocs
+au-dessus de la mer), hors zone réservée, lit et eau. Vérifications : parois et surplombs nombreux mais
+localisés (moins d'une colonne sur dix pour les parois, sur cent pour les surplombs), **100 % dans les familles
+autorisées et zéro** dans les plaines, plateaux, côtes basses, mers, vallées, lits et zones réservées (balayage
+compris) ; **rien ne flotte** (chaque composante solide du relief touche le fond du monde ou le bord de la zone ;
+avec cavernes, minerais, arbres et structures, aucun bloc flottant à hauteur d'une entaille) ; les faces de paroi
+sont en roche (97 % au moins, les filons de terre ou de gravier affleurent parfois) ; aucun arbre sur une colonne
+à surplomb ; déterminisme autour d'un surplomb avancé (ordre inverse, caches vidés chunk par chunk, quatre
+threads) ; cohérence des pentes et de la distance à la ligne de rupture aux joints de colonnes de chunks (entre
+deux colonnes voisines d'une paroi, à moins de 3 blocs de sa ligne, la distance varie d'au plus 2,5 blocs) ;
+**forme des parois** (`wall_shapes_are_long_straight_and_do_not_loop`, voir plus bas).
+
+Relief vertical sur les douze zones de massif, relief seul (lot 4 initial -> premier jet des escarpements,
+isolignes d'un bruit -> escarpements posés sur la structure macro) :
+
+| Graine | Parois | Colonnes à surplomb | Blocs de surplomb | Avancée moyenne (max) | Colonnes à avancée >= 3 | Arches |
+| --- | --- | --- | --- | --- | --- | --- |
+| 7 | 16 -> 610 -> 486 | 68 -> 237 -> 205 | 69 -> 244 -> 205 | 1,5 -> 9,0 -> 16,5 (40) | 9 -> 215 -> 192 | 2 -> 1 -> 0 |
+| 42 | 0 -> 630 -> 720 | 6 -> 184 -> 286 | 6 -> 184 -> 286 | 2,0 -> 7,4 -> 5,6 (40) | 0 -> 173 -> 243 | 0 -> 0 -> 0 |
+| 1337 | 0 -> 570 -> 366 | 12 -> 210 -> 163 | 12 -> 221 -> 166 | 1,7 -> 8,5 -> 7,2 (13) | 0 -> 204 -> 149 | 2 -> 3 -> 0 |
+| 20260 | 1 -> 994 -> 645 | 3 -> 394 -> 305 | 3 -> 409 -> 305 | 2,0 -> 9,3 -> 16,1 (40) | 0 -> 368 -> 302 | 0 -> 6 -> 15 |
+| **Total** | **17 -> 2 804 -> 2 217** | **89 -> 1 025 -> 959** | **90 -> 1 058 -> 962** | **1,6 -> 8,7 -> 11,5** | **9 -> 960 -> 886** | **4 -> 10 -> 15** |
+
+Dont parois de 16 blocs ou plus : 1 653 -> 1 375 ; de 24 blocs ou plus : 741 -> 770 ; à moins de 200 blocs du
+rivage : 602 -> 550. Balayage des 4 graines (324 zones de 96 x 96) : parois 2 195 -> 2 279, colonnes à surplomb
+652 -> 975, arches 5 -> 25, toujours 100 % dans les familles autorisées et zéro ailleurs. Les parois sont un
+cinquième moins nombreuses dans les zones de massif (elles sont plus longues, plus hautes, et ne bouclent plus),
+les surplombs du même ordre, l'avancée plus grande et les arches plus nombreuses (mais concentrées : la graine
+20260 en porte 15 sur les douze zones, trois graines n'en ont aucune dans leurs zones ; le balayage en trouve
+dans trois graines). L'avancée mesurée est celle de l'air abrité : une alcôve profonde de 10 blocs sous une voûte
+de 6 à 20 blocs compte jusqu'à 40, et le tunnel d'une arche tient la limite de 40 de la mesure.
+
+**Forme des parois** (`tests/support/walls.rs`, carrés de 400 blocs autour des douze zones de massif, hauteurs de
+sol lues dans les blocs). *Composante* : colonnes de paroi (dénivelé >= 8 blocs) dilatées de 2 blocs et connexes,
+d'au moins 60 colonnes. *Anneau* : région de sol d'au moins 150 colonnes entièrement cernée de parois (sans
+toucher le bord de la zone). *Doublage* : deux parois séparées de 3 à 23 blocs sur une même ligne ou colonne de
+blocs (les paires dont l'intervalle est entaillé sont comptées à part : ce sont les deux faces d'une crête fine,
+c'est-à-dire des arches voulues). *Sinuosité* : périmètre des composantes sur le double de leur étendue (1 pour
+une paroi droite, davantage pour une boucle ou un ver). Les mêmes mesures sont prises sur les **bandes de
+falaise** (pente de 1,0 ou plus : la roche nue des cartes de matériau, ce que l'oeil voit).
+
+| Mesure (douze carrés de 400) | Parois, avant | Parois, après | Falaises, avant | Falaises, après |
+| --- | --- | --- | --- | --- |
+| colonnes | 16 545 | 13 112 | 188 936 | 54 526 |
+| composantes | 87 | 59 | 330 | 150 |
+| anneaux | 0 | 0 | 54 | 2 |
+| doublages pour 1 000 colonnes | 26 | 3 (plus 643 paires de crêtes à arche) | 129 | 53 (plus 1 288) |
+| sinuosité | 1,29 | 1,10 | 2,50 | 1,39 |
+
+Par graine (parois, avant -> après) : sinuosité 7 : 1,29 -> 1,19 ; 42 : 1,32 -> 1,03 ; 1337 : 1,35 -> 1,08 ;
+20260 : 1,23 -> 1,13. Bandes de falaise : anneaux 8 -> 1, 5 -> 0, 20 -> 0, 21 -> 1 ; sinuosité 2,23 -> 1,39,
+2,05 -> 1,26, 3,11 -> 1,40, 2,83 -> 1,53. Bornes testées (`wall_shapes_are_long_straight_and_do_not_loop`) :
+parois : au plus 2 anneaux, 20 doublages pour 1 000 colonnes, sinuosité 1,3, moins d'une composante pour 100
+colonnes de paroi ; falaises : au plus 12 anneaux, 100 doublages pour 1 000, sinuosité 1,9. (Si l'on compte les
+paires de crêtes à arche comme des doublages, les parois passent de 26 à 52 pour 1 000 : ce sont les arches
+voulues, pas des murs minces isolés ; les bandes de falaise de 129 à 76.)
 
 ### Mesures (Apple M3 Pro, release, `cargo bench -p engine_voxel --bench generation`)
 
@@ -768,19 +886,74 @@ l'eau d'un cours et d'un lac), couture entre chunks, empreintes figées (7 grain
 
 Le « froid » v2 comprend l'hydrologie macro et le contexte de colonne (`clear_caches` vide tout).
 
+Après les escarpements (même machine, même jour, avant -> après) : surface à chaud 0,56 -> 0,56 ms ; verticale
+à froid 3,13 -> 3,35 ms ; zone 8 x 8 à froid 178 -> 176 ms. Deux cas ajoutés dans un **massif** (graine 42, vers
+x = -256, z = -512) : verticale à froid 7,7 -> 6,5 ms et zone 8 x 8 à froid 273 -> 255 ms. Le coût ne monte pas :
+la grille de bruit 3D par verticale, qui servait aux poches, disparaît, et les escarpements ne coûtent que trois
+évaluations de bruit par point de la grille de 4 blocs, là où une chaîne forte les autorise.
+
+Après les escarpements posés sur la structure macro (mêmes cas, même machine, avant -> après) : surface à chaud
+0,56 -> 0,55 ms ; verticale à froid 3,11 -> 3,08 ms ; zone 8 x 8 à froid 173,7 -> 176,8 ms (+ 2 %) ; massif :
+verticale à froid 6,5 -> 7,9 ms (dispersion large sur ce cas : 6,1 à 7,3 ms puis 7,3 à 8,9 ms) et zone 8 x 8 à froid
+253 -> 259 ms (+ 2 %). Pas de surcoût important : le calcul d'une paroi (deux distances déjà connues de la
+géographie, quelques bruits lents, neuf cases de failles hachées) se fait une fois par point de la grille de 4
+blocs.
+
 ### Lisibilité des cartes et coupes (jugement)
 
-Cartes `hauteur-blocs`, `materiau`, `eau-blocs`, `surplombs` et coupes colorées (graines 42, 7, 1337). Les
-rivières, confluences, deltas et lacs lus dans les blocs concordent avec le relief ; les falaises et éboulis
-suivent la pente ; les strates se suivent d'un chunk à l'autre et changent par régions. Défauts assumés : (a)
-les massifs restent doux, les vraies parois à surplomb sont **rares** (environ 75 blocs d'air ouverts sous un
-bloc plein sur 12 zones de 160 x 160 des quatre graines) ; la carte `surplombs` montre surtout des tunnels proches de la surface, pas des surplombs ; (b) les
-gradins de massif, même cassés par plages, gardent un air de courbes de niveau sur les grands pics enneigés ;
-(c) les strates ondulent désormais en éventail, mais restent des couches de 3 blocs assez régulières ; (d) les rivières sont peu
-nombreuses sur la graine 1337.
+Cartes `hauteur-blocs`, `materiau`, `eau-blocs`, `surplombs`, `parois` (nouvelle : dénivelé du sol sur un pixel
+en rouge-jaune de 8 à 40 blocs, colonnes à vide ouvert en bleu ; à lire en `--step 1` ou `2`) et coupes colorées
+(`--section`, `--relief` pour le relief seul), graines 42, 7, 1337 et 20260. Les rivières, confluences, deltas et
+lacs lus dans les blocs concordent avec le relief ; les falaises et éboulis suivent la pente ; les strates se
+suivent d'un chunk à l'autre et changent par régions.
+
+*Ce qui est net.* Le défaut du premier jet des escarpements (parois en boucles serrées, vers et murs doublés
+sur les grands massifs, isolignes d'un bruit de 140 blocs) est corrigé. Sur les cartes `parois` et `materiau`
+(graines 1337, 42, 7, 20260, vues de 320 et 1 000 blocs), les lignes de rupture sont maintenant **peu nombreuses,
+longues (une à quelques centaines de blocs), droites ou courbes comme les flancs de la chaîne** (graine 42 : un
+éventail de parois parallèles au flanc sud du massif ; graine 20260 : des arcs parallèles aux axes de la chaîne),
+et elles **s'éteignent par le bout** (la hauteur décroît, on voit leur ombre portée s'effacer sur la carte de
+hauteur). Les cartes de matériau ne montrent plus le réseau de bandes de roche nue de l'ancien massif : 54
+anneaux de falaise contre 2 sur les douze carrés de 400 blocs, 189 000 colonnes de falaise contre 55 000. Les
+coupes à travers les parois montrent de vrais reliefs verticaux : ressauts de 10 à 44 blocs, des toits qui avancent
+de plusieurs blocs au-dessus d'une alcôve avec les couches de grès lisibles sur la voûte (graine 7 vers
+x = -1 663, z = -1 609 ; graine 42 vers x = -256, z = -551), des porches hauts et des voûtes basses (la forme varie
+le long d'une paroi), et des **arches** longues sous des crêtes affinées (graines 20260 vers x = 13, z = -14 ; 42
+vers x = -42, z = -37 ; 1337 vers x = 1 619, z = 186). Les faces sont en roche, le sommet en herbe ou en neige.
+Rien de tout cela n'apparaît dans les plaines, côtes basses, vallées ni lits.
+
+*Ce qui l'est moins.* (a) Les parois de flanc sont **régulières** : parallèles à l'axe de la chaîne et espacées de
+84 blocs (le décalage de ±28 blocs ne suffit pas à casser l'effet d'éventail sur les graines 42 et 20260) ; c'est
+la structure demandée, mais on y lit la règle. (b) Les massifs sont plus **lisses** qu'avec les arêtes : sans les
+isolignes de bruit, le détail de massif ne fait plus que des bosses douces, le relief entre deux parois est
+monotone. (c) Les arches sont des **tunnels longs** (40 blocs et plus, la longueur de la zone de crête affinée) à
+toit épais plutôt que des ponts minces, et elles sont concentrées (15 sur la graine 20260 sur les douze zones, 0 sur
+trois graines ; le balayage en trouve 25 sur trois graines). Une crête affinée au-delà de l'entaille laisse un
+toit de 3 à 4 blocs sur ses bords (coupe de la graine 42 ci-dessus). (d) Les paires de parois d'une crête affinée
+(14 blocs de large) comptent encore comme doublages quand on ne les écarte pas : 643 paires de lignes de blocs sur
+les douze carrés. (e) De grandes taches plates de roche nue subsistent sur les plus hautes chaînes (graines 7 et 20260) : elles
+ne viennent pas des parois, et leur cause (altitude, écrêtage du relief) n'a pas été analysée. (f) Les falaises côtières n'existent
+que là où un massif atteint le rivage (graine 1337) : une côte basse n'en a pas, par construction. (g) Les strates
+restent des couches de 3 blocs assez régulières. (h) La lecture « à hauteur de joueur » repose sur des coupes et des
+cartes : aucune capture du jeu (consigne : ne pas lancer le jeu graphique).
 
 ### Limites et ce qui n'est pas fait
 
+- Les escarpements sont des ressauts sur des lignes de rupture posées sur la structure macro (flancs de chaîne,
+  crêtes secondaires, failles) : pas de falaise en arc surplombant sur toute sa hauteur (l'entaille occupe de 45 à
+  75 % de la hauteur d'une paroi de 12 blocs ou plus), pas de plafond de caverne naturelle ni de pilier détaché.
+  Les parois de moins de 12 blocs n'ont pas d'entaille. Seules les zones où `chain >= 24` et le sol à plus de 8
+  blocs de la mer en portent : une paroi n'existe jamais sur un plateau ni une plaine.
+- Les failles sont d'orientation quelconque (la géographie n'expose pas la direction de l'axe : elles ne sont pas
+  « transverses » au sens strict) ; leur distance à une autre paroi est garantie par effacement mutuel, pas par
+  construction.
+- Une arche ne peut se former que sur une crête secondaire affinée (14 blocs de large, paroi d'au moins 20 blocs) ;
+  elle est un tunnel long. Pas de pont mince, pas d'arche sur un flanc de chaîne ou une faille.
+- Les parois d'escarpement s'arrêtent à 40 blocs d'un cours ou d'un lac (le ressaut s'efface dans les vallées) :
+  les gorges taillées par une rivière ne sont pas des parois d'escarpement ; les marches d'hydrologie des lits
+  restent celles du lot 3 et ne sont pas comptées comme parois.
+- Les cavernes ne montent pas au-dessus du pied d'une paroi à moins de 16 blocs derrière elle : une paroi n'a donc
+  jamais d'entrée de caverne en hauteur.
 - Biomes, climat et végétation élaborés : lot 5. Rendu et streaming : lots 6 et 7. Terrain lointain v2 : lot 8
   (le lointain lit les colonnes v2 sans volume ; les surplombs n'y figurent pas).
 - Les structures lisent toujours `column(x, z).height` et leur propre règle de nivellement : un village sur une

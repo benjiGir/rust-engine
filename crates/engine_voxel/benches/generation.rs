@@ -84,6 +84,27 @@ fn bench_generation(c: &mut Criterion) {
             BatchSize::PerIteration,
         )
     });
+    // Un massif (graine 42, vers x = -256, z = -512) : parois, escarpements et entailles de pied.
+    group.sample_size(20);
+    group.bench_function("massif : verticale à froid (6 chunks)", |b| {
+        b.iter_batched(
+            || v2.clear_caches(),
+            |()| {
+                for y in 0..6 {
+                    black_box(v2.generate(black_box(IVec3::new(-8, y, -16))));
+                }
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.sample_size(10);
+    group.bench_function("massif : zone 8 × 8 à froid (384 chunks)", |b| {
+        b.iter_batched(
+            || v2.clear_caches(),
+            |()| v2.generate_area(black_box(IVec3::new(-12, 0, -20)), 8, 8),
+            BatchSize::PerIteration,
+        )
+    });
     group.finish();
     let mut group = c.benchmark_group("generation");
 

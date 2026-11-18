@@ -31,14 +31,19 @@ pub enum BlockMapKind {
     /// Les vides sous la peau (surplombs, poches, entrées) : nombre de blocs vides dans les 14
     /// blocs sous le sol, de noir (aucun) à blanc (beaucoup).
     Overhangs,
+    /// Les parois : le dénivelé du sol sur un pixel (blocs, de rouge sombre à jaune de 8 à 40 blocs),
+    /// et en bleu les colonnes dont le sol réel recouvre du vide ouvert sur le côté (surplombs). Les
+    /// autres pixels sont en gris ombré. À lire avec `--step 1` ou `2` : au-delà, un pixel saute les parois.
+    Walls,
 }
 
 impl BlockMapKind {
-    pub const ALL: [BlockMapKind; 4] = [
+    pub const ALL: [BlockMapKind; 5] = [
         BlockMapKind::Height,
         BlockMapKind::Material,
         BlockMapKind::Water,
         BlockMapKind::Overhangs,
+        BlockMapKind::Walls,
     ];
 
     pub fn name(self) -> &'static str {
@@ -47,6 +52,7 @@ impl BlockMapKind {
             Self::Material => "materiau",
             Self::Water => "eau-blocs",
             Self::Overhangs => "surplombs",
+            Self::Walls => "parois",
         }
     }
 
@@ -242,6 +248,30 @@ impl<'a> BlockMapSamples<'a> {
             }
             BlockMapKind::Overhangs => {
                 let g = (p.hollow as f32 / 14.0 * 255.0) as u8;
+                [g, g, g]
+            }
+            BlockMapKind::Walls => {
+                if p.water >= 0 {
+                    return [30, 50, 90];
+                }
+                // Les voisins sous l'eau ne comptent pas : un fond marin n'est pas le pied d'une paroi.
+                let drop = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                    .iter()
+                    .map(|&(dx, dz)| self.at(px + dx, pz + dz))
+                    .filter(|n| n.water < 0)
+                    .map(|n| p.ground - n.ground)
+                    .max()
+                    .unwrap_or(0);
+                // Un vide ouvert sur le côté sous le sol : au moins un pixel voisin plus bas que
+                // le vide, et du vide dans les 14 blocs sous le sol.
+                if p.hollow > 0 && drop >= 3 {
+                    return [60, 140, 255];
+                }
+                if drop >= 8 {
+                    let k = ((drop - 8) as f32 / 32.0).clamp(0.0, 1.0);
+                    return [(150.0 + 105.0 * k) as u8, (30.0 + 200.0 * k) as u8, 20];
+                }
+                let g = (70.0 + 70.0 * (1.0 + self.shade(px, pz)) * 0.5) as u8;
                 [g, g, g]
             }
         }

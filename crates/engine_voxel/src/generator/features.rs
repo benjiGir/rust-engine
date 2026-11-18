@@ -238,6 +238,10 @@ impl TerrainGenerator {
             if self.v2.is_some() && self.v2_clearance(x, z) <= clearance_of(kind) {
                 continue;
             }
+            // Ni sur une colonne à surplomb (le sol y recouvre l'entaille d'une paroi).
+            if self.v2_overhanging(x, z) {
+                continue;
+            }
             // Le sol doit convenir : du sable pour le cactus, de la terre ou de l'herbe
             // (éventuellement enneigée) pour les autres.
             let ground = self.ground_block(x, z, column);

@@ -12,12 +12,12 @@
 //!
 //! Options : `--generator v1|v2` (v1 : le monde réel ; v2 : le relief macro des lots 2 et 3, cartes
 //! `terre-mer`, `rivage`, `altitude-macro`, `altitude`, `chaines`, `familles`, `bassins`, `drainage`, `lacs`,
-//! et, issues des **blocs** de la génération v2 (lot 4), `hauteur-blocs`, `materiau`, `eau-blocs`,
+//! et, issues des **blocs** de la génération v2 (lot 4), `hauteur-blocs`, `materiau`, `eau-blocs`, `parois`,
 //! `surplombs` ; `--section x=N|z=N --from A --to B [--ymin 0 --ymax 192 --scale 2]` dessine la coupe
 //! verticale d'une ligne, un bloc par `scale` pixels, dans `coupe-<axe><N>.png`), `--seed N` (42), `--x X --z Z` (coin de la zone, en blocs ; 0 0), `--size L[xH]`
 //! (pixels ; 512), `--step B` (blocs par pixel ; 4), `--maps a,b` (altitude, pente, humidite,
 //! temperature, continentalite, biomes ; toutes), `--out dossier` (target/maps/<graine>), `--ppm`
-//! (du PPM au lieu du PNG). Les fichiers sont nommés `<carte>.png` ; la légende des biomes est
+//! (du PPM au lieu du PNG), `--relief` (cartes et coupes de blocs du relief seul : sans cavernes, arbres ni structures). Les fichiers sont nommés `<carte>.png` ; la légende des biomes est
 //! affichée et écrite dans `biomes.txt`.
 
 use std::fs::File;
@@ -48,6 +48,8 @@ struct Options {
     maps: Option<Vec<String>>,
     out: Option<PathBuf>,
     ppm: bool,
+    /// `--relief` : le relief seul (ni cavernes, ni arbres, ni structures).
+    relief: bool,
     /// `--section x=N|z=N` : la coupe verticale demandée.
     section: Option<(SectionAxis, i32)>,
     from: i32,
@@ -71,6 +73,7 @@ fn options() -> Result<Options> {
         maps: None,
         out: None,
         ppm: false,
+        relief: false,
         section: None,
         from: -128,
         to: 128,
@@ -107,6 +110,7 @@ fn options() -> Result<Options> {
             }
             "--out" => options.out = Some(value()?.into()),
             "--ppm" => options.ppm = true,
+            "--relief" => options.relief = true,
             "--section" => {
                 let text = value()?;
                 let (axis, n) = text.split_once('=').context("--section : x=N ou z=N")?;
@@ -124,7 +128,7 @@ fn options() -> Result<Options> {
             "--ymax" => options.y_max = value()?.parse().context("--ymax : un entier")?,
             "--scale" => options.scale = value()?.parse().context("--scale : un entier")?,
             other => bail!(
-                "option inconnue « {other} » (--generator, --seed, --x, --z, --size, --step, --maps, --out, --ppm, --section, --from, --to, --ymin, --ymax, --scale)"
+                "option inconnue « {other} » (--generator, --seed, --x, --z, --size, --step, --maps, --out, --ppm, --relief, --section, --from, --to, --ymin, --ymax, --scale)"
             ),
         }
     }
@@ -145,6 +149,16 @@ fn write_png(path: &std::path::Path, raster: &Raster) -> Result<()> {
     encoder.set_depth(png::BitDepth::Eight);
     encoder.write_header()?.write_image_data(&raster.rgb)?;
     Ok(())
+}
+
+/// Le générateur v2 de la graine demandée (le relief seul avec `--relief`).
+fn v2_generator(options: &Options) -> Result<TerrainGenerator> {
+    let generator = TerrainGenerator::new(options.seed).with_version(GenerationVersion::V2)?;
+    Ok(if options.relief {
+        generator.relief_only()
+    } else {
+        generator
+    })
 }
 
 fn save(out: &std::path::Path, name: &str, raster: &Raster, ppm: bool) -> Result<()> {
@@ -169,7 +183,7 @@ fn main() -> Result<()> {
     if options.generator == Generator::V2
         && let Some((axis, fixed)) = options.section
     {
-        let generator = TerrainGenerator::new(options.seed).with_version(GenerationVersion::V2)?;
+        let generator = v2_generator(&options)?;
         if options.to <= options.from || options.to - options.from > 4096 {
             bail!("--from < --to, sur 4096 blocs au plus");
         }
@@ -219,8 +233,7 @@ fn main() -> Result<()> {
             .flatten()
             .partition(|n| BlockMapKind::from_name(n).is_some());
         if !block_names.is_empty() {
-            let generator =
-                TerrainGenerator::new(options.seed).with_version(GenerationVersion::V2)?;
+            let generator = v2_generator(&options)?;
             let started = std::time::Instant::now();
             let samples = BlockMapSamples::compute(&generator, area);
             println!(

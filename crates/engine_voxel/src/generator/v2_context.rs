@@ -19,8 +19,13 @@
 //!    haut qu'elle est relevée à ce niveau. L'eau d'un lac ou d'un cours ne déborde donc jamais d'un
 //!    bloc : le seul écoulement est celui du cours vers l'aval (et le déversoir d'un lac).
 //! 6. **Réservation** : un poids de 0 à 1, plein dans le lit, sur les berges (3 blocs au-delà de la
-//!    demi-largeur), dans les lacs et sur leur rive, décroissant sur 6 blocs. Il pilote l'amplitude des
-//!    surplombs, la profondeur des cavernes, la distance de dégagement des arbres et des structures.
+//!    demi-largeur), dans les lacs et sur leur rive, décroissant sur 6 blocs. Il annule les escarpements,
+//!    pilote la profondeur des cavernes, la distance de dégagement des arbres et des structures.
+//! 7. **Escarpements** : dans les massifs et leurs contreforts (chaîne forte, altitude), le relief saute
+//!    de 10 à 44 blocs sur des parois posées sur la structure macro (flancs de chaîne, crêtes
+//!    secondaires, failles : `scarp.rs`), en quelques blocs de large : de vraies parois. Le pied d'une
+//!    partie d'entre elles est évidé (`density.rs`) : surplombs, alcôves, et des arches là où une crête
+//!    fine relie deux masses. Jamais dans une vallée, un lit ou une zone réservée.
 //!
 //! La colonne de chunks voisine calcule les mêmes valeurs dans sa marge : tout est une fonction pure
 //! de la position, jamais de l'ordre ou de l'état d'un cache.
@@ -34,9 +39,10 @@
 //! `SEA + 85`) ; sinon terre. Dans chaque famille, le biome est choisi par son climat comme en v1.
 //! Les `relief` des biomes de `biomes.ron` ne servent plus (la géographie décide du relief).
 
-use super::density::{self, NoiseGrid};
+use super::density;
 use super::hydrology::RiverCandidate;
 use super::macro_noise::{fbm, smooth as smooth64};
+use super::scarp::{Scarp, Terrain, limit_reach, scarp};
 use super::surface::{CLIFF_SLOPE, SurfaceInputs};
 use super::v2::{ColumnContext, CoreCell, FILL, MARGIN, NO_WATER, V2State, WIDE, WideCell, flag};
 use super::{
@@ -56,6 +62,8 @@ struct Geo {
     coast: f32,
     /// Le détail de massif ajouté au relief (blocs, signé) : voir [`massif_detail`].
     detail: f32,
+    /// L'escarpement : voir [`Scarp`].
+    scarp: Scarp,
 }
 
 /// Points de la grille de géographie par côté de la zone large (un point tous les 4 blocs).
@@ -67,35 +75,31 @@ fn smooth(edge0: f32, edge1: f32, x: f32) -> f32 {
     smooth64(edge0 as f64, edge1 as f64, x as f64) as f32
 }
 
-/// Le détail de massif : des **gradins** (paliers de 8 blocs séparés de falaises, comme des strates
-/// résistantes) et un relief rugueux de crêtes et d'à-pics (jusqu'à ±12 blocs, 20 à 50 blocs de
-/// long), ajoutés au relief là où la chaîne est forte et au-dessus de la mer. Le relief macro est
-/// lisse (pentes de 0,3 en moyenne) : c'est ce détail qui donne des falaises, des éboulis et des
-/// surplombs aux massifs. Atténué près des cours et des lacs (voir `wide_cell`).
+/// Le détail de massif : des bosses douces (d'une vingtaine de blocs de haut, de 90 blocs de long) et un
+/// relief rugueux plus fin, d'une intensité qui varie lentement (des versants doux, d'autres chaotiques).
+/// Ni gradins réguliers (leurs paliers donnaient aux grands sommets l'allure de courbes de niveau) ni
+/// arêtes tirées d'un bruit (une crête où un bruit s'annule serpente en boucles et en vers : c'est ce
+/// que faisait le premier jet, et ces arêtes couvraient les cartes de matériau de bandes de roche) :
+/// les vraies ruptures de pente sont les escarpements ([`scarp`], posés sur la structure macro).
+/// Ajouté au relief là où la chaîne est forte et au-dessus de la mer, atténué près des cours et des
+/// lacs (voir `wide_cell`).
 fn massif_detail(seed: u32, x: f64, z: f64, chain: f32, elevation: f32) -> f32 {
     let strength = smooth(18.0, 55.0, chain)
         * smooth(SEA_LEVEL as f32 + 4.0, SEA_LEVEL as f32 + 14.0, elevation);
     if strength <= 0.0 {
         return 0.0;
     }
-    let rough = 12.0 * fbm(seed, 0x5a, x / 46.0, z / 46.0, 3, 0.55) as f32;
-    // Les gradins : la hauteur (décalée par un bruit lent) en paliers plats, puis une falaise.
-    let jitter = 14.0 * fbm(seed, 0x5b, x / 85.0, z / 85.0, 3, 0.5) as f32;
-    // Les gradins ne couvrent qu'une partie du massif (les couches dures affleurent par plages) :
-    // ils ne dessinent pas des courbes de niveau régulières.
-    let mask = smooth(
-        -0.05,
-        0.3,
-        fbm(seed, 0x5d, x / 200.0, z / 200.0, 2, 0.5) as f32,
-    );
-    let k = (elevation + jitter) / TERRACE;
-    let stepped = (k.floor() + smooth(0.9, 1.0, k.fract())) * TERRACE;
-    let terrace = stepped - (elevation + jitter);
-    strength * (0.7 * mask * terrace + rough)
+    let bulk = fbm(seed, 0x5a, x / 90.0, z / 90.0, 3, 0.5) as f32;
+    let rough = fbm(seed, 0x5b, x / 23.0, z / 23.0, 2, 0.5) as f32;
+    let gain = 0.55
+        + 0.9
+            * smooth(
+                -0.35,
+                0.45,
+                fbm(seed, 0x5d, x / 310.0, z / 310.0, 2, 0.5) as f32,
+            );
+    strength * gain * (20.0 * bulk + 4.0 * rough)
 }
-
-/// Hauteur d'un gradin de massif, en blocs.
-const TERRACE: f32 = 8.0;
 
 /// Le dernier bloc plein d'un relief de hauteur flottante `h`.
 pub(super) fn quantize(h: f32) -> i32 {
@@ -113,6 +117,7 @@ fn lerp_geo(a: Geo, b: Geo, t: f32) -> Geo {
         chain: lerp(a.chain, b.chain, t),
         coast: lerp(a.coast, b.coast, t),
         detail: lerp(a.detail, b.detail, t),
+        scarp: Scarp::lerp(a.scarp, b.scarp, t),
     }
 }
 
@@ -132,20 +137,27 @@ impl TerrainGenerator {
                 let g = world
                     .geography()
                     .sample((wx0 + 4 * i as i32) as f64, (wz0 + 4 * j as i32) as f64);
+                let (px, pz) = ((wx0 + 4 * i as i32) as f64, (wz0 + 4 * j as i32) as f64);
+                let terrain = Terrain {
+                    chain: g.chain_height,
+                    elevation: g.elevation,
+                    axis: g.axis_distance,
+                    ridge: g.ridge_distance,
+                };
                 grid.push(Geo {
                     elevation: g.elevation,
                     macro_elevation: g.macro_elevation,
                     chain: g.chain_height,
                     coast: g.coast_distance,
-                    detail: massif_detail(
-                        self.seed,
-                        (wx0 + 4 * i as i32) as f64,
-                        (wz0 + 4 * j as i32) as f64,
-                        g.chain_height,
-                        g.elevation,
-                    ),
+                    detail: massif_detail(self.seed, px, pz, g.chain_height, g.elevation),
+                    scarp: scarp(self.seed, px, pz, &terrain),
                 });
             }
+        }
+        let mut scarps: Vec<Scarp> = grid.iter().map(|g| g.scarp).collect();
+        limit_reach(&mut scarps, GEO_POINTS);
+        for (g, s) in grid.iter_mut().zip(scarps) {
+            g.scarp = s;
         }
         let geo_at = |wi: usize, wj: usize| {
             let (gi, gj) = (wi / 4, wj / 4);
@@ -185,6 +197,8 @@ impl TerrainGenerator {
                 flags: 0,
                 protect: 0,
                 valley: 0,
+                base: 0,
+                jump: 0,
                 river_width: 0,
                 table: 0.0,
             };
@@ -220,6 +234,7 @@ impl TerrainGenerator {
             .collect();
         for (i, level) in raised {
             wide[i].top = level;
+            wide[i].base = wide[i].base.max(level);
         }
 
         // 5. La distance à la zone réservée (Chebyshev, jusqu'à 9) par deux passes.
@@ -249,7 +264,6 @@ impl TerrainGenerator {
         let mut core = Vec::with_capacity(CHUNK_SIZE * CHUNK_SIZE);
         let mut columns = Box::new([[Column::default(); CHUNK_SIZE]; CHUNK_SIZE]);
         let mut biomes = vec![0u8; CHUNK_SIZE * CHUNK_SIZE];
-        let mut grid_span: Option<(i32, i32)> = None;
         let mut pending: Vec<(usize, usize)> = Vec::new();
         for lz in 0..size {
             for lx in 0..size {
@@ -336,41 +350,33 @@ impl TerrainGenerator {
                     bank,
                     bank_wide: wide_bank,
                 });
-                // Les surplombs : pente raide, massifs et falaises, hors des zones réservées.
-                let chain_w = smooth(14.0, 40.0, g.chain);
-                let steep = smooth(0.6, 1.4, slope);
-                let eligible = steep
-                    * chain_w.max(0.45 * smooth(1.0, 1.8, slope))
-                    * smooth(SEA_LEVEL as f32 + 2.0, SEA_LEVEL as f32 + 10.0, top as f32)
-                    * (1.0 - protect)
-                    * (1.0 - 0.7 * valley);
-                let amplitude = if eligible >= 0.04 {
-                    density::AMPLITUDE * eligible
+                // L'escarpement : la hauteur et la distance à la ligne de rupture de la paroi qui
+                // commande l'entaille, et l'entaille de son pied (par plages ; jamais sous une zone
+                // réservée, un lit, l'eau, ni près de la mer).
+                let jump = w.jump as f32;
+                let dist = if jump > 0.0 { g.scarp.main().dist } else { 0.0 };
+                let notchable = jump >= 12.0
+                    && protect == 0.0
+                    && valley < 0.2
+                    && bed == 0
+                    && w.water == NO_WATER
+                    && w.base as i32 > SEA_LEVEL + 6;
+                let reach = if notchable {
+                    // Une rugosité de 15 % le long de la paroi : des alcôves aux bords irréguliers.
+                    // Jamais plus profonde que la moitié de la hauteur de la paroi : la voûte garde
+                    // une pente douce, ce qui laisse le toit relié à la masse.
+                    (g.scarp.reach * (0.85 + 0.3 * value_noise(self.seed, x0 + lx, z0 + lz, 7, 71)))
+                        .min(0.5 * jump)
                 } else {
                     0.0
                 };
-                let drop = if amplitude > 0.0 {
-                    let lowest = [
-                        (1, 0),
-                        (-1, 0),
-                        (0, 1),
-                        (0, -1),
-                        (2, 0),
-                        (-2, 0),
-                        (0, 2),
-                        (0, -2),
-                    ]
-                    .iter()
-                    .map(|&(dx, dz)| top_at(lx + dx, lz + dz))
-                    .min()
-                    .unwrap_or(top);
-                    (top - lowest).clamp(0, 255) as u8
+                // Seules les colonnes du côté haut, assez près de la ligne pour être touchées.
+                let reach = if reach >= 1.0 && dist > -1.0 && dist < reach + 1.0 {
+                    reach
                 } else {
-                    0
+                    0.0
                 };
-                if amplitude > 0.0 {
-                    let (lo, hi) = density::noise_span(top);
-                    grid_span = Some(grid_span.map_or((lo, hi), |(a, b)| (a.min(lo), b.max(hi))));
+                if reach > 0.0 {
                     pending.push((lx as usize, lz as usize));
                 }
                 // La nappe, bornée à 8 blocs sous le relief le plus bas des 5 × 5 voisines.
@@ -402,13 +408,22 @@ impl TerrainGenerator {
                 if entrance {
                     limit = top - 2;
                 }
+                // À moins de 16 blocs derrière une paroi (de 4 blocs ou plus) et de 3 blocs devant,
+                // aucune caverne ne monte au-dessus du pied : elle pourrait trancher la face ou le
+                // toit d'une entaille et en détacher des blocs.
+                if jump >= 4.0 && dist > -3.0 && dist < 24.0 {
+                    limit = limit.min(w.base as i32 - 4);
+                }
                 let clear = clearance[(lz + MARGIN) as usize * WIDE + (lx + MARGIN) as usize];
                 let cell = CoreCell {
                     top: top as i16,
                     slope,
-                    amplitude,
-                    drop,
-                    cliff: if amplitude > 0.0 { eligible } else { 0.0 },
+                    base: w.base,
+                    jump,
+                    dist,
+                    reach,
+                    shape: g.scarp.shape,
+                    lid: g.scarp.lid,
                     biome,
                     rule,
                     table,
@@ -426,18 +441,14 @@ impl TerrainGenerator {
             }
         }
 
-        // 8. Les bruits de densité, une fois pour la verticale, puis le vrai sommet des colonnes à
-        // surplombs.
-        let noise = grid_span.map(|(lo, hi)| NoiseGrid::new(&v2.noise, x0, z0, lo, hi));
-        if let Some(grid) = &noise {
-            for (lx, lz) in pending {
-                let i = lx + lz * CHUNK_SIZE;
-                let strata = self.strata_column(x0 + lx as i32, z0 + lz as i32);
-                let top = density::real_top(grid, &strata, lx, lz, &core[i]);
-                let cell = &mut core[i];
-                cell.top = top as i16;
-                columns[lx][lz].height = top;
-            }
+        // 8. Le vrai sommet des colonnes à entaille (une paroi à demi franchie peut avoir toute sa
+        // partie haute évidée).
+        for (lx, lz) in pending {
+            let i = lx + lz * CHUNK_SIZE;
+            let strata = self.strata_column(x0 + lx as i32, z0 + lz as i32);
+            let top = density::real_top(&strata, &core[i]);
+            core[i].top = top as i16;
+            columns[lx][lz].height = top;
         }
         let mut max_y = SEA_LEVEL.min(0);
         for lz in 0..CHUNK_SIZE {
@@ -461,7 +472,6 @@ impl TerrainGenerator {
             core,
             columns,
             biomes,
-            noise,
             max_y,
             cave_ceiling,
         }
@@ -554,7 +564,20 @@ impl TerrainGenerator {
             let attenuation = (1.0 - protect) * (1.0 - valley);
             elevation = (before + g.detail * attenuation).max(bank_floor.min(before));
         }
+        // L'escarpement : jamais dans une vallée (ni près d'un cours ou d'un lac), un lit ou une zone
+        // réservée. Le pied de la paroi est le relief abaissé de la rampe (voir `scarp.rs`) ; le
+        // sommet est ce pied relevé de la hauteur de la marche.
+        let mut foot = elevation;
+        let mut jump = 0.0;
+        let gate = (1.0 - smooth(0.02, 0.2, valley)) * (1.0 - smooth(0.0, 0.3, protect));
+        let main = g.scarp.main();
+        if gate > 0.0 && g.scarp.walls.iter().any(|w| w.height > 0.0) {
+            jump = main.height * gate;
+            foot = elevation - g.scarp.foot_drop(gate);
+            elevation = foot + g.scarp.lift(gate);
+        }
         let mut top = quantize(elevation).clamp(1, MAX_HEIGHT);
+        let mut base = quantize(foot).clamp(1, MAX_HEIGHT).min(top);
         let mut water = NO_WATER as i32;
         if let Some((wl, center_depth)) = river_bed {
             top = top.min(if center_depth > 0 {
@@ -566,6 +589,7 @@ impl TerrainGenerator {
                 water = water.max(wl);
                 flags |= flag::WATER_RIVER;
             }
+            base = base.min(top);
         }
         if let Some((wl, fraction)) = lake_bed {
             top = top.min(if fraction > 0.15 { wl - 1 } else { wl });
@@ -573,9 +597,12 @@ impl TerrainGenerator {
                 water = water.max(wl);
                 flags |= flag::WATER_LAKE;
             }
+            base = base.min(top);
         }
         WideCell {
             top: top as i16,
+            base: base as i16,
+            jump: jump.round().clamp(0.0, 255.0) as u8,
             water: if water == NO_WATER as i32 {
                 NO_WATER
             } else {

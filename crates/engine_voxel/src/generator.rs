@@ -1331,6 +1331,7 @@ mod features;
 mod geography;
 mod hydrology;
 mod macro_noise;
+mod scarp;
 mod structures;
 mod surface;
 #[cfg(test)]

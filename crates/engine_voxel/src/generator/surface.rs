@@ -31,8 +31,8 @@
 //! un tirage par couche et deux champs régionaux lents (700 et 900 blocs) qui dosent la part de grès
 //! (régions sédimentaires) et de roche volcanique. Les couches se suivent donc d'un chunk à l'autre
 //! et changent lentement de région en région : une falaise a son identité (bandes de grès, filons
-//! sombres). La *dureté* de la couche (pierre dure, grès tendre) intervient aussi dans la densité
-//! (`density.rs`) : les couches tendres reculent, les dures saillent.
+//! sombres). Les parois ont aussi une *saillie* de couche par altitude ([`StrataColumn::ledge`]) : dans
+//! l'entaille du pied d'une paroi (`density.rs`), certaines couches reculent, d'autres saillent.
 //!
 //! Elles sont posées **après** les minerais (les filons ne remplacent que la pierre et la pierre
 //! profonde, comme en v1) et ne touchent ni la pierre profonde, ni l'eau, ni le sol.
@@ -317,13 +317,15 @@ impl StrataColumn {
         }
     }
 
-    /// La dureté de la strate d'altitude `y` : la pierre est dure, le grès tendre.
-    pub fn hardness(&self, y: i32) -> f32 {
-        match self.stratum(y) {
-            Stratum::Stone => 1.0,
-            Stratum::Sandstone => -1.0,
-            Stratum::Volcanic => 0.4,
-        }
+    /// La saillie des couches d'altitude `y`, de -1 (une couche tendre qui recule) à 1 (une couche
+    /// dure qui saille) : la *résistance apparente* de la roche dans l'entaille du pied des parois
+    /// (`density.rs`). Elle ne dépend que de l'altitude (les couches d'une paroi suivent des
+    /// niveaux, pas la colonne) : deux colonnes voisines reculent de la même façon à la même hauteur,
+    /// ce qui garde le toit d'une entaille relié à la masse.
+    pub fn ledge(&self, y: i32) -> f32 {
+        let u = (super::hash3(self.seed, 0, y.div_euclid(LAYER as i32), 0, 72) >> 40) as f32
+            / (1u64 << 24) as f32;
+        2.0 * u - 1.0
     }
 
     fn block(&self, y: i32) -> Option<BlockId> {

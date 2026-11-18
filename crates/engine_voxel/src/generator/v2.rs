@@ -16,14 +16,15 @@
 //!
 //! Le contexte contient, par colonne : la hauteur du relief (valléé et lits creusés, remblai des
 //! berges), le niveau de l'eau d'un cours ou d'un lac, la **réservation** (un poids de 0 à 1 qui
-//! interdit tout détail), la pente, le biome, les règles de surface, l'amplitude des surplombs, la
+//! interdit tout détail), la pente, le biome, les règles de surface, les escarpements et leurs entailles, la
 //! nappe et la profondeur permise aux cavernes (voir `v2_context.rs`). Chaque valeur est une
 //! fonction pure de la position : un chunk voisin ou un cache vide donnent les mêmes blocs.
 //!
 //! # Le déroulement d'un chunk
 //!
-//! 1. solide ou vide d'après la densité (`density.rs`) : le relief, plus des poches creusées sous
-//!    la peau des falaises ; les colonnes réservées (lits, berges, lacs) n'ont que le relief ;
+//! 1. solide ou vide d'après la densité (`density.rs`) : le relief, plus l'entaille du pied des
+//!    parois d'escarpement (des surplombs) ; les colonnes réservées (lits, berges, lacs) n'ont que le
+//!    relief ;
 //! 2. matériaux de la roche, du sol et de la surface (`surface.rs`), eau des mers, cours et lacs ;
 //! 3. cavernes, nappes et lave (`underground.rs`) ;
 //! 4. minerais (la fonction de la v1, `ores.ron`), plantes, strates régionales, arbres, structures.
@@ -37,7 +38,7 @@ use anyhow::{Context as _, Result};
 use glam::IVec3;
 
 use super::column_cache::{ColumnCache, ColumnKey};
-use super::density::{self, DensityNoise, NoiseGrid};
+use super::density;
 use super::surface::SurfaceRule;
 use super::{
     Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL, MacroWorld, SEA_LEVEL, TerrainGenerator,
@@ -89,6 +90,10 @@ pub(super) struct WideCell {
     pub protect: u8,
     /// Poids de la vallée modelée, de 0 à 255.
     pub valley: u8,
+    /// Le pied de la paroi d'un escarpement (relief sans son ressaut) ; égal à `top` hors escarpement.
+    pub base: i16,
+    /// La hauteur (blocs) du ressaut d'escarpement de la colonne, 0 hors des massifs.
+    pub jump: u8,
     /// Largeur du cours le plus proche (blocs, au plus 255), 0 sans cours.
     pub river_width: u8,
     /// Niveau de la nappe avant les bornes de surface (blocs, flottant).
@@ -98,17 +103,21 @@ pub(super) struct WideCell {
 /// Une colonne du cœur (la colonne de chunks elle-même).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct CoreCell {
-    /// y du bloc solide le plus haut, surplombs compris.
+    /// y du bloc solide le plus haut, entailles de paroi comprises.
     pub top: i16,
     /// Pente (gradient du relief, blocs par bloc).
     pub slope: f32,
-    /// Amplitude (blocs) des poches creusées sous la peau ; 0 : pas de surplomb possible.
-    pub amplitude: f32,
-    /// De combien (blocs, jusqu'à 255) la colonne dépasse sa voisine la plus basse à 1 ou 2 blocs :
-    /// la hauteur de la paroi, qui commande l'entaille de son pied (voir `density.rs`).
-    pub drop: u8,
-    /// Poids des strates sur le relief des falaises, de 0 à 1.
-    pub cliff: f32,
+    /// Le pied de la paroi (relief sans son ressaut) : l'entaille ne descend jamais dessous.
+    pub base: i16,
+    /// La hauteur (blocs) du ressaut d'escarpement ; 0 hors de la zone des escarpements.
+    pub jump: f32,
+    /// Distance (blocs) à la ligne de rupture de l'escarpement, positive du côté haut.
+    pub dist: f32,
+    /// Profondeur maximale (blocs) de l'entaille du pied de la paroi ; 0 : pas de surplomb possible.
+    pub reach: f32,
+    /// Forme (exposant du profil) et hauteur relative (fraction de la paroi) de l'entaille.
+    pub shape: f32,
+    pub lid: f32,
     pub biome: BiomeId,
     pub rule: SurfaceRule,
     /// Niveau de la nappe souterraine, ou [`NO_WATER`].
@@ -131,8 +140,6 @@ pub(super) struct ColumnContext {
     pub columns: Box<[[Column; CHUNK_SIZE]; CHUNK_SIZE]>,
     /// Les biomes, `x + 32 z`.
     pub biomes: Vec<u8>,
-    /// Les bruits de la densité, évalués une fois pour la verticale (absent sans surplomb).
-    pub noise: Option<NoiseGrid>,
     /// Le plus haut bloc non vide (eau comprise) de la colonne de chunks.
     pub max_y: i32,
     /// L'altitude la plus haute où une caverne peut être creusée dans la colonne de chunks.
@@ -186,9 +193,13 @@ pub struct SurfaceInfo {
     pub reserved: bool,
     pub biome: BiomeId,
     pub slope: f32,
-    /// Amplitude (blocs) des poches creusées sous la peau : 0 sans surplomb possible.
+    /// Profondeur maximale (blocs) de l'entaille du pied d'une paroi : 0 sans surplomb possible.
     pub overhang: f32,
-    /// Le relief continu (le dernier bloc plein sans les poches) : `top` s'en écarte sous un surplomb.
+    /// La hauteur (blocs) du ressaut d'escarpement de la colonne : 0 hors de leur zone.
+    pub escarpment: f32,
+    /// Distance (blocs) à la ligne de rupture de l'escarpement, positive du côté haut.
+    pub wall_distance: f32,
+    /// Le relief continu (le dernier bloc plein sans les entailles) : `top` s'en écarte sous un surplomb.
     pub relief_top: i32,
 }
 
@@ -223,7 +234,8 @@ impl V2Blocks {
 /// les bruits de densité, le cache des contextes de colonne.
 pub(super) struct V2State {
     pub world: MacroWorld,
-    pub noise: DensityNoise,
+    /// Mesures et outils : ni cavernes, ni arbres, ni structures (voir [`TerrainGenerator::relief_only`]).
+    pub relief_only: bool,
     pub contexts: ColumnCache<ColumnContext>,
     pub blocks: V2Blocks,
 }
@@ -241,7 +253,7 @@ impl V2State {
     fn new(seed: u32, registry: &BlockRegistry) -> Result<Self> {
         Ok(Self {
             world: MacroWorld::new(seed),
-            noise: DensityNoise::new(seed),
+            relief_only: false,
             contexts: ColumnCache::with_limit(CONTEXT_CACHE_LIMIT),
             blocks: V2Blocks::resolve(registry)?,
         })
@@ -265,6 +277,20 @@ impl TerrainGenerator {
         self.tree_cache = Arc::default();
         self.column_cache = Arc::default();
         Ok(self)
+    }
+
+    /// Ce générateur v2 réduit au **relief** : ni cavernes, ni arbres, ni structures. Pour les mesures
+    /// des parois et des surplombs (les cavernes et les ouvrages n'y comptent pas) et les cartes de
+    /// relief ; sans effet en v1. Les caches repartent à neuf.
+    pub fn relief_only(mut self) -> Self {
+        if self.v2.is_some() {
+            let mut state = V2State::new(self.seed, &self.registry).expect("v2 déjà initialisée");
+            state.relief_only = true;
+            self.v2 = Some(Arc::new(state));
+            self.tree_cache = Arc::default();
+            self.column_cache = Arc::default();
+        }
+        self
     }
 
     /// Un état de génération v2 neuf pour ce générateur (graine, blocs), caches vides.
@@ -321,7 +347,9 @@ impl TerrainGenerator {
             reserved: wide.protect > 0 || wide.water != NO_WATER,
             biome: core.biome,
             slope: core.slope,
-            overhang: core.amplitude,
+            overhang: core.reach,
+            escarpment: core.jump,
+            wall_distance: core.dist,
             relief_top: wide.top as i32,
         })
     }
@@ -349,6 +377,19 @@ impl TerrainGenerator {
         let ctx = self.v2_context(x.div_euclid(size), z.div_euclid(size));
         ctx.core_at(x.rem_euclid(size) as usize, z.rem_euclid(size) as usize)
             .clear
+    }
+
+    /// Vrai si la colonne (x, z) est une colonne à surplomb (l'entaille du pied d'une paroi passe
+    /// sous elle) : ni arbre ni structure n'y prennent place. Faux sans génération v2.
+    pub(super) fn v2_overhanging(&self, x: i32, z: i32) -> bool {
+        if self.v2.is_none() {
+            return false;
+        }
+        let size = CHUNK_SIZE as i32;
+        let ctx = self.v2_context(x.div_euclid(size), z.div_euclid(size));
+        ctx.core_at(x.rem_euclid(size) as usize, z.rem_euclid(size) as usize)
+            .reach
+            > 0.0
     }
 
     /// Le niveau du dernier bloc d'eau de la colonne (x, z) en génération v2 (cours, lac ou mer), ou
@@ -403,15 +444,17 @@ impl TerrainGenerator {
             }
             dz += 6;
         }
-        // Le sol de l'emprise est plein : aucune colonne à surplombs (poches sous la peau, couches
-        // tendres qui reculent sur une falaise) ; ailleurs la densité ne creuse jamais. Une grille
-        // de 2 blocs, car l'éligibilité aux surplombs varie à l'échelle de la pente.
+        // Le sol de l'emprise est plein et loin d'une paroi : aucune colonne à surplombs ni à moins de
+        // 8 blocs d'une ligne de rupture d'escarpement (un bord de falaise sous un toit) ; ailleurs la
+        // densité ne creuse jamais. Une grille de 2 blocs : une paroi tient en quelques blocs.
         let mut dz = -radius;
         while dz <= radius {
             let mut dx = -radius;
             while dx <= radius {
                 let column = self.surface_info(x + dx, z + dz);
-                if column.is_some_and(|c| c.overhang > 0.0) {
+                if column.is_some_and(|c| {
+                    c.overhang > 0.0 || (c.escarpment > 0.0 && c.wall_distance.abs() < 8.0)
+                }) {
                     return false;
                 }
                 dx += 2;
@@ -428,20 +471,29 @@ impl TerrainGenerator {
         }
         let origin = World::chunk_origin(chunk_pos);
         let ctx = self.v2_context(chunk_pos.x, chunk_pos.z);
-        let plans = self.structure_plans(chunk_pos);
+        let plans = if self.v2.as_ref().is_some_and(|v2| v2.relief_only) {
+            Vec::new()
+        } else {
+            self.structure_plans(chunk_pos)
+        };
         let highest = ctx.max_y.max(SEA_LEVEL) + if plans.is_empty() { 0 } else { 40 };
         if origin.y > highest + SKY_MARGIN {
             return None;
         }
         let mut chunk = Chunk::new();
         chunk.set_biomes(ctx.biomes.clone());
+        let relief_only = self.v2.as_ref().is_some_and(|v2| v2.relief_only);
         self.fill_terrain(&mut chunk, origin, &ctx);
-        self.carve_underground(&mut chunk, origin, &ctx);
+        if !relief_only {
+            self.carve_underground(&mut chunk, origin, &ctx);
+        }
         self.place_ores(&mut chunk, chunk_pos, &ctx.columns);
         self.place_plants(&mut chunk, chunk_pos, &ctx.columns);
         self.apply_strata(&mut chunk, origin, &ctx);
-        self.place_trees(&mut chunk, chunk_pos);
-        self.place_structures(&mut chunk, chunk_pos, &plans);
+        if !relief_only {
+            self.place_trees(&mut chunk, chunk_pos);
+            self.place_structures(&mut chunk, chunk_pos, &plans);
+        }
         (!chunk.is_empty()).then_some(chunk)
     }
 
@@ -459,7 +511,21 @@ impl TerrainGenerator {
                 let frozen = !river_or_lake
                     && (column.temperature < FREEZING || column.climate_temperature < -0.55);
                 let strata = self.strata_column(x, z);
-                let solid = density::solid_column(ctx, &strata, lx, lz, origin.y);
+                let solid = density::solid_column(core, &strata, origin.y);
+                // Sous une entaille : les blocs qui ont de l'air au-dessus (sol de l'entaille) ou
+                // dessous (voûte) ne portent jamais un sol de surface, seulement de la roche.
+                let mut covered = [false; density::SPAN];
+                if core.reach > 0.0 {
+                    let (mut any, mut gap) = (false, false);
+                    for i in (0..density::SPAN).rev() {
+                        if solid[i] {
+                            covered[i] = gap;
+                            any = true;
+                        } else if any {
+                            gap = true;
+                        }
+                    }
+                }
                 for ly in 0..size {
                     let y = origin.y + ly;
                     let idx = (ly + density::BELOW) as usize;
@@ -469,12 +535,19 @@ impl TerrainGenerator {
                         b.bedrock
                     } else if solid[idx] {
                         // Combien de blocs solides au-dessus de celui-ci (jusqu'à l'air).
-                        let depth = if core.amplitude <= 0.0 {
+                        let depth = if core.reach <= 0.0 {
                             core.top as i32 - y
                         } else {
                             density::depth_below_air(&solid, idx)
                         };
-                        self.solid_block(core, x, y, z, depth, !solid[idx - 1])
+                        let rock_only = core.reach > 0.0 && (covered[idx] || !solid[idx - 1]);
+                        self.solid_block(
+                            core,
+                            IVec3::new(x, y, z),
+                            depth,
+                            !solid[idx - 1],
+                            rock_only,
+                        )
                     } else if y <= water_top {
                         if y == SEA_LEVEL && frozen && water_top == SEA_LEVEL {
                             b.ice
@@ -490,28 +563,32 @@ impl TerrainGenerator {
         }
     }
 
-    /// Le bloc d'un solide à `depth` blocs sous l'air (0 : la surface).
+    /// Le bloc d'un solide en `pos`, à `depth` blocs sous l'air (0 : la surface). `rock_only` : la
+    /// roche, jamais un sol de surface (sol ou voûte d'une entaille).
     fn solid_block(
         &self,
         core: &CoreCell,
-        x: i32,
-        y: i32,
-        z: i32,
+        pos: IVec3,
         depth: i32,
         below_open: bool,
+        rock_only: bool,
     ) -> BlockId {
+        let (x, y, z) = (pos.x, pos.y, pos.z);
         let b = self.blocks;
-        let block = self
-            .rule_block(&core.rule, core.biome, x, y, z, depth)
-            .unwrap_or_else(|| {
-                // La roche : de la pierre profonde en bas, avec une frontière irrégulière.
-                let jitter = (hash3(self.seed, x, y, z, 2) % 8) as i32;
-                if y < DEEPSTONE_LEVEL - 4 + jitter {
-                    b.deepstone
-                } else {
-                    b.stone
-                }
-            });
+        let ruled = if rock_only {
+            None
+        } else {
+            self.rule_block(&core.rule, core.biome, x, y, z, depth)
+        };
+        let block = ruled.unwrap_or_else(|| {
+            // La roche : de la pierre profonde en bas, avec une frontière irrégulière.
+            let jitter = (hash3(self.seed, x, y, z, 2) % 8) as i32;
+            if y < DEEPSTONE_LEVEL - 4 + jitter {
+                b.deepstone
+            } else {
+                b.stone
+            }
+        });
         // Sable et gravier tombent : jamais au-dessus du vide (face inférieure d'un surplomb).
         if below_open && self.registry.def(block).gravity {
             self.v2_blocks().sandstone
