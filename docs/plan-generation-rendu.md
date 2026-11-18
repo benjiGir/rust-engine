@@ -1045,3 +1045,90 @@ petits ; (c) la graine 7 est presque entièrement froide : le climat régional d
 toute la palette ; (d) aucune rétroaction de la pluie sur le relief ou les cours (voulu) ; (e) la direction du
 vent est unique par région : pas de moussons ni de saisons ; (f) pas de capture à hauteur de joueur : le jeu
 graphique n'a pas été lancé.
+
+## Statut du lot 6 (priorité aux chunks proches et transferts régulés)
+
+Le lot 6 touche le streaming et le jeu, pas le générateur : v1 et v2 sont inchangés (empreintes de référence
+intactes). Les nouvelles politiques sont les valeurs par défaut ; l'ancien ordre reste accessible par
+`StreamingConfig` pour comparer.
+
+### Ce qui change
+
+- **Ordre de chargement** (`streaming.rs`) : des colonnes de chunks complétées de la plus proche à la plus
+  lointaine, avec un biais pour ce que la caméra regarde (`update_view`, `view_bias` 0,6 : la distance d'une
+  colonne derrière compte jusqu'à 1,6 fois plus ; rien au-dessous de 3 chunks, donc le sol sous les pieds ne dépend
+  jamais du regard). Un demi-tour de plus de 25 degrés retrie la file. L'ancien tri par distance 3D mélangeait les
+  colonnes : le haut d'une colonne proche passait après le bas d'une colonne plus loin, alors que la lumière et le
+  maillage attendent la colonne entière.
+- **File des maillages** : le plus récent de chaque chunk (plus d'envoi périmé), du plus proche au plus lointain ;
+  les maillages d'un bloc modifié passent en tête, hors budget ; une libération en attente est annulée si le chunk
+  revient avec un maillage (sinon elle effacerait le nouveau côté GPU).
+- **Remaillage coalescé** : un chunk modifié pendant qu'on le maille n'est remaillé qu'une fois de plus à la fin,
+  au lieu de lancer une tâche par modification et de jeter chaque résultat. Un chunk qui change à chaque tick
+  (fluides, machines) ne s'actualisait jamais tant que ça durait.
+- **Budget de transfert** (`transfer.rs`, `games/voxel/src/stream_upload.rs`) : un seul budget par image pour les
+  chunks, les libérations et le terrain lointain, en octets (3 Mio) **et** en temps mesuré (3 ms), au lieu de 16
+  maillages. Le premier envoi de l'image passe toujours, quelle que soit sa taille : une grosse opération n'est
+  jamais bloquée ; les dépassements sont comptés (`envois : ...` dans les logs). Réglages : `VOXEL_UPLOAD_MB`,
+  `VOXEL_UPLOAD_MS`.
+- **Terrain lointain** (`far.rs`) : une allocation de CPU (`far_allowance`) calculée d'après le travail des chunks
+  proches (tous les threads au calme, un seul pendant un chargement soutenu au-delà de 300, aucun au-delà de
+  1 500) ; des demandes au compte-gouttes (deux par thread autorisé) recalculées à chaque image, donc une tuile
+  devenue inutile avant son départ est abandonnée sans avoir coûté ; les changements d'une région forment un lot
+  (retraits puis ajouts) livré d'un bloc, du plus proche au plus lointain, sous le budget commun, avec un lot forcé
+  toutes les 6 images pour qu'un long vol ne l'affame pas.
+
+### Mesures (`cargo run --release -p engine_voxel --example streaming_scenarios`, M3 Pro)
+
+Images simulées à 60 par seconde en temps réel (les threads de fond tournent pour de vrai), monde v1, rayon de vue
+de 10 chunks, graine 42. **L'envoi au GPU est simulé** (25 µs + 0,7 ns par octet, 11 µs par libération) : c'est une
+hypothèse qui sert à comparer des politiques sur la même charge, pas une mesure du pilote. Les délais sont ceux où
+toutes les colonnes d'un rayon sont visibles (six chunks générés, chaque chunk non vide maillé et envoyé), « devant /
+tout » (devant : le demi-plan regardé).
+
+| Scénario (ms) | rayon 2 | rayon 4 | rayon 6 | rayon 10 |
+| --- | --- | --- | --- | --- |
+| Démarrage, ancienne | 726 | 1 349 | 2 435 | 5 168 |
+| Démarrage, colonnes seules | 613 | 1 290 / 1 315 | 2 423 | 5 210 |
+| Démarrage, nouvelle | 677 / 714 | 1 304 / 1 472 | 2 280 / 2 804 | 4 776 / 5 185 |
+| Téléportation, ancienne | 697 | 1 292 | 2 359 | 5 171 |
+| Téléportation, nouvelle | 647 / 692 | 1 272 / 1 401 | 2 186 / 2 688 | 4 656 / 5 127 |
+
+Vol saturé à 300 blocs/s pendant 25 s (le chargement ne suit plus ; colonnes manquantes dans un rayon de 8) :
+
+| Politique | devant : moyenne, p95 | derrière : moyenne, p95, max | entrée -> visible p50 / p95 | pic d'une image |
+| --- | --- | --- | --- | --- |
+| ancienne | 79,5 ; 84 | 22,4 ; 28 ; 28 | 689 / 1 194 ms | 4,20 Mio, 3,6 ms |
+| colonnes seules | 80,6 ; 85 | 22,5 ; 28 ; 28 | 720 / 1 318 ms | 4,33 Mio, 3,6 ms |
+| nouvelle | 72,2 ; 76 | 21,5 ; 28 ; 28 | 582 / 1 105 ms | 2,95 Mio, 3,0 ms (8 images au-dessus du budget) |
+
+Terrain lointain activé (48 chunks, démarrage) : avec la politique ancienne, 340 tuiles se construisent en même temps
+que les chunks proches (rayon 10 visible à 5 258 ms) ; avec la nouvelle, 4 tuiles seulement pendant le chargement
+(4 801 ms devant, 5 235 ms en tout), puis le lointain se complète **483 ms après** les chunks proches. À 120 blocs/s le
+chargement suit sans retard dans les trois politiques (aucune colonne manquante).
+
+### Jugement honnête
+
+- Le **débit** de génération, lumière et maillage borne les délais : l'ordre ne le change pas. Au démarrage et en
+  téléportation, le gain est faible : la moitié regardée est visible 6 à 10 % plus tôt aux rayons 6 et 10, mais celle de
+  derrière 15 % plus tard au rayon 6 (c'est le prix du biais). Le tri en colonnes seul ne change rien de net.
+- En **vol saturé**, les gains sont réels : 9 % de colonnes manquantes en moins devant, entrée -> visible de 689 à
+  582 ms en médiane (-16 %), de 1 194 à 1 105 ms au p95 (-7 %), et les pics de transfert baissent de 30 %. Rien n'est
+  affamé : le pire cas derrière est identique (28 colonnes).
+- Le terrain lointain ne gêne plus le chargement proche, au prix d'arriver environ une demi-seconde après lui. Le
+  coût de la concurrence du lointain avec le pool était de l'ordre de 2 à 5 % sur les délais proches : dans le bruit
+  des mesures, mais le démarrage n'a plus de tuiles construites en même temps que les chunks.
+- Les **8 images au-dessus du budget** du vol saturé sont le dépassement d'une opération indivisible (le dernier
+  envoi franchit les 3 ms) : voulu, compté, jamais bloquant.
+
+### Limites
+
+- Le coût d'envoi au GPU est simulé ; le budget par défaut (3 Mio, 3 ms) n'est pas calé sur un pilote réel. À
+  régler avec `VOXEL_UPLOAD_MB` / `VOXEL_UPLOAD_MS` en jeu avec les journaux `envois : ...`.
+- Les améliorations toujours actives (file des maillages, coalescence, lots de tuiles) ne sont pas isolées dans les
+  mesures ; elles ont leurs tests (`streaming.rs`, `far.rs`, `transfer.rs`).
+- Le biais de vue au démarrage suit la direction initiale de la caméra, arbitraire tant que le joueur n'a pas
+  tourné. Le jeu n'a pas été lancé : aucune vérification à hauteur de joueur, ni du filtrage de colonnes à
+  l'envoi sous VSync.
+- Un fantôme possible, déjà présent avant ce lot : un chunk modifié qui devient entièrement vide garde son ancien
+  maillage côté GPU (aucun événement n'est émis pour un chunk absent du monde).

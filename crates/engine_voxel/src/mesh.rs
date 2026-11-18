@@ -162,6 +162,13 @@ impl ChunkMesh {
         self.indices.is_empty() && self.translucent_indices.is_empty()
     }
 
+    /// Ce que le GPU recevra pour ce maillage, en octets (sommets et indices) : l'unité du budget
+    /// de transfert (voir `transfer.rs`).
+    pub fn byte_size(&self) -> usize {
+        self.vertices.len() * std::mem::size_of::<MeshVertex>()
+            + (self.indices.len() + self.translucent_indices.len()) * std::mem::size_of::<u32>()
+    }
+
     pub fn quad_count(&self) -> usize {
         self.triangle_count() / 2
     }

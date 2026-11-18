@@ -90,6 +90,7 @@ mod hot_reload;
 mod interact;
 mod item_ctl;
 mod launch;
+mod stream_upload;
 mod texture_packs;
 pub use launch::{Launch, Request};
 mod conduit_fx;
@@ -162,7 +163,7 @@ use engine_mods::ModEvent;
 use engine_render::{Aabb, Camera, ColorVertex, Fog, MeshId, RenderStats, Renderer, Sun};
 use engine_voxel::{
     BlockId, BlockRegistry, CHUNK_SIZE, ChunkMesh, ChunkStreamer, GridPos, MachineAction,
-    MeshVertex, RayHit, StreamEvent, StreamingConfig, raycast,
+    MeshVertex, RayHit, StreamingConfig, raycast,
 };
 use glam::{IVec3, Vec2, Vec3};
 
@@ -178,12 +179,6 @@ use stats::FrameStats;
 
 const MOUSE_SENSITIVITY: f32 = 0.0025;
 const DEFAULT_SEED: u32 = 42;
-/// Maillages envoyés au GPU au maximum par image. Chaque envoi crée deux tampons :
-/// les étaler sur plusieurs images évite une saccade quand 50 chunks arrivent d'un coup.
-/// Les maillages d'un bloc modifié passent en tête de file : ils sont envoyés tout de suite.
-const UPLOAD_BUDGET: usize = 16;
-/// Maillages libérés au plus par image (environ 3 ms).
-const UNLOAD_BUDGET: usize = 256;
 /// Hauteur de vol au départ et en mode `VOXEL_AUTOFLY`, au-dessus du sol.
 const FLY_ALTITUDE: f32 = 30.0;
 const HOTBAR_KEYS: [KeyCode; 9] = [
@@ -270,6 +265,8 @@ struct VoxelGame {
     conduit_fx: conduit_fx::ConduitFx,
     /// Le terrain lointain simplifié (voir `far_terrain.rs`), s'il est activé.
     far: Option<far_terrain::FarTerrain>,
+    /// Le budget d'envoi au GPU et ses compteurs (voir `stream_upload.rs`).
+    uploads: stream_upload::Uploads,
     /// Les maillages des structures mobiles, et la structure dont on tient la barre.
     grid_meshes: ships::GridMeshes,
     helm: Option<engine_voxel::GridId>,
@@ -820,6 +817,7 @@ impl VoxelGame {
             quit_at: env_parse::<u64>("VOXEL_QUIT_AFTER")
                 .map(|s| Instant::now() + std::time::Duration::from_secs(s)),
             frame_stats: FrameStats::new(),
+            uploads: stream_upload::Uploads::new(),
             last_render: RenderStats::default(),
             remote: control::Remote::default(),
             culling: culling::CaveCulling::from_env(),
@@ -1167,7 +1165,8 @@ impl VoxelGame {
         // Tout le travail du monde côté thread principal : on le chronomètre.
         let start = Instant::now();
         let eye = player::eye(&self.ecs, self.player, 1.0);
-        self.streamer_mut().update(eye);
+        let forward = self.camera.forward();
+        self.streamer_mut().update_view(eye, forward);
         self.update_far(eye);
         let streamed = Instant::now();
         let uploads = self.apply_stream_events();
@@ -2033,45 +2032,6 @@ impl VoxelGame {
         }
     }
 
-    /// Applique les résultats du streamer côté GPU, dans la limite du budget.
-    /// Renvoie le nombre de maillages envoyés.
-    fn apply_stream_events(&mut self) -> usize {
-        let _span = engine_trace::span("chunks : envoi au GPU");
-        let mut uploads = 0;
-        let mut unloads = 0;
-        while uploads < UPLOAD_BUDGET && unloads < UNLOAD_BUDGET {
-            let Some(event) = self.streamer_mut().next_event() else {
-                break;
-            };
-            match event {
-                // Libérer un maillage coûte peu (environ 11 µs), mais une téléportation
-                // lointaine en libère des milliers d'un coup : on les étale sur plusieurs
-                // images. Ces chunks sont loin ou hors de vue, les garder un peu ne se voit pas.
-                StreamEvent::Unload(pos) => {
-                    unloads += 1;
-                    self.culling.graph.remove(pos);
-                    if let Some(id) = self.meshes.remove(&pos) {
-                        self.renderer.remove_mesh(id);
-                    }
-                }
-                StreamEvent::Mesh(pos, mesh) => {
-                    uploads += 1;
-                    self.culling.graph.set(pos, mesh.visibility);
-                    self.streamer_mut().note_uploaded(pos);
-                    // `insert` et `remove` rendent l'ancienne valeur : on libère l'ancien maillage.
-                    let old = match upload(&mut self.renderer, &mesh) {
-                        Some(id) => self.meshes.insert(pos, id),
-                        None => self.meshes.remove(&pos),
-                    };
-                    if let Some(old) = old {
-                        self.renderer.remove_mesh(old);
-                    }
-                }
-            }
-        }
-        uploads
-    }
-
     fn show_stats(&mut self, ctx: &mut Context) {
         let stream = self.streamer().stats();
         let render = self.last_render;
@@ -2131,6 +2091,7 @@ impl VoxelGame {
             if let Some(pipeline) = self.streamer().pipeline_report() {
                 log::info!("délais des chunks : {pipeline}");
             }
+            self.log_transfers();
             let fluids = self.fluid_report;
             log::info!(
                 "fluides : {} cellules calculées, {} actives, {} modifiées, {:.2} ms",

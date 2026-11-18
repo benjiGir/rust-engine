@@ -353,6 +353,16 @@ Plan et choix : `docs/plan-stockage.md`.
   réel, coefficient de végétation par colonne. Acyclique : le climat lit le relief, jamais l'inverse.
   Tests : `tests/climate_v2.rs`. Cartes : `--maps biomes-v2,temperature-v2,humidite-v2,canopee,ombre-pluie`.
 
+### Streaming : priorités et envois régulés (fait : `streaming.rs`, `transfer.rs`, `far.rs`, `games/voxel/src/stream_upload.rs`)
+
+- Le streamer complète des colonnes entières de la plus proche à la plus lointaine, avec un biais borné pour
+  la direction de la caméra (`update_view`) ; ses maillages prêts attendent dans une table (le plus récent de
+  chaque chunk, du plus proche au plus lointain) et le jeu les envoie sous un budget d'octets et de temps
+  commun avec le terrain lointain (`TransferBudget`, `next_event_budgeted`) : le premier envoi de l'image passe
+  toujours. Le terrain lointain reçoit une allocation de CPU d'après la file des chunks proches
+  (`far_allowance`) et livre ses changements par lots de région. Mesures et limites : `docs/plan-generation-rendu.md`,
+  `cargo run --release -p engine_voxel --example streaming_scenarios`.
+
 ### Comment tout s'articule
 
 ```

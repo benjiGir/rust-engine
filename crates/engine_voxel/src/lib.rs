@@ -54,6 +54,7 @@ mod storage;
 mod streaming;
 mod subgrid;
 mod tech;
+mod transfer;
 mod trees;
 mod visibility;
 mod world;
@@ -84,7 +85,7 @@ pub use crafting::{
 pub use dimension::{DimensionDef, DimensionRegistry, OVERWORLD, SkyDef, WorldKind};
 pub use far::{
     CELLS as FAR_CELLS, FarConfig, FarEvent, FarMesh, FarStats, FarStreamer, FarTile, build_tile,
-    select_tiles,
+    far_allowance, select_tiles,
 };
 pub use farming::{
     FarmBlocks, IRRIGATION_REACH, fertilized, is_farmland, is_irrigated, is_ripe, next_stage,
@@ -162,6 +163,7 @@ pub use subgrid::{
     AssemblyError, MAX_BLOCKS, SubGrid, SubGrids, extract, land, landing_cells, load_grids,
     quarter_turns, rotate_facing, rotate_y, save_grids,
 };
+pub use transfer::{TransferBudget, TransferStats};
 pub use trees::{Part, Rng64, TreeBlocks, TreeKind, Wood, grow as grow_tree};
 pub use visibility::{FACE_DIRECTIONS, FaceConnections, VisibilityGraph};
 pub use world::World;

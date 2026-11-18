@@ -35,6 +35,20 @@
 //! [`FarStreamer`] construit les tuiles dans quelques threads, sans jamais toucher au monde.
 //! Une région de 32 chunks ne change de niveau que d'un coup, quand toutes ses nouvelles
 //! tuiles sont prêtes : jamais deux niveaux superposés à l'écran.
+//!
+//! # Discret quand les chunks proches arrivent
+//!
+//! Le terrain lointain partage les cœurs avec le pool des chunks détaillés ; ce sont eux qui
+//! comptent. Le jeu dit au streamer combien de tuiles il peut construire à la fois
+//! ([`FarStreamer::set_allowance`], calculé par [`far_allowance`] d'après la file des chunks
+//! proches) : de tous ses threads quand tout est calme à zéro pendant un gros chargement. Les demandes ne partent
+//! qu'au compte-gouttes (deux par thread autorisé) et dans l'ordre de la distance, recalculées à
+//! chaque image : une tuile devenue inutile avant son départ est abandonnée sans avoir coûté.
+//!
+//! Les changements de chaque région forment un **lot** (retraits et ajouts ensemble) livré d'un bloc,
+//! du plus proche au plus lointain, sous le même budget d'envoi que les chunks (voir `transfer.rs`) :
+//! pas de trou ni de double surface entre un retrait et son remplacement, même étalés sur plusieurs
+//! images.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -47,6 +61,7 @@ use crate::biome::{BiomeKind, BiomeRegistry};
 use crate::generator::{FREEZING, SEA_LEVEL, STEP, TerrainGenerator};
 use crate::mesh::MeshVertex;
 use crate::registry::Tint;
+use crate::transfer::TransferBudget;
 
 /// Cellules par côté de tuile.
 pub const CELLS: i32 = 32;
@@ -211,6 +226,12 @@ pub struct FarMesh {
 impl FarMesh {
     pub fn is_empty(&self) -> bool {
         self.indices.is_empty() && self.translucent_indices.is_empty()
+    }
+
+    /// Ce que le GPU recevra pour cette tuile, en octets (voir `transfer.rs`).
+    pub fn byte_size(&self) -> usize {
+        self.vertices.len() * std::mem::size_of::<MeshVertex>()
+            + (self.indices.len() + self.translucent_indices.len()) * std::mem::size_of::<u32>()
     }
 }
 
@@ -442,8 +463,27 @@ pub enum FarEvent {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FarStats {
     pub shown: usize,
+    /// Tuiles demandées aux threads, pas encore revenues.
     pub pending: usize,
     pub staged: usize,
+    /// Lots de changements prêts, pas encore envoyés au GPU, et leur taille.
+    pub waiting_batches: usize,
+    pub waiting_bytes: usize,
+}
+
+/// Combien de tuiles le terrain lointain peut construire à la fois, d'après le travail de chargement
+/// des chunks proches ([`StreamStats::backlog`](crate::StreamStats::backlog)) : tous ses threads quand
+/// tout est calme (jusqu'à 300), un seul pendant un chargement soutenu (jusqu'à 1 500), aucun pendant
+/// un gros chargement (démarrage, téléportation) : les tâches en cours finissent, rien ne repart. Ne
+/// croît jamais avec la charge.
+pub fn far_allowance(backlog: usize, threads: usize) -> usize {
+    if backlog <= 300 {
+        threads
+    } else if backlog <= 1500 {
+        threads.min(1)
+    } else {
+        0
+    }
 }
 
 pub struct FarStreamer {
@@ -455,6 +495,12 @@ pub struct FarStreamer {
     requests: Option<Sender<FarTile>>,
     results: Receiver<(FarTile, FarMesh)>,
     workers: Vec<JoinHandle<()>>,
+    /// Combien de tuiles peuvent être construites à la fois (voir [`far_allowance`]).
+    allowance: usize,
+    /// Les lots de changements prêts, un par région, du plus proche au plus lointain (voir la
+    /// documentation). Les changements d'une région qui attendent encore s'ajoutent à son lot, dans
+    /// l'ordre : jamais un retrait avant l'ajout qu'il annule.
+    outbox: Vec<((i32, i32), Vec<FarEvent>)>,
 }
 
 impl FarStreamer {
@@ -487,8 +533,20 @@ impl FarStreamer {
             pending: HashSet::new(),
             requests: Some(request_tx),
             results: result_rx,
+            allowance: threads.max(1),
             workers,
+            outbox: Vec::new(),
         }
+    }
+
+    /// Combien de tuiles peuvent être construites à la fois : de 0 (rien ne repart, les tâches en
+    /// cours finissent) au nombre de threads. Voir [`far_allowance`].
+    pub fn set_allowance(&mut self, allowance: usize) {
+        self.allowance = allowance.min(self.workers.len());
+    }
+
+    pub fn allowance(&self) -> usize {
+        self.allowance
     }
 
     pub fn config(&self) -> FarConfig {
@@ -504,6 +562,16 @@ impl FarStreamer {
             shown: self.shown.len(),
             pending: self.pending.len(),
             staged: self.staged.len(),
+            waiting_batches: self.outbox.len(),
+            waiting_bytes: self
+                .outbox
+                .iter()
+                .flat_map(|(_, events)| events)
+                .map(|e| match e {
+                    FarEvent::Add(_, mesh) => mesh.byte_size(),
+                    FarEvent::Remove(_) => 0,
+                })
+                .sum(),
         }
     }
 
@@ -512,8 +580,40 @@ impl FarStreamer {
         self.shown.iter().copied()
     }
 
-    /// À appeler à chaque image avec la position de la caméra (en blocs).
+    /// À appeler à chaque image avec la position de la caméra (en blocs) : tout ce qui est prêt, sans
+    /// budget. Le jeu préfère [`FarStreamer::refresh`] puis [`FarStreamer::next_batch`].
     pub fn update(&mut self, camera: Vec3) -> Vec<FarEvent> {
+        self.refresh(camera);
+        self.outbox
+            .drain(..)
+            .flat_map(|(_, events)| events)
+            .collect()
+    }
+
+    /// Le prochain lot de changements (retraits et ajouts d'une région, à envoyer d'un bloc) qui tient
+    /// dans `budget`, ou `None`. Un lot n'est jamais coupé : le premier de l'image passe même s'il
+    /// dépasse le budget (voir `transfer.rs`), et un lot sans ajout (que des retraits) est gratuit. Le
+    /// jeu note ensuite chaque envoi dans le budget.
+    pub fn next_batch(&mut self, budget: &TransferBudget) -> Option<Vec<FarEvent>> {
+        let bytes: usize = self
+            .outbox
+            .first()?
+            .1
+            .iter()
+            .map(|e| match e {
+                FarEvent::Add(_, mesh) => mesh.byte_size(),
+                FarEvent::Remove(_) => 0,
+            })
+            .sum();
+        if bytes > 0 && !budget.allows_upload(bytes) {
+            return None;
+        }
+        Some(self.outbox.remove(0).1)
+    }
+
+    /// Met à jour les tuiles voulues autour de la caméra : demande ce qui manque (dans la limite de
+    /// l'allocation), reçoit ce qui est construit, et prépare les lots de changements.
+    pub fn refresh(&mut self, camera: Vec3) {
         while let Ok((tile, mesh)) = self.results.try_recv() {
             self.pending.remove(&tile);
             self.staged.insert(tile, mesh);
@@ -534,8 +634,13 @@ impl FarStreamer {
             })
             .collect();
         missing.sort_by(|a, b| a.0.total_cmp(&b.0));
+        // Au compte-gouttes : deux demandes par thread autorisé (une qui tourne, une qui attend), les
+        // plus proches d'abord. Le reste est recalculé à la prochaine image avec la caméra de ce
+        // moment : une tuile devenue inutile avant son départ n'aura rien coûté.
+        let window = self.allowance * 2;
+        let slots = window.saturating_sub(self.pending.len());
         if let Some(tx) = &self.requests {
-            for (_, tile) in missing {
+            for (_, tile) in missing.into_iter().take(slots) {
                 if tx.send(tile).is_ok() {
                     self.pending.insert(tile);
                 }
@@ -553,13 +658,14 @@ impl FarStreamer {
         for t in &self.shown {
             shown_by_region.entry(t.region()).or_default().push(*t);
         }
-        let mut events = Vec::new();
+        let mut batches: Vec<((i32, i32), Vec<FarEvent>)> = Vec::new();
         let region_keys: HashSet<(i32, i32)> = regions
             .keys()
             .chain(shown_by_region.keys())
             .copied()
             .collect();
         for key in region_keys {
+            let mut events = Vec::new();
             let want = regions.get(&key).map_or(&[][..], Vec::as_slice);
             let have = shown_by_region.get(&key).map_or(&[][..], Vec::as_slice);
             let want_set: HashSet<FarTile> = want.iter().copied().collect();
@@ -569,6 +675,7 @@ impl FarStreamer {
                     self.shown.remove(t);
                     events.push(FarEvent::Remove(*t));
                 }
+                Self::push_batch(&mut batches, key, events);
                 continue;
             }
             let ready = want
@@ -590,8 +697,39 @@ impl FarStreamer {
                     events.push(FarEvent::Add(*t, Box::new(mesh)));
                 }
             }
+            Self::push_batch(&mut batches, key, events);
         }
-        events
+        // Les changements d'une région s'ajoutent à son lot en attente ; les nouveaux lots suivent.
+        for (key, events) in batches {
+            match self.outbox.iter_mut().find(|(k, _)| *k == key) {
+                Some((_, waiting)) => waiting.extend(events),
+                None => self.outbox.push((key, events)),
+            }
+        }
+        // Du plus proche au plus lointain, avec la caméra de cette image.
+        let distance = |events: &[FarEvent]| {
+            events
+                .iter()
+                .map(|e| {
+                    let (FarEvent::Add(tile, _) | FarEvent::Remove(tile)) = e;
+                    let (x, z, s) = tile.rect_chunks();
+                    center.distance(Vec2::new(x + s / 2.0, z + s / 2.0))
+                })
+                .fold(f32::MAX, f32::min)
+        };
+        self.outbox
+            .sort_by(|a, b| distance(&a.1).total_cmp(&distance(&b.1)));
+    }
+
+    /// Range les événements d'une région en un lot (rien si elle n'a rien changé).
+    fn push_batch(
+        batches: &mut Vec<((i32, i32), Vec<FarEvent>)>,
+        key: (i32, i32),
+        events: Vec<FarEvent>,
+    ) {
+        if !events.is_empty() {
+            batches.push((key, events));
+        }
     }
 }
 
@@ -843,5 +981,199 @@ mod tests {
             assert!(std::time::Instant::now() < deadline, "n'arrive pas à jour");
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
+    }
+
+    // ---------- Allocation du CPU, demandes bornées et lots (lot 6) ----------
+
+    #[test]
+    fn the_far_allowance_never_grows_with_the_load_and_stops_during_big_loads() {
+        for threads in [1, 2, 4] {
+            assert_eq!(
+                far_allowance(0, threads),
+                threads,
+                "calme : tous les threads"
+            );
+            assert_eq!(far_allowance(5000, threads), 0, "gros chargement : aucun");
+            let mut previous = threads;
+            for backlog in (0..4000).step_by(25) {
+                let now = far_allowance(backlog, threads);
+                assert!(now <= previous && now <= threads, "{backlog} : {now}");
+                previous = now;
+            }
+        }
+        assert_eq!(
+            far_allowance(800, 4),
+            1,
+            "un seul thread pendant un chargement soutenu"
+        );
+    }
+
+    fn small() -> FarConfig {
+        FarConfig {
+            near_radius: 4,
+            far_radius: 40,
+        }
+    }
+
+    #[test]
+    fn requests_are_bounded_by_the_allowance_and_none_leave_at_zero() {
+        let generator = Arc::new(TerrainGenerator::new(7));
+        let mut streamer = FarStreamer::new(generator, small(), 2);
+        let camera = Vec3::new(0.0, 80.0, 0.0);
+        // Allocation nulle : rien n'est demandé, rien n'arrive.
+        streamer.set_allowance(0);
+        for _ in 0..5 {
+            streamer.refresh(camera);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let stats = streamer.stats();
+        assert_eq!((stats.pending, stats.staged, stats.shown), (0, 0, 0));
+        // Une allocation de 1 : jamais plus de deux demandes en route, et le travail avance.
+        streamer.set_allowance(1);
+        assert_eq!(streamer.allowance(), 1);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        loop {
+            streamer.refresh(camera);
+            assert!(streamer.stats().pending <= 2, "{:?}", streamer.stats());
+            if streamer.stats().shown + streamer.stats().staged + streamer.stats().waiting_batches
+                > 3
+            {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{:?}",
+                streamer.stats()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        // Au-delà du nombre de threads : bornée.
+        streamer.set_allowance(99);
+        assert_eq!(streamer.allowance(), 2);
+    }
+
+    #[test]
+    fn a_regions_changes_form_one_batch_and_the_budget_spreads_batches_over_frames() {
+        let generator = Arc::new(TerrainGenerator::new(7));
+        let mut streamer = FarStreamer::new(generator, small(), 2);
+        let camera = Vec3::new(0.0, 80.0, 0.0);
+        let wanted = select_tiles(camera, small()).len();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        // On laisse tout se construire sans rien envoyer : tout reste dans les lots.
+        loop {
+            streamer.refresh(camera);
+            let stats = streamer.stats();
+            if stats.pending == 0 && stats.staged == 0 && stats.shown == wanted {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "{stats:?}");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let stats = streamer.stats();
+        assert!(
+            stats.waiting_batches > 1 && stats.waiting_bytes > 0,
+            "{stats:?}"
+        );
+        // Un budget d'un octet : un lot par image, du plus proche au plus lointain ; rien n'est coupé.
+        let center = Vec2::new(camera.x / 32.0, camera.z / 32.0);
+        let mut frames = 0;
+        let mut last = 0.0f32;
+        let mut total_adds = 0;
+        while streamer.stats().waiting_batches > 0 {
+            frames += 1;
+            let mut budget = TransferBudget::new(1, std::time::Duration::MAX, 0);
+            let mut batches = 0;
+            while let Some(batch) = streamer.next_batch(&budget) {
+                batches += 1;
+                let bytes: usize = batch
+                    .iter()
+                    .map(|e| match e {
+                        FarEvent::Add(_, m) => m.byte_size(),
+                        FarEvent::Remove(_) => 0,
+                    })
+                    .sum();
+                budget.record_upload(bytes.max(1), std::time::Duration::ZERO);
+                let nearest = batch
+                    .iter()
+                    .map(|e| {
+                        let (FarEvent::Add(t, _) | FarEvent::Remove(t)) = e;
+                        let (x, z, s) = t.rect_chunks();
+                        center.distance(Vec2::new(x + s / 2.0, z + s / 2.0))
+                    })
+                    .fold(f32::MAX, f32::min);
+                assert!(
+                    nearest + 0.01 >= last,
+                    "les lots ne vont pas du proche au lointain"
+                );
+                last = nearest;
+                total_adds += batch
+                    .iter()
+                    .filter(|e| matches!(e, FarEvent::Add(..)))
+                    .count();
+            }
+            assert!(batches <= 1, "un lot au plus par image à budget minimal");
+            assert!(frames < 10_000);
+        }
+        assert_eq!(
+            total_adds, wanted,
+            "toutes les tuiles sont arrivées, aucune coupée"
+        );
+        assert!(frames > 1);
+    }
+
+    #[test]
+    fn leaving_a_region_for_another_level_sends_removes_and_adds_together() {
+        let generator = Arc::new(TerrainGenerator::new(7));
+        let mut streamer = FarStreamer::new(generator, small(), 2);
+        let mut camera = Vec3::new(0.0, 80.0, 0.0);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        let settle = |streamer: &mut FarStreamer, camera: Vec3| {
+            let wanted: HashSet<FarTile> = select_tiles(camera, small()).into_iter().collect();
+            loop {
+                streamer.refresh(camera);
+                let shown: HashSet<FarTile> = streamer.shown().collect();
+                if shown == wanted && streamer.stats().pending == 0 {
+                    return;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "{:?}",
+                    streamer.stats()
+                );
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        };
+        settle(&mut streamer, camera);
+        streamer.outbox.clear(); // le premier remplissage n'est pas ce qu'on regarde
+        camera.x += 1_500.0;
+        settle(&mut streamer, camera);
+        // Chaque lot qui retire des tuiles d'une région y en ajoute aussitôt : un remplacement, jamais un
+        // trou. (Les régions qui sortent du rayon n'ont que des retraits ; celles qui entrent, que des
+        // ajouts ; les autres changent de niveau d'un bloc.)
+        let mut replacements = 0;
+        for (_, batch) in &streamer.outbox {
+            let removes = batch
+                .iter()
+                .filter(|e| matches!(e, FarEvent::Remove(_)))
+                .count();
+            let adds = batch
+                .iter()
+                .filter(|e| matches!(e, FarEvent::Add(..)))
+                .count();
+            if removes > 0 && adds > 0 {
+                replacements += 1;
+                // Les retraits d'abord : jamais deux niveaux superposés si le jeu applique dans l'ordre.
+                let first_add = batch
+                    .iter()
+                    .position(|e| matches!(e, FarEvent::Add(..)))
+                    .unwrap();
+                assert!(
+                    batch[first_add..]
+                        .iter()
+                        .all(|e| matches!(e, FarEvent::Add(..)))
+                );
+            }
+        }
+        assert!(replacements + streamer.outbox.len() > 0);
     }
 }

@@ -22,6 +22,21 @@
 //!    du bord, diagonales comprises, il faut donc les colonnes voisines éclairées.
 //!    Jusqu'au rayon de vue.
 //!
+//! # Priorités, file des maillages et envois (lot 6)
+//!
+//! - **Ordre de chargement** ([`StreamingConfig::column_order`], [`StreamingConfig::view_bias`]) : on
+//!   complète des colonnes entières, de la plus proche à la plus lointaine (la lumière et le maillage
+//!   attendent une colonne et ses huit voisines), avec un petit biais pour ce que la caméra regarde
+//!   ([`ChunkStreamer::update_view`]). Le biais est borné : aucune colonne n'est affamée, et le sol
+//!   sous les pieds n'en a jamais.
+//! - **Maillages en attente** : le plus récent de chaque chunk seulement, le plus proche de la caméra
+//!   d'abord ; les maillages d'un bloc modifié passent en tête et hors budget. Un chunk modifié
+//!   pendant qu'on le maille n'a qu'un remaillage de plus (au lieu d'une tâche par modification, dont
+//!   chaque résultat était jeté : un chunk qui changeait à chaque tick ne s'actualisait jamais).
+//! - **Envois** ([`ChunkStreamer::next_event_budgeted`]) : sous un budget d'octets et de temps commun
+//!   avec le terrain lointain (voir `transfer.rs`) ; l'ancien maillage d'un chunk reste affiché jusqu'à
+//!   ce que le nouveau soit envoyé, et une libération en attente est annulée si le chunk revient.
+//!
 //! # Pourquoi pas de `Mutex` sur le monde ?
 //!
 //! Un `Mutex<World>` obligerait chaque thread à attendre son tour pour lire un bloc :
@@ -54,7 +69,7 @@ use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use std::sync::Arc;
 
 use crossbeam_channel::{Receiver, Sender};
-use glam::{IVec2, IVec3, Vec3};
+use glam::{IVec2, IVec3, Vec2, Vec3};
 
 use crate::block::BlockId;
 use crate::chunk::{BlockEntity, Chunk};
@@ -64,6 +79,7 @@ use crate::mesh::{ChunkMesh, Mesher, Neighbourhood};
 use crate::pipeline_timing::{PipelineReport, PipelineTimings};
 use crate::registry::BlockRegistry;
 use crate::save::{ChunkToSave, SaveReport, SaveStore, UnknownBlocks};
+use crate::transfer::TransferBudget;
 use crate::world::World;
 
 /// Les réglages du chargement.
@@ -85,6 +101,16 @@ pub struct StreamingConfig {
     /// Dessiner opaques les feuilles au cœur des arbres, et retirer les faces contre elles
     /// (moins de triangles, même image).
     pub leaf_culling: bool,
+    /// Compléter les **colonnes** de chunks de la plus proche à la plus lointaine : la lumière et le
+    /// maillage attendent une colonne entière (et ses huit voisines), donc trier chaque chunk par
+    /// distance 3D les finit dans le désordre (le haut d'une colonne proche passe après le bas
+    /// d'une colonne plus loin). `false` : l'ancien tri par distance 3D (pour comparer).
+    pub column_order: bool,
+    /// Préférence (de 0 à 1) pour ce que la caméra regarde : la distance des colonnes derrière elle
+    /// compte jusqu'à `1 + view_bias` fois plus. Bornée : une colonne de derrière est chargée avant une
+    /// colonne de devant plus de `√(1 + view_bias)` fois plus loin, donc rien n'est affamé. Les
+    /// colonnes à moins de 3 chunks (le sol sous les pieds, les collisions) n'ont jamais de biais.
+    pub view_bias: f32,
 }
 
 impl Default for StreamingConfig {
@@ -99,6 +125,8 @@ impl Default for StreamingConfig {
             max_jobs_in_flight: worker_threads * 2,
             mesher: Mesher::Greedy,
             leaf_culling: true,
+            column_order: true,
+            view_bias: 0.6,
         }
     }
 }
@@ -125,11 +153,25 @@ pub struct StreamStats {
     pub in_flight: usize,
     /// Maillages prêts, pas encore envoyés au GPU.
     pub meshes_waiting: usize,
+    /// Octets de ces maillages (ce que le GPU devra recevoir).
+    pub bytes_waiting: usize,
+    /// Libérations de maillages en attente.
+    pub unloads_waiting: usize,
+    /// Colonnes ou chunks prêts à être éclairés ou maillés, pas encore lancés.
+    pub candidates: usize,
     /// Tâches de fond terminées depuis le lancement.
     pub jobs_done: u64,
     /// Parmi elles, celles dont le résultat a été jeté (chunk déchargé entre-temps,
     /// ou bloc modifié à côté) : du travail perdu.
     pub jobs_discarded: u64,
+}
+
+impl StreamStats {
+    /// Tout le travail de chargement en attente ou en cours : de quoi décider si le terrain lointain
+    /// doit se faire discret (voir `far::far_allowance`).
+    pub fn backlog(&self) -> usize {
+        self.queued + self.in_flight + self.meshes_waiting + self.candidates
+    }
 }
 
 /// Où en est un chunk.
@@ -214,7 +256,22 @@ pub struct ChunkStreamer {
     // Chaque tâche reçoit un clone du `Sender` ; le `Receiver` reste ici.
     sender: Sender<JobResult>,
     receiver: Receiver<JobResult>,
-    events: VecDeque<StreamEvent>,
+    /// Les maillages d'un bloc modifié : envoyés tout de suite, hors budget (le joueur attend de voir
+    /// son coup), en tête de file.
+    urgent: VecDeque<StreamEvent>,
+    /// Les maillages arrivés des threads de fond, pas encore envoyés : le plus récent de chaque chunk
+    /// seulement (un remaillage rend l'ancien inutile), et le plus proche de la caméra part en premier.
+    waiting: HashMap<IVec3, ChunkMesh>,
+    /// Les libérations de maillages, étalées sur plusieurs images (elles sont sans urgence).
+    unloads: VecDeque<IVec3>,
+    unloads_pending: HashSet<IVec3>,
+    /// Chunks modifiés pendant qu'un maillage tournait : un seul remaillage de plus quand il revient,
+    /// au lieu d'une tâche par modification dont chaque résultat serait jeté (un chunk qui change à
+    /// chaque tick ne s'actualisait jamais).
+    meshing_dirty: HashSet<IVec3>,
+    /// La direction horizontale de la caméra (unitaire), et celle du dernier tri de la file.
+    view: Option<Vec2>,
+    sorted_view: Option<Vec2>,
     /// Chunks chargés modifiés par le joueur depuis leur génération.
     edited: HashSet<IVec3>,
     /// Chunks modifiés puis déchargés avant d'être sauvegardés : on les garde en
@@ -276,7 +333,13 @@ impl ChunkStreamer {
             jobs_discarded: 0,
             sender,
             receiver,
-            events: VecDeque::new(),
+            urgent: VecDeque::new(),
+            waiting: HashMap::default(),
+            unloads: VecDeque::new(),
+            unloads_pending: HashSet::default(),
+            meshing_dirty: HashSet::default(),
+            view: None,
+            sorted_view: None,
             edited: HashSet::default(),
             saved_edits: HashMap::default(),
             store: None,
@@ -707,15 +770,27 @@ impl ChunkStreamer {
         // (qui attend `Meshing(son ticket)`) sera jeté à l'arrivée.
         self.slots.insert(pos, Slot::Generated(MeshState::Done));
         // Un ancien maillage en attente ne doit pas écraser le nouveau.
-        self.events
+        self.waiting.remove(&pos);
+        self.meshing_dirty.remove(&pos);
+        self.urgent
             .retain(|e| !matches!(e, StreamEvent::Mesh(p, _) if *p == pos));
+        self.cancel_unload(pos);
         // Un maillage vide est envoyé aussi : le jeu retire alors l'ancien.
-        self.events.push_front(StreamEvent::Mesh(pos, mesh));
+        self.urgent.push_front(StreamEvent::Mesh(pos, mesh));
     }
 
     /// Relance le maillage d'un chunk sur un thread de fond, sans attendre la file.
     fn remesh_soon(&mut self, pos: IVec3) {
         if !matches!(self.slots.get(&pos), Some(Slot::Generated(_))) {
+            return;
+        }
+        // Un maillage tourne déjà : on ne lance pas une deuxième tâche dont l'arrivée rendrait la
+        // première périmée. Un seul remaillage de plus quand celle-ci revient (voir `receive`).
+        if matches!(
+            self.slots.get(&pos),
+            Some(Slot::Generated(MeshState::Meshing(_)))
+        ) {
+            self.meshing_dirty.insert(pos);
             return;
         }
         if self.surroundings_lit(pos) {
@@ -781,11 +856,24 @@ impl ChunkStreamer {
 
     /// Une image : suivre le joueur, récupérer les résultats, lancer de nouvelles tâches.
     pub fn update(&mut self, player: Vec3) {
+        self.update_view(player, Vec3::ZERO);
+    }
+
+    /// Comme [`ChunkStreamer::update`], en disant où la caméra regarde : les colonnes devant elle sont
+    /// chargées un peu avant celles de derrière (voir [`StreamingConfig::view_bias`]). Un regard presque
+    /// vertical ne change pas la direction retenue ; `Vec3::ZERO` n'en donne aucune.
+    pub fn update_view(&mut self, player: Vec3, forward: Vec3) {
         let _span = engine_trace::span("chunks : file et réception");
         let centre = World::chunk_containing(player);
+        let flat = Vec2::new(forward.x, forward.z);
+        if flat.length_squared() > 0.04 {
+            self.view = Some(flat.normalize());
+        }
         if self.centre != Some(centre) {
             self.centre = Some(centre);
             self.refresh(centre);
+        } else if self.view_changed_enough() {
+            self.resort_load_queue(centre);
         }
         self.receive();
         // Les chunks modifiés en silence (machines) : un seul remaillage par chunk et par image.
@@ -795,9 +883,93 @@ impl ChunkStreamer {
         self.schedule(centre);
     }
 
-    /// Le prochain événement à traiter (maillage à envoyer au GPU, chunk à libérer).
+    /// Le prochain événement à traiter (maillage à envoyer au GPU, chunk à libérer), sans limite :
+    /// d'abord les maillages d'un bloc modifié, puis les maillages arrivés du plus proche au plus
+    /// lointain, puis les libérations. Le jeu préfère [`ChunkStreamer::next_event_budgeted`].
     pub fn next_event(&mut self) -> Option<StreamEvent> {
-        self.events.pop_front()
+        self.next_event_budgeted(&mut TransferBudget::unlimited())
+    }
+
+    /// Le prochain événement qui tient dans `budget` (voir `transfer.rs`), ou `None` quand l'image
+    /// est pleine. Les maillages d'un bloc modifié passent toujours (hors budget, un par action du
+    /// joueur) ; le premier maillage de l'image passe toujours, aussi gros soit-il. Le budget est
+    /// mis à jour par le jeu une fois l'envoi fait ([`TransferBudget::record_upload`]).
+    pub fn next_event_budgeted(&mut self, budget: &mut TransferBudget) -> Option<StreamEvent> {
+        if let Some(event) = self.urgent.pop_front() {
+            return Some(event);
+        }
+        if let Some(pos) = self.nearest_waiting() {
+            let bytes = self.waiting[&pos].byte_size();
+            if budget.allows_upload(bytes) {
+                let mesh = self.waiting.remove(&pos).expect("maillage choisi");
+                return Some(StreamEvent::Mesh(pos, mesh));
+            }
+        }
+        if budget.allows_unload() {
+            let pos = self.unloads.pop_front()?;
+            self.unloads_pending.remove(&pos);
+            return Some(StreamEvent::Unload(pos));
+        }
+        None
+    }
+
+    /// Le maillage en attente le plus prioritaire (le plus proche de la caméra, avec le biais de vue).
+    fn nearest_waiting(&self) -> Option<IVec3> {
+        let centre = self.centre?;
+        self.waiting
+            .keys()
+            .min_by(|a, b| {
+                self.priority(**a, centre)
+                    .total_cmp(&self.priority(**b, centre))
+            })
+            .copied()
+    }
+
+    /// Une libération en attente pour ce chunk n'a plus lieu d'être (il est revenu avec un maillage).
+    fn cancel_unload(&mut self, pos: IVec3) {
+        if self.unloads_pending.remove(&pos) {
+            self.unloads.retain(|p| *p != pos);
+        }
+    }
+
+    /// Plus petit = plus urgent. Voir [`StreamingConfig::column_order`] et
+    /// [`StreamingConfig::view_bias`] : on complète les colonnes dans l'ordre de leur distance
+    /// horizontale (avec le biais de vue), puis chacune du chunk le plus proche en hauteur au plus
+    /// loin ; l'ancien ordre était la distance 3D de chaque chunk.
+    fn priority(&self, pos: IVec3, centre: IVec3) -> f32 {
+        let d = pos - centre;
+        if !self.config.column_order {
+            return (d.x * d.x + d.y * d.y + d.z * d.z) as f32;
+        }
+        let mut score = (d.x * d.x + d.z * d.z) as f32;
+        if self.config.view_bias > 0.0
+            && score > 9.0
+            && let Some(view) = self.view
+        {
+            let cosine = (d.x as f32 * view.x + d.z as f32 * view.y) / score.sqrt();
+            score *= 1.0 + self.config.view_bias * (1.0 - cosine) * 0.5;
+        }
+        score * 8.0 + d.y.abs() as f32
+    }
+
+    /// La caméra a tourné d'au moins 25 degrés depuis le dernier tri de la file de chargement.
+    fn view_changed_enough(&self) -> bool {
+        if self.config.view_bias <= 0.0 || !self.config.column_order || self.load_queue.is_empty() {
+            return false;
+        }
+        match (self.view, self.sorted_view) {
+            (Some(now), Some(then)) => now.dot(then) < 0.9,
+            (Some(_), None) => true,
+            _ => false,
+        }
+    }
+
+    /// Retrie la file de chargement avec la direction actuelle de la caméra.
+    fn resort_load_queue(&mut self, centre: IVec3) {
+        let mut queue: Vec<IVec3> = std::mem::take(&mut self.load_queue).into();
+        queue.sort_by_cached_key(|&pos| (self.priority(pos, centre) * 16.0) as i64);
+        self.load_queue = queue.into();
+        self.sorted_view = self.view;
     }
 
     pub fn stats(&self) -> StreamStats {
@@ -814,11 +986,10 @@ impl ChunkStreamer {
                 .count(),
             queued: self.load_queue.len(),
             in_flight: self.in_flight,
-            meshes_waiting: self
-                .events
-                .iter()
-                .filter(|e| matches!(e, StreamEvent::Mesh(..)))
-                .count(),
+            meshes_waiting: self.waiting.len() + self.urgent.len(),
+            bytes_waiting: self.waiting.values().map(ChunkMesh::byte_size).sum(),
+            unloads_waiting: self.unloads.len(),
+            candidates: self.light_candidates.len() + self.mesh_candidates.len(),
             jobs_done: self.jobs_done,
             jobs_discarded: self.jobs_discarded,
         }
@@ -831,7 +1002,9 @@ impl ChunkStreamer {
             && self.light_candidates.is_empty()
             && self.remesh_pending.is_empty()
             && self.mesh_candidates.is_empty()
-            && self.events.is_empty()
+            && self.urgent.is_empty()
+            && self.waiting.is_empty()
+            && self.unloads.is_empty()
     }
 
     /// Le rayon de génération : assez pour éclairer toutes les voisines (même en
@@ -868,12 +1041,14 @@ impl ChunkStreamer {
         self.light_candidates
             .retain(|&c| (c - flat).length_squared() <= unload_radius * unload_radius);
         // Les maillages en attente des chunks déchargés ne servent plus : un seul passage
-        // sur la file (un passage par chunk coûtait 60 ms pour 7 000 chunks d'un coup, après
+        // sur chaque file (un passage par chunk coûtait 60 ms pour 7 000 chunks d'un coup, après
         // une téléportation lointaine).
         if !unloaded.is_empty() {
             let gone: HashSet<IVec3> = unloaded.iter().copied().collect();
-            self.events
+            self.urgent
                 .retain(|e| !matches!(e, StreamEvent::Mesh(p, _) if gone.contains(p)));
+            self.waiting.retain(|p, _| !gone.contains(p));
+            self.meshing_dirty.retain(|p| !gone.contains(p));
         }
         for pos in unloaded {
             // Le dernier `Arc` disparaît ici (ou à la fin de la tâche qui le lit encore) :
@@ -890,7 +1065,9 @@ impl ChunkStreamer {
                 }
             }
             self.mesh_candidates.remove(&pos);
-            self.events.push_back(StreamEvent::Unload(pos));
+            if self.unloads_pending.insert(pos) {
+                self.unloads.push_back(pos);
+            }
         }
 
         // 2. Nouvelle file de chargement, triée du plus proche au plus lointain.
@@ -908,9 +1085,11 @@ impl ChunkStreamer {
                 }
             }
         }
-        // `sort_by_key` trie selon la valeur renvoyée : ici la distance au carré
-        // (inutile de calculer la racine pour comparer des distances).
-        wanted.sort_by_key(|&pos| (pos - centre).length_squared());
+        // Tri par priorité (voir `priority`) : des colonnes entières, de la plus proche à la plus
+        // lointaine, avec un petit biais pour ce que la caméra regarde. Une valeur entière par clé
+        // (la distance au carré, sans racine) évite de comparer des flottants.
+        wanted.sort_by_cached_key(|&pos| (self.priority(pos, centre) * 16.0) as i64);
+        self.sorted_view = self.view;
         if let Some(timings) = &mut self.timings {
             // Une demande garde sa date d'origine ; une demande abandonnée (le joueur s'est
             // éloigné avant que le chunk soit chargé) est oubliée.
@@ -1004,8 +1183,16 @@ impl ChunkStreamer {
                         if let Some(timings) = &mut self.timings {
                             timings.meshed(pos);
                         }
-                        self.events.push_back(StreamEvent::Mesh(pos, mesh));
+                        // Le plus récent remplace celui qui attend encore (jamais d'envoi périmé) ;
+                        // et une libération en attente de ce chunk n'a plus lieu d'être.
+                        self.waiting.insert(pos, mesh);
+                        self.cancel_unload(pos);
+                        // Modifié pendant le maillage : un dernier remaillage, une seule tâche.
+                        if self.meshing_dirty.remove(&pos) {
+                            self.remesh_soon(pos);
+                        }
                     } else {
+                        self.meshing_dirty.remove(&pos);
                         self.jobs_discarded += 1;
                     }
                 }
@@ -1056,7 +1243,7 @@ impl ChunkStreamer {
         let max = self.config.max_jobs_in_flight;
         if self.in_flight < max && !self.mesh_candidates.is_empty() {
             let mut candidates: Vec<IVec3> = self.mesh_candidates.iter().copied().collect();
-            candidates.sort_by_key(|&pos| (pos - centre).length_squared());
+            candidates.sort_by_cached_key(|&pos| (self.priority(pos, centre) * 16.0) as i64);
             for pos in candidates {
                 if self.in_flight >= max {
                     break; // Les autres restent candidats pour l'image suivante.
@@ -1071,7 +1258,9 @@ impl ChunkStreamer {
         if self.in_flight < max && !self.light_candidates.is_empty() {
             let flat = IVec2::new(centre.x, centre.z);
             let mut candidates: Vec<IVec2> = self.light_candidates.iter().copied().collect();
-            candidates.sort_by_key(|&c| (c - flat).length_squared());
+            candidates.sort_by_cached_key(|&c| {
+                (self.priority(IVec3::new(c.x, centre.y, c.y), centre) * 16.0) as i64
+            });
             for column in candidates {
                 if self.in_flight >= max {
                     break;
@@ -1702,5 +1891,233 @@ pub(crate) mod tests {
             meshed(events).values().map(|m| m.triangle_count()).sum()
         };
         assert!(triangles(&second) > triangles(&first));
+    }
+
+    // ---------- Priorités, file des maillages et budget (lot 6) ----------
+
+    /// Les positions de la file de chargement, dans l'ordre où elles partiront.
+    fn load_order(s: &ChunkStreamer) -> Vec<IVec3> {
+        s.load_queue.iter().copied().collect()
+    }
+
+    fn streamer_with(column_order: bool, view_bias: f32) -> ChunkStreamer {
+        let config = StreamingConfig {
+            view_radius: 6,
+            unload_margin: 1,
+            column_order,
+            view_bias,
+            ..StreamingConfig::default()
+        };
+        ChunkStreamer::new(TerrainGenerator::new(7), config)
+    }
+
+    /// La distance horizontale au carré d'un chunk au centre (0, y, 0).
+    fn flat_sq(p: IVec3) -> i32 {
+        p.x * p.x + p.z * p.z
+    }
+
+    #[test]
+    fn columns_are_completed_from_the_nearest_to_the_farthest() {
+        let mut s = streamer_with(true, 0.0);
+        s.update(Vec3::new(5.0, 40.0, 5.0));
+        let order = load_order(&s);
+        assert!(order.len() > 500);
+        // La distance horizontale ne diminue jamais : une colonne est finie avant la suivante.
+        assert!(order.windows(2).all(|w| flat_sq(w[0]) <= flat_sq(w[1])));
+        // La colonne du joueur est partie la première : ses chunks sont déjà en cours de génération.
+        assert!(!order.iter().take(3).any(|p| p.x == 0 && p.z == 0));
+        assert!(s.stats().in_flight >= 6);
+    }
+
+    #[test]
+    fn the_legacy_order_interleaves_the_columns() {
+        // L'ancien tri par distance 3D mélange les colonnes : le haut d'une colonne proche passe
+        // après le bas d'une colonne plus loin (ce que `column_order` corrige).
+        let mut s = streamer_with(false, 0.0);
+        s.update(Vec3::new(5.0, 40.0, 5.0));
+        let order = load_order(&s);
+        assert!(order.windows(2).any(|w| flat_sq(w[0]) > flat_sq(w[1])));
+    }
+
+    #[test]
+    fn what_the_camera_looks_at_loads_first_without_starving_the_back() {
+        let mut s = streamer_with(true, 0.6);
+        s.update_view(Vec3::new(5.0, 40.0, 5.0), Vec3::X);
+        let order = load_order(&s);
+        let index = |x: i32, z: i32| {
+            order
+                .iter()
+                .position(|p| p.x == x && p.z == z && p.y == 2)
+                .unwrap_or_else(|| panic!("({x}, {z}) manque"))
+        };
+        // À même distance, devant avant derrière.
+        assert!(index(5, 0) < index(-5, 0));
+        // Mais pas de famine : une colonne proche de derrière passe avant une lointaine de devant.
+        assert!(index(-3, 0) < index(8, 0));
+        assert!(index(-5, 0) < index(8, 0));
+        // Aucun biais sous 3 chunks : le sol sous les pieds ne dépend pas du regard.
+        assert!(index(-2, 0) < index(3, 0));
+    }
+
+    #[test]
+    fn turning_the_camera_resorts_the_queue_and_a_small_turn_does_not() {
+        let mut s = streamer_with(true, 0.6);
+        s.update_view(Vec3::new(5.0, 40.0, 5.0), Vec3::X);
+        let ahead = load_order(&s);
+        // Un petit pas de côté (moins de 25 degrés) ne retrie rien.
+        s.update_view(Vec3::new(5.0, 40.0, 5.0), Vec3::new(1.0, 0.0, 0.2));
+        assert_eq!(load_order(&s)[..50], ahead[..50]);
+        // Un demi-tour renverse les préférences.
+        s.update_view(Vec3::new(5.0, 40.0, 5.0), -Vec3::X);
+        let behind = load_order(&s);
+        let index =
+            |order: &[IVec3], x: i32| order.iter().position(|p| p.x == x && p.z == 0 && p.y == 2);
+        assert!(index(&ahead, 5) < index(&ahead, -5));
+        assert!(index(&behind, -5) < index(&behind, 5));
+    }
+
+    /// Fait tourner le streamer sans rien envoyer : tout reste en attente dans `waiting`.
+    fn settle_without_draining(s: &mut ChunkStreamer, player: Vec3) {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            s.update(player);
+            let working = s.load_queue.len()
+                + s.in_flight
+                + s.light_candidates.len()
+                + s.mesh_candidates.len();
+            if working == 0 {
+                return;
+            }
+            assert!(Instant::now() < deadline, "le chargement ne se termine pas");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn waiting_meshes_leave_nearest_first_and_the_budget_limits_each_frame() {
+        let mut s = streamer();
+        let player = Vec3::new(5.0, 40.0, 5.0);
+        settle_without_draining(&mut s, player);
+        let stats = s.stats();
+        assert!(
+            stats.meshes_waiting > 10 && stats.bytes_waiting > 0,
+            "{stats:?}"
+        );
+        // Un budget d'un seul octet : un maillage par image (le premier passe toujours).
+        let centre = World::chunk_containing(player);
+        let mut distances = Vec::new();
+        let mut frames = 0;
+        while s.stats().meshes_waiting > 0 && frames < 10_000 {
+            frames += 1;
+            let mut budget = TransferBudget::new(1, Duration::MAX, 0);
+            let mut sent = 0;
+            while let Some(event) = s.next_event_budgeted(&mut budget) {
+                if let StreamEvent::Mesh(pos, mesh) = event {
+                    budget.record_upload(mesh.byte_size(), Duration::ZERO);
+                    distances.push(flat_sq(pos - centre));
+                    sent += 1;
+                }
+            }
+            assert!(
+                sent <= 1,
+                "plus d'un maillage dans une image à budget minimal"
+            );
+        }
+        assert!(
+            distances.windows(2).all(|w| w[0] <= w[1]),
+            "du plus proche au plus lointain"
+        );
+        assert!(distances.len() > 10);
+    }
+
+    #[test]
+    fn a_big_budget_sends_everything_in_one_frame_and_unloads_are_spread() {
+        let mut s = streamer();
+        let player = Vec3::new(5.0, 40.0, 5.0);
+        settle_without_draining(&mut s, player);
+        let waiting = s.stats().meshes_waiting;
+        let mut budget = TransferBudget::unlimited();
+        let sent = std::iter::from_fn(|| s.next_event_budgeted(&mut budget))
+            .filter(|e| matches!(e, StreamEvent::Mesh(..)))
+            .count();
+        assert_eq!(sent, waiting);
+        // Une téléportation : beaucoup de libérations, étalées par le budget.
+        s.update(Vec3::new(30.0 * 32.0, 40.0, 5.0));
+        let queued = s.stats().unloads_waiting;
+        assert!(queued > 30, "{queued}");
+        let mut frame = TransferBudget::new(usize::MAX, Duration::MAX, 10);
+        let unloaded = std::iter::from_fn(|| {
+            let event = s.next_event_budgeted(&mut frame)?;
+            if let StreamEvent::Unload(_) = event {
+                frame.record_unload(Duration::ZERO);
+            }
+            Some(event)
+        })
+        .filter(|e| matches!(e, StreamEvent::Unload(_)))
+        .count();
+        assert_eq!(unloaded, 10);
+        assert_eq!(s.stats().unloads_waiting, queued - 10);
+    }
+
+    #[test]
+    fn a_mesh_that_comes_back_cancels_its_pending_unload() {
+        let mut s = streamer();
+        let home = Vec3::new(5.0, 40.0, 5.0);
+        settle_without_draining(&mut s, home);
+        // On s'éloigne (toutes les libérations en attente), puis on revient avant de les envoyer.
+        s.update(Vec3::new(40.0 * 32.0, 40.0, 5.0));
+        assert!(s.stats().unloads_waiting > 20);
+        settle_without_draining(&mut s, home);
+        let events: Vec<StreamEvent> = std::iter::from_fn(|| s.next_event()).collect();
+        let meshed: HashSet<IVec3> = events
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::Mesh(p, _) => Some(*p),
+                _ => None,
+            })
+            .collect();
+        assert!(!meshed.is_empty());
+        // Un Unload après un Mesh du même chunk l'effacerait côté GPU : il n'y en a jamais.
+        let mut seen = HashSet::default();
+        for event in &events {
+            match event {
+                StreamEvent::Mesh(p, _) => {
+                    seen.insert(*p);
+                }
+                StreamEvent::Unload(p) => {
+                    assert!(!seen.contains(p), "{p} libéré après son maillage")
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_chunk_edited_while_meshing_is_remeshed_once_more_not_once_per_edit() {
+        let mut s = streamer();
+        let player = Vec3::new(5.0, 40.0, 5.0);
+        pump(&mut s, player);
+        let target = IVec3::new(0, 1, 0);
+        let (done, discarded) = (s.jobs_done, s.jobs_discarded);
+        // Dix modifications visuelles d'affilée, bien plus vite qu'un maillage ne tourne.
+        for _ in 0..10 {
+            s.invalidate_block_visuals(IVec3::new(5, 40, 5));
+            s.update(player);
+        }
+        assert!(s.in_flight <= 8, "{}", s.in_flight);
+        let events = pump(&mut s, player);
+        // Au plus deux maillages par chunk touché (le premier, puis un seul de rattrapage), et aucun
+        // résultat jeté : avant, chacune des dix modifications lançait sa tâche et jetait la précédente.
+        let touched = [target, IVec3::new(0, 2, 0), IVec3::new(0, 0, 0)];
+        let jobs = s.jobs_done - done;
+        assert!(
+            jobs <= 2 * touched.len() as u64,
+            "{jobs} tâches pour dix modifications"
+        );
+        assert_eq!(s.jobs_discarded - discarded, 0);
+        let latest = meshed(&events);
+        assert!(
+            latest.contains_key(&target),
+            "le chunk modifié a été remaillé"
+        );
     }
 }
