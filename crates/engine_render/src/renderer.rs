@@ -16,6 +16,7 @@ use glam::Vec3;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
+use crate::arena::{GeometryArena, OriginEntry, OriginTable, Slice};
 use crate::camera::Camera;
 use crate::frustum::{Aabb, Frustum};
 use crate::lines::Lines;
@@ -196,6 +197,16 @@ pub struct RenderStats {
     pub meshes_hidden: usize,
     /// Triangles envoyés au GPU (maillages dessinés et cubes instanciés).
     pub triangles: usize,
+    /// Appels de dessin des chunks (opaque et translucide).
+    pub chunk_draws: usize,
+    /// Changements de page de géométrie pendant l'image (un par page en opaque).
+    pub page_binds: usize,
+    /// Pages de l'arène, octets réservés au GPU et octets occupés par des maillages.
+    pub arena_pages: usize,
+    pub arena_reserved_bytes: u64,
+    pub arena_used_bytes: u64,
+    /// Entrées occupées de la table des origines (une par maillage vivant, plus celles en attente).
+    pub arena_origin_slots: usize,
     /// Temps du GPU sur la passe du décor, mesuré par le GPU (la dernière mesure
     /// arrivée, de quelques images plus tôt). `None` si le GPU ne sait pas mesurer.
     pub gpu_scene: Option<std::time::Duration>,
@@ -224,12 +235,10 @@ pub struct Fog {
 /// (retiré de la `HashMap`), Rust appelle `Drop` sur ses deux `wgpu::Buffer`,
 /// qui rendent leur mémoire au GPU. C'est le RAII, comme `using` en C# mais automatique.
 struct GpuMesh {
-    vertex_buffer: wgpu::Buffer,
-    /// L'origine du chunk, son lacet et la base des textures (32 octets), lus comme une
-    /// instance par le shader.
-    origin_buffer: wgpu::Buffer,
-    /// Les indices opaques, puis les translucides, dans un seul tampon.
-    index_buffer: wgpu::Buffer,
+    /// Où sont ses sommets et ses indices dans l'arène (opaques, puis translucides).
+    slice: Slice,
+    /// Son entrée dans la table des origines : origine, lacet et base des textures (32 octets).
+    slot: u32,
     opaque_count: u32,
     translucent_count: u32,
     bounds: Aabb,
@@ -298,6 +307,8 @@ pub struct Renderer {
     egui: egui_wgpu::Renderer,
     egui_free: Vec<egui::TextureId>,
     meshes: HashMap<MeshId, GpuMesh>,
+    arena: GeometryArena,
+    origins: OriginTable,
     next_mesh_id: u64,
     lines: Lines,
     /// Une boîte dont on dessine les arêtes, par exemple le bloc visé.
@@ -373,6 +384,7 @@ impl Renderer {
             })
             .await?;
         let gpu_timer = crate::gpu_timer::GpuTimer::new(&device, &queue);
+        let origins = OriginTable::new(&device);
 
         // On part de la configuration proposée par wgpu pour cette surface.
         let mut config = surface
@@ -591,6 +603,8 @@ impl Renderer {
             outline: None,
             crosshair: false,
             meshes: HashMap::new(),
+            arena: GeometryArena::new(),
+            origins,
             next_mesh_id: 0,
             frustum_culling: true,
             visible_meshes: None,
@@ -791,38 +805,24 @@ impl Renderer {
         }
         // Les deux listes à la suite : on dessinera chaque partie avec une plage d'indices.
         let all_indices: Vec<u32> = indices.iter().chain(translucent_indices).copied().collect();
-        let vertex_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("chunk vertices"),
-                contents: bytemuck::cast_slice(vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        let index_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("chunk indices"),
-                contents: bytemuck::cast_slice(&all_indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
-        let origin_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("chunk origin"),
-                contents: bytemuck::bytes_of(&[
-                    origin.extend(0.0).to_array(),
-                    uv_base.extend(scale).to_array(),
-                ]),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            });
+        let slice = self
+            .arena
+            .alloc(&self.device, &self.queue, vertices, &all_indices);
+        let slot = self.origins.alloc(
+            &self.device,
+            &self.queue,
+            [
+                origin.extend(0.0).to_array(),
+                uv_base.extend(scale).to_array(),
+            ],
+        );
         let id = MeshId(self.next_mesh_id);
         self.next_mesh_id += 1;
         self.meshes.insert(
             id,
             GpuMesh {
-                vertex_buffer,
-                origin_buffer,
-                index_buffer,
+                slice,
+                slot,
                 opaque_count: indices.len() as u32,
                 translucent_count: translucent_indices.len() as u32,
                 bounds,
@@ -839,14 +839,19 @@ impl Renderer {
             return;
         };
         mesh.bounds = bounds;
-        let value = [origin.x, origin.y, origin.z, yaw];
-        self.queue
-            .write_buffer(&mesh.origin_buffer, 0, bytemuck::bytes_of(&value));
+        // L'échelle et la base des textures ne bougent pas : on ne change que l'origine et le lacet.
+        let slot = mesh.slot;
+        let mut entry: OriginEntry = self.origins.entry(slot);
+        entry[0] = [origin.x, origin.y, origin.z, yaw];
+        self.origins.write(&self.queue, slot, entry);
     }
 
     /// Retire un maillage ; ses tampons GPU sont libérés.
     pub fn remove_mesh(&mut self, id: MeshId) {
-        self.meshes.remove(&id);
+        if let Some(mesh) = self.meshes.remove(&id) {
+            self.arena.free(mesh.slice);
+            self.origins.free(mesh.slot);
+        }
     }
 
     /// Ne dessiner que ces maillages (le jeu sait lesquels sont visibles, par exemple
@@ -870,6 +875,16 @@ impl Renderer {
     /// les `wgpu::Buffer` sont détruits (le trait `Drop` s'en charge).
     pub fn clear_meshes(&mut self) {
         self.meshes.clear();
+        self.arena.clear();
+        self.origins.clear();
+    }
+
+    /// L'occupation de l'arène de géométrie (pages, octets réservés et occupés).
+    pub fn arena_stats(&self) -> crate::arena::ArenaStats {
+        crate::arena::ArenaStats {
+            origin_slots: self.origins.in_use(),
+            ..self.arena.stats()
+        }
     }
 
     /// Dessine une image vue par `camera` et renvoie ce qui a été dessiné,
@@ -948,6 +963,9 @@ impl Renderer {
         size: [u32; 2],
         ui: Option<UiFrame>,
     ) -> RenderStats {
+        // Les plages libérées arrivées à échéance redeviennent utilisables.
+        self.arena.begin_frame();
+        self.origins.begin_frame();
         let aspect = size[0] as f32 / size[1].max(1) as f32;
         // `depth_override` : la profondeur d'une capture ; sinon celle de l'écran.
         // On lit le champ directement (et pas via une méthode) : Rust voit alors que
@@ -975,7 +993,12 @@ impl Renderer {
             timer.collect(&self.device);
             timer.begin_frame();
         }
+        let arena = self.arena_stats();
         let mut stats = RenderStats {
+            arena_pages: arena.pages,
+            arena_reserved_bytes: arena.reserved_bytes,
+            arena_used_bytes: arena.used_bytes,
+            arena_origin_slots: arena.origin_slots,
             meshes_total: self.meshes.len(),
             gpu_scene: self.gpu_timer.as_ref().and_then(|t| t.last()),
             ..RenderStats::default()
@@ -1100,19 +1123,23 @@ impl Renderer {
                 .collect();
 
             // Passe 1 : l'opaque, dans n'importe quel ordre (le tampon de profondeur trie).
+            // On regroupe par page de l'arène : une page se lie une seule fois, puis chaque
+            // chunk n'est plus qu'un `draw_indexed` (plage d'indices, `base_vertex`, origine).
             pass.set_bind_group(1, &self.texture_bind_group, &[]);
             pass.set_pipeline(&self.chunk_pipeline);
+            let mut opaque: Vec<&GpuMesh> = Vec::with_capacity(visible.len());
             for mesh in &visible {
                 stats.meshes_drawn += 1;
                 stats.triangles += ((mesh.opaque_count + mesh.translucent_count) / 3) as usize;
-                if mesh.opaque_count == 0 {
-                    continue;
+                if mesh.opaque_count > 0 {
+                    opaque.push(mesh);
                 }
-                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                pass.set_vertex_buffer(1, mesh.origin_buffer.slice(..));
-                // Indices en `u32` : un chunk peut dépasser les 65 536 sommets d'un `u16`.
-                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..mesh.opaque_count, 0, 0..1);
+            }
+            opaque.sort_unstable_by_key(|m| (m.slice.page, m.slice.first_index));
+            let mut chunks = ChunkDraws::new(&self.arena, &self.origins);
+            chunks.begin(&mut pass);
+            for mesh in opaque {
+                chunks.draw(&mut pass, mesh, 0, mesh.opaque_count, &mut stats);
             }
 
             if draw_sky.is_some() {
@@ -1137,12 +1164,17 @@ impl Renderer {
             // `total_cmp` : une comparaison complète des flottants (gère NaN), à l'envers.
             translucent.sort_by(|a, b| b.0.total_cmp(&a.0));
             pass.set_pipeline(&self.translucent_pipeline);
+            // Le tri du plus loin au plus proche est conservé : on ne regroupe que les
+            // voisins consécutifs d'une même page (la liaison de page est sautée alors).
+            chunks.begin(&mut pass);
             for (_, mesh) in translucent {
-                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                pass.set_vertex_buffer(1, mesh.origin_buffer.slice(..));
-                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                let start = mesh.opaque_count;
-                pass.draw_indexed(start..start + mesh.translucent_count, 0, 0..1);
+                chunks.draw(
+                    &mut pass,
+                    mesh,
+                    mesh.opaque_count,
+                    mesh.translucent_count,
+                    &mut stats,
+                );
             }
 
             if self.opaque_instances < self.instance_count {
@@ -1407,6 +1439,57 @@ fn create_instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffe
         usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     })
+}
+
+/// Dessine les chunks depuis l'arène : lie la page seulement quand elle change.
+struct ChunkDraws<'a> {
+    arena: &'a GeometryArena,
+    origins: &'a OriginTable,
+    page: Option<u32>,
+}
+
+impl<'a> ChunkDraws<'a> {
+    fn new(arena: &'a GeometryArena, origins: &'a OriginTable) -> Self {
+        Self {
+            arena,
+            origins,
+            page: None,
+        }
+    }
+
+    /// Début d'une série de dessins : la page et la table des origines sont à (re)lier,
+    /// d'autres dessins ont pu changer les tampons entre-temps.
+    fn begin(&mut self, pass: &mut wgpu::RenderPass<'_>) {
+        self.page = None;
+        pass.set_vertex_buffer(1, self.origins.buffer_ref().slice(..));
+    }
+
+    /// Dessine `count` indices du maillage, `skip` indices après le début de ses indices.
+    fn draw(
+        &mut self,
+        pass: &mut wgpu::RenderPass<'_>,
+        mesh: &GpuMesh,
+        skip: u32,
+        count: u32,
+        stats: &mut RenderStats,
+    ) {
+        let slice = mesh.slice;
+        if self.page != Some(slice.page) {
+            let Some(page) = self.arena.page(slice.page) else {
+                return;
+            };
+            pass.set_vertex_buffer(0, page.vertex_buffer.slice(..));
+            // Indices en `u32` : un chunk peut dépasser les 65 536 sommets d'un `u16`.
+            pass.set_index_buffer(page.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            self.page = Some(slice.page);
+            stats.page_binds += 1;
+        }
+        let first = slice.first_index + skip;
+        let base_vertex = slice.first_vertex as i32;
+        stats.chunk_draws += 1;
+        // L'origine du chunk est l'entrée `slot` de la table : `first_instance = slot`.
+        pass.draw_indexed(first..first + count, base_vertex, mesh.slot..mesh.slot + 1);
+    }
 }
 
 /// Crée un pipeline. Les deux pipelines du renderer ne diffèrent que par

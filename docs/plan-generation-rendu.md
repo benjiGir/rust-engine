@@ -1189,9 +1189,8 @@ global ; il profite surtout aux remaillages (modifications, fluides, machines) e
 
 ### Limites et reste du lot 7
 
-- **Arènes GPU paginées, tampons de staging réemployés, table d'origines commune, dessin groupé par pages et passes,
-  comparaison appels directs / multi-draw / indices regroupés sur Metal, repli Intel, parcours de visibilité** : non
-  faits (voir le périmètre). La mesure « image équivalente avant/après » et les coûts GPU n'existent pas encore.
+- **Arènes GPU, table d'origines et dessin groupé** : livrés ensuite, voir la seconde partie. Multi-draw, indices
+  regroupés et parcours de visibilité y sont mesurés ou écartés avec leurs raisons.
 - Le greedy reste le chemin de référence : `Mesher::Greedy` et `Mesher::Culling` sont conservés, et les tests
   d'équivalence les utilisent comme oracle.
 - La voie rapide ne couvre que les cubes pleins sans découpe ni fluide ; le feuillage dense et l'eau passent par la
@@ -1199,3 +1198,78 @@ global ; il profite surtout aux remaillages (modifications, fluides, machines) e
   faible (×1,8 en forêt).
 - Le damier montre que la fusion et les quads restent le coût d'une géométrie très fragmentée.
 - Non mesuré : l'effet sur la mémoire du tampon par thread (environ 0,3 Mio par thread de fond).
+
+## Statut du lot 7 — seconde partie : arènes GPU et dessin groupé
+
+`renderer.rs` est libre depuis le commit du ciel ; cette partie livre le stockage et le dessin des chunks. Mesuré sur la
+machine du développeur (M3 Pro, release, fenêtre 1280 × 720, banc `VOXEL_BENCH`, graine 42).
+
+### Ce qui change
+
+- **Arènes paginées** (`engine_render/src/arena.rs`). Avant : trois tampons wgpu par chunk (sommets, indices,
+  origine) et trois liaisons par dessin. Maintenant, la géométrie vit dans des **pages** de 2¹⁸ sommets (6 Mio) et 2¹⁹
+  indices (2 Mio) ; un maillage occupe une plage de sommets et une d'indices **de la même page** (indices relatifs au
+  premier sommet : on dessine avec `base_vertex`). Un maillage plus grand qu'une page a la sienne.
+  `RangeAllocator` (meilleur ajustement, fusion des plages voisines) gère les plages ; testé sans GPU (5 tests, dont un
+  tirage aléatoire de 5 000 opérations sans chevauchement, qui finit en une seule plage).
+- **Table d'origines commune** (`OriginTable`) : origine, lacet, base de texture et échelle de tous les chunks (32 octets
+  chacun) dans **un seul tampon** lu comme des instances ; le chunk n se dessine avec `first_instance = n`. Le shader n'a
+  pas changé. La table double quand elle est pleine (copie de l'ombre côté processeur). `set_mesh_transform` (structures
+  mobiles) ne réécrit que son entrée.
+- **Dessin groupé** : en opaque, les chunks visibles sont triés par page puis par position : une page se lie une fois, chaque
+  chunk n'est plus qu'un `draw_indexed`. En translucide, **le tri du plus loin au plus proche est conservé** (l'ordre
+  prime sur le regroupement) ; la page n'est relue que lorsqu'elle change entre deux voisins consécutifs.
+- **Sûreté GPU** : une plage ou une entrée libérée n'est réutilisée qu'après 3 images (`REUSE_DELAY`). Les pages vides
+  sont rendues au GPU, sauf une de réserve : la mémoire suit l'exploration. wgpu garde de toute façon un tampon vivant
+  tant qu'une commande en vol le lit.
+- **Transferts** : une `write_buffer` par maillage pour les sommets et une pour les indices, qui passent par le
+  mécanisme de staging interne de wgpu (tampons réemployés par wgpu). Je n'ai pas écrit de courroie de staging maison :
+  elle ferait doublon avec celle de wgpu sans gain mesurable (voir les limites).
+- **Statistiques** : `RenderStats` expose `chunk_draws`, `page_binds`, pages, octets réservés et occupés, entrées
+  d'origines ; le journal de jeu les affiche (« arène : … »).
+
+### Mesures (banc, 6 trajets, deux passes « après » contre une passe « avant »)
+
+| Trajet | CPU avant | CPU après (2 passes) |
+| --- | --- | --- |
+| survol | 1,64 ms | 1,08 / 1,08 |
+| immobile | 1,46 | 0,93 / 0,92 |
+| forêt | 1,42 | 0,93 / 1,18 |
+| montagnes | 1,35 | 0,85 / 0,91 |
+| océan | 1,52 | 0,90 / 0,96 |
+| sous-sol | 1,48 | 1,68 / 1,02 (bruité) |
+
+Le temps CPU médian par image baisse d'environ **30 à 40 %** sur les trajets de surface (environ 650 à 900 chunks
+dessinés, 160 à 220 liaisons de page au lieu de près de 3 par chunk). Le 99e centile CPU baisse aussi (4,2 → 3,1 ms au
+survol, 2,1 → 1,4 ms à l'arrêt). Le temps GPU de la passe du décor reste autour de 8 ms avant comme après : l'affichage plafonne à 120 Hz
+et cette mesure sature à la période de l'image, elle **ne distingue pas** les deux versions. Le FPS moyen est plafonné
+(120) dans les deux cas.
+
+**Fuites** (journal du banc, huit relevés répartis sur les six trajets, avec les retours loin entre trajets) : le nombre d'entrées de la
+table d'origines égale le nombre de maillages chargés (à 1 ou 2 près, entrées en attente) ; les pages montent de 24 à 86
+puis redescendent à 40 quand le monde se vide ; 88 à 93 % des octets réservés sont occupés (fragmentation faible).
+La mémoire de géométrie suit donc le nombre de chunks ; le total (jusqu'à 690 Mio pour 3 700 maillages, soit près de
+185 Kio par maillage) est le même volume qu'avant, seul le découpage change.
+
+**Image équivalente.** Les 43 captures du tour `VOXEL_SCREENSHOTS` ne sont pas reproductibles bit à bit, même sans mes changements
+(deux passes « avant » diffèrent de 40 000 à 120 000 pixels : nuages, vent, créatures, eau animée). Je n'ai donc pas pu
+montrer une égalité exacte. Ce que j'ai vérifié : la capture sous terre (sans ciel) est **identique à l'octet près** ; sur les scènes de surface, les écarts forts
+dans la moitié basse de l'image (terrain) sont de l'ordre du bruit entre deux passes « avant » (quelques centaines à
+mille pixels de plus de 24 niveaux) ; l'inspection visuelle d'une capture de rivière (terrain, eau translucide, feuillage, plantes)
+est correcte. Une comparaison exacte demande de figer les nuages et les animations : non fait.
+
+### Décisions et limites
+
+- **Multi-draw et indices regroupés non faits.** La mesure ne les justifie pas : le CPU du rendu est déjà
+  d'environ 1 ms par image avec 800 à 900 dessins directs, et le GPU ne peut pas départager les variantes sur cette machine
+  (mesure saturée à 120 Hz). Le multi-draw indirect est de plus émulé par wgpu sur Metal (une boucle de dessins). À
+  revoir si une scène dépasse nettement les quelques milliers de chunks dessinés ou sur une cible mesurée plus lente
+  (les GPU Intel n'ont pas été testés ; `first_instance` direct est garanti par wgpu 30, donc pas de chemin de repli
+  nécessaire pour ce point).
+- **Pas de compaction** des pages : la fragmentation reste basse en pratique (88 à 93 % d'occupation) et les pages vides
+  sont rendues. Une page peu occupée mais jamais vide reste réservée.
+- **Parcours de visibilité** : pas mesuré séparément ; le CPU total de l'image est d'environ 0,9 ms, ce qui borne son coût.
+  Pas de structure dense introduite. Frustum et culling des grottes inchangés.
+- Une écriture par maillage (`write_buffer`) : le coût GPU/CPU des envois n'a été mesuré que par le simulateur du lot 6.
+- Non couverts par un test automatique (pas de GPU en test) : le dessin lui-même, les structures mobiles (leur origine passe
+  par `set_mesh_transform`, vérifié seulement par compilation et par le tour de captures), l'animation d'eau et le feuillage.

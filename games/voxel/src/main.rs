@@ -2091,7 +2091,7 @@ impl VoxelGame {
             log::info!(
                 "image : moy {:.2} ms, max {:.2} ms | streaming : max {:.2} ms, envois GPU : max {:.2} ms ({} au total) | \
                  rendu : max {:.2} ms | modifs : {} (max {:.2} ms) | chunks : {} chargés, {} à générer, {} en cours, {} tâches jetées sur {} | \
-                 dessinés {}/{} ({} cachés), {triangles:.2} M triangles",
+                 dessinés {}/{} ({} cachés), {triangles:.2} M triangles | arène : {} pages, {:.1}/{:.1} Mio, {} origines, {} dessins, {} liaisons de page",
                 report.avg_frame_ms,
                 report.max_frame_ms,
                 report.max_streaming_ms,
@@ -2108,6 +2108,12 @@ impl VoxelGame {
                 render.meshes_drawn,
                 render.meshes_total,
                 render.meshes_hidden,
+                render.arena_pages,
+                render.arena_used_bytes as f64 / 1_048_576.0,
+                render.arena_reserved_bytes as f64 / 1_048_576.0,
+                render.arena_origin_slots,
+                render.chunk_draws,
+                render.page_binds,
             );
             if let Some(pipeline) = self.streamer().pipeline_report() {
                 log::info!("délais des chunks : {pipeline}");

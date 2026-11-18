@@ -7,6 +7,7 @@
 //!   par frustum culling ([`Frustum`]) ;
 //! - des lignes : le contour d'une boîte ([`Renderer::outline`]) et un réticule.
 
+mod arena;
 mod camera;
 mod frustum;
 mod gpu_timer;
@@ -15,6 +16,7 @@ mod mesh;
 mod renderer;
 mod sky;
 
+pub use arena::ArenaStats;
 pub use camera::Camera;
 pub use frustum::{Aabb, Frustum};
 pub use mesh::ColorVertex;
