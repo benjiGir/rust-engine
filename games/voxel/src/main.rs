@@ -1182,7 +1182,7 @@ impl VoxelGame {
         let mut mob_boxes = mobs::instances(&self.ecs, alpha);
         projectiles::instances(&self.ecs, alpha, &mut mob_boxes);
         mob_boxes.extend(carts::instances(&self.ecs, alpha));
-        self.weather.instances(self.camera.position, &mut mob_boxes);
+        self.weather.instances(&mut mob_boxes);
         self.water_fx
             .instances(self.camera.position, &mut mob_boxes);
         // Les objets au sol : leurs modèles et textures, en rotation.
@@ -1221,6 +1221,7 @@ impl VoxelGame {
             daylight: self.day.daylight() * self.weather.daylight_factor(),
             color: self.day.sun_color(),
         };
+        self.renderer.sky = self.day.has_daylight_cycle().then(|| self.weather.sky());
         let fog_scale = self.weather.fog_scale();
         self.renderer.fog = Some(Fog {
             start: self.base_fog.0 * fog_scale,

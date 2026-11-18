@@ -95,7 +95,16 @@ Cette fiche s'inspire du principe de Jade, avec nos cadres, couleurs et dessins.
 
 Le bras porte une manche vert grisé et un poignet couleur cuir. Les habitants portent
 des tabliers et accessoires associés à leur métier ; la faune utilise des tons naturels.
-Les ciels et la lumière du soir reprennent cette palette.
+Le ciel passe du bleu profond au zénith à une brume claire à l'horizon. La
+diffusion de la lumière réchauffe le ciel du côté du soleil. Les disques
+solaire et lunaire sont agrandis pour rester lisibles. La lune montre ses
+mers et ses cratères. Les étoiles de plusieurs magnitudes tournent avec le
+cycle et se regroupent autour d'une faible bande galactique. Les nuages ont
+une densité en trois dimensions et s'assombrissent dans leur propre ombre.
+Ils sont calculés à demi-résolution sur chaque axe, puis composés derrière
+le terrain. Le ciel reste indépendant du pack de textures et le brouillard
+le relie au relief lointain. Les dimensions à ciel fixe gardent la couleur
+choisie dans leur `dimensions.ron`.
 
 Les outils et armes en main utilisent le modèle extrudé commun au sol et aux
 transports : silhouette originale de l'icône, épaisseur d'un pixel et couleurs

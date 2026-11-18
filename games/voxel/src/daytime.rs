@@ -14,7 +14,7 @@ const MOONLIGHT: f32 = 0.1;
 
 const NIGHT_SKY: Vec3 = Vec3::new(0.008, 0.012, 0.035);
 const DAY_SKY: Vec3 = Vec3::new(0.40, 0.62, 0.78);
-const SUNSET_SKY: Vec3 = Vec3::new(0.82, 0.40, 0.23);
+const SUNSET_SKY: Vec3 = Vec3::new(0.64, 0.36, 0.29);
 const SUNSET_LIGHT: Vec3 = Vec3::new(1.0, 0.73, 0.49);
 const MOON_LIGHT: Vec3 = Vec3::new(0.60, 0.73, 0.91);
 
@@ -75,6 +75,10 @@ impl DayCycle {
         };
     }
 
+    pub fn has_daylight_cycle(&self) -> bool {
+        self.fixed_sky.is_none()
+    }
+
     /// Normal → accéléré → figé → normal.
     pub fn cycle_speed(&mut self) {
         self.speed = match self.speed {
@@ -111,8 +115,8 @@ impl DayCycle {
         MOONLIGHT + (1.0 - MOONLIGHT) * self.day_factor()
     }
 
-    /// La couleur du ciel (et du brouillard) : bleu le jour, orangé au lever et
-    /// au coucher, presque noir la nuit.
+    /// La couleur de la brume à l'horizon. Le shader ajoute la diffusion
+    /// directionnelle au lever et au coucher du soleil.
     pub fn sky_color(&self) -> Vec3 {
         if let Some((color, _)) = self.fixed_sky {
             return color;

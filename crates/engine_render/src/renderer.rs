@@ -20,6 +20,7 @@ use crate::camera::Camera;
 use crate::frustum::{Aabb, Frustum};
 use crate::lines::Lines;
 use crate::mesh::{self, ColorVertex, Vertex};
+use crate::sky::{Sky, SkyPass};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// Côté par défaut des textures de blocs. Un pack peut utiliser 32 pixels.
@@ -300,6 +301,9 @@ pub struct Renderer {
     /// L'altitude de la surface au-dessus de la caméra, quand elle est sous l'eau.
     pub water_surface: f32,
     pub sun: Sun,
+    /// Le ciel procédural des mondes avec un cycle jour/nuit.
+    pub sky: Option<Sky>,
+    sky_pass: SkyPass,
     /// Le temps en secondes, pour animer le vent dans les feuilles et les herbes.
     pub time: f32,
     translucent_cubes: wgpu::RenderPipeline,
@@ -371,6 +375,7 @@ impl Renderer {
         surface.configure(&device, &config);
         let format = config.format;
         let depth_view = create_depth_view(&device, &config);
+        let sky_pass = SkyPass::new(&device, format, DEPTH_FORMAT);
 
         // Caméra : un petit tampon « uniform » lu par le vertex shader.
         let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -574,6 +579,8 @@ impl Renderer {
             underwater: 0.0,
             water_surface: 0.0,
             sun: Sun::default(),
+            sky: None,
+            sky_pass,
             time: 0.0,
             translucent_cubes,
             opaque_instances: 0,
@@ -955,6 +962,22 @@ impl Renderer {
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
+        let draw_sky = self.sky.filter(|_| self.underwater < 0.999);
+        if let Some(sky) = draw_sky {
+            self.sky_pass.prepare(
+                &self.queue,
+                camera,
+                aspect,
+                self.sun,
+                sky,
+                [
+                    uniform.fog_color_end[0],
+                    uniform.fog_color_end[1],
+                    uniform.fog_color_end[2],
+                    self.underwater,
+                ],
+            );
+        }
         if self.hand_count > 0 {
             // Une projection à part : proche (0,05) pour ne jamais couper le bras.
             let proj = glam::camera::rh::proj::directx::perspective(
@@ -985,6 +1008,23 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("frame"),
             });
+        let mut scene_timing = self
+            .gpu_timer
+            .as_ref()
+            .and_then(|timer| timer.pass_writes());
+        if draw_sky.is_some() {
+            // Le chronomètre du décor inclut aussi la passe des nuages.
+            let cloud_timing =
+                scene_timing
+                    .as_mut()
+                    .map(|timing| wgpu::RenderPassTimestampWrites {
+                        query_set: timing.query_set,
+                        beginning_of_pass_write_index: timing.beginning_of_pass_write_index.take(),
+                        end_of_pass_write_index: None,
+                    });
+            self.sky_pass
+                .encode_clouds(&self.device, &mut encoder, size, cloud_timing);
+        }
         {
             // La passe de rendu emprunte `encoder` : ce bloc la termine avant `finish()`.
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1006,7 +1046,7 @@ impl Renderer {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: self.gpu_timer.as_ref().and_then(|t| t.pass_writes()),
+                timestamp_writes: scene_timing,
                 ..Default::default()
             });
             // La caméra est partagée par les deux pipelines (même bind group).
@@ -1053,6 +1093,13 @@ impl Renderer {
                 // Indices en `u32` : un chunk peut dépasser les 65 536 sommets d'un `u16`.
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.opaque_count, 0, 0..1);
+            }
+
+            if draw_sky.is_some() {
+                self.sky_pass.draw(&mut pass);
+                // Le ciel a son propre groupe 0 ; les maillages suivants reprennent la caméra.
+                pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                pass.set_bind_group(1, &self.texture_bind_group, &[]);
             }
 
             // Passe 2 : le translucide. Le mélange alpha dépend de l'ordre : un objet
