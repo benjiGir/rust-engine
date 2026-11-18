@@ -1273,3 +1273,148 @@ est correcte. Une comparaison exacte demande de figer les nuages et les animatio
 - Une écriture par maillage (`write_buffer`) : le coût GPU/CPU des envois n'a été mesuré que par le simulateur du lot 6.
 - Non couverts par un test automatique (pas de GPU en test) : le dessin lui-même, les structures mobiles (leur origine passe
   par `set_mesh_transform`, vérifié seulement par compilation et par le tour de captures), l'animation d'eau et le feuillage.
+
+## Statut du lot 8 (terrain lointain issu du même monde) — première partie : l'eau et la canopée
+
+Le terrain lointain (`far.rs`) lisait déjà les mêmes colonnes que les chunks (`column`, donc la hauteur et le biome de v2),
+mais ne dessinait d'eau qu'au niveau de la mer : les lacs et les cours d'un monde v2 apparaissaient de loin comme des
+cuvettes sèches.
+
+### Ce qui change
+
+- **Eau lointaine à la hauteur du générateur.** Chaque échantillon de la grille lit `surface_info` (v2) et retient le
+  dernier bloc d'eau de sa colonne (mer, lac ou cours). Une cellule dont un coin est mouillé reçoit un quad d'eau à la
+  surface la plus haute de ses coins ; le fond d'un lac ou d'une rivière s'assombrit avec la profondeur réelle ; la boîte
+  englobante de la tuile contient l'eau. Les mondes v1 n'ont que la mer et produisent exactement les mêmes sommets.
+- **Canopée.** La teinte plus sombre des forêts lit la densité d'arbres multipliée par la canopée locale de v2
+  (humidité, pente, lisière des arbres, berges), la même que la génération des arbres.
+- **Tests** (`tests/far_v2.rs`) : sur trois graines v2, chaque sommet d'eau d'une tuile contenant un lac ou un cours
+  au-dessus de la mer est à la surface d'un point d'eau échantillonné du générateur, et au moins un est au-dessus de la mer ;
+  un monde v1 garde l'eau à la seule surface de la mer. Une capture v2 (`biome-riviere`) montre rivière proche, étendue
+  d'eau et île lointaines cohérentes.
+
+### Ce qui reste du lot 8 (non fait)
+
+- ~~Blocs observés et modifiés~~ : fait, voir la seconde partie.
+- **Volumes** : une seule hauteur par colonne ; les surplombs et arches de v2 ne sont pas représentés au lointain.
+- **Végétation et structures** : seulement la teinte ; pas d'arbres ni de villages simplifiés.
+- **Diagnostic des zones inconnues**, priorité par erreur projetée et hystérésis de niveaux : le choix de niveaux actuel
+  (distance et facteur 3) et les lots atomiques par région sont inchangés.
+- Pas de mesure de mémoire sur exploration longue du lointain (non mesuré).
+
+## Statut du lot 8 — seconde partie : les blocs modifiés par le joueur
+
+Le lointain ne lisait que le générateur : une tour, une fosse ou un lac creusé hors du rayon des chunks détaillés
+disparaissait de l'horizon. Le plan demande de donner priorité aux blocs réellement observés et modifiés.
+
+### Ce qui change
+
+- **Résumé de surface** (`edited_surface.rs`) : `ChunkSurface` retient, pour chacune des 32 × 32 colonnes d'un chunk, le
+  bloc de **sol** le plus haut (cube plein, opaque, ni liquide, ni feuillage, ni bûche : les arbres naturels et l'herbe
+  haute ne comptent pas, sinon un tronc ferait une aiguille de dix blocs). `EditedSurfaces`, partagé entre le streamer de
+  chunks et les threads du lointain, garde ces résumés (3 Kio par chunk modifié).
+- **Sources.** À son déchargement, un chunk modifié note son résumé (`ChunkStreamer`) et signale sa colonne de chunks.
+  Les chunks déjà **sauvegardés** (sessions précédentes) sont lus paresseusement dans le dossier du monde
+  (`SaveStore::saved_heights`), par colonne de chunks, la première fois qu'une tuile les demande, sur le thread qui la
+  construit ; un résumé noté en cours de session n'est jamais écrasé par la lecture disque.
+- **Priorité.** `surface_at` compare au sol généré : un chunk modifié au niveau du sol généré ou au-dessus prime (tour,
+  fosse) ; un chunk modifié plus bas, avec le chunk de sol intact, laisse le générateur décider. La tuile prend la hauteur
+  et la couleur du bloc modifié (herbe teintée par le biome comme avant) sans teinte de forêt, de roche ou de neige du
+  générateur.
+- **Remplacement sans trou.** `FarStreamer::with_edits` : quand un résumé change, les tuiles **montrées** qui couvrent
+  sa colonne sont reconstruites et leur nouvelle version remplace l'ancienne sur place (le jeu ajoute le nouveau maillage
+  puis retire l'ancien : jamais de trou ni de double surface). Une tuile en construction que la modification rend périmée
+  est jetée et refaite ; une tuile construite mais pas encore montrée est jetée. Un remplacement passe par le même lot
+  par région et le même budget d'envoi que le reste.
+- **Mémoire bornée** : les résumés suivent les chunks modifiés ; l'ensemble des colonnes déjà lues est vidé au-delà de
+  100 000 entrées (relecture sans doublon).
+
+### Tests
+
+`tests/far_edits.rs` (5) : sol, bûches, feuilles et air ; priorité par rapport au sol généré (tour au-dessus, chunk
+modifié plus bas sans effet, fond de fosse) ; une tuile contient une tour que le générateur n'a pas ; lecture paresseuse
+depuis un dossier de monde réel ; une tuile montrée est reconstruite sur place quand un résumé change (streamer réel
+avec deux threads). Dans `streaming.rs` : le déchargement d'un chunk modifié note son résumé et signale sa colonne.
+
+### Limites
+
+- Une colonne creusée sur toute la hauteur d'un chunk dont le chunk plus bas est intact retombe sur le générateur.
+- Les tuiles grossières échantillonnent une colonne par cellule (jusqu'à 32 blocs) : une maison n'y est qu'une tache ;
+  la précision suit la taille de cellule. Ni eau posée par le joueur, ni structures mobiles, ni arbres plantés.
+- La première lecture des régions existantes se fait sur les threads du lointain : le fichier de chaque région touchée
+  est lu une fois (non mesuré sur une grosse sauvegarde).
+- Le jeu n'a pas été lancé avec une sauvegarde modifiée : la reconstruction est testée avec le streamer réel mais pas
+  à l'écran.
+
+## Statut du lot 8 — troisième partie : l'hystérésis des niveaux
+
+Le choix des tuiles dépendait uniquement de la distance : un joueur qui hésite autour d'une distance de bascule faisait
+changer la même région de niveau à chaque pas (reconstruction des tuiles et envoi au GPU à chaque fois).
+
+- `select_tiles_stable(camera, config, shown)` : une tuile **montrée** reste grossière jusqu'à 0,85 × le seuil (3 × sa
+  taille) et jusqu'à 2 chunks au-delà du rayon extérieur ; une tuile dont des **détails sont montrés** ne redevient
+  grossière qu'à 1,15 × le seuil. La sélection reste une partition (aucune tuile ne se chevauche) ; `FarStreamer` l'utilise
+  avec les tuiles qu'il montre. `select_tiles` (sans état) est inchangé.
+- **Test** (`far.rs`) : on oscille de 6 blocs autour d'une bascule de niveau (60 pas) ; sans hystérésis la sélection change
+  presque à chaque pas (au moins 20 fois), avec hystérésis au plus une fois. Les tests du streamer comparent maintenant
+  les tuiles montrées à la sélection stable, qui dépend de l'historique.
+- Les tuiles les plus fines suivent le bord du rayon détaillé avec la caméra : ce n'est pas une bascule de niveau, elles
+  n'ont pas d'hystérésis.
+
+
+## Statut du lot 8 — quatrième partie : diagnostic et exploration prolongée
+
+- **Teinte de diagnostic** (`FarDebug`, variable `VOXEL_FAR_DEBUG`) : `levels` colore chaque niveau de détail (0 rouge,
+  1 orange, 2 jaune, 3 vert, 4 bleu) ; `sources` colore en **magenta** les cellules dont le sol vient d'un chunk modifié
+  (observé) et délave en gris celles que le générateur **estime**. `Off` (défaut) ne change rien. Test : une tour modifiée
+  est magenta seulement en mode `sources`, et deux niveaux n'ont pas la même teinte en mode `levels`.
+- **Exploration prolongée** (test `a_long_walk_keeps_tiles_memory_and_queues_bounded`, 26 pas de 358 blocs, soit environ
+  9 km, avec le streamer réel) : le nombre de tuiles montrées et la mémoire de leurs maillages ne dépassent jamais 1,5 fois
+  l'état de départ, les files (demandes, tuiles en attente, lots) tiennent dans le nombre de tuiles de l'anneau, et la
+  sélection finale est un point fixe de la sélection stable. Les résumés de chunks modifiés et les contextes de colonnes
+  v2 ont déjà leurs propres bornes. Mesure faite avec un petit rayon (40 chunks) et sans GPU : pas de mesure de la mémoire
+  GPU réelle du lointain.
+- **Priorité par erreur projetée** : non faite. La règle de niveaux (un niveau n'est utilisé qu'au-delà de 3 fois sa
+  taille) lie déjà la taille d'une cellule à sa distance, donc l'erreur projetée varie peu d'une tuile à l'autre ; les
+  demandes restent classées du plus proche au plus lointain.
+
+
+## Statut du lot 8 — cinquième partie : arbres, structures et surplombs (lot 8 terminé)
+
+### Arbres et structures simplifiés (`far_props.rs`)
+
+- **Arbres** : les tuiles de niveau 0 et 1 reçoivent une **pyramide** de couronne par arbre, aux **vrais emplacements**
+  du générateur (`tree_sites`, le même tirage que les chunks), de la taille et de la teinte de leur espèce (chêne, grand
+  chêne, bouleau, sapin, grand sapin, acacia, jungle, marais). Le tronc n'est pas dessiné ; cactus et buissons non plus.
+  Les pyramides sont à 85 % de la vraie couronne : celles qui recouvrent encore des chunks détaillés restent cachées
+  dans leur feuillage (pas de double arbre visible).
+- **Structures** : jusqu'au niveau 2, chaque **village** reçoit 5 à 8 maisons (murs et toit) tirées de son site, chaque
+  **ruine** un mur de pierre ; les donjons, mines et plans de données (enterrés ou de taille inconnue) ne sont pas
+  dessinés. Les sites sont les vrais (`structure_sites_in`) ; **les bâtiments sont une approximation** : on voit qu'il y a
+  un village, pas son plan exact. Aucune maison sous la mer.
+- Chaque volume appartient à la tuile qui contient son centre (jamais deux fois). Les colonnes modifiées par le joueur
+  n'en reçoivent pas (on ne sait plus ce qui s'y trouve). `VOXEL_FAR_DEBUG` teinte aussi ces volumes (« estimés »).
+- **Tests** (`far_props.rs`, 4) : chaque couronne est un vrai arbre du générateur dans sa tuile ; aucun arbre aux niveaux
+  grossiers ni de volume au niveau 3 ; un village (graine 42) reçoit des maisons à une tuile de niveau 2 ; toutes les
+  faces regardent vers l'extérieur du volume. Capture de forêt : cônes sur les collines, village au loin.
+- **Coût** (`print_tile_costs`, release, M3 Pro) : v1, 2,4 ms par tuile de niveau 0, 1,3 ms au niveau 1, 0,7 ms ensuite.
+  En v2, 5 ms au niveau 0 puis 35, 172, 115 et 814 ms aux niveaux 1 à 4 : ce coût vient de l'évaluation des contextes
+  de colonne v2 (une tuile de niveau 4 en touche des centaines), pas des volumes ; **non comparé à avant ce lot**.
+  À surveiller à la recette (lot 9) : le lointain v2 est la partie lente de l'horizon.
+
+### Surplombs : décision, pas de volume supplémentaire
+
+Le lointain reste une hauteur par colonne. En v2 cette hauteur est celle du **toit** (le bloc plein le plus haut) : la
+silhouette d'un surplomb vue d'en face ou d'au-dessus est donc juste ; seule l'entaille sous le toit (quelques blocs de
+creux) disparaît. Le lointain commence au rayon des chunks détaillés (plusieurs centaines de blocs) et ses plus fines
+cellules font 2 blocs : cette entaille n'y est pas résolue, et les surplombs proches restent entiers dans les chunks.
+Une approximation volumétrique coûterait un second maillage par tuile pour un détail sous la taille d'une cellule.
+Si une recette visuelle (lot 9) montre un défaut gênant, la piste est des intervalles par colonne sur les niveaux 0 et 1.
+
+### Bilan du lot 8 contre sa liste
+
+Mêmes requêtes que les chunks (hauteur, biome, eau de mer, lacs et cours) ; blocs modifiés prioritaires, puis détail du
+générateur ; arbres et structures connus affichés aux niveaux proches, zones estimées distinguables (`VOXEL_FAR_DEBUG`) ;
+hystérésis, raccords par lots de région, couverture jusqu'au remplacement, caches bornés ; budgets CPU et GPU des lots 6
+et 7 appliqués. Limites assumées : approximation des bâtiments, surplombs sous la taille d'une cellule, première lecture
+des régions sauvegardées sur les threads du lointain, jeu non joué avec une sauvegarde modifiée.

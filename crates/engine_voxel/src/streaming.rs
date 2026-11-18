@@ -280,6 +280,8 @@ pub struct ChunkStreamer {
     saved_edits: HashMap<IVec3, Arc<Chunk>>,
     /// La sauvegarde du monde, si elle est activée.
     store: Option<Arc<SaveStore>>,
+    /// Le résumé des chunks modifiés, pour le terrain lointain (voir `edited_surface.rs`).
+    edited_surfaces: Arc<crate::edited_surface::EditedSurfaces>,
     /// Chunks modifiés depuis la dernière sauvegarde.
     dirty: HashSet<IVec3>,
     /// Blocs de mods absents, par chunk (voir `save.rs`).
@@ -343,6 +345,7 @@ impl ChunkStreamer {
             edited: HashSet::default(),
             saved_edits: HashMap::default(),
             store: None,
+            edited_surfaces: Arc::new(crate::edited_surface::EditedSurfaces::new()),
             dirty: HashSet::default(),
             unknown: HashMap::default(),
             remesh_pending: HashSet::default(),
@@ -374,6 +377,7 @@ impl ChunkStreamer {
     /// Active la sauvegarde : les chunks déjà sauvegardés seront relus au lieu d'être
     /// générés, et [`ChunkStreamer::begin_save`] écrira les chunks modifiés.
     pub fn with_save(mut self, store: Arc<SaveStore>) -> Self {
+        self.edited_surfaces.attach_store(store.clone());
         self.store = Some(store);
         self
     }
@@ -502,6 +506,12 @@ impl ChunkStreamer {
     /// Le générateur partagé : le terrain lointain l'utilise dans ses propres threads.
     pub fn generator_arc(&self) -> Arc<TerrainGenerator> {
         self.generator.clone()
+    }
+
+    /// Le résumé des chunks modifiés : le terrain lointain le lit pour montrer les constructions et
+    /// les creusements hors du rayon des chunks détaillés.
+    pub fn edited_surfaces(&self) -> Arc<crate::edited_surface::EditedSurfaces> {
+        self.edited_surfaces.clone()
     }
 
     pub fn config(&self) -> &StreamingConfig {
@@ -1094,6 +1104,12 @@ impl ChunkStreamer {
             // `Drop` libère alors la mémoire du chunk. Côté GPU, c'est pareil : le jeu
             // retire le maillage, et les `wgpu::Buffer` sont libérés par leur `Drop`.
             let chunk = self.world.remove(pos);
+            if self.edited.contains(&pos)
+                && let Some(chunk) = &chunk
+            {
+                self.edited_surfaces
+                    .record(pos, chunk, self.world.registry());
+            }
             if self.edited.remove(&pos) {
                 if self.store.is_none() || self.dirty.contains(&pos) || self.is_being_saved(pos) {
                     // Pas encore sur disque : on le garde en mémoire.
@@ -1823,6 +1839,25 @@ pub(crate) mod tests {
         assert_eq!(s.world().block(built), snow());
         // Et le chunk du ciel, vide à la génération, a bien un maillage pour ce bloc.
         assert!(meshed(&events).contains_key(&IVec3::new(0, 3, 0)));
+    }
+
+    #[test]
+    fn unloading_an_edited_chunk_notes_its_surface_for_the_far_terrain() {
+        let mut s = streamer();
+        let surfaces = s.edited_surfaces();
+        pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
+        let built = IVec3::new(8, 120, 8);
+        assert!(s.set_block(built, stone()));
+        // Tant que le chunk est chargé, rien n'est noté (le lointain ne le couvre pas).
+        assert!(surfaces.is_empty());
+        pump(&mut s, Vec3::new(20.0 * 32.0, 40.0, 5.0));
+        assert!(s.world().chunk(IVec3::ZERO).is_none());
+        let ground = s.generator().column(8, 8).height;
+        let found = surfaces.surface_at(8, 8, ground, s.world().registry());
+        assert_eq!(found, Some((120, stone())));
+        // Sa colonne est signalée une fois, pour reconstruire les tuiles lointaines qui la couvrent.
+        assert_eq!(surfaces.take_changed(), vec![(0, 0)]);
+        assert!(surfaces.take_changed().is_empty());
     }
 
     #[test]

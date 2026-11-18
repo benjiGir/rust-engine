@@ -29,13 +29,16 @@ impl FarTerrain {
         // Deux threads au plus : le terrain lointain est peu coûteux et ne doit pas gêner les chunks
         // (et il se met en veilleuse pendant un gros chargement : voir `update_far`).
         let threads = 2;
-        let streamer = FarStreamer::new(
+        let streamer = FarStreamer::with_debug(
             chunks.generator_arc(),
             FarConfig {
                 near_radius,
                 far_radius,
             },
             threads,
+            Some(chunks.edited_surfaces()),
+            // `VOXEL_FAR_DEBUG=levels|sources` : teinte les tuiles pour voir niveaux et sources.
+            engine_voxel::FarDebug::from_env(),
         );
         Self {
             streamer,

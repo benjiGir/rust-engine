@@ -345,6 +345,17 @@ impl SaveStore {
             .map(Some)
     }
 
+    /// Les hauteurs (en chunks) des chunks sauvegardés de la colonne (`cx`, `cz`) : ceux que le
+    /// joueur a modifiés. Vide si la région n'existe pas ou est illisible.
+    pub fn saved_heights(&self, cx: i32, cz: i32) -> Vec<i32> {
+        let Ok(region) = self.region(Self::region_of(IVec3::new(cx, 0, cz))) else {
+            return Vec::new();
+        };
+        (0..crate::generator::WORLD_HEIGHT_CHUNKS)
+            .filter(|&cy| region.contains_key(&IVec3::new(cx, cy, cz)))
+            .collect()
+    }
+
     /// Écrit des chunks, en fusionnant avec ce que contiennent déjà leurs régions.
     pub fn save_chunks(
         &self,

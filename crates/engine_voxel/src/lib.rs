@@ -25,7 +25,9 @@ mod connections;
 mod containers;
 mod crafting;
 mod dimension;
+mod edited_surface;
 mod far;
+mod far_props;
 mod farming;
 mod fluid_sim;
 mod fluids;
@@ -84,9 +86,11 @@ pub use crafting::{
     Recipes, Smelting, SmeltingRecipe,
 };
 pub use dimension::{DimensionDef, DimensionRegistry, OVERWORLD, SkyDef, WorldKind};
+pub use edited_surface::{ChunkSurface, EditedSurfaces};
 pub use far::{
-    CELLS as FAR_CELLS, FarConfig, FarEvent, FarMesh, FarStats, FarStreamer, FarTile, build_tile,
-    far_allowance, select_tiles,
+    CELLS as FAR_CELLS, FarConfig, FarDebug, FarEvent, FarMesh, FarStats, FarStreamer, FarTile,
+    build_tile, build_tile_debug, build_tile_with, far_allowance, select_tiles,
+    select_tiles_stable,
 };
 pub use farming::{
     FarmBlocks, IRRIGATION_REACH, fertilized, is_farmland, is_irrigated, is_ripe, next_stage,

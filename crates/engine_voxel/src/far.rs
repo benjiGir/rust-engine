@@ -10,7 +10,9 @@
 //! Le terrain lointain ne regarde donc que la **surface** : pour chaque point d'une grille
 //! régulière, la hauteur et le biome que le générateur donne déjà sans rien creuser (pas de
 //! grotte, pas d'arbre, pas de minerai). Il en fait un maillage lisse, coloré selon le biome,
-//! l'altitude et la pente, avec de l'eau à la hauteur de la mer.
+//! l'altitude et la pente, avec de l'eau : la mer, et dans un monde v2 les lacs et les cours
+//! à la hauteur exacte où le générateur les met (`surface_info`), si bien que de loin comme de près
+//! ce sont les mêmes étendues d'eau.
 //!
 //! # Les niveaux de détail
 //!
@@ -29,6 +31,10 @@
 //! sont en unités de cellule, et le shader les multiplie par l'échelle de la tuile (voir
 //! `Renderer::add_mesh_scaled`). Entre deux niveaux, des **jupes** (des bandes verticales sous
 //! les bords) cachent les fentes.
+//!
+//! Ce que le joueur a construit ou creusé hors du rayon des chunks y apparaît aussi : les chunks modifiés
+//! laissent un résumé de leur sol (voir `edited_surface.rs`), que les tuiles préfèrent au générateur et qui
+//! les fait reconstruire sur place.
 //!
 //! # En tâche de fond
 //!
@@ -58,6 +64,7 @@ use crossbeam_channel::{Receiver, Sender};
 use glam::{Vec2, Vec3};
 
 use crate::biome::{BiomeKind, BiomeRegistry};
+use crate::edited_surface::EditedSurfaces;
 use crate::generator::{FREEZING, SEA_LEVEL, STEP, TerrainGenerator};
 use crate::mesh::MeshVertex;
 use crate::registry::Tint;
@@ -129,13 +136,62 @@ pub struct FarConfig {
 
 /// Les tuiles à dessiner pour une caméra à `camera` (en blocs).
 pub fn select_tiles(camera: Vec3, config: FarConfig) -> Vec<FarTile> {
+    select_tiles_with(camera, config, &|_| 1.0)
+}
+
+/// Écart de l'hystérésis : une tuile montrée reste grossière jusqu'à `LOD_FACTOR × 0,85` fois sa
+/// taille, une tuile dont des détails sont montrés ne redevient grossière qu'à `× 1,15`.
+const HYSTERESIS: f32 = 0.15;
+/// Marge (en chunks) du bord extérieur : une tuile montrée n'est retirée que `FAR_MARGIN` chunks plus loin.
+const FAR_MARGIN: f32 = 2.0;
+
+/// Comme [`select_tiles`], avec de l'hystérésis : un joueur qui hésite autour de la distance de
+/// bascule ne fait pas changer la même région de niveau à chaque pas (chaque bascule coûte la
+/// reconstruction des tuiles et un envoi au GPU). `shown` : les tuiles montrées en ce moment.
+pub fn select_tiles_stable(
+    camera: Vec3,
+    config: FarConfig,
+    shown: &HashSet<FarTile>,
+) -> Vec<FarTile> {
+    // Les ancêtres des tuiles montrées : une tuile qui en a est « subdivisée » en ce moment.
+    let mut split: HashSet<FarTile> = HashSet::new();
+    for tile in shown {
+        let mut t = *tile;
+        while t.level + 1 < LEVELS {
+            t = FarTile {
+                level: t.level + 1,
+                x: t.x.div_euclid(2),
+                z: t.z.div_euclid(2),
+            };
+            if !split.insert(t) {
+                break;
+            }
+        }
+    }
+    select_tiles_with(camera, config, &|tile| {
+        if shown.contains(&tile) {
+            1.0 - HYSTERESIS
+        } else if split.contains(&tile) {
+            1.0 + HYSTERESIS
+        } else {
+            1.0
+        }
+    })
+}
+
+/// `bias` : multiplie le seuil de distance de chaque tuile (voir [`select_tiles_stable`]).
+fn select_tiles_with(
+    camera: Vec3,
+    config: FarConfig,
+    bias: &dyn Fn(FarTile) -> f32,
+) -> Vec<FarTile> {
     let mut out = Vec::new();
     if config.far_radius <= config.near_radius {
         return out;
     }
     let center = Vec2::new(camera.x / 32.0, camera.z / 32.0);
     let root_size = (2 << (LEVELS - 1)) as f32;
-    let reach = config.far_radius as f32;
+    let reach = config.far_radius as f32 + FAR_MARGIN;
     let x0 = ((center.x - reach) / root_size).floor() as i32;
     let x1 = ((center.x + reach) / root_size).floor() as i32;
     let z0 = ((center.y - reach) / root_size).floor() as i32;
@@ -150,6 +206,7 @@ pub fn select_tiles(camera: Vec3, config: FarConfig) -> Vec<FarTile> {
                 },
                 center,
                 config,
+                bias,
                 &mut out,
             );
         }
@@ -157,14 +214,23 @@ pub fn select_tiles(camera: Vec3, config: FarConfig) -> Vec<FarTile> {
     out
 }
 
-fn visit(tile: FarTile, center: Vec2, config: FarConfig, out: &mut Vec<FarTile>) {
+fn visit(
+    tile: FarTile,
+    center: Vec2,
+    config: FarConfig,
+    bias: &dyn Fn(FarTile) -> f32,
+    out: &mut Vec<FarTile>,
+) {
     let (rx, rz, size) = tile.rect_chunks();
     let nearest = Vec2::new(
         (rx - center.x).max(0.0).max(center.x - (rx + size)),
         (rz - center.y).max(0.0).max(center.y - (rz + size)),
     )
     .length();
-    if nearest > config.far_radius as f32 {
+    // Une tuile déjà montrée ne disparaît qu'un peu plus loin que celle qu'on n'aurait pas montrée.
+    let factor = bias(tile);
+    let reach = config.far_radius as f32 + if factor < 1.0 { FAR_MARGIN } else { 0.0 };
+    if nearest > reach {
         return;
     }
     let near = config.near_radius as f32;
@@ -186,8 +252,8 @@ fn visit(tile: FarTile, center: Vec2, config: FarConfig, out: &mut Vec<FarTile>)
     if farthest <= near - 1.0 {
         return; // Tout entière dans le monde détaillé.
     }
-    let touches_near = nearest < near + size;
-    if !touches_near && nearest >= LOD_FACTOR * size {
+    let touches_near = nearest < near + size * factor;
+    if !touches_near && nearest >= LOD_FACTOR * factor * size {
         out.push(tile);
         return;
     }
@@ -201,6 +267,7 @@ fn visit(tile: FarTile, center: Vec2, config: FarConfig, out: &mut Vec<FarTile>)
                 },
                 center,
                 config,
+                bias,
                 out,
             );
         }
@@ -241,17 +308,41 @@ struct Sample {
     height: f32,
     color: [f32; 3],
     water: [f32; 3],
+    /// y du dernier bloc d'eau de la colonne (la mer, un lac ou un cours), `None` sur la terre.
+    water_top: Option<i32>,
+    /// Le sol vient d'un chunk modifié, pas du générateur.
+    edited: bool,
 }
 
-fn sample(generator: &TerrainGenerator, x: i32, z: i32, step: i32) -> Sample {
+fn sample(
+    generator: &TerrainGenerator,
+    x: i32,
+    z: i32,
+    step: i32,
+    edits: Option<&EditedSurfaces>,
+) -> Sample {
     // Aligné sur la grille des cartes de bruit (tous les 4 blocs) : une évaluation seulement.
-    let column = if step % STEP == 0 {
+    let mut column = if step % STEP == 0 {
         generator.column_at_grid_point(x / STEP, z / STEP)
     } else {
         generator.column(x, z)
     };
+    // L'eau : les mondes v2 disent où coulent leurs cours et où dorment leurs lacs, à la hauteur de
+    // leur surface ; les autres n'ont que la mer.
+    // Un chunk modifié (construit, creusé) prime sur ce que le générateur aurait fait.
+    let edited = edits.and_then(|e| e.surface_at(x, z, column.height, generator.registry()));
+    if let Some((y, _)) = edited {
+        column.height = y;
+    }
+    let info = generator.surface_info(x, z);
+    let water_top = match &info {
+        Some(info) => info.water,
+        None => (column.height < SEA_LEVEL).then_some(SEA_LEVEL),
+    };
     let biome = generator.biome(column.biome);
-    let def = generator.registry().def(biome.surface);
+    let def = generator
+        .registry()
+        .def(edited.map_or(biome.surface, |(_, block)| block));
     let (grass_ref, _, water_ref) = generator.biomes().tint_reference();
     let mut color = if def.tint == Tint::Grass {
         // Même palette linéaire et mêmes multiplicateurs que les chunks texturés.
@@ -262,11 +353,14 @@ fn sample(generator: &TerrainGenerator, x: i32, z: i32, step: i32) -> Sample {
     };
     let top = column.height as f32 + 1.0;
     // Les forêts sont plus sombres vues de loin (la canopée).
-    if biome.tree_density > 3.0 && column.height >= SEA_LEVEL {
+    // Dans un monde v2, la densité d'arbres suit aussi la canopée locale (humidité, pente, lisière
+    // des arbres, berges) : la couleur lointaine lit la même.
+    let density = biome.tree_density * info.as_ref().map_or(1.0, |i| i.canopy);
+    if edited.is_none() && density > 3.0 && column.height >= SEA_LEVEL {
         color = color.map(|c| c * 0.78);
     }
     // La roche des montagnes, la neige du froid et des sommets.
-    if matches!(biome.kind, BiomeKind::Mountains | BiomeKind::Peaks) {
+    if edited.is_none() && matches!(biome.kind, BiomeKind::Mountains | BiomeKind::Peaks) {
         let rock = ((top - 92.0) / 30.0).clamp(0.0, 1.0);
         color = lerp(
             color,
@@ -274,12 +368,14 @@ fn sample(generator: &TerrainGenerator, x: i32, z: i32, step: i32) -> Sample {
             rock,
         );
     }
-    if (column.height >= SEA_LEVEL && column.temperature < FREEZING) || top > 150.0 {
+    if edited.is_none()
+        && ((column.height >= SEA_LEVEL && column.temperature < FREEZING) || top > 150.0)
+    {
         color = palette(generator, "core:snow", [0.80, 0.87, 0.87]);
     }
-    // Sous la mer, le fond s'assombrit avec la profondeur.
-    if column.height < SEA_LEVEL {
-        let depth = ((SEA_LEVEL - column.height) as f32 / 30.0).clamp(0.0, 1.0);
+    // Sous l'eau, le fond s'assombrit avec la profondeur.
+    if let Some(water) = water_top.filter(|&w| column.height < w) {
+        let depth = ((water - column.height) as f32 / 30.0).clamp(0.0, 1.0);
         color = lerp(
             generator.registry().def(biome.underwater).color,
             [0.035, 0.055, 0.075],
@@ -289,6 +385,8 @@ fn sample(generator: &TerrainGenerator, x: i32, z: i32, step: i32) -> Sample {
     Sample {
         height: top,
         color,
+        water_top,
+        edited: edited.is_some(),
         water: {
             let base = palette(generator, "core:water", [0.05, 0.20, 0.34]);
             let tint = BiomeRegistry::tint_factor(biome.water_color, water_ref);
@@ -310,6 +408,68 @@ fn lerp(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
 
 /// Construit le maillage d'une tuile à partir du générateur.
 pub fn build_tile(generator: &TerrainGenerator, tile: FarTile) -> FarMesh {
+    build_tile_with(generator, tile, None)
+}
+
+/// Teinte de diagnostic du terrain lointain : rend visibles ses niveaux et l'origine de chaque cellule.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FarDebug {
+    /// Les vraies couleurs.
+    #[default]
+    Off,
+    /// Une couleur par niveau de détail (0 rouge, 1 orange, 2 jaune, 3 vert, 4 bleu).
+    Levels,
+    /// Magenta : le sol vient d'un chunk modifié (observé) ; gris délavé : estimé par le générateur.
+    Sources,
+}
+
+impl FarDebug {
+    /// Lit `VOXEL_FAR_DEBUG` (`levels` ou `sources`), sinon `Off`.
+    pub fn from_env() -> Self {
+        match std::env::var("VOXEL_FAR_DEBUG").as_deref() {
+            Ok("levels") => Self::Levels,
+            Ok("sources") => Self::Sources,
+            _ => Self::Off,
+        }
+    }
+
+    pub(crate) fn tint(self, level: u8, edited: bool, color: [f32; 3]) -> [f32; 3] {
+        const LEVELS: [[f32; 3]; 5] = [
+            [0.9, 0.1, 0.1],
+            [0.95, 0.5, 0.1],
+            [0.9, 0.85, 0.1],
+            [0.2, 0.75, 0.2],
+            [0.2, 0.35, 0.9],
+        ];
+        match self {
+            Self::Off => color,
+            Self::Levels => lerp(color, LEVELS[usize::from(level).min(4)], 0.55),
+            Self::Sources if edited => [0.95, 0.1, 0.8],
+            Self::Sources => {
+                let grey = (color[0] + color[1] + color[2]) / 3.0;
+                lerp(color, [grey; 3], 0.75)
+            }
+        }
+    }
+}
+
+/// Comme [`build_tile`], en tenant compte des chunks modifiés par le joueur (voir
+/// [`EditedSurfaces`]).
+pub fn build_tile_with(
+    generator: &TerrainGenerator,
+    tile: FarTile,
+    edits: Option<&EditedSurfaces>,
+) -> FarMesh {
+    build_tile_debug(generator, tile, edits, FarDebug::Off)
+}
+
+/// Comme [`build_tile_with`], avec une teinte de diagnostic (voir [`FarDebug`]).
+pub fn build_tile_debug(
+    generator: &TerrainGenerator,
+    tile: FarTile,
+    edits: Option<&EditedSurfaces>,
+    debug: FarDebug,
+) -> FarMesh {
     let stone = palette(generator, "core:stone", [0.23, 0.26, 0.26]);
     let step = tile.step();
     let (ox, oz) = tile.origin_blocks();
@@ -323,6 +483,7 @@ pub fn build_tile(generator: &TerrainGenerator, tile: FarTile) -> FarMesh {
                 ox + (i - 1) * step,
                 oz + (j - 1) * step,
                 step,
+                edits,
             ));
         }
     }
@@ -359,6 +520,7 @@ pub fn build_tile(generator: &TerrainGenerator, tile: FarTile) -> FarMesh {
             // Une pente forte devient de la roche.
             let steep = ((0.75 - normal.y) / 0.25).clamp(0.0, 1.0);
             let color = lerp(at(i, j).color, stone, steep * 0.7);
+            let color = debug.tint(tile.level, at(i, j).edited, color);
             vertices.push(MeshVertex::new(
                 Vec3::new(i as f32, local_y(height(i, j)), j as f32),
                 normal.to_array(),
@@ -410,17 +572,44 @@ pub fn build_tile(generator: &TerrainGenerator, tile: FarTile) -> FarMesh {
     skirt_strip(&|k| (0, k), Vec3::NEG_X);
     skirt_strip(&|k| (CELLS, k), Vec3::X);
 
-    // L'eau : un quad plat à la hauteur de la mer sur chaque cellule dont un coin est sous l'eau.
+    // Les arbres et les bâtiments des tuiles fines : des volumes simples (voir `far_props.rs`).
+    {
+        let (ox, oz) = (ox as f32, oz as f32);
+        let local = |x: f32, y: f32, z: f32| {
+            Vec3::new((x - ox) / scale, local_y(y).max(-7.0), (z - oz) / scale)
+        };
+        for prop in crate::far_props::props_for_tile(generator, tile, edits) {
+            max_h = max_h.max(prop.top());
+            crate::far_props::write_prop(
+                &prop,
+                debug,
+                tile.level,
+                &local,
+                &mut vertices,
+                &mut indices,
+            );
+        }
+    }
+
+    // L'eau : un quad plat sur chaque cellule dont un coin est sous l'eau, à la hauteur de la
+    // surface la plus haute de ses coins (la mer, ou le lac ou le cours d'un monde v2).
     let mut translucent: Vec<u32> = Vec::new();
-    let water_y = local_y(WATER_TOP);
+    let mut top_water = WATER_TOP;
+    let mut any_water = false;
     for j in 0..CELLS {
         for i in 0..CELLS {
-            let wet = [(i, j), (i + 1, j), (i, j + 1), (i + 1, j + 1)]
+            let corners = [(i, j), (i + 1, j), (i, j + 1), (i + 1, j + 1)];
+            let Some(level) = corners
                 .iter()
-                .any(|&(a, b)| at(a, b).height <= SEA_LEVEL as f32);
-            if !wet {
+                .filter_map(|&(a, b)| at(a, b).water_top)
+                .max()
+            else {
                 continue;
-            }
+            };
+            let surface = level as f32 + 0.875;
+            any_water = true;
+            top_water = top_water.max(surface);
+            let water_y = local_y(surface);
             let [r, g, b] = at(i, j).water;
             let base = vertices.len() as u32;
             for (a, c) in [(i, j), (i, j + 1), (i + 1, j), (i + 1, j + 1)] {
@@ -435,6 +624,7 @@ pub fn build_tile(generator: &TerrainGenerator, tile: FarTile) -> FarMesh {
             translucent.extend([base, base + 1, base + 2, base + 2, base + 1, base + 3]);
         }
     }
+    let top_water = if any_water { top_water } else { WATER_TOP };
 
     let size = tile.size_blocks() as f32;
     FarMesh {
@@ -445,7 +635,7 @@ pub fn build_tile(generator: &TerrainGenerator, tile: FarTile) -> FarMesh {
         scale,
         bounds: (
             Vec3::new(ox as f32, origin_y, oz as f32),
-            Vec3::new(ox as f32 + size, max_h.max(WATER_TOP), oz as f32 + size),
+            Vec3::new(ox as f32 + size, max_h.max(top_water), oz as f32 + size),
         ),
     }
 }
@@ -501,23 +691,56 @@ pub struct FarStreamer {
     /// documentation). Les changements d'une région qui attendent encore s'ajoutent à son lot, dans
     /// l'ordre : jamais un retrait avant l'ajout qu'il annule.
     outbox: Vec<((i32, i32), Vec<FarEvent>)>,
+    /// Les chunks modifiés (voir [`EditedSurfaces`]), s'il y en a.
+    edits: Option<Arc<EditedSurfaces>>,
+    /// Tuiles montrées dont un chunk a changé : à reconstruire, puis à remplacer sur place.
+    stale: HashSet<FarTile>,
+    /// Tuiles en construction dont un chunk a changé entre-temps : leur résultat est périmé.
+    dirty_pending: HashSet<FarTile>,
 }
 
 impl FarStreamer {
     pub fn new(generator: Arc<TerrainGenerator>, config: FarConfig, threads: usize) -> Self {
+        Self::with_edits(generator, config, threads, None)
+    }
+
+    /// Un terrain lointain qui tient compte des chunks modifiés : `edits` est rempli par le
+    /// [`ChunkStreamer`](crate::ChunkStreamer) (voir `ChunkStreamer::edited_surfaces`). Les tuiles
+    /// montrées sont reconstruites quand un résumé qui les couvre change.
+    pub fn with_edits(
+        generator: Arc<TerrainGenerator>,
+        config: FarConfig,
+        threads: usize,
+        edits: Option<Arc<EditedSurfaces>>,
+    ) -> Self {
+        Self::with_debug(generator, config, threads, edits, FarDebug::Off)
+    }
+
+    /// Comme [`FarStreamer::with_edits`], avec une teinte de diagnostic (voir [`FarDebug`]).
+    pub fn with_debug(
+        generator: Arc<TerrainGenerator>,
+        config: FarConfig,
+        threads: usize,
+        edits: Option<Arc<EditedSurfaces>>,
+        debug: FarDebug,
+    ) -> Self {
         let (request_tx, request_rx) = crossbeam_channel::unbounded::<FarTile>();
         let (result_tx, result_rx) = crossbeam_channel::unbounded();
         let workers = (0..threads.max(1))
             .map(|i| {
-                let (rx, tx, generator) =
-                    (request_rx.clone(), result_tx.clone(), generator.clone());
+                let (rx, tx, generator, edits) = (
+                    request_rx.clone(),
+                    result_tx.clone(),
+                    generator.clone(),
+                    edits.clone(),
+                );
                 std::thread::Builder::new()
                     .name(format!("terrain lointain {i}"))
                     .spawn(move || {
                         // Le canal se ferme quand le streamer est détruit : le thread s'arrête.
                         while let Ok(tile) = rx.recv() {
                             let _span = engine_trace::span("terrain lointain : tuile");
-                            let mesh = build_tile(&generator, tile);
+                            let mesh = build_tile_debug(&generator, tile, edits.as_deref(), debug);
                             if tx.send((tile, mesh)).is_err() {
                                 break;
                             }
@@ -536,6 +759,9 @@ impl FarStreamer {
             allowance: threads.max(1),
             workers,
             outbox: Vec::new(),
+            edits,
+            stale: HashSet::new(),
+            dirty_pending: HashSet::new(),
         }
     }
 
@@ -614,11 +840,24 @@ impl FarStreamer {
     /// Met à jour les tuiles voulues autour de la caméra : demande ce qui manque (dans la limite de
     /// l'allocation), reçoit ce qui est construit, et prépare les lots de changements.
     pub fn refresh(&mut self, camera: Vec3) {
+        self.invalidate_edited();
+        let mut replaced: Vec<(FarTile, FarMesh)> = Vec::new();
         while let Ok((tile, mesh)) = self.results.try_recv() {
             self.pending.remove(&tile);
-            self.staged.insert(tile, mesh);
+            if self.dirty_pending.remove(&tile) {
+                // Construite avant la dernière modification : à refaire (la tuile reste montrée
+                // ou manquante, et sera redemandée).
+                continue;
+            }
+            if self.shown.contains(&tile) {
+                // Une reconstruction : elle remplace la tuile montrée sur place.
+                self.stale.remove(&tile);
+                replaced.push((tile, mesh));
+            } else {
+                self.staged.insert(tile, mesh);
+            }
         }
-        let needed: Vec<FarTile> = select_tiles(camera, self.config);
+        let needed: Vec<FarTile> = select_tiles_stable(camera, self.config, &self.shown);
         let needed_set: HashSet<FarTile> = needed.iter().copied().collect();
 
         // On demande ce qui manque, du plus proche au plus loin.
@@ -633,7 +872,19 @@ impl FarStreamer {
                 (center.distance(Vec2::new(x + s / 2.0, z + s / 2.0)), *t)
             })
             .collect();
+        // Les tuiles montrées à reconstruire passent après ce qui manque.
+        let mut rebuild: Vec<(f32, FarTile)> = self
+            .stale
+            .iter()
+            .filter(|t| needed_set.contains(t) && !self.pending.contains(t))
+            .map(|t| {
+                let (x, z, s) = t.rect_chunks();
+                (center.distance(Vec2::new(x + s / 2.0, z + s / 2.0)), *t)
+            })
+            .collect();
         missing.sort_by(|a, b| a.0.total_cmp(&b.0));
+        rebuild.sort_by(|a, b| a.0.total_cmp(&b.0));
+        missing.extend(rebuild);
         // Au compte-gouttes : deux demandes par thread autorisé (une qui tourne, une qui attend), les
         // plus proches d'abord. Le reste est recalculé à la prochaine image avec la caméra de ce
         // moment : une tuile devenue inutile avant son départ n'aura rien coûté.
@@ -699,6 +950,19 @@ impl FarStreamer {
             }
             Self::push_batch(&mut batches, key, events);
         }
+        // Les tuiles reconstruites s'ajoutent au lot de leur région : l'ajout remplace l'ancien
+        // maillage côté jeu, sans retrait préalable (donc sans trou).
+        for (tile, mesh) in replaced {
+            if !self.shown.contains(&tile) {
+                continue;
+            }
+            let key = tile.region();
+            let event = FarEvent::Add(tile, Box::new(mesh));
+            match batches.iter_mut().find(|(k, _)| *k == key) {
+                Some((_, events)) => events.push(event),
+                None => batches.push((key, vec![event])),
+            }
+        }
         // Les changements d'une région s'ajoutent à son lot en attente ; les nouveaux lots suivent.
         for (key, events) in batches {
             match self.outbox.iter_mut().find(|(k, _)| *k == key) {
@@ -706,6 +970,7 @@ impl FarStreamer {
                 None => self.outbox.push((key, events)),
             }
         }
+        self.stale.retain(|t| self.shown.contains(t));
         // Du plus proche au plus lointain, avec la caméra de cette image.
         let distance = |events: &[FarEvent]| {
             events
@@ -719,6 +984,27 @@ impl FarStreamer {
         };
         self.outbox
             .sort_by(|a, b| distance(&a.1).total_cmp(&distance(&b.1)));
+    }
+
+    /// Reporte les modifications de chunks sur les tuiles : celles qui les couvrent sont à refaire.
+    fn invalidate_edited(&mut self) {
+        let Some(edits) = &self.edits else { return };
+        for (cx, cz) in edits.take_changed() {
+            let covers = |t: &FarTile| {
+                let (x0, z0, s) = t.rect_chunks();
+                (cx as f32) >= x0
+                    && (cx as f32) < x0 + s
+                    && (cz as f32) >= z0
+                    && (cz as f32) < z0 + s
+            };
+            let hit: Vec<FarTile> = self.shown.iter().filter(|t| covers(t)).copied().collect();
+            self.stale.extend(hit);
+            let pending: Vec<FarTile> =
+                self.pending.iter().filter(|t| covers(t)).copied().collect();
+            self.dirty_pending.extend(pending);
+            // Une tuile construite mais pas encore montrée est périmée : on la jette.
+            self.staged.retain(|t, _| !covers(t));
+        }
     }
 
     /// Range les événements d'une région en un lot (rien si elle n'a rien changé).
@@ -767,6 +1053,82 @@ mod tests {
             }
         }
         count
+    }
+
+    /// Un joueur qui hésite autour d'une distance de bascule fait changer les tuiles à chaque pas sans
+    /// hystérésis ; avec, une fois suffit. Les tuiles choisies couvrent toujours l'anneau une fois.
+    #[test]
+    fn hysteresis_stops_the_levels_from_flickering_near_a_threshold() {
+        let config = config();
+        let at = |x: f32| Vec3::new(x, 80.0, 0.0);
+        // Le premier endroit où la sélection change quand on avance.
+        let mut threshold = None;
+        // Les tuiles fines suivent le bord du rayon détaillé avec la caméra : ce n'est pas une bascule
+        // de niveau, on les met de côté.
+        let coarse = |tiles: Vec<FarTile>| -> Vec<FarTile> {
+            tiles.into_iter().filter(|t| t.level > 0).collect()
+        };
+        let mut previous = coarse(select_tiles(at(0.0), config));
+        let mut x = 4.0;
+        while x < 4000.0 {
+            let now = coarse(select_tiles(at(x), config));
+            if now != previous {
+                threshold = Some(x);
+                break;
+            }
+            previous = now;
+            x += 4.0;
+        }
+        let threshold = threshold.expect("la sélection change avec la distance");
+        // On oscille de 6 blocs de part et d'autre.
+        let path: Vec<f32> = (0..60)
+            .map(|i| threshold + if i % 2 == 0 { -6.0 } else { 6.0 })
+            .collect();
+        let mut plain_changes = 0;
+        let mut last: Option<Vec<FarTile>> = None;
+        for &x in &path {
+            let now = coarse(select_tiles(at(x), config));
+            if last.as_ref().is_some_and(|l| *l != now) {
+                plain_changes += 1;
+            }
+            last = Some(now);
+        }
+        let mut shown: HashSet<FarTile> = select_tiles(at(path[0]), config).into_iter().collect();
+        let mut stable_changes = 0;
+        for &x in &path {
+            let now = select_tiles_stable(at(x), config, &shown);
+            let set: HashSet<FarTile> = now.iter().copied().collect();
+            let level = |tiles: &HashSet<FarTile>| {
+                tiles
+                    .iter()
+                    .filter(|t| t.level > 0)
+                    .copied()
+                    .collect::<HashSet<_>>()
+            };
+            if level(&set) != level(&shown) {
+                stable_changes += 1;
+            }
+            shown = set;
+            // Toujours une partition : aucune tuile ne se chevauche.
+            let mut count: HashMap<(i32, i32), u32> = HashMap::new();
+            for tile in &now {
+                let s = tile.size_chunks();
+                for dz in 0..s {
+                    for dx in 0..s {
+                        *count.entry((tile.x * s + dx, tile.z * s + dz)).or_default() += 1;
+                    }
+                }
+            }
+            assert!(count.values().all(|&n| n == 1), "des tuiles se chevauchent");
+        }
+        assert!(
+            plain_changes >= 20,
+            "la sélection sans hystérésis devrait osciller : {plain_changes}"
+        );
+        assert!(
+            stable_changes <= 1,
+            "avec hystérésis : {stable_changes} changements"
+        );
     }
 
     #[test]
@@ -898,9 +1260,13 @@ mod tests {
                     .all(|&i| i < max)
             );
             // Les positions locales tiennent dans la plage des sommets (sans écrêtage).
-            for v in &mesh.vertices {
+            // (les volumes des arbres et des maisons peuvent déborder de quelques cellules du bord)
+            let ground = ((CELLS + 1) * (CELLS + 1)) as usize;
+            for (i, v) in mesh.vertices.iter().enumerate() {
                 let p = v.local_position();
-                assert!(p.x >= -0.01 && p.x <= CELLS as f32 + 0.01, "{p}");
+                if i < ground {
+                    assert!(p.x >= -0.01 && p.x <= CELLS as f32 + 0.01, "{p}");
+                }
                 assert!(p.y >= -8.0 && p.y <= 56.0, "{p}");
             }
             // Le sol : (CELLS + 1)² sommets, des normales vers le haut, une boîte cohérente.
@@ -973,8 +1339,11 @@ mod tests {
         loop {
             streamer.update(camera);
             assert!(overlap(&streamer), "deux niveaux superposés");
-            let wanted: HashSet<FarTile> = select_tiles(camera, config()).into_iter().collect();
             let shown: HashSet<FarTile> = streamer.shown().collect();
+            // Avec l'hystérésis, ce qu'il faut montrer dépend de ce qui l'est déjà.
+            let wanted: HashSet<FarTile> = select_tiles_stable(camera, config(), &shown)
+                .into_iter()
+                .collect();
             if wanted == shown {
                 break;
             }
@@ -1121,6 +1490,74 @@ mod tests {
         assert!(frames > 1);
     }
 
+    /// Une longue marche (8 km) : les tuiles montrées et la mémoire de leurs maillages restent bornées,
+    /// rien ne s'accumule dans les files du streamer.
+    #[test]
+    fn a_long_walk_keeps_tiles_memory_and_queues_bounded() {
+        let generator = Arc::new(TerrainGenerator::new(11));
+        let mut streamer = FarStreamer::new(generator, small(), 2);
+        let mut live: HashMap<FarTile, usize> = HashMap::new();
+        let mut camera = Vec3::new(0.0, 80.0, 0.0);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+        let (mut max_tiles, mut max_bytes, mut max_queued) = (0usize, 0usize, 0usize);
+        let mut first = None;
+        for step in 0..26 {
+            loop {
+                for event in streamer.update(camera) {
+                    match event {
+                        FarEvent::Add(t, mesh) => {
+                            live.insert(t, mesh.byte_size());
+                        }
+                        FarEvent::Remove(t) => {
+                            live.remove(&t);
+                        }
+                    }
+                }
+                let stats = streamer.stats();
+                max_queued = max_queued.max(stats.pending + stats.staged + stats.waiting_batches);
+                if stats.pending == 0 && stats.staged == 0 && stats.waiting_batches == 0 {
+                    break;
+                }
+                assert!(std::time::Instant::now() < deadline, "{stats:?}");
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            let bytes: usize = live.values().sum();
+            max_tiles = max_tiles.max(live.len());
+            max_bytes = max_bytes.max(bytes);
+            if step == 0 {
+                first = Some((live.len(), bytes));
+            }
+            camera.x += 320.0;
+            camera.z += 160.0;
+        }
+        let (tiles0, bytes0) = first.unwrap();
+        assert!(
+            max_tiles <= tiles0 * 3 / 2,
+            "tuiles : {max_tiles} contre {tiles0} au départ"
+        );
+        assert!(
+            max_bytes <= bytes0 * 3 / 2,
+            "octets : {max_bytes} contre {bytes0} au départ"
+        );
+        // Au pire (le remplissage initial), les files tiennent dans le nombre de tuiles de l'anneau.
+        assert!(
+            max_queued <= max_tiles,
+            "files : {max_queued} pour {max_tiles} tuiles"
+        );
+        // En fin de marche, tout ce qui est montré est couvert par la sélection stable.
+        // (la caméra a déjà avancé d'un pas de trop après la dernière attente)
+        camera.x -= 320.0;
+        camera.z -= 160.0;
+        let shown: HashSet<FarTile> = streamer.shown().collect();
+        let wanted: HashSet<FarTile> = select_tiles_stable(camera, small(), &shown)
+            .into_iter()
+            .collect();
+        assert!(
+            shown == wanted,
+            "la sélection finale diffère des tuiles montrées"
+        );
+    }
+
     #[test]
     fn leaving_a_region_for_another_level_sends_removes_and_adds_together() {
         let generator = Arc::new(TerrainGenerator::new(7));
@@ -1128,10 +1565,12 @@ mod tests {
         let mut camera = Vec3::new(0.0, 80.0, 0.0);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
         let settle = |streamer: &mut FarStreamer, camera: Vec3| {
-            let wanted: HashSet<FarTile> = select_tiles(camera, small()).into_iter().collect();
             loop {
                 streamer.refresh(camera);
                 let shown: HashSet<FarTile> = streamer.shown().collect();
+                let wanted: HashSet<FarTile> = select_tiles_stable(camera, small(), &shown)
+                    .into_iter()
+                    .collect();
                 if shown == wanted && streamer.stats().pending == 0 {
                     return;
                 }
