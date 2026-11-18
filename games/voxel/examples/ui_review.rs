@@ -121,7 +121,7 @@ fn main() -> Result<()> {
     for key in keys {
         let def = items.get(items.id(key).unwrap());
         let (size, pixels) = match &def.icon {
-            engine_voxel::Icon::Block(id) => (32, item_art::block_icon(blocks.def(*id), &textures)),
+            engine_voxel::Icon::Block(id) => (32, item_art::block_icon(&blocks, *id, &textures)),
             engine_voxel::Icon::Texture(key) => (
                 16,
                 image::open(blocks.asset_path(key, "items", "png").unwrap())?

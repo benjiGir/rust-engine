@@ -28,7 +28,7 @@ fn test_registry() -> BlockRegistry {
     BlockRegistry::load(&root.join("assets"), Some(&root.join("mods"))).unwrap()
 }
 
-fn render(parts: &[HandInstance], w: usize, h: usize) -> Vec<u8> {
+fn render(parts: &[HandInstance], textures: &[Vec<u8>], w: usize, h: usize) -> Vec<u8> {
     let mut pixels = [24, 33, 35, 255].repeat(w * h);
     let mut depth = vec![0.0f32; w * h];
     let tan = (70.0f32.to_radians() * 0.5).tan(); // Projection propre au bras du renderer.
@@ -100,10 +100,34 @@ fn render(parts: &[HandInstance], w: usize, h: usize) -> Vec<u8> {
     };
     for part in parts {
         let model = Mat4::from_cols_array_2d(&part.model);
-        for (normal, corners) in faces {
-            let normal = model.transform_vector3(normal).normalize();
+        for (face, corners) in faces {
+            let normal = model.transform_vector3(face).normalize();
             let shade = 0.55 + 0.45 * normal.dot(Vec3::new(-0.4, 0.8, 0.45).normalize()).max(0.0);
-            let color: [u8; 3] = std::array::from_fn(|i| srgb(part.color[i] * shade));
+            let face_index = if face.y > 0.0 {
+                0
+            } else if face.y < 0.0 {
+                2
+            } else {
+                1
+            };
+            let texture = part.textures[face_index]
+                .checked_sub(1)
+                .and_then(|i| textures.get(i as usize));
+            let side = texture
+                .and_then(|t| engine_render::texture_side(t))
+                .unwrap_or(16) as usize;
+            let lo = Vec3::from_array(part.uv_min);
+            let hi = Vec3::from_array(part.uv_max);
+            let uv = corners.map(|corner| {
+                let q = lo + (hi - lo) * (corner + Vec3::splat(0.5));
+                if face.y != 0.0 {
+                    Vec2::new(q.x, q.z)
+                } else if face.x != 0.0 {
+                    Vec2::new(q.z, 1.0 - q.y)
+                } else {
+                    Vec2::new(q.x, 1.0 - q.y)
+                }
+            });
             let view = corners.map(|p| model.transform_point3(p));
             if view.iter().any(|p| p.z >= -0.05) {
                 continue;
@@ -137,6 +161,29 @@ fn render(parts: &[HandInstance], w: usize, h: usize) -> Vec<u8> {
                         let inv = b[0] / z[0] + b[1] / z[1] + b[2] / z[2];
                         let index = x + y * w;
                         if inv > depth[index] {
+                            let mut texel = [255; 4];
+                            if let Some(texture) = texture {
+                                let coord = (uv[indices[0]] * (b[0] / z[0])
+                                    + uv[indices[1]] * (b[1] / z[1])
+                                    + uv[indices[2]] * (b[2] / z[2]))
+                                    / inv;
+                                let u = (coord.x.clamp(0.0, 0.999) * side as f32) as usize;
+                                let v = (coord.y.clamp(0.0, 0.999) * side as f32) as usize;
+                                let at = (u + v * side) * 4;
+                                texel.copy_from_slice(&texture[at..at + 4]);
+                            }
+                            if part.cutout != 0 && texel[3] < 128 {
+                                continue;
+                            }
+                            let color: [u8; 3] = std::array::from_fn(|i| {
+                                let value = f32::from(texel[i]) / 255.0;
+                                let linear = if value <= 0.04045 {
+                                    value / 12.92
+                                } else {
+                                    ((value + 0.055) / 1.055).powf(2.4)
+                                };
+                                srgb(part.color[i] * linear * shade)
+                            });
                             depth[index] = inv;
                             pixels[index * 4..index * 4 + 3].copy_from_slice(&color);
                         }
@@ -161,7 +208,7 @@ fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     anyhow::ensure!(
         args.len() == 2 || (args.len() == 3 && args[2] == "--pack32"),
-        "hand_review <rest|swing|portrait|mods|axes> <sortie.png> [--pack32]"
+        "hand_review <rest|swing|portrait|mods|axes|magic|blocks> <sortie.png> [--pack32]"
     );
     let (view_w, view_h) = if args[0] == "portrait" {
         (216, 288)
@@ -187,9 +234,28 @@ fn main() -> Result<()> {
     .map(|ns| (ns.into(), root.join("mods").join(ns)))
     .collect();
     let items = ItemRegistry::load_mods(&blocks, &root.join("assets"), &mods)?;
+    let textures = assets::load_textures(&blocks);
     let ctx = egui::Context::default();
     skin::apply(&ctx);
-    let keys = if args[0] == "axes" {
+    let keys = if args[0] == "blocks" {
+        [
+            ("Baguette", "magie:wand"),
+            ("Torche", "core:torch"),
+            ("Lit", "core:bed"),
+            ("Coffre", "core:chest"),
+            ("Pousse de chêne", "core:oak_sapling"),
+            ("Levier", "core:lever"),
+        ]
+    } else if args[0] == "magic" {
+        [
+            ("Baguette", "magie:wand"),
+            ("Cristal de mana", "magie:mana_crystal"),
+            ("Rune de flamme", "magie:rune_flame"),
+            ("Cisailles", "core:shears"),
+            ("Tête de pioche", "forge:pickaxe_head"),
+            ("Sceau du gardien", "donjons:warden_sigil"),
+        ]
+    } else if args[0] == "axes" {
         [
             ("Hache en bois", "core:wooden_axe"),
             ("Hache en pierre", "core:stone_axe"),
@@ -227,7 +293,7 @@ fn main() -> Result<()> {
             hand.swing = Some(0.42);
         }
         let parts = hand.instances(Some(items.id(key).context("outil")?), &items, &blocks);
-        let rgba = render(&parts, view_w, view_h);
+        let rgba = render(&parts, &textures, view_w, view_h);
         images.push((
             label,
             ctx.load_texture(

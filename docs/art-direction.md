@@ -120,6 +120,12 @@ du champ de vision du monde. Les réglages et le cache sont dans `hand_model.rs`
 `hand.rs` relie les animations au joueur. Aucun dessin ni fichier graphique de
 Minecraft n'est intégré au jeu.
 
+Les blocs en main reprennent les volumes du modèle au sol et la découpe des
+textures par face. Les fleurs et pousses utilisent leur silhouette extrudée.
+La baguette garde sa prise sur le manche avec une échelle de 0,66. Le lit combine
+une tête avec oreiller et un pied avec couverture de sauge. Les mêmes deux
+moitiés composent sa miniature d'inventaire et son modèle au sol.
+
 ## Régénérer et contrôler
 
 ```sh
@@ -154,7 +160,7 @@ sombre autour des blocs. La palette conserve 32 niveaux par canal et la bouche
 du four conserve ses coordonnées UV (8..23, 16..27 en pixels 32).
 
 La moyenne linéaire de chaque dessin, pixels transparents exclus, est accordée
-à celle de sa source. Les 459 images sont contrôlées (écart inférieur à 0,02 par
+à celle de sa source. Les 462 images sont contrôlées (écart inférieur à 0,02 par
 canal) afin de garder les couleurs de repli et du terrain lointain cohérentes,
 sans modifier les définitions de base. Les masques de végétation et d'équipement
 sont adaptés au nouveau dessin ; le rôle de l'alpha reste inchangé. Le profil

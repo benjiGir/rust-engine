@@ -235,13 +235,14 @@ impl GameUi {
                 };
                 let pixels = match &def.icon {
                     Icon::Block(block) => {
-                        let block = blocks.def(*block);
+                        let id = *block;
+                        let block = blocks.def(id);
                         if matches!(
                             block.shape,
                             engine_voxel::Shape::Cube | engine_voxel::Shape::Model
                         ) {
                             size = crate::item_art::ICON_SIZE;
-                            crate::item_art::block_icon(block, textures)
+                            crate::item_art::block_icon(blocks, id, textures)
                         } else {
                             let layer = block.face_textures[1] as usize;
                             match layer.checked_sub(1).and_then(|i| textures.get(i)) {

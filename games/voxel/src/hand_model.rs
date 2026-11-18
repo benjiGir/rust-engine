@@ -95,7 +95,7 @@ pub struct Hand {
     sway: Vec2,
     last_look: Option<Vec2>,
     /// Modèles extrudés communs au sol, au transport et à la main (en cache).
-    sprites: HashMap<ItemId, Vec<CubeInstance>>,
+    models: HashMap<ItemId, Vec<CubeInstance>>,
     aspect_ratio: f32,
     /// Figé dans sa pose actuelle (pour les captures).
     pub frozen: bool,
@@ -104,6 +104,9 @@ pub struct Hand {
 /// Durée d'un coup de bras, en secondes.
 const SWING_TIME: f32 = 0.3;
 const EQUIP_TIME: f32 = 0.25;
+// Centre de la prise dans les deux dessins de la baguette, en coordonnées du modèle.
+const WAND_HANDLE: Vec3 = Vec3::new(-0.25, -0.23, 0.0);
+const WAND_GRIP: Vec3 = Vec3::new(-0.025, 0.035, -0.19);
 
 impl Hand {
     pub fn new(colors: ArmColors) -> Self {
@@ -117,7 +120,7 @@ impl Hand {
             selected: None,
             sway: Vec2::ZERO,
             last_look: None,
-            sprites: HashMap::new(),
+            models: HashMap::new(),
             aspect_ratio: 16.0 / 9.0,
             frozen: false,
         }
@@ -126,7 +129,7 @@ impl Hand {
     /// Invalide les icônes extrudées et recharge les couleurs sans interrompre la pose.
     pub fn reload_assets(&mut self, colors: ArmColors) {
         self.colors = colors;
-        self.sprites.clear();
+        self.models.clear();
     }
 
     /// Ancrage à droite, avec une taille lisible aussi dans une fenêtre étroite.
@@ -268,22 +271,18 @@ impl Hand {
             HandInstance::new(
                 part(Vec3::new(0.0, 0.0, 0.18), Vec3::new(0.15, 0.15, 0.42)),
                 color(self.colors.sleeve),
-                0,
             ),
             HandInstance::new(
                 part(Vec3::new(0.0, 0.0, -0.05), Vec3::new(0.155, 0.155, 0.04)),
                 color(self.colors.cuff),
-                0,
             ),
             HandInstance::new(
                 part(Vec3::new(0.0, 0.0, -0.17), Vec3::new(0.13, 0.13, 0.2)),
                 color(self.colors.skin),
-                0,
             ),
         ];
         let Some(item) = held else { return out };
         let def = items.get(item);
-        // Un outil piloté par script peut n'avoir aucun ToolDef : cela reste une pose, pas une capacité de minage.
         let handheld = def.tool.is_some() || def.category == Category::Tool;
         // Présentation des outils : l'objet remplace le bras, comme dans la vue classique.
         if handheld {
@@ -292,52 +291,52 @@ impl Hand {
         // Les blocs et petits objets conservent leur présentation devant les doigts.
         // Le profil des outils est indépendant de ce repère de bras.
         let grip = pose * Mat4::from_translation(Vec3::new(-0.02, 0.07, -0.3));
-        match def.icon {
-            // Un conduit garde son segment d'inventaire ; les autres blocs sont présentés en cube.
+        let model = match def.icon {
             Icon::Block(block) => {
-                let layer = blocks.def(block).face_textures[1];
-                let tint = if layer == 0 {
-                    blocks.def(block).color
-                } else {
-                    [1.0; 3]
-                };
-                let connected = blocks.def(block).connections.is_some();
-                let model = grip
-                    * Mat4::from_rotation_y(0.7)
-                    * Mat4::from_scale(Vec3::splat(if connected { 0.36 } else { 0.2 }));
-                if connected {
-                    for b in &blocks.def(block).boxes {
-                        let part = model
-                            * Mat4::from_translation((b.min + b.max) * 0.5 - Vec3::splat(0.5))
-                            * Mat4::from_scale(b.max - b.min);
-                        out.push(HandInstance::new(part, tint, layer));
+                let block = blocks.def(block);
+                let (offset, pitch, yaw, roll, scale) = match block.key.as_str() {
+                    "core:torch" => (Vec3::Y * 0.08, 0.0, 0.10, -0.22, 0.38),
+                    engine_voxel::bed::ITEM => (Vec3::Y * 0.08, 0.21, -0.92, 0.0, 0.24),
+                    _ if block.connections.is_some() => (Vec3::ZERO, 0.0, 0.7, 0.0, 0.36),
+                    _ if block.boxes.is_empty() && block.shape == engine_voxel::Shape::Cube => {
+                        (Vec3::ZERO, 0.0, 0.7, 0.0, 0.20)
                     }
-                } else {
-                    out.push(HandInstance::new(model, tint, layer));
-                }
+                    _ => (Vec3::ZERO, 0.0, 0.36, 0.0, 0.28),
+                };
+                grip * Mat4::from_translation(offset)
+                    * Mat4::from_rotation_x(pitch)
+                    * Mat4::from_rotation_y(yaw)
+                    * Mat4::from_rotation_z(roll)
+                    * Mat4::from_scale(Vec3::splat(scale))
             }
             // Un outil, un lingot... : son icône extrudée, un petit cube par pixel.
             Icon::Texture(_) => {
-                let plane = if handheld {
+                if handheld {
                     self.held_pose()
+                } else if def.key == "magie:wand" {
+                    // La poignée traverse la main, le cristal pointe vers le haut et l'avant.
+                    pose * Mat4::from_translation(WAND_GRIP)
+                        * Mat4::from_rotation_y(0.67)
+                        * Mat4::from_axis_angle(Vec3::new(1.0, 1.0, 0.0).normalize(), -1.13)
+                        * Mat4::from_scale(Vec3::splat(0.66))
+                        * Mat4::from_translation(-WAND_HANDLE)
                 } else {
                     grip * Mat4::from_rotation_y(-0.5)
                         * Mat4::from_rotation_z(0.15)
                         * Mat4::from_translation(Vec3::new(0.0, 0.38 * 0.25, 0.0))
                         * Mat4::from_scale(Vec3::splat(0.38))
-                };
-                let parts = self
-                    .sprites
-                    .entry(item)
-                    .or_insert_with(|| crate::item_models::build(item, items, blocks));
-                for part in parts {
-                    let model = plane
-                        * Mat4::from_translation(Vec3::from_array(part.center))
-                        * Mat4::from_scale(Vec3::from_array(part.size));
-                    out.push(HandInstance::new(model, part.color, 0));
                 }
             }
-        }
+        };
+        let parts = self
+            .models
+            .entry(item)
+            .or_insert_with(|| crate::item_models::build(item, items, blocks));
+        out.extend(
+            parts
+                .iter()
+                .map(|part| HandInstance::from_cube(model, part)),
+        );
         out
     }
 }
@@ -574,6 +573,43 @@ mod tests {
     }
 
     #[test]
+    fn wand_grip_meets_the_hand_and_the_crystal_points_forward_in_both_packs() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut blocks = crate::test_registry();
+        let items = ItemRegistry::load_mods(
+            &blocks,
+            &root.join("assets"),
+            &[("magie".into(), root.join("mods/magie"))],
+        )
+        .unwrap();
+        let item = items.id("magie:wand").unwrap();
+        let mut hand = Hand::new(ArmColors::default());
+        hand.visible = true;
+        for packed in [false, true] {
+            if packed {
+                blocks
+                    .set_visual_pack(Some(root.join("texture_packs/earth-copper-32/assets")), 32)
+                    .unwrap();
+                hand.reload_assets(hand.colors);
+            }
+            let actual = hand.instances(Some(item), &items, &blocks);
+            let source = crate::item_models::build(item, &items, &blocks);
+            assert_eq!(actual.len(), source.len() + 3);
+            let grip = hand.arm_pose().transform_point3(WAND_GRIP);
+            let mut has_handle = false;
+            let mut has_tip = false;
+            for (part, raw) in actual[3..].iter().zip(&source) {
+                let local = Vec3::from_array(raw.center);
+                let held = Mat4::from_cols_array_2d(&part.model).transform_point3(Vec3::ZERO);
+                has_handle |= local.distance(WAND_HANDLE) < 0.065 && held.distance(grip) < 0.035;
+                has_tip |= local.x > 0.25 && held.y > grip.y + 0.25 && held.z < grip.z - 0.18;
+            }
+            assert!(has_handle, "la poignée traverse la main, pack32={packed}");
+            assert!(has_tip, "le cristal pointe vers l'avant, pack32={packed}");
+        }
+    }
+
+    #[test]
     fn empty_hand_and_asset_reload_keep_working() {
         let blocks = crate::test_registry();
         let items = ItemRegistry::builtin(&blocks).unwrap();
@@ -582,13 +618,44 @@ mod tests {
         assert_eq!(hand.instances(None, &items, &blocks).len(), 3);
         let item = items.id("core:iron_sword").unwrap();
         let parts = hand.instances(Some(item), &items, &blocks);
-        assert!(!hand.sprites.is_empty());
+        assert!(!hand.models.is_empty());
         hand.reload_assets(ArmColors::default());
-        assert!(hand.sprites.is_empty());
+        assert!(hand.models.is_empty());
         assert_eq!(
             hand.instances(Some(item), &items, &blocks).len(),
             parts.len()
         );
+    }
+
+    #[test]
+    fn held_blocks_keep_the_parts_and_surfaces_of_the_dropped_model() {
+        let blocks = crate::test_registry();
+        let items = ItemRegistry::builtin(&blocks).unwrap();
+        let mut hand = Hand::new(ArmColors::default());
+        hand.visible = true;
+        for key in [
+            "core:torch",
+            "core:bed",
+            "core:chest",
+            "core:oak_sapling",
+            "core:grass",
+        ] {
+            let item = items.id(key).unwrap();
+            let source = crate::item_models::build(item, &items, &blocks);
+            let held = hand.instances(Some(item), &items, &blocks);
+            assert!(!source.is_empty(), "{key}");
+            assert_eq!(held.len(), 3 + source.len(), "{key}");
+            for (part, raw) in held[3..].iter().zip(&source) {
+                assert_eq!(
+                    (part.textures, part.uv_min, part.uv_max),
+                    (raw.textures, raw.uv_min, raw.uv_max),
+                    "{key}"
+                );
+            }
+        }
+        let bed = crate::item_models::build(items.id("core:bed").unwrap(), &items, &blocks);
+        assert!(bed.iter().any(|p| p.center[2] < -0.5));
+        assert!(bed.iter().any(|p| p.center[2] > 0.5));
     }
 
     fn input(dt: f32) -> HandInput {

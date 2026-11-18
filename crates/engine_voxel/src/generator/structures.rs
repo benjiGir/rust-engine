@@ -1058,7 +1058,22 @@ impl Builder<'_> {
                 if ruined {
                     self.chest(f.map(w / 2, floor, d - 2));
                 } else {
-                    furnish(self, 1, d - 2, "core:bed");
+                    let head = f.map(1, floor, d - 2);
+                    let mut foot = f.map(1, floor, d - 3);
+                    let forward = head - foot;
+                    // Un village généré en bordure d'un ancien chunk doit garder son lit entier.
+                    if crate::World::split(head).0 != crate::World::split(foot).0 {
+                        foot -= forward;
+                    }
+                    if let Some(parts) =
+                        crate::bed::placement(&self.world.registry, foot, forward.as_vec3())
+                    {
+                        for (pos, block) in parts {
+                            self.put(pos, block);
+                        }
+                    } else {
+                        furnish(self, 1, d - 2, "core:bed");
+                    }
                     furnish(self, w - 2, 1, "core:workbench");
                     if self.rng.next_f32() < 0.6 {
                         self.chest(f.map(w - 2, floor, d - 2));
@@ -1767,7 +1782,19 @@ mod tests {
         let count = |block: BlockId| plan.blocks().iter().filter(|(_, b)| *b == block).count();
         assert!(count(id("core:glass")) >= 2, "des fenêtres");
         assert!(count(id("core:gravel")) > 40, "des chemins");
-        assert!(count(id("core:bed")) + count(id("core:workbench")) >= 1);
+        let cells: HashMap<_, _> = plan.blocks().iter().copied().collect();
+        let beds: Vec<_> = cells
+            .iter()
+            .filter_map(|(&pos, &block)| crate::bed::partner(generator.registry(), pos, block))
+            .collect();
+        assert!(!beds.is_empty(), "des lits dans les maisons");
+        for (other, expected) in beds {
+            assert_eq!(
+                cells.get(&other),
+                Some(&expected),
+                "lit incomplet en {other}"
+            );
+        }
         assert!(!plan.spots.is_empty(), "au moins un habitant");
         let kinds: Vec<_> = plan.spots.iter().map(|s| s.mob).collect();
         assert!(kinds.iter().all(|k| k.starts_with("core:")));

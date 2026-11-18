@@ -782,6 +782,46 @@ par leur clé d'objet. Les planches sont des rendus CPU : la limite graphique
 macOS décrite aux lots précédents empêche encore les captures natives ici.
 Aucun monde, fichier de `.idea/`, script ou WASM de mod n'a été modifié par ce lot.
 
+## Lot 18 — baguette et accessoires
+
+[Dessins avant](18-accessoires-avant.png) · [Dessins après](18-accessoires-apres.png)
+· [Baguette en main avant](18-baguette-main-avant.png)
+· [Baguette en main après](18-baguette-main-apres.png)
+
+Les 459 images du jeu et des six mods livrés ont leur équivalent en 32 × 32.
+Le registre charge 246 références de textures et 213 d'icônes, toutes résolues
+dans les deux packs. La passe ajoute 24 dessins dédiés en 32 × 32 et reprend
+sept dessins en 16 × 16. En 32 × 32, 53 icônes et 85 textures passent encore
+par le traitement de détail commun, notamment les wagonnets, seaux, kits,
+aliments simples, minerais bruts et certaines faces de blocs.
+
+Le modèle de baguette extrudé est commun aux vues en main et au sol. En main,
+la prise est alignée sur la poignée et le cristal pointe vers le haut et
+l'avant. Un test vérifie la prise et l'orientation sur les deux packs. Les vues
+en main sont produites sur CPU à partir des mêmes matrices que le jeu.
+
+```sh
+cargo run -p voxel --example texture_pack_details -- docs/visual/18-accessoires-apres.png --accessories
+cargo run -p voxel --example hand_review -- magic docs/visual/18-baguette-main-apres.png --pack32
+```
+
+## Lit à deux blocs et objets en main
+
+[Vue en main 16 × 16](19-blocs-main-16.png) · [Vue en main 32 × 32](19-blocs-main-32.png)
+
+La baguette est agrandie autour de sa prise. La torche, le coffre, le levier
+et les autres blocs à boîtes gardent leurs volumes et leurs textures par face
+dans la main. La miniature et l'objet au sol du lit montrent les deux moitiés.
+
+Les nouveaux lits s'orientent selon le regard et exigent deux cases libres avec
+un support. On peut utiliser ou casser chaque moitié et la casse rend un seul
+lit. Les nouveaux villages posent des paires. Les lits d'une case déjà sauvegardés
+restent utilisables à leur emplacement et se reposent en deux cases après avoir
+été cassés. Les identifiants des blocs existants sont conservés dans les sauvegardes.
+
+Les planches sont calculées sur CPU avec les matrices de la vue en main. Le
+lancement natif a été bloqué par le service macOS `com.apple.hiservices-xpcservice`.
+
 ## Commits et patchs
 
 L’écriture dans `.git` est interdite par l’environnement : `git add` échoue sur

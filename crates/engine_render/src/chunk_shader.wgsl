@@ -58,6 +58,7 @@ const FLAG_FURNACE_FIRE: u32 = 1048576u;
 const FLAG_GROUND: u32 = 2097152u;
 const FLAG_WATER: u32 = 4194304u;   // 1 << 22 : eau libre, animée
 const TURN_SHIFT: u32 = 23u;        // 2 bits : quarts de tour de la texture (les rails)
+const FLAG_MODEL_UV: u32 = 1u << 25u;
 const TEXTURE_MASK: u32 = 65535u;
 
 struct VertexOut {
@@ -94,7 +95,16 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
         local = local * vertex.uv_base.w;
     }
     // Les UV restent dans le repère de repos : la texture tourne avec la pièce.
-    let tex_position = vertex.uv_base.xyz + local;
+    var tex_position = vertex.uv_base.xyz + local;
+    var tex_normal = vertex.normal.xyz;
+    // Une rotation de modèle transforme aussi les côtés (axe de projection des UV).
+    if (vertex.texture & FLAG_MODEL_UV) != 0u {
+        let turns = (vertex.texture >> TURN_SHIFT) & 3u;
+        for (var i = 0u; i < turns; i++) {
+            tex_position = vec3<f32>(tex_position.z, tex_position.y, -tex_position.x);
+            tex_normal = vec3<f32>(tex_normal.z, tex_normal.y, -tex_normal.x);
+        }
+    }
     var normal = vertex.normal.xyz;
     if (vertex.texture & FLAG_ROTATE) != 0u {
         let index = vertex.position.w;
@@ -127,7 +137,7 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
     out.normal = normal;
     out.world_position = world;
     out.tex_position = tex_position;
-    out.tex_normal = vertex.normal.xyz;
+    out.tex_normal = tex_normal;
     // Interpolée entre les sommets : c'est ce qui rend la lumière « douce ».
     out.light = vertex.light.xyz;
     out.texture = vertex.texture & TEXTURE_MASK;
@@ -206,7 +216,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     var uv = face_uv(in.tex_position, in.tex_normal);
     // Un rail : le même dessin tourné d'un, deux ou trois quarts de tour (sens horaire, vu d'en haut).
     let turns = (in.flags >> TURN_SHIFT) & 3u;
-    if turns != 0u {
+    if turns != 0u && (in.flags & FLAG_MODEL_UV) == 0u {
         let cell = floor(uv);
         var t = uv - cell;
         for (var i = 0u; i < turns; i++) {

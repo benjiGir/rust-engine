@@ -117,6 +117,45 @@ pub(super) fn draw(kind: &str) -> Image {
             rect(&mut image, [3, 7, 13, 8], linen);
             rect(&mut image, [1, 11, 15, 12], scale(wood, 1.25));
         }
+        "bed_head_top" | "bed_foot_top" => {
+            let head = kind == "bed_head_top";
+            image = planks(wood, 116);
+            rect(
+                &mut image,
+                [2, if head { 2 } else { 0 }, 14, if head { 16 } else { 15 }],
+                sage,
+            );
+            for x in [2, 13] {
+                rect(
+                    &mut image,
+                    [
+                        x,
+                        if head { 2 } else { 0 },
+                        x + 1,
+                        if head { 16 } else { 15 },
+                    ],
+                    scale(sage, 0.70),
+                );
+            }
+            if head {
+                rect(&mut image, [3, 3, 13, 9], linen);
+                rect(&mut image, [3, 8, 13, 9], scale(linen, 0.75));
+                rect(&mut image, [3, 10, 13, 11], scale(sage, 1.35));
+            } else {
+                rect(&mut image, [3, 10, 13, 12], scale(sage, 1.25));
+                for x in (4..13).step_by(2) {
+                    image.set(x, 13, scale(linen, 0.72));
+                }
+            }
+        }
+        "bed_long_side" => {
+            image = planks(wood, 116);
+            rect(&mut image, [0, 5, 16, 7], scale(linen, 0.86));
+            rect(&mut image, [0, 7, 16, 11], sage);
+            rect(&mut image, [0, 7, 16, 8], scale(sage, 1.22));
+            rect(&mut image, [0, 10, 16, 11], scale(sage, 0.70));
+            rect(&mut image, [0, 11, 16, 12], scale(wood, 1.20));
+        }
         "enchanting_top" | "rune_table" => {
             rect(&mut image, [1, 1, 15, 15], scale(slate, 1.1));
             for (x, y) in [(2, 2), (12, 2), (2, 12), (12, 12)] {

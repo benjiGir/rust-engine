@@ -3,11 +3,17 @@
 mod common;
 use anyhow::{Context, Result};
 use engine_render::egui::{self, Color32};
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 fn main() -> Result<()> {
     let output = std::env::args().nth(1).context("sortie.png")?;
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = std::env::args().nth(3).map_or_else(
+        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        PathBuf::from,
+    );
     let ctx = egui::Context::default();
     let names = [
         ("core", "items", "iron_pickaxe"),
@@ -47,7 +53,35 @@ fn main() -> Result<()> {
         ("entrepot", "textures", "vault_side"),
         ("forge", "textures", "anvil_top"),
     ];
-    let names: Vec<_> = if std::env::args().nth(2).as_deref() == Some("--fauna") {
+    let mode = std::env::args().nth(2);
+    let names: Vec<_> = if mode.as_deref() == Some("--accessories") {
+        vec![
+            ("magie", "items", "wand"),
+            ("magie", "items", "rune_flame"),
+            ("magie", "items", "rune_heal"),
+            ("magie", "items", "rune_blink"),
+            ("magie", "items", "rune_power"),
+            ("magie", "items", "rune_reach"),
+            ("magie", "textures", "rune_table"),
+            ("donjons", "items", "warden_sigil"),
+            ("forge", "items", "pickaxe_head"),
+            ("forge", "items", "axe_head"),
+            ("forge", "items", "sword_blade"),
+            ("core", "items", "shears"),
+            ("core", "items", "enchanted_book"),
+            ("core", "items", "charm_fire_resistance"),
+            ("core", "items", "charm_healing"),
+            ("core", "items", "charm_regeneration"),
+            ("core", "items", "charm_speed"),
+            ("core", "items", "charm_strength"),
+            ("core", "items", "seal_socket"),
+            ("core", "items", "seal_unsocket"),
+            ("core", "items", "backpack_leather"),
+            ("core", "items", "backpack_copper"),
+            ("core", "items", "backpack_iron"),
+            ("core", "items", "backpack_sapphire"),
+        ]
+    } else if mode.as_deref() == Some("--fauna") {
         [
             "wool",
             "feather",

@@ -389,6 +389,7 @@ impl Piston {
             && def.hardness >= 0.0
             && !def.liquid
             && block != self.head
+            && !crate::bed::is_part(registry, block)
             && ctx.block_entity(at).is_none()
     }
 

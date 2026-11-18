@@ -5,7 +5,7 @@ Depuis le menu principal : **Packs de textures… → Terre, ardoise et cuivre �
 du joueur et s'applique aussi aux mondes déjà enregistrés. Pour revenir au rendu
 d'origine, sélectionner **Classique · 16 × 16** puis appliquer.
 
-Le pack fourni comprend **459 PNG RGBA en 32 × 32**, couvrant les textures de blocs,
+Le pack fourni comprend **462 PNG RGBA en 32 × 32**, couvrant les textures de blocs,
 les icônes d'objets et les matières des animaux et ennemis du jeu et des mods de référence.
 Les principales matières sont
 redessinées directement en 32 : touffes d'herbe, terre caillouteuse et racines,
@@ -54,3 +54,10 @@ Les [moutons, poules et poissons](../docs/visual/16-faune-32.png) possèdent aus
 leurs textures natives, ainsi que [leurs butins en 16 et 32](../docs/visual/16-butins.png).
 Les [seize couleurs de moutons et de laine](../docs/visual/17-moutons-32.png)
 partagent la palette `assets/core/wool_colors.ron`, utilisée par le jeu et assetgen.
+
+La [planche des accessoires](../docs/visual/18-accessoires-apres.png) montre les
+nouveaux dessins de la baguette, des runes, de la table des runes, des sceaux et
+talismans, ainsi que des sacs, du livre enchanté, des cisailles et des pièces de
+forge. La baguette, les cinq runes et le sceau du gardien ont aussi été repris dans
+le pack classique. La [vue en main](../docs/visual/18-baguette-main-apres.png)
+montre la prise de la baguette et le cristal orienté vers l'avant.

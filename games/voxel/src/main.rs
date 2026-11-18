@@ -1635,6 +1635,15 @@ impl VoxelGame {
             .registry
             .placement_variant(block, forward, hit.normal, hit_y);
         let pos = hit.block_pos + hit.normal;
+        if self.registry.def(block).key == engine_voxel::bed::ITEM {
+            if hit.normal == IVec3::ZERO {
+                return None;
+            }
+            self.place_bed(pos, forward)?;
+            self.inventory.consume_selected();
+            self.hand.punch();
+            return Some(pos);
+        }
         // Normale nulle : le rayon part de l'intérieur d'un bloc, pas de face où poser.
         // On peut poser dans l'air ou à la place d'un liquide (l'eau).
         let target = self.streamer().world().block(pos);
@@ -1767,6 +1776,8 @@ impl VoxelGame {
 
     fn edit(&mut self, pos: IVec3, block: BlockId) -> bool {
         let old = self.streamer().world().block(pos);
+        let partner = engine_voxel::bed::partner(&self.registry, pos, old)
+            .filter(|&(p, expected)| old != block && self.streamer().world().block(p) == expected);
         // Un bloc à inventaire (coffre, four, machine de mod) lâche son contenu quand il change.
         let contents = if old != block {
             self.container_contents(pos)
@@ -1780,9 +1791,6 @@ impl VoxelGame {
                 self.drop_stack(pos, stack);
             }
             self.frame_stats.record_edit(start.elapsed());
-            // Les machines voisines (et la nouvelle, si c'en est une) se réveillent.
-            let actions = self.mods.block_changed(pos);
-            self.apply_machine_actions(actions);
             // Le bloc a changé : le rayon doit être relancé à la prochaine image.
             self.target = None;
             // On annonce le changement : le son (et plus tard les mods) s'y abonnent.
@@ -1791,25 +1799,37 @@ impl VoxelGame {
             } else {
                 events::send(&self.ecs, BlockPlaced { pos, block });
             }
-            // Les fluides voisins se réveillent (un trou au bord d'un lac se remplit).
-            self.fluids.wake(pos);
-            // Le support et la gravité : une fleur sans sol tombe, le sable s'écroule.
-            let settled = engine_voxel::settle(&mut self.streamer_mut(), pos);
-            for (p, broken) in settled.broken {
-                let harvest = self.registry.def(broken).tier == 0;
-                self.drop_loot(p, broken, None, harvest);
-                let actions = self.mods.block_changed(p);
-                self.apply_machine_actions(actions);
-            }
-            for (from, to, _) in settled.fallen {
-                for p in [from, to] {
-                    self.fluids.wake(p);
-                    let actions = self.mods.block_changed(p);
-                    self.apply_machine_actions(actions);
-                }
+            self.after_edit(pos);
+            if let Some((other, _)) = partner {
+                self.after_edit(other);
             }
         }
         done
+    }
+
+    fn after_edit(&mut self, pos: IVec3) {
+        self.notify_edit(pos);
+        // Une fleur sans sol tombe, le sable s'écroule.
+        let settled = engine_voxel::settle(&mut self.streamer_mut(), pos);
+        for (p, broken) in settled.broken {
+            let harvest = self.registry.def(broken).tier == 0;
+            self.drop_loot(p, broken, None, harvest);
+            self.notify_edit(p);
+            if let Some((other, _)) = engine_voxel::bed::partner(&self.registry, p, broken) {
+                self.notify_edit(other);
+            }
+        }
+        for (from, to, _) in settled.fallen {
+            for p in [from, to] {
+                self.notify_edit(p);
+            }
+        }
+    }
+
+    fn notify_edit(&mut self, pos: IVec3) {
+        self.fluids.wake(pos);
+        let actions = self.mods.block_changed(pos);
+        self.apply_machine_actions(actions);
     }
 
     /// Le jeu écoute ses propres événements pour jouer les sons.

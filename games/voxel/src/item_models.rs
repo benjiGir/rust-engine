@@ -8,43 +8,50 @@ use glam::Vec3;
 pub fn build(item: ItemId, items: &ItemRegistry, blocks: &BlockRegistry) -> Vec<CubeInstance> {
     let def = items.get(item);
     match &def.icon {
-        Icon::Block(id) => {
-            let block = blocks.def(*id);
-            if matches!(block.shape, Shape::Cross | Shape::Flat | Shape::Rail) {
-                return block.face_textures[1]
-                    .checked_sub(1)
-                    .and_then(|i| blocks.textures().get(i as usize))
-                    .map_or_else(Vec::new, |key| sprite(key, "textures", blocks));
-            }
-            let boxes = if block.boxes.is_empty() {
-                &[BlockBox::FULL][..]
-            } else {
-                &block.boxes
-            };
-            boxes
-                .iter()
-                .map(|b| {
-                    CubeInstance::new(
-                        (b.min + b.max) * 0.5 - Vec3::splat(0.5),
-                        b.max - b.min,
-                        if block.face_textures == [0; 3] {
-                            Vec3::from_array(block.color)
-                        } else {
-                            Vec3::ONE
-                        },
-                    )
-                    .with_surface(
-                        block.face_textures,
-                        b.min,
-                        b.max,
-                        block.cutout,
-                        block.alpha,
-                    )
-                })
-                .collect()
-        }
+        Icon::Block(id) => engine_voxel::bed::display_parts(blocks, *id).map_or_else(
+            || block_parts(blocks.def(*id), Vec3::ZERO, blocks),
+            |parts| {
+                parts
+                    .into_iter()
+                    .flat_map(|(id, offset)| block_parts(blocks.def(id), offset, blocks))
+                    .collect()
+            },
+        ),
         Icon::Texture(key) => sprite(key, "items", blocks),
     }
+}
+
+fn block_parts(
+    block: &engine_voxel::BlockDef,
+    offset: Vec3,
+    blocks: &BlockRegistry,
+) -> Vec<CubeInstance> {
+    if matches!(block.shape, Shape::Cross | Shape::Flat | Shape::Rail) {
+        return block.face_textures[1]
+            .checked_sub(1)
+            .and_then(|i| blocks.textures().get(i as usize))
+            .map_or_else(Vec::new, |key| sprite(key, "textures", blocks));
+    }
+    let boxes = if block.boxes.is_empty() {
+        &[BlockBox::FULL][..]
+    } else {
+        &block.boxes
+    };
+    boxes
+        .iter()
+        .map(|b| {
+            CubeInstance::new(
+                offset + (b.min + b.max) * 0.5 - Vec3::splat(0.5),
+                b.max - b.min,
+                if block.face_textures == [0; 3] {
+                    Vec3::from_array(block.color)
+                } else {
+                    Vec3::ONE
+                },
+            )
+            .with_surface(block.face_textures, b.min, b.max, block.cutout, block.alpha)
+        })
+        .collect()
 }
 
 fn sprite(key: &str, folder: &str, blocks: &BlockRegistry) -> Vec<CubeInstance> {

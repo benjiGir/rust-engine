@@ -8,6 +8,7 @@
 
 mod creature_skins;
 mod fauna_items;
+mod magic_items;
 mod sounds;
 mod texture_pack32;
 mod textures;

@@ -250,7 +250,12 @@ impl ItemRegistry {
         }
         // Une variante (orientation, moitié...) lâche et se choisit comme son bloc de base.
         for (id, def) in blocks.iter() {
-            if let Some(item) = def.base.and_then(|b| registry.by_block.get(&b).copied()) {
+            let item = if crate::bed::is_part(blocks, id) {
+                registry.id(crate::bed::ITEM)
+            } else {
+                def.base.and_then(|b| registry.by_block.get(&b).copied())
+            };
+            if let Some(item) = item {
                 registry.by_block.insert(id, item);
             }
         }

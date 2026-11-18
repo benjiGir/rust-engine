@@ -12,6 +12,7 @@
 //!
 //! Cette crate ne connaît pas wgpu : le jeu passe les sommets au renderer.
 
+pub mod bed;
 mod biome;
 mod block;
 mod block_rules;

@@ -2,13 +2,13 @@
 // du mod (`Event::ItemUsed`) au lieu de poser un bloc ou de ne rien faire.
 (
     items: [
-        (id: "magie:wand", name: "Baguette", category: Material, color: (0.1576, 0.1571, 0.1345), icon: "wand", max_stack: 1, usable: true),
+        (id: "magie:wand", name: "Baguette", category: Material, color: (0.11888, 0.13951, 0.13244), icon: "wand", max_stack: 1, usable: true),
         (id: "magie:mana_crystal", name: "Cristal de mana", category: Material, color: (0.1039, 0.2555, 0.3216), icon: "mana_crystal", usable: true),
         // Les runes : une d'effet, puis des modificateurs. Elles se composent à la table des runes.
-        (id: "magie:rune_flame", name: "Rune de flamme", category: Material, color: (0.1108, 0.1067, 0.1116), icon: "rune_flame"),
-        (id: "magie:rune_heal", name: "Rune de soin", category: Material, color: (0.0934, 0.1283, 0.1188), icon: "rune_heal"),
-        (id: "magie:rune_blink", name: "Rune de saut", category: Material, color: (0.0971, 0.1068, 0.1308), icon: "rune_blink"),
-        (id: "magie:rune_power", name: "Rune de puissance", category: Material, color: (0.1213, 0.1237, 0.1167), icon: "rune_power"),
-        (id: "magie:rune_reach", name: "Rune de portée", category: Material, color: (0.0888, 0.1165, 0.1375), icon: "rune_reach"),
+        (id: "magie:rune_flame", name: "Rune de flamme", category: Material, color: (0.24262, 0.12770, 0.10356), icon: "rune_flame"),
+        (id: "magie:rune_heal", name: "Rune de soin", category: Material, color: (0.12298, 0.20882, 0.15101), icon: "rune_heal"),
+        (id: "magie:rune_blink", name: "Rune de saut", category: Material, color: (0.13335, 0.13498, 0.23040), icon: "rune_blink"),
+        (id: "magie:rune_power", name: "Rune de puissance", category: Material, color: (0.18771, 0.16000, 0.12326), icon: "rune_power"),
+        (id: "magie:rune_reach", name: "Rune de portée", category: Material, color: (0.08441, 0.15820, 0.18659), icon: "rune_reach"),
     ],
 )

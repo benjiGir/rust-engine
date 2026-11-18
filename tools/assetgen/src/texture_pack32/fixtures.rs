@@ -96,6 +96,52 @@ fn bed(name: &str) -> Canvas {
     let mut c = wood::planks(WOOD, 871);
     let sage = [78, 125, 110];
     let linen = [218, 210, 177];
+    if name == "bed_long_side" {
+        c.rect([0, 10, 32, 4], shade(linen, 0.86));
+        c.rect([0, 14, 32, 8], sage);
+        c.line((0, 14), (31, 14), shade(sage, 1.26));
+        c.line((0, 21), (31, 21), shade(sage, 0.73));
+        c.line((0, 22), (31, 22), shade(WOOD, 1.30));
+        for x in (2..30).step_by(3) {
+            c.put(x, 19, shade(sage, 1.23));
+        }
+        return c;
+    }
+    if matches!(name, "bed_head_top" | "bed_foot_top") {
+        let head = name == "bed_head_top";
+        let y0 = if head { 4 } else { 0 };
+        let y1 = if head { 32 } else { 30 };
+        c.rect([4, y0, 24, y1 - y0], sage);
+        for y in y0..y1 {
+            for x in 4..28 {
+                let shade_factor = if !(6..26).contains(&x) {
+                    0.73
+                } else if x % 3 == 0 && y % 4 == 2 {
+                    1.12
+                } else {
+                    1.0
+                };
+                c.put(x, y, shade(sage, shade_factor));
+            }
+        }
+        for x in [5, 26] {
+            for y in (y0 + 1..y1).step_by(4) {
+                c.put(x, y, shade(linen, 0.71));
+            }
+        }
+        if head {
+            c.panel([6, 6, 20, 12], linen);
+            c.line((8, 8), (23, 8), shade(linen, 1.13));
+            c.line((6, 20), (25, 20), shade(sage, 1.39));
+            c.line((6, 21), (25, 21), shade(sage, 0.74));
+        } else {
+            c.rect([6, 19, 20, 4], shade(sage, 1.24));
+            for x in (8..25).step_by(3) {
+                c.put(x, 26, shade(linen, 0.80));
+            }
+        }
+        return c;
+    }
     if name.ends_with("top") {
         c.rect([4, 2, 24, 28], sage);
         for y in 4..30 {

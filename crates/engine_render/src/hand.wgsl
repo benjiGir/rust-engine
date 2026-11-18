@@ -36,8 +36,11 @@ struct InstanceIn {
     @location(4) model_2: vec4<f32>,
     @location(5) model_3: vec4<f32>,
     @location(6) color: vec4<f32>,
-    // 0 : couleur unie ; sinon la couche de texture du bloc tenu.
-    @location(7) texture: u32,
+    // Dessus, côtés, dessous ; 0 : couleur unie.
+    @location(7) textures: vec3<u32>,
+    @location(8) cutout: u32,
+    @location(9) uv_min: vec3<f32>,
+    @location(10) uv_max: vec3<f32>,
 };
 
 struct VertexOut {
@@ -46,6 +49,7 @@ struct VertexOut {
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) @interpolate(flat) texture: u32,
+    @location(4) @interpolate(flat) cutout: u32,
 };
 
 @vertex
@@ -57,11 +61,13 @@ fn vs_main(vertex: VertexIn, instance: InstanceIn) -> VertexOut {
     out.clip_position = hand.proj * model * vec4<f32>(local, 1.0);
     out.normal = normalize((model * vec4<f32>(vertex.normal, 0.0)).xyz);
     out.color = instance.color;
-    out.texture = instance.texture;
-    // Les coordonnées de texture selon la face du cube (comme pour les chunks).
-    let p = vertex.position;
+    out.texture = instance.textures.y;
+    out.cutout = instance.cutout;
+    // Les boîtes partielles gardent la même découpe de texture que dans le monde.
+    let p = mix(instance.uv_min, instance.uv_max, vertex.position);
     let n = abs(vertex.normal);
     if n.y > 0.5 {
+        out.texture = select(instance.textures.z, instance.textures.x, vertex.normal.y > 0.0);
         out.uv = p.xz;
     } else if n.x > 0.5 {
         out.uv = vec2<f32>(p.z, 1.0 - p.y);
@@ -77,10 +83,8 @@ fn brightness(level: f32) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-    var albedo = in.color;
-    if in.texture != 0u {
-        albedo *= textureSample(block_textures, block_sampler, in.uv, in.texture);
-    }
+    let albedo = in.color * textureSample(block_textures, block_sampler, in.uv, in.texture);
+    if in.cutout != 0u && albedo.a < 0.5 { discard; }
     // La lumière du lieu où se tient le joueur : le bras est sombre dans une grotte.
     let sky = brightness(hand.light.x) * hand.light.z * hand.sun_color.rgb;
     let torch = brightness(hand.light.y) * vec3<f32>(1.0, 0.82, 0.6);

@@ -124,16 +124,35 @@ pub struct HandInstance {
     /// s'applique à un cube unité centré sur l'origine.
     pub model: [[f32; 4]; 4],
     pub color: [f32; 4],
-    /// 0 : couleur unie ; sinon la couche de texture (un bloc tenu en main).
-    pub texture: u32,
+    /// Dessus, côtés, dessous ; 0 : couleur unie.
+    pub textures: [u32; 3],
+    pub cutout: u32,
+    pub uv_min: [f32; 3],
+    pub uv_max: [f32; 3],
 }
 
 impl HandInstance {
-    pub fn new(model: glam::Mat4, color: [f32; 3], texture: u32) -> Self {
+    pub fn new(model: glam::Mat4, color: [f32; 3]) -> Self {
         Self {
             model: model.to_cols_array_2d(),
             color: [color[0], color[1], color[2], 1.0],
-            texture,
+            textures: [0; 3],
+            cutout: 0,
+            uv_min: [0.0; 3],
+            uv_max: [1.0; 3],
+        }
+    }
+
+    pub fn from_cube(pose: glam::Mat4, part: &CubeInstance) -> Self {
+        let model = pose
+            * glam::Mat4::from_translation(Vec3::from_array(part.center))
+            * glam::Mat4::from_scale(Vec3::from_array(part.size));
+        Self {
+            textures: part.textures,
+            cutout: part.cutout,
+            uv_min: part.uv_min,
+            uv_max: part.uv_max,
+            ..Self::new(model, part.color)
         }
     }
 }
@@ -528,7 +547,8 @@ impl Renderer {
                 array_stride: size_of::<HandInstance>() as u64,
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &wgpu::vertex_attr_array![
-                    2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Uint32
+                    2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4,
+                    7 => Uint32x3, 8 => Uint32, 9 => Float32x3, 10 => Float32x3
                 ],
             }),
         ];

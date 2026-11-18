@@ -142,6 +142,8 @@ pub const FLAG_WATER: u32 = 1 << 22;
 /// Le décalage des deux bits qui font tourner la texture de quarts de tour (les rails : un seul
 /// dessin pour les quatre orientations).
 pub const FLAG_TURN_SHIFT: u32 = 23;
+/// Les deux bits de rotation s'appliquent au repère 3D du modèle, avant projection des UV.
+pub const FLAG_MODEL_UV: u32 = 1 << 25;
 /// Les bits de la couche de texture dans [`MeshVertex::texture`].
 pub const TEXTURE_MASK: u32 = 0xFFFF;
 
@@ -825,7 +827,12 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                 // Les sommets du haut se balancent, ceux du bas restent plantés.
                 let sway_top = flags & FLAG_SWAY;
                 if def.shape == Shape::Model {
-                    model_boxes(hood, mesh, def, p, base, color, block_flags(def));
+                    let mut flags = block_flags(def);
+                    if crate::bed::is_part(&hood.registry, block) {
+                        flags |=
+                            FLAG_MODEL_UV | (u32::from(def.state_values[0]) << FLAG_TURN_SHIFT);
+                    }
+                    model_boxes(hood, mesh, def, p, base, color, flags);
                     continue;
                 }
                 let quads: Vec<([Vec3; 4], [f32; 3])> = match def.shape {

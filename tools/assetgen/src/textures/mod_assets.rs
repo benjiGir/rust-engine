@@ -101,30 +101,15 @@ pub(super) fn generate(root: &Path) -> Vec<(PathBuf, Image)> {
     ] {
         let image = if name == "mana_crystal" {
             items::material("gem", [0.42, 0.64, 0.72])
-        } else if name == "wand" {
-            let mut image = Image::transparent();
-            for k in 0..10 {
-                image.plot(2 + k, 13 - k, [0.53, 0.36, 0.25]);
-                image.plot(3 + k, 13 - k, COPPER);
-            }
-            for y in 1i32..6 {
-                for x in 9i32..14 {
-                    if (x - 11).abs() + (y - 3).abs() < 3 {
-                        image.plot(x, y, [0.50, 0.74, 0.76]);
-                    }
-                }
-            }
-            items::outlined(image)
         } else {
-            rune(name)
+            magic_item(name)
         };
         out.push((root.join(format!("mods/magie/items/{name}.png")), image));
     }
-    let mut sigil = rune("warden_sigil");
-    for (x, y) in [(4, 4), (11, 4), (4, 11), (11, 11)] {
-        sigil.set(x, y, COPPER);
-    }
-    out.push((root.join("mods/donjons/items/warden_sigil.png"), sigil));
+    out.push((
+        root.join("mods/donjons/items/warden_sigil.png"),
+        magic_item("warden_sigil"),
+    ));
     for name in [
         "bronze_ingot",
         "steel_ingot",
@@ -208,79 +193,11 @@ fn forged_part(kind: &str) -> Image {
     items::outlined(image)
 }
 
-fn rune(name: &str) -> Image {
-    let mut image = Image::transparent();
-    for y in 2..14 {
-        for x in 3..13 {
-            if (3..13).contains(&y) || (4..12).contains(&x) {
-                image.set(x, y, [0.34, 0.39, 0.41]);
-            }
-        }
+fn magic_item(name: &str) -> Image {
+    Image {
+        pixels: crate::magic_items::draw(name, 16)
+            .unwrap()
+            .try_into()
+            .unwrap(),
     }
-    rect(&mut image, [4, 3, 5, 12], [0.52, 0.55, 0.51]);
-    let color = match name {
-        "rune_flame" => COPPER,
-        "rune_heal" => [0.48, 0.69, 0.44],
-        "rune_blink" => [0.66, 0.51, 0.73],
-        "rune_reach" => [0.43, 0.66, 0.74],
-        _ => [0.84, 0.70, 0.40],
-    };
-    let glyph: &[(usize, usize)] = match name {
-        "rune_flame" => &[
-            (8, 4),
-            (7, 5),
-            (7, 6),
-            (9, 6),
-            (6, 7),
-            (9, 7),
-            (6, 8),
-            (9, 8),
-            (7, 9),
-            (8, 9),
-        ],
-        "rune_heal" => &[
-            (7, 5),
-            (8, 5),
-            (7, 6),
-            (8, 6),
-            (5, 7),
-            (6, 7),
-            (7, 7),
-            (8, 7),
-            (9, 7),
-            (10, 7),
-            (7, 8),
-            (8, 8),
-            (7, 9),
-            (8, 9),
-        ],
-        "rune_blink" => &[(6, 5), (7, 5), (8, 6), (9, 7), (8, 8), (7, 9), (6, 9)],
-        "rune_reach" => &[
-            (5, 9),
-            (6, 8),
-            (7, 7),
-            (8, 6),
-            (9, 5),
-            (7, 5),
-            (8, 5),
-            (9, 6),
-            (9, 7),
-        ],
-        _ => &[
-            (7, 5),
-            (8, 5),
-            (6, 6),
-            (9, 6),
-            (5, 7),
-            (10, 7),
-            (6, 8),
-            (9, 8),
-            (7, 9),
-            (8, 9),
-        ],
-    };
-    for &(x, y) in glyph {
-        image.set(x, y, color);
-    }
-    items::outlined(image)
 }

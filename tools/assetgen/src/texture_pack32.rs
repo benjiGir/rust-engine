@@ -5,6 +5,7 @@ use std::{
     io::{BufReader, BufWriter},
     path::{Path, PathBuf},
 };
+mod accessories;
 mod detail;
 mod draw;
 mod fixtures;
@@ -107,6 +108,8 @@ fn refine(source: &[Pixel], name: &str, item: bool) -> Vec<Pixel> {
     let mut image = if item {
         crate::fauna_items::draw(name, 32)
             .map(draw::Canvas)
+            .or_else(|| crate::magic_items::draw(name, 32).map(draw::Canvas))
+            .or_else(|| accessories::item(name))
             .or_else(|| items::draw(source, name))
     } else {
         crate::creature_skins::draw(name, 32)
@@ -114,6 +117,7 @@ fn refine(source: &[Pixel], name: &str, item: bool) -> Vec<Pixel> {
             .or_else(|| terrain::draw(source, name))
             .or_else(|| wood::draw(name))
             .or_else(|| fixtures::draw(name))
+            .or_else(|| (name == "rune_table").then(accessories::rune_table))
             .or_else(|| detail::plant(source, name))
     }
     .unwrap_or_else(|| detail::accessory(source, name, item));

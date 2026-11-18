@@ -135,7 +135,7 @@ fn tool(name: &str) -> Option<Canvas> {
     Some(c)
 }
 
-fn outline(c: &mut Canvas) {
+pub(super) fn outline(c: &mut Canvas) {
     let before = c.0.clone();
     for y in 1..31 {
         for x in 1..31 {
@@ -310,7 +310,7 @@ pub(super) fn draw(source: &[Pixel], name: &str) -> Option<Canvas> {
             }
             outline(&mut c);
             c
-        } else if name == "book" || name == "guide" || name.starts_with("tome_") {
+        } else if matches!(name, "book" | "guide" | "enchanted_book") || name.starts_with("tome_") {
             let mut c = Canvas::transparent();
             let cover = mix(accent(source), [78, 79, 65], 0.35);
             c.panel([6, 4, 21, 25], cover);
@@ -320,7 +320,19 @@ pub(super) fn draw(source: &[Pixel], name: &str) -> Option<Canvas> {
             }
             c.rect([6, 4, 4, 25], shade(cover, 0.65));
             c.panel([11, 10, 10, 10], cover);
-            c.bolt(15, 14, COPPER);
+            if name == "enchanted_book" {
+                for (a, b) in [
+                    ((16, 11), (19, 15)),
+                    ((19, 15), (16, 19)),
+                    ((16, 19), (13, 15)),
+                    ((13, 15), (16, 11)),
+                ] {
+                    c.line(a, b, [167, 193, 235]);
+                }
+                c.put(16, 15, [225, 217, 155]);
+            } else {
+                c.bolt(15, 14, COPPER);
+            }
             for y in [7, 25] {
                 c.line((6, y), (9, y), COPPER);
             }

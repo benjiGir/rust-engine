@@ -1,28 +1,44 @@
 //! Miniatures isométriques des blocs, calculées une fois et mises en cache par l'UI.
 //! Les boîtes du modèle restent visibles : une dalle ou un engrenage n'est pas un cube.
 
-use engine_voxel::{BlockBox, BlockDef};
+use engine_voxel::{BlockBox, BlockDef, BlockId, BlockRegistry};
 use glam::Vec3;
 
 pub const ICON_SIZE: usize = 32;
 
-pub fn block_icon(def: &BlockDef, textures: &[Vec<u8>]) -> Vec<u8> {
-    let mut pixels = vec![0; ICON_SIZE * ICON_SIZE * 4];
-    let boxes = if def.boxes.is_empty() {
-        &[BlockBox::FULL][..]
+pub fn block_icon(blocks: &BlockRegistry, block: BlockId, textures: &[Vec<u8>]) -> Vec<u8> {
+    if let Some(parts) = engine_voxel::bed::display_parts(blocks, block) {
+        let parts = parts.map(|(id, offset)| (blocks.def(id), offset));
+        render(&parts, textures, 12.5)
     } else {
-        &def.boxes
-    };
+        render(&[(blocks.def(block), Vec3::ZERO)], textures, 17.0)
+    }
+}
+
+fn render(parts: &[(&BlockDef, Vec3)], textures: &[Vec<u8>], scale: f32) -> Vec<u8> {
+    let mut pixels = vec![0; ICON_SIZE * ICON_SIZE * 4];
+    let boxes: Vec<_> = parts
+        .iter()
+        .flat_map(|&(def, offset)| {
+            let boxes = if def.boxes.is_empty() {
+                &[BlockBox::FULL][..]
+            } else {
+                &def.boxes
+            };
+            boxes.iter().map(move |b| (def, offset, b))
+        })
+        .collect();
     let direction = Vec3::new(-1.0, -0.82, -1.0).normalize();
     let right = Vec3::new(1.0, 0.0, -1.0).normalize();
     let up = right.cross(direction).normalize();
     for y in 0..ICON_SIZE {
         for x in 0..ICON_SIZE {
             let origin = Vec3::splat(0.5) - direction * 3.0
-                + right * ((x as f32 + 0.5 - 16.0) / 17.0)
-                + up * ((16.0 - y as f32 - 0.5) / 17.0);
+                + right * ((x as f32 + 0.5 - 16.0) / scale)
+                + up * ((16.0 - y as f32 - 0.5) / scale);
             let mut nearest = f32::INFINITY;
-            for b in boxes {
+            for &(def, offset, b) in &boxes {
+                let origin = origin - offset;
                 let a = (b.min - origin) / direction;
                 let z = (b.max - origin) / direction;
                 let near = a.min(z);
@@ -104,7 +120,7 @@ mod tests {
                 });
             }
         }
-        let image = block_icon(&def, &[texture]);
+        let image = render(&[(&def, Vec3::ZERO)], &[texture], 17.0);
         for channel in 0..3 {
             assert!(
                 image
@@ -122,7 +138,7 @@ mod tests {
         let mut def = registry.def(registry.id("core:stone").unwrap()).clone();
         def.face_textures = [1, 2, 2];
         let textures = vec![[255, 0, 0, 255].repeat(256), [0, 0, 255, 255].repeat(256)];
-        let pixels = block_icon(&def, &textures);
+        let pixels = render(&[(&def, Vec3::ZERO)], &textures, 17.0);
         assert_eq!(pixels.len(), ICON_SIZE * ICON_SIZE * 4);
         assert!(
             pixels
@@ -149,7 +165,7 @@ mod tests {
             min: Vec3::ZERO,
             max: Vec3::new(1.0, 0.5, 1.0),
         }];
-        let slab = block_icon(&def, &textures);
+        let slab = render(&[(&def, Vec3::ZERO)], &textures, 17.0);
         let half = slab
             .as_chunks::<4>()
             .0

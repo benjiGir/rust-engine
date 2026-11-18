@@ -816,7 +816,13 @@ impl VoxelGame {
                 if block == BlockId::AIR {
                     bail!("place : pour enlever un bloc, utiliser break");
                 }
-                if !self.edit(pos, block) {
+                if engine_voxel::bed::is_part(&self.registry, block) {
+                    bail!("place : utiliser core:bed pour poser le lit entier");
+                }
+                if self.registry.def(block).key == engine_voxel::bed::ITEM {
+                    self.place_bed(pos, self.camera.forward())
+                        .context("place : le lit exige deux cases libres avec un sol")?;
+                } else if !self.edit(pos, block) {
                     bail!("place : {} est hors du monde chargé", ivec3(pos));
                 }
                 Ok(format!("{{\"ok\":true,\"pos\":{}}}", ivec3(pos)))

@@ -658,14 +658,54 @@ impl ChunkStreamer {
         true
     }
 
+    /// Pose les deux moitiés ensemble, même si elles sont dans des chunks différents.
+    pub fn place_bed(&mut self, foot: IVec3, look: Vec3) -> Option<[(IVec3, BlockId); 2]> {
+        let registry = self.world.registry();
+        let parts = crate::bed::placement(registry, foot, look)?;
+        if parts.iter().any(|&(pos, block)| {
+            let old = self.world.block(pos);
+            !self.can_edit_cell(pos)
+                || !(old.is_air() || registry.def(old).liquid)
+                || !crate::is_supported(self, registry, pos, registry.def(block).support)
+        }) {
+            return None;
+        }
+        for (pos, block) in parts {
+            self.change_cell(pos, block, true);
+        }
+        Some(parts)
+    }
+
+    fn can_edit_cell(&self, pos: IVec3) -> bool {
+        matches!(
+            self.slots.get(&World::split(pos).0),
+            Some(Slot::Generated(_))
+        )
+    }
+
     fn change_block(&mut self, pos: IVec3, block: BlockId, immediate: bool) -> bool {
-        let chunk = World::split(pos).0;
-        if !matches!(self.slots.get(&chunk), Some(Slot::Generated(_))) {
+        if !self.can_edit_cell(pos) {
             return false;
         }
-        if self.world.block(pos) == block {
+        let old = self.world.block(pos);
+        if old == block {
             return true;
         }
+        if let Some((other, expected)) = crate::bed::partner(self.world.registry(), pos, old) {
+            // Attendre le chunk voisin évite de laisser une moitié dans une sauvegarde.
+            if !self.can_edit_cell(other) {
+                return false;
+            }
+            if self.world.block(other) == expected {
+                self.change_cell(other, BlockId::AIR, immediate);
+            }
+        }
+        self.change_cell(pos, block, immediate);
+        true
+    }
+
+    fn change_cell(&mut self, pos: IVec3, block: BlockId, immediate: bool) {
+        let chunk = World::split(pos).0;
         // Copy-on-write : si une tâche lit encore ce chunk, elle garde l'ancienne
         // version et nous modifions une copie (voir `World::chunk_mut`).
         self.world.set_block(pos, block);
@@ -733,7 +773,7 @@ impl ChunkStreamer {
         if !immediate {
             self.remesh_pending.extend(geometry);
             self.remesh_pending.extend(light_changed);
-            return true;
+            return;
         }
         for &c in geometry.iter().rev() {
             self.remesh_now(c);
@@ -744,7 +784,6 @@ impl ChunkStreamer {
                 self.remesh_soon(c);
             }
         }
-        true
     }
 
     /// Remaille un chunk sur ce thread, immédiatement.
@@ -1667,6 +1706,58 @@ pub(crate) mod tests {
             })
             .collect();
         assert_eq!(positions, [IVec3::new(0, 1, 0), IVec3::new(1, 1, 0)]);
+    }
+
+    #[test]
+    fn both_bed_halves_cross_chunk_borders_and_require_space_and_support() {
+        let mut s = streamer();
+        let foot = IVec3::new(31, 170, 31);
+        let head = foot + IVec3::X;
+        let registry = s.world().registry().clone();
+        let rock = registry.id("core:cobblestone").unwrap();
+        s.slots
+            .insert(World::split(foot).0, Slot::Generated(MeshState::Missing));
+        s.set_block_quiet(foot - IVec3::Y, rock);
+        assert!(s.place_bed(foot, Vec3::X).is_none());
+        assert!(s.world().block(foot).is_air());
+        s.slots
+            .insert(World::split(head).0, Slot::Generated(MeshState::Missing));
+        assert!(s.place_bed(foot, Vec3::X).is_none());
+        s.set_block_quiet(head - IVec3::Y, rock);
+        s.set_block_quiet(head, rock);
+        assert!(s.place_bed(foot, Vec3::X).is_none());
+        assert!(s.world().block(foot).is_air());
+        assert_eq!(s.world().block(head), rock);
+        s.set_block_quiet(head, BlockId::AIR);
+
+        let items = crate::ItemRegistry::builtin(&registry).unwrap();
+        let bed = items.id(crate::bed::ITEM).unwrap();
+        for broken in [head, foot] {
+            let parts = s.place_bed(foot, Vec3::X).unwrap();
+            assert_eq!(parts.map(|(p, _)| p), [foot, head]);
+            for (p, block) in parts {
+                assert_eq!(items.of_block(block), Some(bed));
+                assert_eq!(crate::bed::head_at(s.world(), p), Some(head));
+                let hit = crate::raycast(
+                    s.world(),
+                    p.as_vec3() + Vec3::new(0.5, 2.0, 0.5),
+                    Vec3::NEG_Y,
+                    3.0,
+                )
+                .unwrap();
+                assert_eq!(hit.block_pos, p);
+            }
+            assert!(s.set_block(broken, BlockId::AIR));
+            assert!(s.world().block(foot).is_air() && s.world().block(head).is_air());
+        }
+
+        s.place_bed(foot, Vec3::X).unwrap();
+        let floor = head - IVec3::Y;
+        s.set_block(floor, BlockId::AIR);
+        let settled = crate::settle(&mut s, floor);
+        assert_eq!(settled.broken.len(), 1);
+        assert_eq!(items.of_block(settled.broken[0].1), Some(bed));
+        assert!(s.world().block(foot).is_air() && s.world().block(head).is_air());
     }
 
     #[test]

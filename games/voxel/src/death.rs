@@ -10,6 +10,7 @@
 use std::time::Instant;
 
 use engine_render::egui::{self, Color32, RichText};
+use engine_voxel::bed;
 use glam::{IVec3, Vec3};
 
 use crate::components::{Health, Mob, Transform};
@@ -18,8 +19,6 @@ use crate::player;
 use crate::survival::{Hunger, Vitals};
 use crate::{Mode, Request, VoxelGame};
 
-/// La clé du bloc lit.
-pub const BED: &str = "core:bed";
 /// Une créature hostile plus proche que ça empêche de dormir.
 const MONSTER_RADIUS: f32 = 8.0;
 /// L'heure du réveil (le soleil vient de se lever).
@@ -82,9 +81,9 @@ impl VoxelGame {
     /// Où réapparaître : sur le lit (s'il n'a pas été cassé), sinon au point de départ.
     fn respawn_point(&mut self) -> Vec3 {
         if let Some(bed) = self.bed {
-            let block = self.streamer().world().block(bed);
-            if self.registry.def(block).key == BED {
-                return bed.as_vec3() + Vec3::new(0.5, 1.0, 0.5);
+            let head = bed::head_at(self.streamer().world(), bed);
+            if let Some(head) = head {
+                return head.as_vec3() + Vec3::new(0.5, 1.0, 0.5);
             }
             self.bed = None;
             self.toast("Votre lit a disparu : retour au point de départ");
@@ -100,22 +99,43 @@ impl VoxelGame {
     /// Un clic droit sur un lit : le point de réapparition, et dormir la nuit.
     /// Renvoie `false` si `pos` n'est pas un lit.
     pub(crate) fn use_bed(&mut self, pos: IVec3) -> bool {
-        let block = self.streamer().world().block(pos);
-        if self.registry.def(block).key != BED {
+        let head = bed::head_at(self.streamer().world(), pos);
+        let Some(head) = head else {
             return false;
-        }
-        self.bed = Some(pos);
+        };
+        self.bed = Some(head);
         if !self.day.is_night() {
             self.toast("Point de réapparition fixé");
             return true;
         }
-        if self.monster_nearby(pos.as_vec3()) {
+        if self.monster_nearby(head.as_vec3()) {
             self.toast("Impossible de dormir : des créatures rôdent");
             return true;
         }
         self.day.time = MORNING;
         self.toast("Vous avez dormi jusqu'au matin");
         true
+    }
+
+    pub(crate) fn place_bed(&mut self, foot: IVec3, look: Vec3) -> Option<()> {
+        let parts = bed::placement(&self.registry, foot, look)?;
+        let body = player::body(&self.ecs, self.player);
+        if parts
+            .iter()
+            .any(|&(pos, _)| body.overlaps_block(pos) || self.mob_overlaps(pos))
+        {
+            return None;
+        }
+        let start = Instant::now();
+        let placed = self.streamer_mut().place_bed(foot, look)?;
+        self.frame_stats.record_edit(start.elapsed());
+        self.target = None;
+        let (pos, block) = placed[0];
+        crate::events::send(&self.ecs, crate::BlockPlaced { pos, block });
+        for (pos, _) in placed {
+            self.after_edit(pos);
+        }
+        Some(())
     }
 
     /// Une créature hostile à moins de [`MONSTER_RADIUS`] blocs ?

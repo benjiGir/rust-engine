@@ -1461,6 +1461,18 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("chest_top.png"), chest_top()),
         (core.join("bed_top.png"), bed_top()),
         (core.join("bed_side.png"), bed_side()),
+        (
+            core.join("bed_head_top.png"),
+            workstations::draw("bed_head_top"),
+        ),
+        (
+            core.join("bed_foot_top.png"),
+            workstations::draw("bed_foot_top"),
+        ),
+        (
+            core.join("bed_long_side.png"),
+            workstations::draw("bed_long_side"),
+        ),
         (root.join("mods/example/textures/breaker.png"), breaker()),
         (root.join("mods/example/textures/ruby.png"), ruby()),
     ];

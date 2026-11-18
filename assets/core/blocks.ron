@@ -489,7 +489,7 @@
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.5, tool: Pickaxe, tier: 1,
     ),
-    // Le lit (phase O4) : clic droit pour y réapparaître, et la nuit pour dormir.
+    // Objet du lit et forme ancienne, gardée pour les lits déjà dans les sauvegardes.
     (
         id: "core:bed", name: "Lit de feuillage", color: (0.2301, 0.2355, 0.1593),
         boxes: [
@@ -1462,5 +1462,34 @@
         states: [Facing4], placeable: false, behavior: "core:placed_backpack",
         sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
         hardness: 0.6,
+    ),
+    // Les lits neufs occupent deux cellules. La tête regarde vers le nord dans le modèle.
+    (
+        id: "core:bed_foot", name: "Lit de feuillage", color: (0.17216, 0.17322, 0.11492),
+        boxes: [
+            (from: (1, 3, 0), to: (15, 5, 16)),
+            (from: (2, 5, 0), to: (14, 9, 15)),
+            (from: (1, 0, 13), to: (3, 3, 15)),
+            (from: (13, 0, 13), to: (15, 3, 15)),
+        ],
+        textures: (top: "bed_foot_top", side: "bed_long_side", bottom: "oak_planks"),
+        states: [Facing4], placeable: false, support: Floor,
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.6, tool: Axe,
+    ),
+    (
+        id: "core:bed_head", name: "Lit de feuillage", color: (0.24602, 0.22012, 0.13992),
+        boxes: [
+            (from: (1, 3, 0), to: (15, 5, 16)),
+            (from: (2, 5, 2), to: (14, 9, 16)),
+            (from: (3, 9, 3), to: (13, 11, 9)),
+            (from: (1, 0, 1), to: (3, 3, 3)),
+            (from: (13, 0, 1), to: (15, 3, 3)),
+            (from: (1, 5, 0), to: (15, 12, 2)),
+        ],
+        textures: (top: "bed_head_top", side: "bed_long_side", bottom: "oak_planks"),
+        states: [Facing4], placeable: false, support: Floor,
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.6, tool: Axe,
     ),
 ]

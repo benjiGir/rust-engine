@@ -169,9 +169,12 @@ impl BlockAccess for SubGrid {
     }
 
     fn set_block(&mut self, pos: IVec3, block: BlockId) -> bool {
-        if self.world.block(pos) == block {
+        let old = self.world.block(pos);
+        if old == block {
             return true;
         }
+        let other = crate::bed::partner(self.world.registry(), pos, old)
+            .filter(|&(p, expected)| self.world.block(p) == expected);
         self.world.set_block(pos, block);
         // Un bloc remplacé perd son état actif, comme dans le monde.
         let (chunk, [x, y, z]) = World::split(pos);
@@ -179,6 +182,9 @@ impl BlockAccess for SubGrid {
             self.world.chunk_mut(chunk).set_block_entity(x, y, z, None);
         }
         self.touch(pos, block);
+        if let Some((p, _)) = other {
+            self.set_block(p, BlockId::AIR);
+        }
         true
     }
 
@@ -341,6 +347,12 @@ pub fn extract(
     is_natural: &dyn Fn(BlockId) -> bool,
 ) -> Result<GridId, AssemblyError> {
     let cells = connected_structure(streamer, seed, is_natural)?;
+    if cells.iter().any(|&p| {
+        crate::bed::partner(streamer.world().registry(), p, streamer.world().block(p))
+            .is_some_and(|(other, _)| !streamer.is_generated(World::split(other).0))
+    }) {
+        return Err(AssemblyError::NotLoaded);
+    }
     let min = cells.iter().fold(cells[0], |m, c| m.min(*c));
     let id = grids.create();
     let mut grid = grids.remove(id).expect("grille créée");
@@ -431,6 +443,11 @@ pub fn land(streamer: &mut ChunkStreamer, grid: &SubGrid) -> Result<Vec<IVec3>, 
     let registry = streamer.world().registry().clone();
     let cells = landing_cells(grid);
     for &(_, target) in &cells {
+        if !streamer.is_generated(World::split(target).0)
+            || !(0..crate::WORLD_HEIGHT_CHUNKS).contains(&World::split(target).0.y)
+        {
+            return Err(AssemblyError::NotLoaded);
+        }
         let block = streamer.world().block(target);
         if !free_for_landing(&registry, block) {
             return Err(AssemblyError::Blocked(target));
@@ -439,7 +456,7 @@ pub fn land(streamer: &mut ChunkStreamer, grid: &SubGrid) -> Result<Vec<IVec3>, 
     let k = quarter_turns(grid.yaw);
     let mut placed = Vec::with_capacity(cells.len());
     for (local, target) in cells {
-        let block = grid.block(local);
+        let block = crate::bed::turned(&registry, grid.block(local), k);
         if !streamer.set_block_quiet(target, block) {
             return Err(AssemblyError::NotLoaded);
         }

@@ -86,12 +86,13 @@ fn main() -> Result<()> {
     ];
     let mut icons = Vec::new();
     for key in blocks {
-        let def = registry.def(registry.id(key).context("bloc de la planche")?);
+        let block = registry.id(key).context("bloc de la planche")?;
+        let def = registry.def(block);
         anyhow::ensure!(
             matches!(def.shape, Shape::Cube | Shape::Model),
             "modèle attendu"
         );
-        let pixels = item_art::block_icon(def, &textures);
+        let pixels = item_art::block_icon(&registry, block, &textures);
         icons.push(ctx.load_texture(
             key,
             egui::ColorImage::from_rgba_unmultiplied([32, 32], &pixels),
