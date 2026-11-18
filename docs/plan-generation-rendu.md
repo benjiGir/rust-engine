@@ -501,9 +501,16 @@ v2 (lot 5). Le générateur v1 est strictement inchangé (`generation_reference`
 `FOR_NEW_WORLDS` reste V1) ; seuls `cargo xtask map --generator v2`, les tests et un bench l'utilisent.
 
 Fichiers : `generator/macro_noise.rs` (bruit à nous, sans dépendance), `generator/geography.rs` (lot 2),
-`generator/hydrology.rs` (lot 3), `generator/context.rs` (`MacroWorld` : requête de point avec vallées et
-lacs), `worldmap_macro.rs` et l'exemple `worldmap.rs` (cartes), `tests/macro_world.rs` (12 tests),
-`benches/hydrology.rs`.
+`generator/hydrology.rs` (lot 3 : types, cellules, niveaux, accumulation, lacs), `generator/hydrology/regions.rs`
+(bassins de forme libre, graphe, arbres), `generator/hydrology/rivers.rs` (tracé des cours à l'échelle des
+blocs), `generator/context.rs` (`MacroWorld` : requête de point avec vallées et lacs), `worldmap_macro.rs` et
+l'exemple `worldmap.rs` (cartes), `tests/macro_world.rs` (16 tests), `benches/hydrology.rs`.
+
+**Révision du réseau (18 novembre 2026, après les premières cartes).** La première version du lot 3 passait
+tous ses tests mais se lisait mal : bassins carrés de 512 blocs, cours en peignes de tronçons alignés sur la
+grille de 64 blocs, aucun fleuve. Le modèle hydrologique a été refait (bassins de forme libre, arbres de
+moindre coût, courbes) ; la conception ci-dessous est la version révisée, la géographie du lot 2 n'a changé
+que par l'atténuation des tourbillons des fonds marins.
 
 ### Lot 2 : la géographie (`Geography`)
 
@@ -528,41 +535,73 @@ lacs), `worldmap_macro.rs` et l'exemple `worldmap.rs` (cartes), `tests/macro_wor
 
 ### Lot 3 : conception de l'hydrologie (`Hydrology`) et pourquoi elle tient ses promesses
 
-Deux échelles : **cellules fines de 64 blocs** (nœud jitteré, altitude macro) et **bassins de 8 × 8
-cellules (512 blocs)**.
+Trois niveaux : des **cellules fines** de 128 blocs (nœud jitteré entre 0,3 et 0,7 de la cellule, altitude
+macro), des **bassins** de forme libre (une soixantaine de cellules en moyenne, de 4 à 150) et les
+**bassins versants** (l'ensemble des bassins qui se vident au même exutoire).
 
-1. *Niveau supérieur.* Le nœud d'un bassin est sa cellule fine la plus basse (parmi les 6 × 6 centrales).
-   Un bassin s'écoule vers celui de ses 4 voisins dont `(altitude du nœud, hachage)` est strictement plus
-   bas, par la **passe la plus basse** de la frontière (paire de cellules de bord). Ordre total strict ⇒
-   **acyclique**. Sans voisin plus bas : **puits déclaré**, océan (nœud sous la mer) ou **lac terminal**
-   (bassin fermé intentionnel).
-2. *Profondeur bornée par définition.* Une marche d'au plus `MAX_BASIN_HOPS` + 1 = 49 bassins mesure la
-   profondeur ; un bassin plus profond devient lui-même un puits (« lac plafonné », ses amonts aussi,
-   ses avals gardent leur arête). Aucun chemin n'a donc plus de 48 arêtes inter-bassins et résoudre un
-   bassin ne regarde jamais plus de 49 bassins : pas d'exploration d'un continent.
-3. *Niveau fin.* Chaque cellule s'écoule vers la cellule de sortie de son bassin (ou son nœud si c'est un
-   puits) en prenant, parmi ses voisins **du même bassin strictement plus proches de la cible**, le moins
-   coûteux (altitude + petit tirage de méandre). La distance entière décroît : ni cycle, ni minimum local
-   (au plus 98 pas par bassin, 101 mesurés pour tout un chemin). La sortie passe à l'entrée du bassin aval,
-   de l'autre côté de la frontière. La direction d'une cellule est une **fonction pure** de
-   `(graine, cellule)` qui lit son bassin, ses 4 voisins et leurs bords : **pas de remplissage de
-   dépressions par tuile, pas de couture** ; deux régions séparées ou réunies lisent les mêmes valeurs.
-4. *Contrat de bord* (`EdgeContract`) : fonction pure de l'arête ordonnée (A, B) : cellules de sortie et
-   d'entrée, identité du bassin versant, accumulation, largeur, niveaux d'eau de part et d'autre
+1. *Des bassins sans grille.* Chaque super-cellule de 8 × 8 cellules (1 024 blocs) a une **graine** : un
+   point tiré au hasard dans la super-cellule, ramené à la cellule la plus basse de son voisinage de 3 × 3.
+   (Première version : la cellule la plus basse d'un cœur de 6 × 6. Sur un terrain en pente, elle rangeait
+   toutes les graines au même coin et redessinait un réseau carré ; le centre aléatoire l'évite.) Chaque graine a
+   un poids de distance entre 0,7 et 1,4 (bassins de tailles variées, frontières courbes). Une cellule a pour
+   attracteur la graine la plus proche (distance pondérée, parmi les 7 × 7 super-cellules voisines par
+   couronnes élaguées ; la borne de distance qui justifie cette fenêtre est démontrée dans la documentation du
+   module et recoupée par un test contre une recherche plus large). Une cellule qui n'est pas une graine
+   **descend** : parmi ses voisins strictement plus proches de son attracteur, elle prend le plus bas. Son bassin
+   est celui où la descente aboutit. Les frontières suivent donc un peu le relief (la pente décide près d'une
+   bissectrice) et ne suivent plus aucune grille.
+   - *Connexe par construction* : chaque cellule est reliée à sa graine par des cellules du même bassin, donc
+     jamais d'orphelin (c'était l'écueil des régions « par distance » : une cellule sans voisin plus proche dans son
+     bassin). Le parcours depuis la graine retrouve tout le bassin.
+   - *Terminaison bornée* : la distance pondérée à la graine la plus proche décroît d'au moins 0,49 en carré à
+     chaque pas, depuis 192 au plus : 392 pas au plus (`MAX_OWNER_STEPS`) ; l'appartenance d'une cellule ne regarde
+     que des cellules voisines et des graines proches, donc c'est une fonction pure de `(graine du monde, cellule)`.
+2. *Graphe des bassins.* Clé totale d'un bassin : `(altitude de la graine + 0,012 × distance au rivage, hachage,
+   cellule)`. Un bassin s'écoule vers celui de ses voisins (en contact par une arête de cellules) de clé
+   strictement plus basse, par la **passe la plus basse** de leur frontière : acyclique, car la clé décroît strictement
+   le long de chaque arête. Sans voisin plus bas : **puits déclaré**, lac terminal. Un bassin dont une cellule est en
+   mer s'y vide (puits océanique : ses cellules de mer sont les racines de son arbre, ce qui supprime les détours
+   le long de la côte de la première variante). La pente vers le rivage fait préférer la mer aux cuvettes
+   fermées (4 à 5 % de cellules terrestres vers un lac terminal, contre 21 % avant).
+3. *Profondeur bornée par définition.* Une marche d'au plus `MAX_BASIN_HOPS` + 1 = 49 bassins mesure la
+   profondeur ; un bassin plus profond devient lui-même un puits (« lac plafonné », ses amonts aussi, ses avals
+   gardent leur arête). Résoudre un bassin ne regarde jamais plus de 49 bassins : pas d'exploration d'un continent.
+4. *Arbres de moindre coût.* Dans un bassin, les cellules forment un arbre enraciné à l'exutoire (ou, pour un
+   puits, à la cellule la plus basse du bassin : le lac y est centré, l'eau ne remonte jamais vers la graine), plus
+   les cellules de mer. Le coût d'un pas pénalise l'altitude relative de la cible (`longueur × (1 + 5 × altitude relative)
+   × (1 + 0,45 × tirage)`) : les cours suivent les fonds de vallée, les affluents descendent les versants et se
+   fondent dans le cours principal (dendrites arborescentes, pas de peigne). L'arbre est un arbre couvrant d'un
+   bassin connexe : ni cycle ni minimum local. La cellule de sortie passe à une cellule voisine du bassin aval
+   (l'entrée), qui est une cellule ordinaire de son arbre : le fleuve traverse chaque bassin par le chemin le
+   moins coûteux et les affluents s'y raccordent.
+5. *Contrat de bord* (`EdgeContract`) : fonction pure de l'arête ordonnée (A, B) : cellules de sortie et d'entrée
+   (voisines, 8 voisins), identité du bassin versant, accumulation, largeur, niveaux d'eau de part et d'autre
    (`level_out >= level_in`). Les deux voisins appellent la même fonction.
-5. *Profil d'eau.* Niveau d'une cellule = maximum, sur son chemin vers l'exutoire, de
-   `altitude du nœud - 1,5`, plancher à la mer ou au niveau du lac terminal : il **ne remonte jamais vers
-   l'aval** (flottant et après `floor`). Si le terrain monte vers l'aval, le terrain est rehaussé
-   (remblai, au lot 4), pas l'eau.
-6. *Accumulation* : nombre de cellules en amont (elle comprise), exact jusqu'à `ACCUMULATION_CAP` = 384
-   puis saturé ; donc croissant vers l'aval (confluences : l'accumulation de l'aval couvre la somme des
-   affluents, vérifié). Largeur = `1,4 + 0,9 × acc^0,62` (au plus 40 blocs).
-7. *Lacs.* **Terminaux** : tout puits non océanique (rayon 100 à 180, niveau du nœud). **De passage** :
-   cellule de rivière tirée (5 %), isolée dans un voisinage de 7 × 7, rayon 26 à 61 blocs, au niveau de la
-   rivière ; son déversoir est l'arête aval (niveau inférieur ou égal : palier). Rivage déformé par un bruit.
-8. *Vallées* (`MacroWorld::sample`) : bords de lit et berges selon la distance à la rivière (pente douce
-   en plaine alluviale, raide en vallée encaissée), cuvette de lac ; l'altitude se fond dans le terrain
-   sur 56 blocs (moins d'une cellule : les 5 × 5 cellules voisines suffisent).
+6. *Profil d'eau.* Niveau d'une cellule = maximum, sur son chemin vers l'exutoire, de `altitude du nœud - 1,5`,
+   plancher à la mer ou au niveau du lac terminal : il **ne remonte jamais vers l'aval** (flottant et après
+   `floor`). Si le terrain monte vers l'aval, le terrain est rehaussé au lot 4 (remblai), pas l'eau ; en attendant,
+   `MacroWorld::sample` plafonne le remblai à 2 blocs (`MAX_FILL`) pour ne pas dessiner de digues sur les cartes.
+7. *Accumulation* : nombre de cellules en amont (elle comprise, les bassins amont inclus par leur total à la cellule
+   d'entrée), exact jusqu'à `ACCUMULATION_CAP` = 1 024 puis saturé : croissante vers l'aval, couvre la somme des
+   affluents (vérifié). Le total d'un bassin amont se calcule en s'arrêtant dès la saturation (le résultat, un
+   minimum, ne change pas) : le travail est borné par la saturation. Largeur = `2,5 + 1,3 × acc^0,55` (au plus 64
+   blocs) ; une embouchure (près du rivage, niveau proche de la mer) s'évase jusqu'au double ; un ruisseau naît
+   progressivement (étroit, sans vallée à sa source).
+8. *Lacs.* **Terminaux** : tout puits non océanique (rayon 130 à 260, niveau de sa cellule la plus basse).
+   **De passage** : cellule de rivière tirée (5 %), isolée dans un voisinage de 7 × 7, rayon 0,4 à 0,95 cellule, au
+   niveau de la rivière ; son déversoir est l'arête aval (palier). Rivage déformé par un bruit.
+9. *Tracé des cours* (`hydrology/rivers.rs`). L'arête `g → n` est une courbe cubique d'Hermite entre les nœuds : elle
+   part dans la direction de sa propre arête et arrive dans celle de l'arête suivante de `n` (un cours continue
+   sans cassure à chaque nœud, un affluent rejoint le cours principal tangentiellement ; sur un virage serré, la
+   tangente se rapproche de la corde pour éviter un crochet). Un décalage perpendiculaire borné (10 % de la corde,
+   nul aux nœuds) y met des méandres. Fonction pure de `g`, `n` et de l'arête suivante. Les cours ne se croisent
+   pas (testé : aucun croisement sur plus de 1 000 paires de cours voisins par graine).
+10. *Vallées* (`MacroWorld::sample`) : bords de lit et berges selon la distance à la rivière (pente douce en plaine
+    alluviale, raide en vallée encaissée), cuvette de lac ; l'altitude se fond dans le terrain sur 56 blocs (moins
+    d'une cellule : les 5 × 5 cellules voisines suffisent), atténuée à la source des ruisseaux.
+11. *Bassin d'un point* (`Hydrology::basin_at`) : le bassin de la cellule dont le nœud est le plus proche du point
+    (déplacé d'au plus ~70 blocs par un bruit), pour que les frontières des cartes ne montrent ni marches de
+    128 blocs ni arêtes droites.
 
 ### Tests du lot 3 (`tests/macro_world.rs`, 5 graines : 7, 42, 1337, 20260, 987654321)
 
@@ -570,54 +609,71 @@ cellules (512 blocs)**.
 | --- | --- | --- |
 | Déterminisme (séquentiel, inverse, 4 threads, caches vides, vidés en route, pleins, évincés à 64 entrées) | `samples_are_identical_in_sequence_reverse_parallel_and_any_cache_state`, `hydrology_cells_do_not_depend_on_evaluation_order` | passent, égalité exacte |
 | Raccords (régions séparées/réunies aux bords et coins de quatre régions, négatifs compris ; contrat lu par les deux voisins) | `separate_regions_agree_with_a_united_region_at_edges_and_four_region_corners`, `edge_contracts_are_read_identically_by_both_neighbours` | passent (5 coins dont 3 en négatif ; plus de 200 arêtes par graine) |
-| Acyclicité, terminaison déclarée et bornée | `every_path_is_acyclic_and_ends_at_a_declared_sink_within_the_bound` | 1 500 cellules terrestres par graine : aucun cycle ni cours interrompu ; profondeur max 16 bassins (borne 48) ; plus long chemin 101 cellules ; aucun puits plafonné |
-| Aucune remontée, confluences, lacs | `water_never_climbs_downstream_even_after_rounding_to_blocks`, `lakes_have_a_level_and_an_outlet_or_are_declared_closed` | passent |
+| Acyclicité, terminaison déclarée et bornée | `every_path_is_acyclic_and_ends_at_a_declared_sink_within_the_bound` | 1 500 cellules terrestres par graine : aucun cycle ni cours interrompu ; chaque pas intérieur descend l'arbre d'exactement 1 ; profondeur max 5 à 8 bassins (borne 48) ; plus long chemin 38 à 59 cellules ; aucun puits plafonné |
+| Aucune remontée, confluences, lacs | `water_never_climbs_downstream_even_after_rounding_to_blocks`, `lakes_have_a_level_and_an_outlet_or_are_declared_closed`, `basin_ids_label_drainage_basins_consistently` | passent |
 | Coût borné | `a_cold_query_evaluates_a_bounded_number_of_cells`, `resolving_a_basin_looks_at_a_bounded_number_of_basins` | voir les mesures |
 | Géographie (continuité, terres 20-60 %, sommets non écrêtés, massifs) | `geography_is_continuous_across_region_borders_and_in_negative_coordinates`, `land_sea_chains_and_summits_look_like_a_world` | passent |
+| Bassins de forme libre, connexes | `basins_are_free_form_and_connected_not_grid_squares` | 92 à 126 bassins par graine : au plus 1 rectangle, remplissage moyen 0,64 à 0,67, 37 à 40 % des cellules hors de leur super-cellule, tailles de 4 à 152 cellules ; tout chemin d'un bassin reste dans l'arbre |
+| Cours organiques, sans croisement | `rivers_are_not_aligned_on_the_grid_and_do_not_cross` | 14,9 à 16,9 % de segments à moins de 5 degrés d'un axe (répartition uniforme : 11 % ; première version : 24 à 26 %) ; aucun croisement |
+| Fleuves et affluents arborescents | `main_rivers_collect_tributaries_and_widen_downstream` | plus grand fleuve de 296 à 652 cellules ; cours principal de 18 à 46 cellules, 8 à 28 affluents ; largeur croissante vers l'aval |
+| Embouchures larges | `estuaries_widen_and_inland_rivers_do_not` | 109 embouchures évasées sur 132 ; 56 cours intérieurs sur 56 sans évasement |
+| Briques (modules) | tests unitaires de `regions.rs` et `rivers.rs` | graine la plus proche recoupée (11 × 11 super-cellules), bassins connexes, frontières symétriques, courbes pures et bornées |
 
 ### Mesures (Apple M3 Pro, release, `cargo bench -p engine_voxel --bench hydrology`, contexte neuf)
 
-| Mesure | Temps |
-| --- | --- |
-| Requête de point à froid, massif / plaine côtière / intérieur | 1,55 ms / 2,29 ms / 2,15 ms |
-| Géographie seule (un point) | environ 0,8 µs |
-| Résolution d'un bassin à froid | 0,44 ms |
-| Zone de 1 024 × 1 024 blocs à froid (4 096 points, pas de 16) | 12,2 ms |
+| Mesure | Avant (révision) | Après |
+| --- | --- | --- |
+| Requête de point à froid, massif / plaine côtière / intérieur | 1,55 ms / 2,27 ms / 2,14 ms | 0,74 ms / 1,38 ms / 0,99 ms |
+| Géographie seule (un point) | environ 0,8 µs | environ 0,64 µs |
+| Résolution d'un bassin à froid | 0,43 ms | 0,28 ms |
+| Zone de 1 024 × 1 024 blocs à froid (4 096 points, pas de 16) | 12,2 ms | 14,6 ms |
+| Altitudes évaluées par une requête à froid (600 points) | 2 443 en moyenne, 5 375 au pire | 1 732 en moyenne, 4 504 au pire |
+| Résoudre un bassin (altitudes, au pire sur 1 500 bassins) | 1 764 | 1 354 |
 
-Altitudes évaluées par une requête de point à froid (cellules, avec un contexte neuf, 600 points) :
-2 443 en moyenne, 5 375 au pire ; résoudre un bassin : au plus 1 764. La borne analytique (constantes :
-25 cellules × chemin maximal et accumulation maximale) est de 1,9 million : très large ; le test fige
-une borne mesurée de 12 000. Une carte de 16 384 blocs de côté (1 024 × 1 024 pixels) se calcule en 2,5 à
-3,7 s sur 12 cœurs.
+Le coût n'augmente pas : les bassins sont plus grands et moins nombreux le long d'un chemin (5 à 8 au lieu de
+16), un bassin se parcourt en une fois et les arbres sont partagés par toutes les cellules. La borne analytique
+(constantes : 49 bassins par chemin, 10 voisins amont saturés, `MAX_BASIN_CELLS` cellules par bassin) est
+astronomique (3 × 10^12) : le test fige une borne mesurée de 10 000 altitudes par requête et 3 000 par bassin, des
+constantes environ 2,2 fois supérieures au pire observé. Une carte de 16 384 blocs de côté (1 024 × 1 024 pixels) se
+calcule en 2,5 à 3,5 s sur 12 cœurs, comme avant.
 
 ### Lisibilité des cartes (jugement)
 
-Forces : continents et golfes variés, plateau continental, plaines côtières, massifs dont la ligne de
-crête se lit (cols, arcs, flancs), piémonts, réseaux de drainage dendritiques qui se jettent dans la mer
-ou dans des lacs fermés, rivières qui s'élargissent vers l'aval, vallées visibles sur l'altitude. Trois
-graines examinées (42, 7, 1337, en vue large de 16 384 blocs, plus deux zooms), pas une vue choisie.
+Trois graines (42, 7, 1337), vue large de 16 384 blocs et zoom de 4 096 blocs ; cartes `bassins`, `drainage`,
+`altitude`, `lacs` regardées à chaque itération (voir `scratchpad/drainage/avant` et `apres`).
 
-Défauts connus : (1) les **bassins versants sont des carrés de 512 blocs** sur la carte des bassins (toutes les
-cellules d'un bassin suivent sa sortie) : limite du modèle à deux échelles ; (2) les cours d'eau montrent
-des **segments alignés sur la grille** (surtout en plaine, le long des bords de bassins) et un
-léger dentelage de 64 blocs ; (3) environ **21 % des cellules terrestres échantillonnées** drainent vers un
-lac terminal (un puits intérieur par vallée fermée) : plausible (bassins endoréiques) mais fréquent ;
-(4) les chaînes sont plutôt des **massifs en arcs** que de longues cordillères continues, et les fonds
-marins montrent des tourbillons hérités du « warp » ; (5) un cours qui traverse une crête creuse un
-canyon (ou est précédé d'un remblai) : le profil descend toujours, pas toujours le terrain ; (6) pas de
-méandres de plaine ni de deltas au-delà du jitter des nœuds.
+Ce qui est résolu : (1) les bassins sont des blobs irréguliers de 4 à 150 cellules, qui ressemblent à des
+bassins versants, plus aucun carré ni aucune marche de grille de 512 blocs ; (2) les cours sont des courbes
+continues avec des confluences tangentielles et des méandres, 15 % de segments seulement proches d'un axe
+(au lieu de 25 %, et de 66 % de pas entre cellules voisines par un côté) ; (3) un réseau arborescent : de vrais cours
+principaux de plusieurs dizaines de cellules qui collectent 10 à 28 affluents, des ruisseaux qui s'élargissent vers
+l'aval, des embouchures évasées, quelques fleuves par continent ; (4) les digues dessinées par le remblai ont
+disparu des cartes d'altitude (plafond de 2 blocs) ; (5) les tourbillons des fonds marins sont presque effacés.
+
+Ce qui reste : (a) les frontières de bassins sont des chaînes de cellules de 128 blocs : à fort zoom (4 blocs
+par pixel) elles restent dentelées ; elles suivent le relief seulement près des bissectrices entre graines, pas les
+crêtes à proprement parler ; (b) la largeur est une fonction continue de l'accumulation, qui croît à chaque
+confluence : l'ordre de Strahler n'est pas calculé, seulement approché ; (c) les plus grands fleuves ont 300 à 650
+cellules amont (continents de 6 000 à 10 000 blocs, chaque bassin côtier a son embouchure) : pas de fleuve de la
+taille d'un continent ; (d) un cours qui traverse une crête creuse un canyon, et le profil d'eau ne remonte jamais : les
+dépressions en amont d'une passe devraient être des lacs de remplissage (ce n'est pas modélisé, le remblai est
+plafonné) ; (e) pas de deltas ni de méandres de plaine au-delà de la courbe ; (f) les chaînes sont plutôt des
+massifs en arcs que de longues cordillères continues (lot 2) et quelques traînées subsistent sur les fonds marins
+près des îles.
 
 ### Limites et ce qui n'est pas fait
 
 - Aucun bloc (lot 4), aucun biome ni climat (lot 5), aucun lien avec les structures, les fluides stables
   ni les modifications du joueur : l'hydrologie statique n'est qu'un champ interrogeable.
 - Pas de variante `GenerationVersion::V2` ni de choix de générateur à la création d'un monde.
-- Les passes entre bassins sont des arêtes de 4 voisins ; il n'y a pas d'arête diagonale ni de
-  tributaire qui traverse le bord hors du contrat. Le passage de l'eau d'un bassin à l'autre n'a lieu
-  qu'à la passe la plus basse.
-- La borne de profondeur (48 arêtes, 24 576 blocs) est une définition, pas un phénomène observé : elle
-  n'est jamais atteinte sur l'échantillon (profondeur maximale 16). Un bassin plafonné deviendrait un
-  lac terminal ; aucun test n'en a vu.
-- La largeur est limitée à 40 blocs (accumulation saturée) : pas de fleuve plus large. Les lacs de
-  passage font moins d'une cellule de rayon.
-- Pas de mesure de mémoire en jeu (le prototype n'est pas branché au streaming) ; les tables de cache sont vidées au-delà de 262 144 entrées chacune.
+- La borne de profondeur (48 arêtes de bassin, environ 40 000 blocs) est une définition, pas un phénomène
+  observé : elle n'est jamais atteinte sur l'échantillon (profondeur maximale 8). Un bassin plafonné deviendrait un
+  lac terminal ; aucun test n'en a vu. De même `MAX_OWNER_STEPS` (392) et `MAX_BASIN_CELLS` sont des bornes
+  démontrées mais très larges ; les tailles réelles (au plus 155 cellules, chemins d'au plus 60 cellules) sont
+  figées par des tests mesurés.
+- La largeur est limitée à 64 blocs (accumulation saturée à 1 024 cellules) : pas de fleuve plus large.
+- Le total d'un bassin amont s'arrête à la saturation, mais une requête près d'un grand fleuve peut parcourir
+  plusieurs dizaines de bassins amont à froid (non mesuré comme cas séparé : le bench le couvre seulement
+  quand le point tombe près d'un cours).
+- Pas de mesure de mémoire en jeu (le prototype n'est pas branché au streaming) ; les tables de cache sont
+  vidées au-delà de 262 144 entrées chacune (12 tables).

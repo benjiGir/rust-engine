@@ -1,68 +1,60 @@
 //! L'hydrologie macro du générateur v2 (prototype, lot 3) : un graphe de drainage hiérarchique,
 //! défini en coordonnées monde, acyclique et de profondeur bornée **par construction**.
 //!
-//! # Le modèle à deux échelles
+//! # Le modèle (trois niveaux)
 //!
-//! - **Cellules fines** de [`FINE_SIZE`] = 64 blocs. Chacune a un nœud (position jitterée) et une
-//!   altitude macro (celle de la géographie). Les cours d'eau sont les arêtes fine → fine.
-//! - **Bassins** de [`BASIN_FINE`] × [`BASIN_FINE`] cellules fines, soit 512 blocs. Le graphe entre
-//!   bassins est le niveau supérieur : c'est lui qui fixe où l'eau passe d'un bassin à l'autre.
+//! 1. **Cellules fines** de [`FINE_SIZE`] = 128 blocs : un nœud jitteré et une altitude macro. Les
+//!    cours d'eau sont les arêtes cellule → cellule (8 voisins), lissées à l'échelle des blocs
+//!    (voir `rivers`).
+//! 2. **Bassins** (« régions ») de forme libre, d'environ [`BASIN_FINE`] × [`BASIN_FINE`] cellules :
+//!    une graine par super-cellule (un point aléatoire, ramené au creux voisin), et chaque cellule
+//!    appartient au bassin où sa **descente** l'emmène (voir `regions`). Les frontières ne suivent
+//!    plus aucune grille : elles sont irrégulières et sensibles au relief.
+//! 3. **Bassins versants** : l'ensemble des bassins qui se vident au même exutoire (embouchure ou
+//!    lac terminal). Son identité sert aux cartes et aux contrats de bord.
 //!
-//! ## Niveau supérieur (bassins)
+//! ## Niveau des bassins
 //!
-//! Le **nœud** d'un bassin est sa cellule fine la plus basse parmi les 6 × 6 cellules intérieures.
-//! Un bassin s'écoule vers celui de ses quatre voisins dont l'ordre `(altitude du nœud, hachage)`
-//! est strictement plus bas, par la **passe la plus basse** de leur frontière. Cet ordre total
-//! strict rend le graphe **acyclique** : l'altitude du nœud (avec départage par hachage) décroît
-//! à chaque pas. Un bassin sans voisin plus bas est un **puits déclaré** : océan (son nœud est
-//! sous la mer) ou **lac terminal** (bassin fermé intentionnel).
+//! Chaque bassin a une **clé** totale `(altitude de la graine + légère pente vers le rivage,
+//! hachage, cellule)`. Il s'écoule vers celui de ses voisins (en contact par une arête de cellules)
+//! de clé strictement plus basse, par la **passe la plus basse** de leur frontière. Une clé qui
+//! décroît strictement le long de chaque arête rend le graphe **acyclique**. Sans voisin plus bas,
+//! le bassin est un **puits déclaré** : océan (sa graine est sous la mer) ou **lac terminal** (bassin
+//! fermé intentionnel). La profondeur est **bornée par définition** : un bassin dont la marche
+//! dépasse [`MAX_BASIN_HOPS`] arêtes devient lui-même un puits (« lac plafonné »).
 //!
-//! **Profondeur bornée par définition.** Le nombre de pas jusqu'au puits naturel est mesuré par une
-//! marche d'au plus [`MAX_BASIN_HOPS`] + 1 bassins. Un bassin dont la marche dépasse cette borne
-//! est lui-même déclaré puits (« lac plafonné », [`SinkKind::Capped`]). Ses voisins amont, plus
-//! éloignés encore, le sont aussi ; ses voisins aval gardent leur arête. Aucun chemin n'a donc plus
-//! de [`MAX_BASIN_HOPS`] arêtes inter-bassins, quelle que soit la graine, et la résolution d'un
-//! bassin ne regarde jamais plus de [`MAX_BASIN_HOPS`] + 1 bassins. (La borne n'est pas atteinte en
-//! pratique : voir le test de terminaison.)
+//! ## Niveau des cellules
 //!
-//! ## Niveau fin (cellules)
-//!
-//! Dans un bassin, chaque cellule fine s'écoule vers sa **cible** : la cellule de sortie (la
-//! passe la plus basse vers le bassin aval, le **contrat de bord**) ou, pour un puits, le nœud du
-//! bassin. Parmi ses voisins du même bassin **strictement plus proches de la cible** (distance
-//! euclidienne en cellules), elle prend le plus bas. La distance entière décroît à chaque pas :
-//! pas de cycle, et au plus 98 pas (en pratique moins de 15) pour atteindre la cible. La cellule de
-//! sortie passe à la cellule d'entrée du bassin aval, juste de l'autre côté de la frontière. Les
-//! rivières suivent donc les creux quand la géométrie le permet, mais **ne peuvent jamais**
-//! s'enfermer dans un minimum local : l'ordre sur les bassins puis sur les distances les mène au
-//! puits. Aucun remplissage de dépressions, aucune couture : la direction d'une cellule est une
-//! fonction pure de `(graine, cellule)` qui lit au plus son bassin, ses quatre bassins voisins et
-//! leurs cellules de bord.
+//! Dans un bassin, les cellules forment un **arbre de moindre coût** enraciné à l'exutoire (la
+//! cellule de sortie, au bord) ou, pour un puits, à la graine. Le coût d'un pas pénalise l'altitude :
+//! les cours suivent les fonds de vallée, les affluents descendent les versants et se fondent dans
+//! le cours principal. La cellule de sortie passe à la cellule d'entrée du bassin aval (contact
+//! voisin), qui est une cellule ordinaire de son arbre : le fleuve traverse chaque bassin par le
+//! chemin le moins coûteux, et les affluents s'y raccordent. Les cellules de mer sont des racines
+//! supplémentaires (l'eau qui atteint la mer s'y arrête). L'arbre d'un bassin couvre exactement ses
+//! cellules, toutes **connexes** par construction : aucun orphelin, aucun cycle.
 //!
 //! ## Contrat de bord
 //!
 //! La passe entre deux bassins A → B ([`Crossing`]) et ses attributs ([`EdgeContract`] : identité du
 //! bassin versant, accumulation, largeur, niveaux d'eau de part et d'autre) sont des fonctions pures de
-//! l'arête ordonnée (A, B). Les deux voisins appellent la même fonction : ils lisent la même valeur,
-//! quel que soit l'ordre ou la région dans laquelle on calcule.
+//! l'arête ordonnée (A, B) : les deux voisins appellent la même fonction.
 //!
 //! ## Profil d'altitude et accumulation
 //!
 //! Le **niveau d'eau** d'une cellule est le maximum, le long de son chemin vers l'exutoire, de
 //! `altitude - RIVER_DEPTH`, plancher à la mer ou au niveau du lac terminal : il **ne remonte jamais
-//! vers l'aval** (le maximum d'un chemin qui s'allonge ne peut que croître vers l'amont). Si le
-//! terrain monte vers l'aval, c'est le terrain que le lot 4 rehausse (remblai), pas l'eau qui remonte.
-//! Arrondir par `floor` conserve l'ordre. L'**accumulation** d'une cellule est le nombre de cellules
-//! en amont (elle comprise), saturé à [`ACCUMULATION_CAP`] : exact tant qu'il est inférieur, donc
-//! croissante vers l'aval (confluences cohérentes), et le parcours est borné. Largeur et profondeur
-//! s'en déduisent ([`river_width`]).
+//! vers l'aval**. Si le terrain monte vers l'aval, c'est le terrain que le lot 4 rehausse (remblai).
+//! L'**accumulation** d'une cellule est le nombre de cellules en amont (elle comprise, les bassins
+//! amont inclus par leur total à la cellule d'entrée), saturé à [`ACCUMULATION_CAP`] : elle croît
+//! vers l'aval et couvre la somme des affluents. Largeur et profondeur s'en déduisent
+//! ([`river_width`]).
 //!
 //! # Lacs
 //!
-//! - **Lacs terminaux** : un puits qui n'est pas l'océan est un lac au niveau de son nœud.
+//! - **Lacs terminaux** : un puits qui n'est pas l'océan est un lac au niveau de sa graine.
 //! - **Lacs de passage** : certaines cellules de rivière (tirage, isolées dans un voisinage de 7 × 7)
-//!   portent un lac au niveau de la rivière en ce point ; le déversoir est l'arête aval (dont le niveau
-//!   est inférieur ou égal : palier ou cascade).
+//!   portent un lac au niveau de la rivière en ce point ; le déversoir est l'arête aval.
 //!
 //! # Coût et caches
 //!
@@ -70,39 +62,54 @@
 //! valeur sans jamais la décider. [`Hydrology::stats`] compte les évaluations qui ratent le cache :
 //! sur un contexte neuf, c'est le coût à froid d'une requête.
 
-use std::collections::VecDeque;
-use std::hash::Hash;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 use super::SEA_LEVEL;
 use super::geography::Geography;
 use super::macro_noise::{gradient_noise, lattice, unit};
 
+mod regions;
+mod rivers;
+
+use regions::{NO_PARENT, Region, RegionTree, SeedInfo};
+
 /// Côté d'une cellule fine, en blocs.
-pub const FINE_SIZE: i32 = 64;
-/// Cellules fines par côté de bassin.
+pub const FINE_SIZE: i32 = 128;
+/// Cellules fines par côté de super-cellule : un bassin couvre en moyenne autant de cellules.
 pub const BASIN_FINE: i32 = 8;
-/// Côté d'un bassin, en blocs.
+/// Côté d'une super-cellule (une graine de bassin chacune), en blocs.
 pub const BASIN_SIZE: i32 = FINE_SIZE * BASIN_FINE;
 /// Nombre maximal d'arêtes inter-bassins d'un chemin (voir la documentation du module).
 pub const MAX_BASIN_HOPS: u32 = 48;
-/// Nombre maximal de pas fins dans un bassin : la distance entière à la cible décroît strictement.
-pub const MAX_STEPS_IN_BASIN: usize = 98;
+/// Nombre maximal de pas de l'appartenance d'une cellule à son bassin : à chaque pas, le carré de la
+/// distance pondérée à la graine diminue d'au moins 0,49 (poids minimal au carré) depuis 192 au plus
+/// (7 cellules en diagonale × 1,4 de poids, au carré), soit 392 pas au plus.
+pub const MAX_OWNER_STEPS: usize = 392;
+/// Nombre maximal de cellules d'un bassin (carré de côté `2 × MAX_OWNER_STEPS + 1` autour de la
+/// graine) : borne théorique très large, la taille réelle est d'une centaine de cellules.
+pub const MAX_BASIN_CELLS: usize = (2 * MAX_OWNER_STEPS + 1) * (2 * MAX_OWNER_STEPS + 1);
+/// Nombre maximal de pas fins dans un bassin : l'arbre est connexe, sa profondeur est au plus le
+/// nombre de cellules.
+pub const MAX_STEPS_IN_BASIN: usize = MAX_BASIN_CELLS;
 /// Nombre maximal de cellules fines d'un chemin complet.
 pub const MAX_FINE_PATH: usize = (MAX_BASIN_HOPS as usize + 1) * (MAX_STEPS_IN_BASIN + 1);
 /// Saturation de l'accumulation (nombre de cellules amont).
-pub const ACCUMULATION_CAP: u32 = 384;
+pub const ACCUMULATION_CAP: u32 = 1024;
 /// Accumulation à partir de laquelle une arête est dessinée comme un cours d'eau (sinon : ruissellement).
-pub const STREAM_MIN_ACCUMULATION: u32 = 10;
+pub const STREAM_MIN_ACCUMULATION: u32 = 6;
 /// Le lit est creusé de cette profondeur sous l'altitude macro du nœud, pour le profil d'eau.
 pub const RIVER_DEPTH: f32 = 1.5;
+/// Segments par courbe de cours d'eau (voir `rivers`).
+pub const RIVER_SEGMENTS: usize = 6;
+/// Largeur maximale d'une rivière, en blocs (avant l'évasement des embouchures).
+pub const MAX_RIVER_WIDTH: f32 = 64.0;
 /// Les tables de cache sont vidées au-delà de ce nombre d'entrées.
 pub const DEFAULT_CACHE_LIMIT: usize = 1 << 18;
-/// Amplitude (blocs) du tirage qui fait serpenter les cours d'eau.
-const MEANDER: f32 = 3.0;
+/// Nombre de tables de cache (borne de [`Hydrology::cached_entries`] : `CACHE_TABLES × limite`).
+pub const CACHE_TABLES: usize = 12;
 /// Probabilité qu'une cellule de rivière porte un lac de passage (avant isolement).
 const FLOW_LAKE_PROBABILITY: f64 = 0.05;
 
@@ -115,16 +122,22 @@ const SALT_LAKE: u64 = 0x46;
 const SALT_LAKE_RADIUS: u64 = 0x47;
 const SALT_LAKE_SHAPE: u64 = 0x48;
 const SALT_BASIN_ID: u64 = 0x49;
+const SALT_SEED_WEIGHT: u64 = 0x4a;
+const SALT_ROUGH: u64 = 0x4b;
+const SALT_MEANDER: u64 = 0x4c;
+const SALT_BORDER: u64 = 0x4d;
+/// Déplacements (blocs) du point, grande et petite octave, dans [`Hydrology::basin_at`].
+const BORDER_WARP: (f64, f64) = (50.0, 18.0);
 
 /// Une cellule fine, par ses indices (x et z divisés par [`FINE_SIZE`], arrondis vers le bas).
 pub type FineCell = (i32, i32);
-/// Un bassin, par ses indices (x et z divisés par [`BASIN_SIZE`], arrondis vers le bas).
+/// Un bassin, par les indices de la super-cellule de sa graine.
 pub type BasinCell = (i32, i32);
 
 /// Pourquoi un bassin est un puits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SinkKind {
-    /// L'océan : le nœud du bassin est sous le niveau de la mer.
+    /// L'océan : la graine du bassin est sous le niveau de la mer.
     Ocean,
     /// Un lac terminal : bassin fermé, sans exutoire.
     Lake,
@@ -137,7 +150,7 @@ pub enum SinkKind {
 pub struct Crossing {
     /// La cellule de sortie, dans le bassin amont, au bord.
     pub exit: FineCell,
-    /// La cellule d'entrée, dans le bassin aval, juste de l'autre côté du bord.
+    /// La cellule d'entrée, dans le bassin aval, voisine de la sortie (8 voisins).
     pub entry: FineCell,
     /// L'altitude de la passe : le plus haut des deux côtés.
     pub pass: f32,
@@ -155,6 +168,9 @@ pub enum BasinFlow {
 pub struct BasinChain {
     pub hops: u32,
     pub terminal: BasinCell,
+    /// Le bassin qui porte l'identité du bassin versant : le dernier bassin avant l'océan (l'embouchure)
+    /// ou le puits lui-même (lac terminal, ou bassin océanique).
+    pub outlet: BasinCell,
     pub capped: bool,
 }
 
@@ -165,7 +181,7 @@ pub struct EdgeContract {
     pub to: BasinCell,
     pub exit: FineCell,
     pub entry: FineCell,
-    /// L'identité du bassin versant (le puits où l'eau finit).
+    /// L'identité du bassin versant (l'embouchure ou le lac où l'eau finit).
     pub basin: u64,
     pub accumulation: u32,
     pub width: f32,
@@ -207,6 +223,8 @@ pub struct RiverPoint {
     pub level: f32,
     pub accumulation: u32,
     pub basin: u64,
+    /// 0 à la source d'un ruisseau, 1 dès qu'il est établi : l'intensité de sa vallée.
+    pub taper: f32,
 }
 
 /// Compteurs de travail : un échec de cache = un calcul.
@@ -214,26 +232,22 @@ pub struct RiverPoint {
 pub struct HydroStats {
     /// Altitudes macro évaluées (le poste dominant).
     pub elevations: u64,
-    /// Tous les calculs mémoïsés (altitudes, bassins, passes, directions, niveaux, accumulations).
+    /// Tous les calculs mémoïsés (altitudes, graines, bassins, passes, arbres, niveaux, accumulations).
     pub work: u64,
 }
 
-/// La largeur d'une rivière (blocs) selon son accumulation.
+/// La largeur d'une rivière (blocs) selon son accumulation : un ruisseau de quelques blocs, des
+/// fleuves de plusieurs dizaines de blocs, croissante et bornée par [`MAX_RIVER_WIDTH`].
 pub fn river_width(accumulation: u32) -> f32 {
-    (1.4 + 0.9 * (accumulation as f32).powf(0.62)).min(40.0)
+    (2.5 + 1.3 * (accumulation as f32).powf(0.55)).min(MAX_RIVER_WIDTH)
 }
 
-/// Les cellules fine et bassin contenant le point (x, z).
+/// La cellule fine contenant le point (x, z).
 pub fn fine_cell(x: f64, z: f64) -> FineCell {
     (
         (x / FINE_SIZE as f64).floor() as i32,
         (z / FINE_SIZE as f64).floor() as i32,
     )
-}
-
-/// Le bassin d'une cellule fine.
-pub fn basin_of(f: FineCell) -> BasinCell {
-    (f.0.div_euclid(BASIN_FINE), f.1.div_euclid(BASIN_FINE))
 }
 
 /// Une table mémoïque bornée : vidée au débordement, jamais décisive.
@@ -242,7 +256,7 @@ struct Memo<K, V> {
     limit: usize,
 }
 
-impl<K: Eq + Hash + Copy, V: Copy> Memo<K, V> {
+impl<K: Eq + std::hash::Hash + Copy, V: Clone> Memo<K, V> {
     fn new(limit: usize) -> Self {
         Self {
             map: Mutex::new(FxHashMap::default()),
@@ -255,7 +269,7 @@ impl<K: Eq + Hash + Copy, V: Copy> Memo<K, V> {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(key)
-            .copied()
+            .cloned()
     }
 
     fn put(&self, key: K, value: V) {
@@ -275,27 +289,22 @@ impl<K: Eq + Hash + Copy, V: Copy> Memo<K, V> {
     }
 }
 
-/// Le nœud d'un bassin : sa cellule la plus basse et cette altitude.
-#[derive(Debug, Clone, Copy)]
-struct BasinInfo {
-    target: FineCell,
-    z: f32,
-    tie: u64,
-}
-
 /// L'hydrologie d'une graine.
 pub struct Hydrology {
     seed: u32,
     geography: Geography,
     elevations: Memo<FineCell, f32>,
-    infos: Memo<BasinCell, BasinInfo>,
-    crossings: Memo<(BasinCell, BasinCell), Crossing>,
+    seeds: Memo<BasinCell, SeedInfo>,
+    owners: Memo<FineCell, BasinCell>,
+    regions: Memo<BasinCell, Arc<Region>>,
     natural: Memo<BasinCell, BasinFlow>,
     chains: Memo<BasinCell, BasinChain>,
-    nexts: Memo<FineCell, Option<FineCell>>,
+    trees: Memo<BasinCell, Arc<RegionTree>>,
+    accumulations: Memo<BasinCell, Arc<Vec<u32>>>,
+    totals: Memo<BasinCell, u32>,
     levels: Memo<FineCell, f32>,
-    accumulations: Memo<FineCell, u32>,
     flow_lakes: Memo<FineCell, Option<Lake>>,
+    edges: Memo<FineCell, Option<rivers::Edge>>,
     elevation_count: AtomicU64,
     work_count: AtomicU64,
 }
@@ -311,14 +320,17 @@ impl Hydrology {
             seed,
             geography: Geography::new(seed),
             elevations: Memo::new(limit),
-            infos: Memo::new(limit),
-            crossings: Memo::new(limit),
+            seeds: Memo::new(limit),
+            owners: Memo::new(limit),
+            regions: Memo::new(limit),
             natural: Memo::new(limit),
             chains: Memo::new(limit),
-            nexts: Memo::new(limit),
-            levels: Memo::new(limit),
+            trees: Memo::new(limit),
             accumulations: Memo::new(limit),
+            totals: Memo::new(limit),
+            levels: Memo::new(limit),
             flow_lakes: Memo::new(limit),
+            edges: Memo::new(limit),
             elevation_count: AtomicU64::new(0),
             work_count: AtomicU64::new(0),
         }
@@ -335,27 +347,33 @@ impl Hydrology {
     /// Vide tous les caches (les compteurs de travail continuent).
     pub fn clear_caches(&self) {
         self.elevations.clear();
-        self.infos.clear();
-        self.crossings.clear();
+        self.seeds.clear();
+        self.owners.clear();
+        self.regions.clear();
         self.natural.clear();
         self.chains.clear();
-        self.nexts.clear();
-        self.levels.clear();
+        self.trees.clear();
         self.accumulations.clear();
+        self.totals.clear();
+        self.levels.clear();
         self.flow_lakes.clear();
+        self.edges.clear();
     }
 
     /// Le nombre d'entrées en cache, toutes tables confondues (pour vérifier la borne mémoire).
     pub fn cached_entries(&self) -> usize {
         self.elevations.len()
-            + self.infos.len()
-            + self.crossings.len()
+            + self.seeds.len()
+            + self.owners.len()
+            + self.regions.len()
             + self.natural.len()
             + self.chains.len()
-            + self.nexts.len()
-            + self.levels.len()
+            + self.trees.len()
             + self.accumulations.len()
+            + self.totals.len()
+            + self.levels.len()
             + self.flow_lakes.len()
+            + self.edges.len()
     }
 
     pub fn stats(&self) -> HydroStats {
@@ -399,263 +417,89 @@ impl Hydrology {
         self.elevation(f) < SEA_LEVEL as f32
     }
 
-    fn tie(&self, b: BasinCell) -> u64 {
-        lattice(self.seed, SALT_TIE, b.0, b.1)
-    }
+    // ---- identité des bassins ----
 
-    // ---- niveau supérieur : les bassins ----
-
-    fn basin_info(&self, b: BasinCell) -> BasinInfo {
-        if let Some(i) = self.infos.get(&b) {
-            return i;
-        }
-        let mut best: Option<(f32, u64, FineCell)> = None;
-        for dz in 1..BASIN_FINE - 1 {
-            for dx in 1..BASIN_FINE - 1 {
-                let f = (b.0 * BASIN_FINE + dx, b.1 * BASIN_FINE + dz);
-                let e = self.elevation(f);
-                let tie = lattice(self.seed, SALT_TIE, f.0, f.1);
-                if best.is_none_or(|(be, bt, _)| (e, tie) < (be, bt)) {
-                    best = Some((e, tie, f));
-                }
-            }
-        }
-        let (z, _, target) = best.expect("un bassin a des cellules intérieures");
-        let info = BasinInfo {
-            target,
-            z,
-            tie: self.tie(b),
-        };
-        self.count();
-        self.infos.put(b, info);
-        info
-    }
-
-    /// Vrai si `a` est strictement plus bas que `b` dans l'ordre total du graphe.
-    fn lower(&self, a: BasinCell, b: BasinCell) -> bool {
-        let (ia, ib) = (self.basin_info(a), self.basin_info(b));
-        (ia.z, ia.tie, a) < (ib.z, ib.tie, b)
-    }
-
-    /// La passe de `from` vers son voisin direct `to` : la paire de cellules de bord la plus basse.
-    pub fn crossing(&self, from: BasinCell, to: BasinCell) -> Crossing {
-        if let Some(c) = self.crossings.get(&(from, to)) {
-            return c;
-        }
-        let (dx, dz) = (to.0 - from.0, to.1 - from.1);
-        debug_assert_eq!(dx.abs() + dz.abs(), 1, "bassins voisins par un côté");
-        let mut best: Option<(f32, u64, Crossing)> = None;
-        for u in 0..BASIN_FINE {
-            let exit = if dx == 1 {
-                (
-                    from.0 * BASIN_FINE + BASIN_FINE - 1,
-                    from.1 * BASIN_FINE + u,
-                )
-            } else if dx == -1 {
-                (from.0 * BASIN_FINE, from.1 * BASIN_FINE + u)
-            } else if dz == 1 {
-                (
-                    from.0 * BASIN_FINE + u,
-                    from.1 * BASIN_FINE + BASIN_FINE - 1,
-                )
-            } else {
-                (from.0 * BASIN_FINE + u, from.1 * BASIN_FINE)
-            };
-            let entry = (exit.0 + dx, exit.1 + dz);
-            let pass = self.elevation(exit).max(self.elevation(entry));
-            let tie = lattice(self.seed, SALT_CROSSING, exit.0, exit.1);
-            if best.is_none_or(|(bp, bt, _)| (pass, tie) < (bp, bt)) {
-                best = Some((pass, tie, Crossing { exit, entry, pass }));
-            }
-        }
-        let crossing = best.expect("un bord a des cellules").2;
-        self.count();
-        self.crossings.put((from, to), crossing);
-        crossing
-    }
-
-    /// L'arête « naturelle » d'un bassin, avant la borne de profondeur.
-    fn natural_flow(&self, b: BasinCell) -> BasinFlow {
-        if let Some(f) = self.natural.get(&b) {
-            return f;
-        }
-        let mut best: Option<(f32, BasinCell, Crossing)> = None;
-        for n in [
-            (b.0 + 1, b.1),
-            (b.0 - 1, b.1),
-            (b.0, b.1 + 1),
-            (b.0, b.1 - 1),
-        ] {
-            if !self.lower(n, b) {
-                continue;
-            }
-            let crossing = self.crossing(b, n);
-            let better = match best {
-                None => true,
-                Some((pass, other, _)) => {
-                    crossing.pass < pass || (crossing.pass == pass && self.lower(n, other))
-                }
-            };
-            if better {
-                best = Some((crossing.pass, n, crossing));
-            }
-        }
-        let flow = match best {
-            Some((_, to, crossing)) => BasinFlow::Flow { to, crossing },
-            None => {
-                let target = self.basin_info(b).target;
-                BasinFlow::Sink(if self.is_sea(target) {
-                    SinkKind::Ocean
-                } else {
-                    SinkKind::Lake
-                })
-            }
-        };
-        self.count();
-        self.natural.put(b, flow);
-        flow
-    }
-
-    /// La profondeur d'un bassin : au plus [`MAX_BASIN_HOPS`] arêtes, sinon c'est un puits plafonné.
-    pub fn chain(&self, b: BasinCell) -> BasinChain {
-        if let Some(c) = self.chains.get(&b) {
-            return c;
-        }
-        let capped = BasinChain {
-            hops: MAX_BASIN_HOPS + 1,
-            terminal: b,
-            capped: true,
-        };
-        let mut path = vec![b];
-        let mut cur = b;
-        // `tail` : (arêtes restantes après le dernier bassin du chemin, puits atteint).
-        let tail = loop {
-            match self.natural_flow(cur) {
-                BasinFlow::Sink(_) => break Some((0, cur)),
-                BasinFlow::Flow { to, .. } => {
-                    if let Some(known) = self.chains.get(&to) {
-                        break if known.capped {
-                            None
-                        } else {
-                            Some((known.hops + 1, known.terminal))
-                        };
-                    }
-                    path.push(to);
-                    cur = to;
-                    if path.len() > MAX_BASIN_HOPS as usize + 1 {
-                        break None;
-                    }
-                }
-            }
-        };
-        let Some((after_last, terminal)) = tail else {
-            self.count();
-            self.chains.put(b, capped);
-            return capped;
-        };
-        let len = path.len() as u32;
-        if (len - 1) + after_last > MAX_BASIN_HOPS {
-            self.count();
-            self.chains.put(b, capped);
-            return capped;
-        }
-        for (i, &cell) in path.iter().enumerate() {
-            let hops = (len - 1 - i as u32) + after_last;
-            self.chains.put(
-                cell,
-                BasinChain {
-                    hops,
-                    terminal,
-                    capped: false,
-                },
-            );
-        }
-        self.count();
-        BasinChain {
-            hops: len - 1 + after_last,
-            terminal,
-            capped: false,
-        }
-    }
-
-    /// Ce que fait un bassin de son eau (borne de profondeur comprise).
-    pub fn basin_flow(&self, b: BasinCell) -> BasinFlow {
-        if self.chain(b).capped {
-            BasinFlow::Sink(SinkKind::Capped)
-        } else {
-            self.natural_flow(b)
-        }
-    }
-
-    /// L'identité du bassin versant d'un bassin : un hachage du puits où l'eau finit.
+    /// L'identité du bassin versant d'un bassin : un hachage de son exutoire (embouchure ou lac).
     pub fn basin_id(&self, b: BasinCell) -> u64 {
-        let t = self.chain(b).terminal;
+        let t = self.chain(b).outlet;
         lattice(self.seed, SALT_BASIN_ID, t.0, t.1) | 1
     }
 
-    /// Le nœud (cellule la plus basse) d'un bassin.
+    /// La cellule où l'eau d'un bassin finit : sa cellule la plus basse (nœud du lac terminal) pour un
+    /// puits, sa graine pour un bassin qui s'écoule.
     pub fn basin_target(&self, b: BasinCell) -> FineCell {
-        self.basin_info(b).target
+        match self.basin_flow(b) {
+            BasinFlow::Sink(_) => self.sink_cell(b),
+            BasinFlow::Flow { .. } => self.seed_info(b).cell,
+        }
+    }
+
+    /// Le bassin du point (x, z) : celui de la cellule dont le nœud est le plus proche (parmi la cellule
+    /// du point et ses 8 voisines), pour que les frontières ne suivent pas la grille de 128 blocs.
+    pub fn basin_at(&self, x: f64, z: f64) -> BasinCell {
+        // Un déplacement du point (deux octaves, au plus ~70 blocs) casse les arêtes droites et les
+        // marches de 128 blocs des polygones.
+        let wobble = |salt: u64| {
+            BORDER_WARP.0 * gradient_noise(self.seed, salt, x / 190.0, z / 190.0)
+                + BORDER_WARP.1 * gradient_noise(self.seed, salt ^ 0x100, x / 70.0, z / 70.0)
+        };
+        let (wx, wz) = (x + wobble(SALT_BORDER), z + wobble(SALT_BORDER ^ 1));
+        let c = fine_cell(wx, wz);
+        let mut best: Option<(f64, FineCell)> = None;
+        for dz in -1..=1 {
+            for dx in -1..=1 {
+                let g = (c.0 + dx, c.1 + dz);
+                let n = self.node(g);
+                let d = (wx - n[0]).powi(2) + (wz - n[1]).powi(2);
+                if best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, g));
+                }
+            }
+        }
+        self.basin_of(best.expect("neuf cellules").1)
+    }
+
+    /// L'identité du bassin versant du point (x, z) (voir [`Hydrology::basin_at`]).
+    pub fn basin_id_at(&self, x: f64, z: f64) -> u64 {
+        self.basin_id(self.basin_at(x, z))
     }
 
     // ---- niveau fin : les cellules ----
 
-    /// La cellule suivante vers l'aval, ou `None` pour une cellule terminale : mer, ou nœud d'un
+    /// La cellule suivante vers l'aval, ou `None` pour une cellule terminale : mer, ou graine d'un
     /// puits (lac terminal).
     pub fn next(&self, f: FineCell) -> Option<FineCell> {
-        if let Some(n) = self.nexts.get(&f) {
-            return n;
+        if self.is_sea(f) {
+            return None;
         }
-        let next = if self.is_sea(f) {
-            None
-        } else {
-            let b = basin_of(f);
-            match self.basin_flow(b) {
-                BasinFlow::Sink(_) => {
-                    let target = self.basin_info(b).target;
-                    (f != target).then(|| self.step_toward(f, target, b))
-                }
-                BasinFlow::Flow { crossing, .. } => Some(if f == crossing.exit {
-                    crossing.entry
-                } else {
-                    self.step_toward(f, crossing.exit, b)
-                }),
-            }
-        };
-        self.count();
-        self.nexts.put(f, next);
-        next
+        let b = self.basin_of(f);
+        let region = self.region(b);
+        let tree = self.tree(b);
+        let i = *region
+            .index
+            .get(&f)
+            .expect("une cellule est dans son bassin");
+        let parent = tree.parent[i as usize];
+        if parent != NO_PARENT {
+            return Some(region.cells[parent as usize]);
+        }
+        if tree.exit == Some(i)
+            && let BasinFlow::Flow { crossing, .. } = self.basin_flow(b)
+        {
+            return Some(crossing.entry);
+        }
+        None
     }
 
-    /// Le voisin de `f` dans le bassin `b`, strictement plus proche de `target`, le plus bas.
-    fn step_toward(&self, f: FineCell, target: FineCell, b: BasinCell) -> FineCell {
-        let d2 = |c: FineCell| {
-            let (dx, dz) = ((c.0 - target.0) as i64, (c.1 - target.1) as i64);
-            dx * dx + dz * dz
-        };
-        let here = d2(f);
-        let mut best: Option<(f32, u64, FineCell)> = None;
-        for dz in -1..=1 {
-            for dx in -1..=1 {
-                let n = (f.0 + dx, f.1 + dz);
-                if (dx, dz) == (0, 0) || basin_of(n) != b || d2(n) >= here {
-                    continue;
-                }
-                // Le coût : l'altitude, plus un petit tirage par cellule qui fait serpenter les
-                // cours d'eau des plaines (sans lui, ils longeraient les axes de la grille).
-                let tie = lattice(self.seed, SALT_STEP, n.0, n.1);
-                let cost = self.elevation(n) + MEANDER * (tie >> 40) as f32 / (1u64 << 24) as f32;
-                if best.is_none_or(|(c, t, _)| (cost, tie) < (c, t)) {
-                    best = Some((cost, tie, n));
-                }
-            }
-        }
-        // Il existe toujours un voisin plus proche dans le bassin (un pas vers la cible) ;
-        // le repli par le signe est exactement ce pas.
-        best.map(|(_, _, n)| n).unwrap_or((
-            f.0 + (target.0 - f.0).signum(),
-            f.1 + (target.1 - f.1).signum(),
-        ))
+    /// La profondeur de la cellule dans l'arbre de son bassin (0 pour une racine).
+    pub fn depth_in_basin(&self, f: FineCell) -> u32 {
+        let b = self.basin_of(f);
+        let region = self.region(b);
+        let tree = self.tree(b);
+        tree.depth[*region
+            .index
+            .get(&f)
+            .expect("une cellule est dans son bassin") as usize]
     }
 
     /// Le niveau d'eau de la cellule, en blocs (flottant) : jamais croissant vers l'aval.
@@ -704,32 +548,13 @@ impl Hydrology {
 
     /// Le nombre de cellules en amont de `f`, elle comprise, saturé à [`ACCUMULATION_CAP`].
     pub fn accumulation(&self, f: FineCell) -> u32 {
-        if let Some(a) = self.accumulations.get(&f) {
-            return a;
-        }
-        let mut seen: FxHashSet<FineCell> = FxHashSet::default();
-        let mut queue = VecDeque::new();
-        seen.insert(f);
-        queue.push_back(f);
-        let mut count = 0u32;
-        while let Some(cur) = queue.pop_front() {
-            count += 1;
-            if count >= ACCUMULATION_CAP {
-                break;
-            }
-            for dz in -1..=1 {
-                for dx in -1..=1 {
-                    let n = (cur.0 + dx, cur.1 + dz);
-                    if (dx, dz) != (0, 0) && !seen.contains(&n) && self.next(n) == Some(cur) {
-                        seen.insert(n);
-                        queue.push_back(n);
-                    }
-                }
-            }
-        }
-        self.count();
-        self.accumulations.put(f, count);
-        count
+        let b = self.basin_of(f);
+        let region = self.region(b);
+        let acc = self.region_accumulations(b);
+        acc[*region
+            .index
+            .get(&f)
+            .expect("une cellule est dans son bassin") as usize]
     }
 
     /// Le contrat de bord de l'arête `from → to`, s'il y a bien une arête (sinon `None`).
@@ -809,11 +634,12 @@ impl Hydrology {
     fn terminal_lake(&self, b: BasinCell) -> Option<Lake> {
         match self.basin_flow(b) {
             BasinFlow::Sink(SinkKind::Lake | SinkKind::Capped) => {
-                let target = self.basin_info(b).target;
+                let sink = self.sink_cell(b);
                 Some(Lake {
-                    center: self.node(target),
-                    radius: 100.0 + 80.0 * unit(self.seed, SALT_LAKE_RADIUS, b.0, b.1),
-                    level: self.elevation(target),
+                    center: self.node(sink),
+                    radius: TERMINAL_LAKE_RADIUS.0
+                        + TERMINAL_LAKE_RADIUS.1 * unit(self.seed, SALT_LAKE_RADIUS, b.0, b.1),
+                    level: self.elevation(sink),
                     terminal: true,
                 })
             }
@@ -831,10 +657,22 @@ impl Hydrology {
                 }
             }
         }
-        let b = basin_of(f);
+        // Lacs terminaux : seules les graines assez proches méritent le calcul du drainage.
+        let centre = [
+            (f.0 as f64 + 0.5) * FINE_SIZE as f64,
+            (f.1 as f64 + 0.5) * FINE_SIZE as f64,
+        ];
+        let reach = (TERMINAL_LAKE_RADIUS.0 + TERMINAL_LAKE_RADIUS.1) * 1.25
+            + FINE_SIZE as f64 * std::f64::consts::FRAC_1_SQRT_2;
+        let sb = (f.0.div_euclid(BASIN_FINE), f.1.div_euclid(BASIN_FINE));
         for dz in -1..=1 {
             for dx in -1..=1 {
-                if let Some(l) = self.terminal_lake((b.0 + dx, b.1 + dz)) {
+                let b = (sb.0 + dx, sb.1 + dz);
+                let node = self.node(self.seed_info(b).cell);
+                if (node[0] - centre[0]).hypot(node[1] - centre[1]) > reach {
+                    continue;
+                }
+                if let Some(l) = self.terminal_lake(b) {
                     lakes.push(l);
                 }
             }
@@ -860,93 +698,36 @@ impl Hydrology {
         }
         best
     }
-
-    // ---- requêtes de point ----
-
-    /// L'identité du bassin versant du point (x, z).
-    pub fn basin_id_at(&self, x: f64, z: f64) -> u64 {
-        self.basin_id(basin_of(fine_cell(x, z)))
-    }
-
-    /// La rivière la plus proche du point (x, z) parmi les arêtes des 5 × 5 cellules voisines
-    /// (distance à l'axe, à comparer à la largeur), pour les arêtes de cours d'eau seulement.
-    pub fn river_near(&self, x: f64, z: f64) -> Option<RiverPoint> {
-        let c = fine_cell(x, z);
-        let mut best: Option<(f64, RiverPoint)> = None;
-        for dz in -2..=2 {
-            for dx in -2..=2 {
-                let g = (c.0 + dx, c.1 + dz);
-                if self.is_sea(g) {
-                    continue;
-                }
-                let Some(n) = self.next(g) else { continue };
-                let acc = self.accumulation(g);
-                if acc < STREAM_MIN_ACCUMULATION {
-                    continue;
-                }
-                let (a, b) = (self.node(g), self.node(n));
-                let (sx, sz) = (b[0] - a[0], b[1] - a[1]);
-                let len2 = (sx * sx + sz * sz).max(1e-9);
-                let t = (((x - a[0]) * sx + (z - a[1]) * sz) / len2).clamp(0.0, 1.0);
-                let distance = (x - (a[0] + sx * t)).hypot(z - (a[1] + sz * t));
-                let width = river_width(acc) as f64
-                    + (river_width(self.accumulation(n)) - river_width(acc)) as f64 * t;
-                let score = distance - width * 0.5;
-                if best.is_none_or(|(s, _)| score < s) {
-                    let level = self.level(g) as f64 + (self.level(n) - self.level(g)) as f64 * t;
-                    best = Some((
-                        score,
-                        RiverPoint {
-                            distance: distance as f32,
-                            width: width as f32,
-                            level: level as f32,
-                            accumulation: acc,
-                            basin: self.basin_id(basin_of(g)),
-                        },
-                    ));
-                }
-            }
-        }
-        best.map(|(_, r)| r)
-    }
 }
+
+/// Rayon d'un lac terminal : minimum et étendue (blocs).
+const TERMINAL_LAKE_RADIUS: (f64, f64) = (130.0, 130.0);
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn basin_of_uses_floor_division_for_negative_cells() {
-        assert_eq!(basin_of((0, 0)), (0, 0));
-        assert_eq!(basin_of((7, 7)), (0, 0));
-        assert_eq!(basin_of((8, -1)), (1, -1));
-        assert_eq!(basin_of((-1, -8)), (-1, -1));
-        assert_eq!(basin_of((-9, -9)), (-2, -2));
-        assert_eq!(fine_cell(-0.5, 63.9), (-1, 0));
-    }
-
-    #[test]
     fn width_grows_with_accumulation_and_is_bounded() {
         let mut last = 0.0;
         for acc in 1..=ACCUMULATION_CAP {
             let w = river_width(acc);
-            assert!(w >= last && w <= 40.0);
+            assert!(w >= last && w <= MAX_RIVER_WIDTH);
             last = w;
         }
+        assert!(
+            river_width(ACCUMULATION_CAP) > 40.0,
+            "les fleuves sont larges"
+        );
+        assert!(
+            river_width(STREAM_MIN_ACCUMULATION) < 8.0,
+            "les ruisseaux sont étroits"
+        );
     }
 
     #[test]
-    fn crossing_is_read_identically_from_a_fresh_context() {
-        let (a, b) = (Hydrology::new(5), Hydrology::new(5));
-        for from in [(0, 0), (-1, -1), (3, -4)] {
-            for to in [
-                (from.0 + 1, from.1),
-                (from.0 - 1, from.1),
-                (from.0, from.1 + 1),
-                (from.0, from.1 - 1),
-            ] {
-                assert_eq!(a.crossing(from, to), b.crossing(from, to));
-            }
-        }
+    fn fine_cell_uses_floor_division_for_negative_points() {
+        assert_eq!(fine_cell(-0.5, 127.9), (-1, 0));
+        assert_eq!(fine_cell(-128.0, -129.0), (-1, -2));
     }
 }

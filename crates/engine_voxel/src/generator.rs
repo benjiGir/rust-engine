@@ -1312,10 +1312,11 @@ use features::PlantBlocks;
 pub use features::TreeSite;
 pub use geography::{COAST_DISTANCE_MAX, GeoSample, Geography, ReliefFamily};
 pub use hydrology::{
-    ACCUMULATION_CAP, BASIN_FINE, BASIN_SIZE, BasinCell, BasinChain, BasinFlow, Crossing,
-    EdgeContract, FINE_SIZE, FineCell, HydroStats, Hydrology, Lake, LakePoint, MAX_BASIN_HOPS,
-    MAX_FINE_PATH, MAX_STEPS_IN_BASIN, RIVER_DEPTH, RiverPoint, STREAM_MIN_ACCUMULATION, SinkKind,
-    basin_of, fine_cell, river_width,
+    ACCUMULATION_CAP, BASIN_FINE, BASIN_SIZE, BasinCell, BasinChain, BasinFlow, CACHE_TABLES,
+    Crossing, EdgeContract, FINE_SIZE, FineCell, HydroStats, Hydrology, Lake, LakePoint,
+    MAX_BASIN_CELLS, MAX_BASIN_HOPS, MAX_FINE_PATH, MAX_OWNER_STEPS, MAX_RIVER_WIDTH,
+    MAX_STEPS_IN_BASIN, RIVER_DEPTH, RiverPoint, STREAM_MIN_ACCUMULATION, SinkKind, fine_cell,
+    river_width,
 };
 use structures::StructureBlocks;
 pub use structures::{

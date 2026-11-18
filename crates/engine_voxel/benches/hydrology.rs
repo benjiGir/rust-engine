@@ -57,7 +57,10 @@ fn bench_hydrology(c: &mut Criterion) {
             || MacroWorld::new(SEED),
             |world| {
                 let cell = engine_voxel::fine_cell(x, z);
-                black_box(world.hydrology().chain(engine_voxel::basin_of(cell)))
+                {
+                    let h = world.hydrology();
+                    black_box(h.chain(h.basin_of(cell)))
+                }
             },
             BatchSize::SmallInput,
         )

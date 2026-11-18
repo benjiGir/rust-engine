@@ -26,6 +26,8 @@ use super::macro_noise::smooth;
 /// Largeur (blocs) sur laquelle la vallée se fond dans le terrain : inférieure à une cellule fine,
 /// ce qui garantit que les arêtes lues (5 × 5 cellules) suffisent.
 pub const VALLEY_REACH: f32 = 56.0;
+/// Relèvement maximal du terrain (blocs) sous un cours dont le niveau d'eau le dépasse.
+pub const MAX_FILL: f32 = 2.0;
 
 /// Tout ce que le contexte macro sait d'un point.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -93,9 +95,11 @@ impl MacroWorld {
             // Vallée encaissée si le terrain domine l'eau, plaine alluviale s'il est proche.
             let relief = (geo.elevation - r.level).max(0.0);
             let slope = 0.12 + 0.68 * smooth(8.0, 60.0, relief as f64) as f32;
-            let floor = r.level + 1.0;
+            // Le remblai est plafonné : le niveau d'eau reste exact, mais le terrain n'est relevé que
+            // de `MAX_FILL` blocs (le relèvement complet des dépressions est l'affaire du lot 4).
+            let floor = (r.level + 1.0).min(geo.elevation + MAX_FILL);
             let target = geo.elevation.clamp(floor, floor + slope * over);
-            let k = 1.0 - smooth(0.0, VALLEY_REACH as f64, over as f64) as f32;
+            let k = (1.0 - smooth(0.0, VALLEY_REACH as f64, over as f64) as f32) * r.taper;
             elevation += (target - elevation) * k;
             if r.distance <= half {
                 in_water = true;

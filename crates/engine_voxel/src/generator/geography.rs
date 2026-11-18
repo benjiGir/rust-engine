@@ -73,6 +73,8 @@ const CONTINENT_GAIN: f64 = 1.45;
 /// Planchers doux des gradients des estimations de distance (par bloc).
 const AXIS_GRADIENT_FLOOR: f64 = 2.5e-4;
 const COAST_GRADIENT_FLOOR: f64 = 1.5e-4;
+/// Gradient de référence du champ continental au large (par bloc), pour des fonds marins lisses.
+const SEA_GRADIENT_REFERENCE: f64 = 4.0e-4;
 
 /// Hauteur maximale d'une chaîne au-dessus de son piémont (blocs), avant écrêtage doux.
 const CHAIN_AMPLITUDE: f64 = 100.0;
@@ -284,12 +286,25 @@ impl Geography {
         let s0 = self.continent_smooth(x, z);
         let gx = (self.continent_smooth(x + H, z) - s0) / H;
         let gz = (self.continent_smooth(x, z + H) - s0) / H;
-        let gradient = (gx * gx + gz * gz + COAST_GRADIENT_FLOOR * COAST_GRADIENT_FLOOR).sqrt();
+        let mut gradient = (gx * gx + gz * gz + COAST_GRADIENT_FLOOR * COAST_GRADIENT_FLOOR).sqrt();
+        if s0 < 0.0 {
+            // Au large, le gradient du « warp » tord l'estimation en tourbillons visibles sur les
+            // fonds marins : il s'efface au profit d'une valeur de référence (le rivage, lui,
+            // garde son estimation exacte).
+            let far = smooth(0.05, 0.30, -s0);
+            gradient = gradient * (1.0 - far) + SEA_GRADIENT_REFERENCE * far;
+        }
         let c = s0 + (-s0.abs() / 0.10).exp() * COAST_DETAIL.1 * self.coast_detail(x, z);
         (
             (c / gradient).clamp(-COAST_DISTANCE_MAX, COAST_DISTANCE_MAX),
             c,
         )
+    }
+
+    /// La distance estimée au rivage en (x, z), en blocs (positive sur la terre) : le même nombre que
+    /// [`GeoSample::coast_distance`], pour un coût de quelques centaines de nanosecondes.
+    pub fn coast_distance_at(&self, x: f64, z: f64) -> f64 {
+        self.coast(x, z).0
     }
 
     /// L'intensité des chaînes en (x, z) : où elles existent, et leurs cols.

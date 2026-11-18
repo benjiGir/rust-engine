@@ -8,8 +8,9 @@
 use std::collections::HashSet;
 
 use engine_voxel::{
-    ACCUMULATION_CAP, BASIN_FINE, BASIN_SIZE, BasinFlow, FINE_SIZE, FineCell, MAX_BASIN_HOPS,
-    MAX_FINE_PATH, MacroSample, MacroWorld, SEA_LEVEL, SinkKind, WORLD_HEIGHT_CHUNKS, basin_of,
+    ACCUMULATION_CAP, BASIN_FINE, BASIN_SIZE, BasinFlow, CACHE_TABLES, FINE_SIZE, FineCell,
+    MAX_BASIN_CELLS, MAX_BASIN_HOPS, MAX_FINE_PATH, MacroSample, MacroWorld, SEA_LEVEL,
+    STREAM_MIN_ACCUMULATION, SinkKind, WORLD_HEIGHT_CHUNKS,
 };
 
 const SEEDS: [u32; 5] = [7, 42, 1337, 20260, 987_654_321];
@@ -89,7 +90,7 @@ fn samples_are_identical_in_sequence_reverse_parallel_and_any_cache_state() {
         let evicted: Vec<_> = pts.iter().map(|&(x, z)| tiny.sample(x, z)).collect();
         assert_eq!(reference, evicted, "graine {seed} : caches évincés");
         assert!(
-            tiny.hydrology().cached_entries() <= 9 * 64,
+            tiny.hydrology().cached_entries() <= CACHE_TABLES * 64,
             "mémoire bornée"
         );
 
@@ -220,11 +221,13 @@ fn edge_contracts_are_read_identically_by_both_neighbours() {
                 .expect("l'arête existe aussi de l'autre côté");
             assert_eq!(a, b);
             // L'entrée est dans le bassin aval, collée à la sortie ; le niveau ne remonte pas.
-            assert_eq!(basin_of(crossing.exit), from);
-            assert_eq!(basin_of(crossing.entry), to);
+            assert_eq!(h.basin_of(crossing.exit), from);
+            assert_eq!(h.basin_of(crossing.entry), to);
+            // Deux cellules voisines (8 voisins) de part et d'autre de la frontière.
             assert_eq!(
-                (crossing.exit.0 - crossing.entry.0).abs()
-                    + (crossing.exit.1 - crossing.entry.1).abs(),
+                (crossing.exit.0 - crossing.entry.0)
+                    .abs()
+                    .max((crossing.exit.1 - crossing.entry.1).abs()),
                 1
             );
             assert!(
@@ -256,15 +259,15 @@ fn every_path_is_acyclic_and_ends_at_a_declared_sink_within_the_bound() {
             let mut seen = HashSet::new();
             let mut cur = start;
             let mut steps = 0;
-            let mut hops_before = h.chain(basin_of(start)).hops;
+            let mut hops_before = h.chain(h.basin_of(start)).hops;
             max_hops = max_hops.max(hops_before);
-            assert!(hops_before <= MAX_BASIN_HOPS || h.chain(basin_of(start)).capped);
+            assert!(hops_before <= MAX_BASIN_HOPS || h.chain(h.basin_of(start)).capped);
             loop {
                 assert!(seen.insert(cur), "graine {seed} : cycle en {cur:?}");
                 assert!(steps <= MAX_FINE_PATH, "graine {seed} : chemin trop long");
                 let Some(next) = h.next(cur) else { break };
                 // Le sens du graphe de bassins : les arêtes inter-bassins diminuent la profondeur.
-                let (b, nb) = (basin_of(cur), basin_of(next));
+                let (b, nb) = (h.basin_of(cur), h.basin_of(next));
                 if b != nb {
                     let BasinFlow::Flow { to, crossing } = h.basin_flow(b) else {
                         panic!("graine {seed} : sortie d'un puits {b:?}");
@@ -275,15 +278,12 @@ fn every_path_is_acyclic_and_ends_at_a_declared_sink_within_the_bound() {
                     assert!(hops <= hops_before || steps == 0);
                     hops_before = hops;
                 } else {
-                    // À l'intérieur d'un bassin : on se rapproche strictement de la cible.
-                    let target = match h.basin_flow(b) {
-                        BasinFlow::Sink(_) => h.basin_target(b),
-                        BasinFlow::Flow { crossing, .. } => crossing.exit,
-                    };
-                    let d2 = |c: FineCell| {
-                        (c.0 - target.0).pow(2) as i64 + (c.1 - target.1).pow(2) as i64
-                    };
-                    assert!(d2(next) < d2(cur), "graine {seed} : pas qui s'éloigne");
+                    // À l'intérieur d'un bassin : on se rapproche strictement de la racine de l'arbre.
+                    assert_eq!(
+                        h.depth_in_basin(next) + 1,
+                        h.depth_in_basin(cur),
+                        "graine {seed} : pas qui ne descend pas l'arbre"
+                    );
                 }
                 cur = next;
                 steps += 1;
@@ -293,7 +293,7 @@ fn every_path_is_acyclic_and_ends_at_a_declared_sink_within_the_bound() {
             if h.is_sea(cur) {
                 oceans += 1;
             } else {
-                let b = basin_of(cur);
+                let b = h.basin_of(cur);
                 match h.basin_flow(b) {
                     BasinFlow::Sink(kind) => {
                         assert_eq!(cur, h.basin_target(b), "le lac terminal est au nœud");
@@ -315,6 +315,7 @@ fn every_path_is_acyclic_and_ends_at_a_declared_sink_within_the_bound() {
             capped, 0,
             "la borne de profondeur n'est pas atteinte en pratique"
         );
+        assert!(longest > 5, "des chemins non triviaux");
         assert!(
             oceans > 0,
             "graine {seed} : aucune embouchure sur l'échantillon"
@@ -407,18 +408,23 @@ fn lakes_have_a_level_and_an_outlet_or_are_declared_closed() {
 
 // ---- coût borné ----
 
-/// Borne analytique, large, des altitudes évaluées par une requête de point à froid : 25 cellules
-/// voisines, chacune avec au plus un parcours aval de `MAX_FINE_PATH` cellules et une
-/// accumulation de `ACCUMULATION_CAP` cellules (neuf altitudes par cellule au plus), plus les
-/// nœuds (36 altitudes) et les passes (16) de 5 bassins par bassin du chemin.
+/// Borne analytique (très large) des altitudes évaluées par une requête de point à froid. Une requête
+/// touche au plus 50 cellules (la fenêtre de 5 × 5 et leurs aval) ; chacune parcourt au plus
+/// `MAX_BASIN_HOPS + 1` bassins vers l'aval et, pour l'accumulation, au plus
+/// `10 × (ACCUMULATION_CAP + 10)` bassins amont (le parcours s'arrête à la saturation) ; chaque
+/// bassin coûte au plus `9 × MAX_BASIN_CELLS` altitudes (ses cellules et leur couronne) plus les
+/// graines (36 altitudes pour chacune des 25 graines proches).
 const fn query_elevation_bound() -> u64 {
-    let cells = 25 * (MAX_FINE_PATH as u64 + ACCUMULATION_CAP as u64 * 9) * 9;
-    let basins = 5 * (MAX_BASIN_HOPS as u64 + 1) * (36 + 4 * 16);
-    cells + basins
+    let regions = 50 * (MAX_BASIN_HOPS as u64 + 1) + 50 * 10 * (ACCUMULATION_CAP as u64 + 10);
+    regions * (9 * MAX_BASIN_CELLS as u64 + 25 * 36)
 }
 
-/// Borne mesurée (avec marge) sur le même coût : le coût réel est environ cent fois plus bas.
-const MEASURED_QUERY_ELEVATIONS: u64 = 12_000;
+/// Bornes mesurées (avec marge, environ 2,2 fois le pire observé sur 600 points et sur 1 500
+/// bassins) sur les mêmes coûts : une requête de point à froid évalue au plus environ 4 500
+/// altitudes (1 700 en moyenne), la résolution d'un bassin au plus environ 1 400. Ce sont des
+/// constantes : elles ne grandissent pas avec ce qu'on observe.
+const MEASURED_QUERY_ELEVATIONS: u64 = 10_000;
+const MEASURED_BASIN_ELEVATIONS: u64 = 3_000;
 
 #[test]
 fn a_cold_query_evaluates_a_bounded_number_of_cells() {
@@ -465,10 +471,15 @@ fn resolving_a_basin_looks_at_a_bounded_number_of_basins() {
             let b = (rng.coord(100), rng.coord(100));
             world.hydrology().chain(b);
             let stats = world.hydrology().stats();
-            // Au plus (MAX + 1) bassins, chacun avec ses quatre voisins : 36 altitudes de nœud
-            // et 16 de passe par arête examinée.
-            let bound = 5 * (MAX_BASIN_HOPS as u64 + 1) * (36 + 4 * 16);
+            // Au plus (MAX + 1) bassins parcourus, chacun coûtant au plus ses cellules et leur
+            // couronne (9 × MAX_BASIN_CELLS) plus les graines proches.
+            let bound = (MAX_BASIN_HOPS as u64 + 1) * (9 * MAX_BASIN_CELLS as u64 + 25 * 36);
             assert!(stats.elevations <= bound, "{} > {bound}", stats.elevations);
+            assert!(
+                stats.elevations <= MEASURED_BASIN_ELEVATIONS,
+                "graine {seed}, bassin {b:?} : {} altitudes",
+                stats.elevations
+            );
             worst = worst.max(stats.elevations);
         }
         eprintln!("graine {seed} : résoudre un bassin évalue au plus {worst} altitudes à froid");
@@ -574,15 +585,315 @@ fn land_sea_chains_and_summits_look_like_a_world() {
 fn basin_ids_label_drainage_basins_consistently() {
     let world = MacroWorld::new(42);
     let h = world.hydrology();
-    // Toutes les cellules d'un même chemin terminent dans le même bassin versant.
+    // Le long d'un cours, l'identité du bassin versant ne change pas d'un bassin à l'autre, sauf à
+    // l'entrée du bassin océanique (le puits) : il porte alors sa propre identité.
+    let mut crossings = 0;
     for cell in land_cells(&world, 300, 1) {
-        let id = h.basin_id(basin_of(cell));
         let mut cur = cell;
         while let Some(n) = h.next(cur) {
+            let (b, nb) = (h.basin_of(cur), h.basin_of(n));
+            if b != nb && !h.is_sea(n) {
+                if !h.is_open_sea(nb) {
+                    assert_eq!(h.basin_id(b), h.basin_id(nb), "cellule {cell:?}");
+                }
+                crossings += 1;
+            }
             cur = n;
         }
-        // Le puits atteint est dans un bassin de la chaîne : même bassin versant.
-        assert_eq!(id, h.basin_id(basin_of(cur)), "cellule {cell:?}");
+        // Un cours qui finit dans un lac terminal : même identité que sa cellule de départ.
+        if !h.is_sea(cur) {
+            assert_eq!(h.basin_id(h.basin_of(cell)), h.basin_id(h.basin_of(cur)));
+        }
     }
+    assert!(
+        crossings > 50,
+        "des cours qui traversent des bassins : {crossings}"
+    );
     assert_eq!(BASIN_FINE * FINE_SIZE, BASIN_SIZE);
+}
+
+// ---- forme et lisibilité du réseau ----
+
+/// Les cellules d'un bassin, retrouvées par balayage d'une fenêtre autour de sa super-cellule.
+fn basin_cells(h: &engine_voxel::Hydrology, b: (i32, i32)) -> Vec<FineCell> {
+    let mut cells = Vec::new();
+    for z in (b.1 * BASIN_FINE - 2 * BASIN_FINE)..(b.1 * BASIN_FINE + 3 * BASIN_FINE) {
+        for x in (b.0 * BASIN_FINE - 2 * BASIN_FINE)..(b.0 * BASIN_FINE + 3 * BASIN_FINE) {
+            if h.basin_of((x, z)) == b {
+                cells.push((x, z));
+            }
+        }
+    }
+    cells
+}
+
+#[test]
+fn basins_are_free_form_and_connected_not_grid_squares() {
+    for seed in SEEDS {
+        let world = MacroWorld::new(seed);
+        let h = world.hydrology();
+        let (mut regions, mut rectangles, mut fill, mut outside, mut total) = (0, 0, 0.0, 0, 0);
+        let (mut smallest, mut largest) = (usize::MAX, 0);
+        for j in -8..8 {
+            for i in -8..8 {
+                let b = (i, j);
+                if h.is_open_sea(b) {
+                    continue;
+                }
+                let cells = basin_cells(h, b);
+                assert_eq!(
+                    cells.len(),
+                    h.basin_cell_count(b),
+                    "graine {seed}, bassin {b:?}"
+                );
+                let (x0, x1) = cells.iter().fold((i32::MAX, i32::MIN), |(lo, hi), c| {
+                    (lo.min(c.0), hi.max(c.0))
+                });
+                let (z0, z1) = cells.iter().fold((i32::MAX, i32::MIN), |(lo, hi), c| {
+                    (lo.min(c.1), hi.max(c.1))
+                });
+                let area = ((x1 - x0 + 1) * (z1 - z0 + 1)) as usize;
+                regions += 1;
+                rectangles += usize::from(cells.len() == area);
+                fill += cells.len() as f64 / area as f64;
+                outside += cells
+                    .iter()
+                    .filter(|c| (c.0.div_euclid(BASIN_FINE), c.1.div_euclid(BASIN_FINE)) != b)
+                    .count();
+                total += cells.len();
+                smallest = smallest.min(cells.len());
+                largest = largest.max(cells.len());
+                // Connexe : l'arbre de drainage couvre toutes les cellules (tout chemin finit à sa racine).
+                for &c in &cells {
+                    let mut cur = c;
+                    let mut steps = 0;
+                    while h.basin_of(cur) == b && !h.is_sea(cur) {
+                        let Some(n) = h.next(cur) else { break };
+                        if h.basin_of(n) != b {
+                            break;
+                        }
+                        cur = n;
+                        steps += 1;
+                        assert!(steps <= cells.len(), "cycle dans le bassin {b:?}");
+                    }
+                }
+            }
+        }
+        let (fill, outside) = (fill / regions as f64, outside as f64 / total as f64);
+        eprintln!(
+            "graine {seed} : {regions} bassins, {rectangles} rectangles, remplissage moyen \
+             {fill:.2}, {:.0} % des cellules hors de leur super-cellule, tailles {smallest} à {largest}",
+            outside * 100.0
+        );
+        // Un bassin qui suivrait la grille remplirait son rectangle englobant et resterait dans sa
+        // super-cellule ; ici les formes sont libres.
+        assert!(
+            rectangles * 20 <= regions,
+            "graine {seed} : bassins rectangulaires"
+        );
+        assert!(fill < 0.8, "graine {seed} : remplissage moyen {fill}");
+        assert!(
+            outside > 0.15,
+            "graine {seed} : {outside} des cellules hors de leur super-cellule"
+        );
+        assert!(largest >= 2 * smallest, "graine {seed} : tailles uniformes");
+    }
+}
+
+/// Les arêtes de cours d'eau (cellule, aval, courbe) d'un carré de cellules.
+fn stream_edges(world: &MacroWorld, half: i32) -> Vec<(FineCell, FineCell, [[f64; 2]; 7])> {
+    let h = world.hydrology();
+    let mut edges = Vec::new();
+    for z in -half..half {
+        for x in -half..half {
+            let g = (x, z);
+            if h.is_sea(g) || h.accumulation(g) < STREAM_MIN_ACCUMULATION {
+                continue;
+            }
+            if let Some(n) = h.next(g) {
+                edges.push((g, n, h.river_polyline(g, n)));
+            }
+        }
+    }
+    edges
+}
+
+#[test]
+fn rivers_are_not_aligned_on_the_grid_and_do_not_cross() {
+    fn intersect(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> bool {
+        let side = |p: [f64; 2], q: [f64; 2], r: [f64; 2]| {
+            (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+        };
+        side(c, d, a) * side(c, d, b) < 0.0 && side(a, b, c) * side(a, b, d) < 0.0
+    }
+    for seed in SEEDS {
+        let world = MacroWorld::new(seed);
+        let edges = stream_edges(&world, 40);
+        assert!(
+            edges.len() > 300,
+            "graine {seed} : {} arêtes de cours d'eau",
+            edges.len()
+        );
+        // Direction des segments : la part proche d'un axe (à 5 degrés) reste proche de celle d'une
+        // répartition uniforme (11 %), loin des peignes de tronçons droits.
+        let (mut aligned, mut segments) = (0, 0);
+        for (_, _, line) in &edges {
+            for s in line.windows(2) {
+                let angle = (s[1][1] - s[0][1])
+                    .atan2(s[1][0] - s[0][0])
+                    .to_degrees()
+                    .rem_euclid(90.0);
+                segments += 1;
+                aligned += usize::from(!(5.0..=85.0).contains(&angle));
+            }
+        }
+        let share = aligned as f64 / segments as f64;
+        eprintln!(
+            "graine {seed} : {:.1} % de segments alignés sur un axe",
+            share * 100.0
+        );
+        assert!(
+            share < 0.22,
+            "graine {seed} : {:.0} % de segments alignés",
+            share * 100.0
+        );
+        // Des cours qui ne partagent aucun nœud ne se coupent jamais.
+        let mut pairs = 0;
+        for (i, (g1, n1, l1)) in edges.iter().enumerate() {
+            for (g2, n2, l2) in &edges[i + 1..] {
+                if g1 == g2 || n1 == n2 || g1 == n2 || g2 == n1 {
+                    continue;
+                }
+                if (g1.0 - g2.0).abs() > 3 || (g1.1 - g2.1).abs() > 3 {
+                    continue;
+                }
+                pairs += 1;
+                for a in l1.windows(2) {
+                    for b in l2.windows(2) {
+                        assert!(
+                            !intersect(a[0], a[1], b[0], b[1]),
+                            "graine {seed} : les cours {g1:?} et {g2:?} se coupent"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(
+            pairs > 1000,
+            "graine {seed} : {pairs} paires de cours voisins vérifiées"
+        );
+    }
+}
+
+#[test]
+fn main_rivers_collect_tributaries_and_widen_downstream() {
+    for seed in SEEDS {
+        let world = MacroWorld::new(seed);
+        let h = world.hydrology();
+        // Le cours le plus fort de la zone, puis sa remontée par la branche la plus forte.
+        let mut best: Option<(u32, FineCell)> = None;
+        for z in -50..50 {
+            for x in -50..50 {
+                let g = (x, z);
+                if !h.is_sea(g) {
+                    let acc = h.accumulation(g);
+                    if best.is_none_or(|(b, _)| acc > b) {
+                        best = Some((acc, g));
+                    }
+                }
+            }
+        }
+        let (top, mut cur) = best.expect("de la terre");
+        assert!(
+            top >= 250,
+            "graine {seed} : le plus grand fleuve n'a que {top} cellules amont"
+        );
+        let (mut tributaries, mut length) = (0, 0);
+        let mut last_width = engine_voxel::river_width(top);
+        loop {
+            let mut upstream: Vec<(u32, FineCell)> = Vec::new();
+            for dz in -1..=1 {
+                for dx in -1..=1 {
+                    let u = (cur.0 + dx, cur.1 + dz);
+                    if u != cur && h.next(u) == Some(cur) {
+                        upstream.push((h.accumulation(u), u));
+                    }
+                }
+            }
+            upstream.sort();
+            let Some(&(_, main)) = upstream.last() else {
+                break;
+            };
+            tributaries += upstream
+                .iter()
+                .filter(|&&(a, u)| u != main && a >= STREAM_MIN_ACCUMULATION)
+                .count();
+            // La largeur ne diminue jamais en descendant (donc ne grandit qu'en remontant... à l'envers).
+            let width = engine_voxel::river_width(h.accumulation(main));
+            assert!(
+                width <= last_width,
+                "graine {seed} : la largeur augmente vers l'amont"
+            );
+            last_width = width;
+            cur = main;
+            length += 1;
+        }
+        eprintln!(
+            "graine {seed} : fleuve de {top} cellules, {length} cellules de cours principal, {tributaries} affluents"
+        );
+        assert!(
+            length >= 12,
+            "graine {seed} : cours principal de {length} cellules"
+        );
+        assert!(
+            tributaries >= 4,
+            "graine {seed} : {tributaries} affluents seulement"
+        );
+    }
+}
+
+#[test]
+fn estuaries_widen_and_inland_rivers_do_not() {
+    let (mut mouths, mut flared, mut inland, mut plain) = (0, 0, 0, 0);
+    for seed in SEEDS {
+        let world = MacroWorld::new(seed);
+        let h = world.hydrology();
+        for z in -60..60 {
+            for x in -60..60 {
+                let g = (x, z);
+                if h.is_sea(g) {
+                    continue;
+                }
+                let Some(n) = h.next(g) else { continue };
+                let acc = h.accumulation(g);
+                if acc < 60 {
+                    continue;
+                }
+                let [nx, nz] = h.node(g);
+                let Some(r) = h.river_near(nx, nz) else {
+                    continue;
+                };
+                let ratio = r.width / engine_voxel::river_width(acc);
+                if h.is_sea(n) {
+                    mouths += 1;
+                    flared += usize::from(ratio > 1.4);
+                } else if world.geography().sample(nx, nz).coast_distance > 1500.0 {
+                    inland += 1;
+                    plain += usize::from(ratio < 1.001);
+                }
+            }
+        }
+    }
+    eprintln!(
+        "embouchures évasées : {flared}/{mouths} ; cours intérieurs sans évasement : {plain}/{inland}"
+    );
+    assert!(mouths >= 10, "{mouths} embouchures");
+    assert!(
+        flared * 10 >= mouths * 7,
+        "{flared}/{mouths} embouchures évasées"
+    );
+    assert!(
+        inland >= 10 && plain == inland,
+        "{plain}/{inland} cours intérieurs sans évasement"
+    );
 }

@@ -94,11 +94,12 @@ pub use generation::{
     DataRecord, DimensionRecord, GenerationIssue, GenerationMeta, GenerationVersion, KindRecord,
 };
 pub use generator::{
-    ACCUMULATION_CAP, BASIN_FINE, BASIN_SIZE, BasinCell, BasinChain, BasinFlow, COAST_DISTANCE_MAX,
-    Crossing, EdgeContract, FINE_SIZE, FineCell, GeoSample, Geography, HydroStats, Hydrology, Lake,
-    LakePoint, MAX_BASIN_HOPS, MAX_FINE_PATH, MAX_STEPS_IN_BASIN, MacroSample, MacroWorld,
-    RIVER_DEPTH, ReliefFamily, RiverPoint, STREAM_MIN_ACCUMULATION, SinkKind, VALLEY_REACH,
-    basin_of, fine_cell, river_width,
+    ACCUMULATION_CAP, BASIN_FINE, BASIN_SIZE, BasinCell, BasinChain, BasinFlow, CACHE_TABLES,
+    COAST_DISTANCE_MAX, Crossing, EdgeContract, FINE_SIZE, FineCell, GeoSample, Geography,
+    HydroStats, Hydrology, Lake, LakePoint, MAX_BASIN_CELLS, MAX_BASIN_HOPS, MAX_FINE_PATH,
+    MAX_OWNER_STEPS, MAX_RIVER_WIDTH, MAX_STEPS_IN_BASIN, MacroSample, MacroWorld, RIVER_DEPTH,
+    ReliefFamily, RiverPoint, STREAM_MIN_ACCUMULATION, SinkKind, VALLEY_REACH, fine_cell,
+    river_width,
 };
 pub use generator::{
     Blueprint, ChestLoot, ChestLootEntry, Climate, Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL,
