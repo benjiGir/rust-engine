@@ -83,20 +83,35 @@ impl FaceConnections {
     }
 
     /// Remplit chaque zone de blocs transparents du chunk et relie les faces qu'elle
-    /// touche. Environ 0,1 ms pour 32³ blocs : on le fait avec le maillage, en fond.
+    /// touche. Quelques dizaines de microsecondes pour 32³ blocs : on le fait avec le maillage, en fond.
+    ///
+    /// Les tampons (blocs ouverts, blocs vus, pile) vivent dans un tampon par thread, réutilisé d'un
+    /// chunk au suivant : aucune allocation par chunk. Les voisins d'un bloc se calculent sans tableau
+    /// (la taille d'un chunk est une puissance de deux : x, z et y sont des champs de bits de l'index).
     pub fn of_chunk(chunk: &Chunk, registry: &BlockRegistry) -> Self {
+        thread_local! {
+            static BUFFERS: std::cell::RefCell<FillBuffers> = std::cell::RefCell::new(FillBuffers::default());
+        }
+        BUFFERS.with(|buffers| Self::fill(chunk, registry, &mut buffers.borrow_mut()))
+    }
+
+    fn fill(chunk: &Chunk, registry: &BlockRegistry, buffers: &mut FillBuffers) -> Self {
         const N: usize = CHUNK_SIZE;
+        const SHIFT: u32 = N.trailing_zeros();
         let blocks = chunk.blocks();
+        let FillBuffers { open, seen, stack } = buffers;
         // `true` : un bloc à travers lequel on voit (le même critère que le maillage).
-        let open: Vec<bool> = blocks.iter().map(|&b| registry.is_transparent(b)).collect();
+        open.clear();
+        open.extend(blocks.iter().map(|&b| registry.is_transparent(b)));
         if open.iter().all(|&o| o) {
             return Self::ALL;
         }
         if !open.iter().any(|&o| o) {
             return Self::NONE;
         }
-        let mut seen = vec![false; blocks.len()];
-        let mut stack = Vec::new();
+        seen.clear();
+        seen.resize(blocks.len(), false);
+        stack.clear();
         let mut connections = Self::NONE;
         for start in 0..blocks.len() {
             if !open[start] || seen[start] {
@@ -104,25 +119,36 @@ impl FaceConnections {
             }
             // Un remplissage par pile : chaque bloc ouvert n'est visité qu'une fois.
             seen[start] = true;
-            stack.push(start);
+            stack.push(start as u32);
             let mut touched = 0u8;
             while let Some(i) = stack.pop() {
+                let i = i as usize;
                 // L'ordre de `Chunk::index` : x, puis z, puis y.
-                let (x, z, y) = (i % N, (i / N) % N, i / (N * N));
+                let (x, z, y) = (i & (N - 1), (i >> SHIFT) & (N - 1), i >> (2 * SHIFT));
                 touched |= faces_touched(x, y, z);
-                let neighbours = [
-                    (x > 0).then(|| i - 1),
-                    (x + 1 < N).then(|| i + 1),
-                    (y > 0).then(|| i - N * N),
-                    (y + 1 < N).then(|| i + N * N),
-                    (z > 0).then(|| i - N),
-                    (z + 1 < N).then(|| i + N),
-                ];
-                for j in neighbours.into_iter().flatten() {
+                let mut visit = |j: usize| {
                     if open[j] && !seen[j] {
                         seen[j] = true;
-                        stack.push(j);
+                        stack.push(j as u32);
                     }
+                };
+                if x > 0 {
+                    visit(i - 1);
+                }
+                if x + 1 < N {
+                    visit(i + 1);
+                }
+                if y > 0 {
+                    visit(i - N * N);
+                }
+                if y + 1 < N {
+                    visit(i + N * N);
+                }
+                if z > 0 {
+                    visit(i - N);
+                }
+                if z + 1 < N {
+                    visit(i + N);
                 }
             }
             for a in 0..FACES {
@@ -138,6 +164,14 @@ impl FaceConnections {
         }
         connections
     }
+}
+
+/// Les tampons du remplissage, réutilisés (voir [`FaceConnections::of_chunk`]).
+#[derive(Default)]
+struct FillBuffers {
+    open: Vec<bool>,
+    seen: Vec<bool>,
+    stack: Vec<u32>,
 }
 
 impl Default for FaceConnections {
@@ -264,6 +298,99 @@ mod tests {
             }
         }
         chunk
+    }
+
+    /// L'ancienne implémentation (tableaux alloués à chaque appel, voisins en `Option`), gardée comme
+    /// référence : la nouvelle doit donner exactement les mêmes connexions.
+    fn reference(chunk: &Chunk, registry: &BlockRegistry) -> FaceConnections {
+        const N: usize = CHUNK_SIZE;
+        let blocks = chunk.blocks();
+        let open: Vec<bool> = blocks.iter().map(|&b| registry.is_transparent(b)).collect();
+        if open.iter().all(|&o| o) {
+            return FaceConnections::ALL;
+        }
+        if !open.iter().any(|&o| o) {
+            return FaceConnections::NONE;
+        }
+        let mut seen = vec![false; blocks.len()];
+        let mut stack = Vec::new();
+        let mut connections = FaceConnections::NONE;
+        for start in 0..blocks.len() {
+            if !open[start] || seen[start] {
+                continue;
+            }
+            seen[start] = true;
+            stack.push(start);
+            let mut touched = 0u8;
+            while let Some(i) = stack.pop() {
+                let (x, z, y) = (i % N, (i / N) % N, i / (N * N));
+                touched |= faces_touched(x, y, z);
+                let neighbours = [
+                    (x > 0).then(|| i - 1),
+                    (x + 1 < N).then(|| i + 1),
+                    (y > 0).then(|| i - N * N),
+                    (y + 1 < N).then(|| i + N * N),
+                    (z > 0).then(|| i - N),
+                    (z + 1 < N).then(|| i + N),
+                ];
+                for j in neighbours.into_iter().flatten() {
+                    if open[j] && !seen[j] {
+                        seen[j] = true;
+                        stack.push(j);
+                    }
+                }
+            }
+            for a in 0..FACES {
+                for b in a + 1..FACES {
+                    if touched & (1 << a) != 0 && touched & (1 << b) != 0 {
+                        connections.connect(a, b);
+                    }
+                }
+            }
+            if connections == FaceConnections::ALL {
+                break;
+            }
+        }
+        connections
+    }
+
+    #[test]
+    fn the_buffered_fill_matches_the_reference_on_many_chunks() {
+        let registry = registry();
+        let stone = stone(&registry);
+        let leaves = registry.id("core:oak_leaves").unwrap();
+        let mut state = 0xDEAD_BEEF_CAFE_F00Du64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state % 100
+        };
+        let mut distinct = std::collections::HashSet::new();
+        // Du presque vide au presque plein, avec des tunnels et des feuilles transparentes ; les
+        // tampons du thread passent d'un chunk à l'autre.
+        for density in (3..=97).step_by(2) {
+            for _ in 0..6 {
+                let mut chunk = Chunk::new();
+                for y in 0..CHUNK_SIZE {
+                    for z in 0..CHUNK_SIZE {
+                        for x in 0..CHUNK_SIZE {
+                            if next() < density {
+                                chunk.set(x, y, z, if next() < 20 { leaves } else { stone });
+                            }
+                        }
+                    }
+                }
+                let new = FaceConnections::of_chunk(&chunk, &registry);
+                assert_eq!(new, reference(&chunk, &registry), "densité {density}");
+                distinct.insert(format!("{new:?}"));
+            }
+        }
+        assert!(
+            distinct.len() > 3,
+            "des connexions variées : {}",
+            distinct.len()
+        );
     }
 
     #[test]

@@ -32,6 +32,8 @@ use crate::chunk::{CHUNK_SIZE, Chunk};
 use crate::registry::{BlockDef, BlockRegistry, RotationAxis, Shape, Tint};
 use crate::world::World;
 
+mod binary;
+
 const SIZE: i32 = CHUNK_SIZE as i32;
 /// La lumière moyenne d'un coin est gardée en entier, de 0 à 60 (4 × 15) :
 /// assez fin pour être lisse, et comparable exactement pour le greedy.
@@ -1067,13 +1069,17 @@ fn face_corner(origin: IVec3, p: IVec3, face: Face) -> IVec3 {
 pub enum Mesher {
     Culling,
     Greedy,
+    /// Le même résultat que `Greedy`, par masques binaires (voir `mesh/binary.rs`) : plusieurs fois plus
+    /// rapide.
+    Binary,
 }
 
 impl Mesher {
     pub fn other(self) -> Self {
         match self {
             Self::Culling => Self::Greedy,
-            Self::Greedy => Self::Culling,
+            Self::Greedy => Self::Binary,
+            Self::Binary => Self::Culling,
         }
     }
 
@@ -1081,6 +1087,7 @@ impl Mesher {
         match self {
             Self::Culling => "culling",
             Self::Greedy => "greedy",
+            Self::Binary => "binaire",
         }
     }
 
@@ -1088,6 +1095,7 @@ impl Mesher {
         match self {
             Self::Culling => culled(hood),
             Self::Greedy => greedy(hood),
+            Self::Binary => binary::binary(hood),
         }
     }
 }
@@ -1102,6 +1110,13 @@ pub fn mesh_culled(world: &World, chunk_pos: IVec3) -> ChunkMesh {
 /// Greedy meshing (voir [`greedy`]). Renvoie un maillage vide si le chunk n'existe pas.
 pub fn mesh_greedy(world: &World, chunk_pos: IVec3) -> ChunkMesh {
     Neighbourhood::from_world(world, chunk_pos).map_or_else(ChunkMesh::default, |h| greedy(&h))
+}
+
+/// Maillage par masques binaires (voir `mesh/binary.rs`) : les mêmes quads que [`mesh_greedy`], bien plus
+/// vite. Renvoie un maillage vide si le chunk n'existe pas.
+pub fn mesh_binary(world: &World, chunk_pos: IVec3) -> ChunkMesh {
+    Neighbourhood::from_world(world, chunk_pos)
+        .map_or_else(ChunkMesh::default, |h| binary::binary(&h))
 }
 
 /// Une feuille : un cube aux pixels découpés.

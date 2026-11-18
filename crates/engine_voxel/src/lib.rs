@@ -5,7 +5,7 @@
 //! - [`Chunk`] : un cube de 32×32×32 blocs, l'unité de stockage et de maillage.
 //! - [`World`] : tous les chunks, accessibles en coordonnées monde.
 //! - [`TerrainGenerator`] : le terrain procédural (bruit de Perlin, biomes, grottes).
-//! - [`mesh_culled`] et [`mesh_greedy`] : transforment un chunk en triangles.
+//! - [`mesh_culled`], [`mesh_greedy`] et [`mesh_binary`] : transforment un chunk en triangles.
 //! - [`ChunkStreamer`] : charge et maille les chunks autour du joueur, en tâche de fond.
 //! - [`raycast`] : le bloc visé. [`PlayerBody`] : la physique du joueur.
 //! - [`SaveStore`] : la sauvegarde du monde sur disque.
@@ -121,7 +121,7 @@ pub use machines::{
 };
 pub use mesh::{
     ChunkMesh, FLAG_CUTOUT, FLAG_FILLED, FLAG_SWAY, FLAG_TURN_SHIFT, MeshVertex, Mesher,
-    Neighbourhood, TEXTURE_MASK, mesh_culled, mesh_greedy,
+    Neighbourhood, TEXTURE_MASK, mesh_binary, mesh_culled, mesh_greedy,
 };
 pub use networks::{
     ENERGY_RATE, Endpoint, FLUID_RATE, Network, NetworkKind, NetworkStats, Networks,

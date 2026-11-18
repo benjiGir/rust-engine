@@ -1132,3 +1132,70 @@ chargement suit sans retard dans les trois politiques (aucune colonne manquante)
   l'envoi sous VSync.
 - Un fantôme possible, déjà présent avant ce lot : un chunk modifié qui devient entièrement vide garde son ancien
   maillage côté GPU (aucun événement n'est émis pour un chunk absent du monde).
+
+## Statut du lot 7 (maillage et rendu groupé) — première partie : le maillage
+
+**Périmètre de cette livraison.** Le lot 7 touche aussi le rendu (arènes GPU paginées, dessin groupé, comparaison
+Metal, parcours de visibilité). Ces parties modifient `crates/engine_render/src/renderer.rs`, que le travail sur le ciel
+transforme en parallèle (non commité), et elles exigent un GPU réel pour valider « image équivalente » et les
+coûts Metal : **elles ne sont pas faites** et restent à livrer. Cette livraison couvre le côté CPU, qui ne dépend
+pas du renderer.
+
+### Ce qui change
+
+- **Maillage par masques binaires** (`mesh/binary.rs`, `Mesher::Binary`, `mesh_binary`) : le même ensemble de quads que
+  le greedy, calculé autrement. Le greedy interroge chacune des 6 × 32 768 faces possibles d'un chunk, puis relit les
+  cellules d'alentour à travers les 27 chunks pour l'occlusion et la lumière de chaque coin. Le chemin binaire :
+  1. copie le chunk et deux blocs de chaque côté à plat (36³), rangée par rangée, depuis les 27 chunks ;
+  2. construit, par axe, des rangées de 32 bits : cubes **opaques** (voie rapide), cubes **cachant la face de leur
+     voisine**, **autres cubes** (feuilles, eau, verre, glace : voie complète). Les faces visibles d'une rangée
+     entière sont `opaques & !cache(voisine)`, une opération ;
+  3. ne calcule l'apparence (occlusion, lumière douce, teinte) que des faces visibles, depuis la copie à plat, puis
+     fusionne comme le greedy.
+  Les fluides gardent `Neighbourhood::face_look` (hauteur de surface par coin) ; les plantes, rails, dalles, boîtes
+  et animations restent à `plants()`. Les feuilles enfouies, le culling de feuilles et les flammes de four sont
+  reproduits. Les tampons (copie, masques, table des types de blocs) vivent dans un tampon par thread, réutilisé
+  d'un chunk au suivant ; la table est refaite si le registre change.
+- **Équivalence testée** (`mesh/binary.rs`) : mêmes triangles (sommets octet par octet, ordre ignoré) que le greedy sur
+  les chunks de 9 régions générées (graines 7, 42, 1337, éclairés comme le streamer ; eau et feuillage présents), sur une
+  région v2, sur des mélanges aléatoires de pierre, verre, glace, eau, feuilles, herbe haute, planches, four et
+  pierre lumineuse à travers les frontières de chunks, sur des couches pleines avec feuilles enfouies et trous, sans
+  voisins et avec un registre refait, avec et sans culling des feuilles. Deux mutations (une règle d'occlusion,
+  une règle de visibilité) font échouer ces tests.
+- **Connexions de faces** (`visibility.rs`) : `FaceConnections::of_chunk`, appelé à chaque maillage, n'alloue plus rien
+  (tampons par thread) et calcule les voisins sans tableau. Une copie de l'ancienne version sert de référence à
+  un test sur 288 chunks aléatoires.
+- **Par défaut** : le streamer maille avec `Mesher::Binary` ; les structures mobiles (`ships.rs`) aussi ; F1 fait
+  tourner culling, greedy, binaire.
+
+### Mesures (`cargo bench -p engine_voxel --bench meshing`, M3 Pro, un chunk)
+
+| Scène | culling | greedy | binaire | gain sur le greedy |
+| --- | --- | --- | --- | --- |
+| terrain (surface) | 1,83 ms | 1,79 ms | **0,42 ms** | ×4,2 |
+| forêt (feuillage dense) | 1,24 ms | 1,43 ms | **0,78 ms** | ×1,8 |
+| mer (eau, translucide) | 2,06 ms | 2,00 ms | **0,65 ms** | ×3,1 |
+| damier (pire cas, rien à fusionner) | 13,2 ms | 13,8 ms | **10,9 ms** | ×1,3 |
+
+Où va le temps restant d'un chunk de surface (environ 0,8 ms pour la scène la plus chargée du test de coûts) : la copie
+6 µs, les classes 53 µs, les rangées de bits 70 µs, les apparences des faces visibles 380 µs, la fusion et les quads
+180 µs, les connexions de faces 60 µs (167 µs en forêt), les plantes 45 µs. Le coût suit désormais les faces **visibles**
+(environ 150 ns d'apparence et 90 ns de quad par face), pas le volume du chunk.
+
+**Mesure de bout en bout** (`streaming_scenarios --mailleur`, démarrage, rayon 10, trois répétitions) : 5 079 ms
+avec le greedy, 4 984 ms avec le binaire (-2 %, dans le bruit). Le maillage n'est qu'une partie du travail d'un chunk
+(la génération et la lumière dominent) : le gain est réel au niveau du maillage, faible sur le délai de chargement
+global ; il profite surtout aux remaillages (modifications, fluides, machines) et libère du CPU.
+
+### Limites et reste du lot 7
+
+- **Arènes GPU paginées, tampons de staging réemployés, table d'origines commune, dessin groupé par pages et passes,
+  comparaison appels directs / multi-draw / indices regroupés sur Metal, repli Intel, parcours de visibilité** : non
+  faits (voir le périmètre). La mesure « image équivalente avant/après » et les coûts GPU n'existent pas encore.
+- Le greedy reste le chemin de référence : `Mesher::Greedy` et `Mesher::Culling` sont conservés, et les tests
+  d'équivalence les utilisent comme oracle.
+- La voie rapide ne couvre que les cubes pleins sans découpe ni fluide ; le feuillage dense et l'eau passent par la
+  voie complète (apparence calculée sur la copie à plat, mais règles de visibilité plus longues) : le gain y est plus
+  faible (×1,8 en forêt).
+- Le damier montre que la fusion et les quads restent le coût d'une géométrie très fragmentée.
+- Non mesuré : l'effet sur la mémoire du tampon par thread (environ 0,3 Mio par thread de fond).

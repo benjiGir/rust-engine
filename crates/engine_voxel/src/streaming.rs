@@ -123,7 +123,7 @@ impl Default for StreamingConfig {
             worker_threads,
             // Deux tâches par thread : aucun cœur n'attend pendant qu'on en relance.
             max_jobs_in_flight: worker_threads * 2,
-            mesher: Mesher::Greedy,
+            mesher: Mesher::Binary,
             leaf_culling: true,
             column_order: true,
             view_bias: 0.6,
@@ -1443,7 +1443,7 @@ pub(crate) mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
-    use crate::mesh::mesh_greedy;
+    use crate::mesh::mesh_binary;
     use crate::registry::test_blocks::{snow, stone};
 
     const RADIUS: i32 = 2;
@@ -1540,7 +1540,7 @@ pub(crate) mod tests {
         }
         for pos in s.world().chunk_positions() {
             let inside = horizontal_distance_sq(pos, IVec3::ZERO) <= RADIUS * RADIUS;
-            let has_faces = !mesh_greedy(s.world(), pos).is_empty();
+            let has_faces = !mesh_binary(s.world(), pos).is_empty();
             assert_eq!(
                 meshes.contains_key(&pos),
                 inside && has_faces,
@@ -1598,7 +1598,7 @@ pub(crate) mod tests {
         for (pos, mesh) in meshes {
             assert_eq!(
                 mesh.vertices,
-                mesh_greedy(s.world(), pos).vertices,
+                mesh_binary(s.world(), pos).vertices,
                 "chunk {pos}"
             );
         }
@@ -1660,7 +1660,7 @@ pub(crate) mod tests {
             .iter()
             .map(|e| match e {
                 StreamEvent::Mesh(p, mesh) => {
-                    assert_eq!(mesh, &mesh_greedy(s.world(), *p), "maillage à jour");
+                    assert_eq!(mesh, &mesh_binary(s.world(), *p), "maillage à jour");
                     *p
                 }
                 StreamEvent::Unload(p) => panic!("déchargement inattendu de {p}"),
@@ -1692,7 +1692,7 @@ pub(crate) mod tests {
         let remeshed = meshed(&events);
         let chunk = IVec3::new(0, 4, 0);
         let mesh = remeshed.get(&chunk).expect("le chunk voisin est remaillé");
-        assert_eq!(*mesh, &mesh_greedy(s.world(), chunk));
+        assert_eq!(*mesh, &mesh_binary(s.world(), chunk));
     }
 
     #[test]
@@ -1776,7 +1776,7 @@ pub(crate) mod tests {
         assert!(meshed(&events).contains_key(&IVec3::new(1, 3, 0)));
         // Et tout reste cohérent avec un maillage direct.
         for (pos, mesh) in meshed(&events) {
-            assert_eq!(mesh, &mesh_greedy(s.world(), pos), "chunk {pos}");
+            assert_eq!(mesh, &mesh_binary(s.world(), pos), "chunk {pos}");
         }
     }
 

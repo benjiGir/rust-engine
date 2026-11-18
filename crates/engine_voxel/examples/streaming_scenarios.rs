@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! cargo run --release -p engine_voxel --example streaming_scenarios -- [--radius 10] [--seed 42]
-//!     [--scenario demarrage|teleportation|vol|tout] [--far 0|48] [--vitesse 120]
+//!     [--scenario demarrage|teleportation|vol|tout] [--far 0|48] [--vitesse 120] [--mailleur culling|greedy|binaire]
 //!     [--politique ancienne|colonnes|nouvelle|toutes]
 //! ```
 //!
@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use engine_voxel::{
-    ChunkStreamer, FarConfig, FarEvent, FarStreamer, StreamEvent, StreamingConfig,
+    ChunkStreamer, FarConfig, FarEvent, FarStreamer, Mesher, StreamEvent, StreamingConfig,
     TerrainGenerator, TransferBudget, far_allowance, select_tiles,
 };
 use glam::{IVec3, Vec3};
@@ -65,6 +65,7 @@ struct Options {
     scenario: String,
     far: i32,
     speed: f32,
+    mesher: Mesher,
     policies: Vec<Policy>,
 }
 
@@ -75,6 +76,7 @@ fn parse() -> Result<Options> {
         scenario: "tout".into(),
         far: 0,
         speed: 120.0,
+        mesher: Mesher::Binary,
         policies: vec![Policy::Old, Policy::Columns, Policy::New],
     };
     let mut args = std::env::args().skip(1);
@@ -89,6 +91,14 @@ fn parse() -> Result<Options> {
             "--scenario" => o.scenario = value()?,
             "--far" => o.far = value()?.parse()?,
             "--vitesse" => o.speed = value()?.parse()?,
+            "--mailleur" => {
+                o.mesher = match value()?.as_str() {
+                    "culling" => Mesher::Culling,
+                    "greedy" => Mesher::Greedy,
+                    "binaire" => Mesher::Binary,
+                    other => bail!("mailleur inconnu « {other} »"),
+                }
+            }
             "--politique" => {
                 o.policies = match value()?.as_str() {
                     "ancienne" => vec![Policy::Old],
@@ -119,11 +129,12 @@ struct Sim {
 }
 
 impl Sim {
-    fn new(seed: u32, radius: i32, far: i32, policy: Policy) -> Self {
+    fn new(seed: u32, radius: i32, far: i32, policy: Policy, mesher: Mesher) -> Self {
         let config = StreamingConfig {
             view_radius: radius,
             column_order: policy.column_order(),
             view_bias: policy.view_bias(),
+            mesher,
             ..StreamingConfig::default()
         };
         let streamer = ChunkStreamer::new(TerrainGenerator::new(seed), config);
@@ -346,7 +357,7 @@ fn main() -> Result<()> {
     if wants("demarrage") {
         println!("\n## Démarrage (monde vide, caméra immobile)");
         for &policy in &o.policies {
-            let mut sim = Sim::new(o.seed, o.radius, o.far, policy);
+            let mut sim = Sim::new(o.seed, o.radius, o.far, policy, o.mesher);
             let t = time_to_visible(&mut sim, eye, forward, &radii, Duration::from_secs(90));
             println!("  {:9} | {}", policy.name(), show(&t));
             report_transfers(&sim);
@@ -377,7 +388,7 @@ fn main() -> Result<()> {
     if wants("teleportation") {
         println!("\n## Téléportation à 5 000 blocs (tout est à recharger)");
         for &policy in &o.policies {
-            let mut sim = Sim::new(o.seed, o.radius, o.far, policy);
+            let mut sim = Sim::new(o.seed, o.radius, o.far, policy, o.mesher);
             time_to_visible(&mut sim, eye, forward, &[o.radius], Duration::from_secs(90));
             sim.worst_frame_bytes = 0;
             sim.worst_frame_sim = Duration::ZERO;
@@ -396,7 +407,7 @@ fn main() -> Result<()> {
             o.radius - 2
         );
         for &policy in &o.policies {
-            let mut sim = Sim::new(o.seed, o.radius, o.far, policy);
+            let mut sim = Sim::new(o.seed, o.radius, o.far, policy, o.mesher);
             time_to_visible(&mut sim, eye, forward, &[o.radius], Duration::from_secs(90));
             sim.worst_frame_bytes = 0;
             sim.worst_frame_sim = Duration::ZERO;

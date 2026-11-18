@@ -272,7 +272,7 @@ fn build(renderer: &mut Renderer, grid: &SubGrid) -> Built {
     let mut positions: Vec<IVec3> = grid.world().chunk_positions().collect();
     positions.sort_by_key(|p| p.to_array());
     for pos in positions {
-        let mesh = engine_voxel::mesh_greedy(grid.world(), pos);
+        let mesh = engine_voxel::mesh_binary(grid.world(), pos);
         let Some((min, max)) = mesh.bounds() else {
             continue;
         };
