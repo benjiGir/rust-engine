@@ -12,7 +12,7 @@
 //! - `ctl <commande>...` : pilote le jeu lancé avec `VOXEL_CONTROL` (voir `ctl.rs`).
 //! - `bench [--runs N] [--compare ancien.csv]` : le benchmark reproductible (voir `bench.rs`).
 //! - `map [options]` : exporte sans fenêtre des cartes PNG d'une graine (altitude, pente, humidité,
-//!   température, continentalité, biomes) ; les options sont décrites dans
+//!   température, continentalité, biomes ; `--generator v2` : cartes du prototype macro) ; les options sont décrites dans
 //!   `crates/engine_voxel/examples/worldmap.rs`.
 //! - `hooks [--check]` : génère l'interface des mods depuis son catalogue (voir `hooks.rs`).
 

@@ -1,7 +1,8 @@
 # Plan : géographie cohérente et affichage rapide des chunks
 
 Établi le 17 novembre 2026. Statut au 18 novembre 2026 : **lots 0 et 1 exécutés** (livraison A,
-voir « Statut de la livraison A » en bas) ; lots 2 à 9 non commencés.
+voir « Statut de la livraison A » en bas) ; **lots 2 et 3 exécutés comme prototype macro** (livraison B,
+voir « Statut de la livraison B ») ; lots 4 à 9 non commencés.
 
 ## Résultat recherché
 
@@ -134,7 +135,7 @@ relu avec la bonne version, mesures froides et chaudes séparées, cartes export
 **Passage :** aucune différence de blocs sur le corpus ; réduction mesurée du travail
 répété, mémoire bornée et aucune attente ajoutée au thread de rendu.
 
-### Lot 2 — continents, chaînes et familles de relief
+### Lot 2 — continents, chaînes et familles de relief (fait : prototype macro, voir le statut B)
 
 **Dépendance :** lots 0 et 1. **Livrable :** géographie lisible sur les cartes macro.
 
@@ -155,7 +156,7 @@ répété, mémoire bornée et aucune attente ajoutée au thread de rendu.
 côtes variées, absence d'écrêtage systématique des sommets et lecture convaincante
 sur plusieurs graines, pas seulement une vue choisie.
 
-### Lot 3 — bassins, affluents, lacs et vallées
+### Lot 3 — bassins, affluents, lacs et vallées (fait : prototype macro, voir le statut B)
 
 **Dépendance :** lot 2. **Livrable :** prototype hydrologique validé avant le remplissage des blocs.
 
@@ -490,3 +491,133 @@ ouvre une fenêtre).
 - **Trouvaille** : une graine proche de `u32::MAX` (par exemple 4294967295) fait paniquer le bruit en
   debug (`noise` additionne l'indice d'octave à la graine sans wrapping) ; en release le calcul déborde
   silencieusement. Préexistant, non corrigé ; le corpus utilise donc 4000000000.
+
+## Statut de la livraison B (lots 2 et 3)
+
+Exécutée le 18 novembre 2026, **non commitée**. C'est un **prototype macro** : géographie et drainage
+définis en coordonnées monde, validés par des cartes et des tests, **sans aucun bloc** (lot 4) ni biome
+v2 (lot 5). Le générateur v1 est strictement inchangé (`generation_reference` passe, table
+`reference_v1.rs` intacte) ; il n'existe pas de variante `GenerationVersion::V2` (donc rien n'active v2,
+`FOR_NEW_WORLDS` reste V1) ; seuls `cargo xtask map --generator v2`, les tests et un bench l'utilisent.
+
+Fichiers : `generator/macro_noise.rs` (bruit à nous, sans dépendance), `generator/geography.rs` (lot 2),
+`generator/hydrology.rs` (lot 3), `generator/context.rs` (`MacroWorld` : requête de point avec vallées et
+lacs), `worldmap_macro.rs` et l'exemple `worldmap.rs` (cartes), `tests/macro_world.rs` (12 tests),
+`benches/hydrology.rs`.
+
+### Lot 2 : la géographie (`Geography`)
+
+- **Échelles indépendantes** (blocs) : continents 6 400 de longueur d'onde (avec un « warp » lent de 700) ;
+  détail des côtes 520 ; chaînes 2 400 en travers (étirées ×2,2 le long de l'axe) et crêtes secondaires
+  1 700 ; détail fin 150. Le relief va de la mer (niveau 62) à 62 + 120 au plus, sous la hauteur de 192
+  blocs (écrêtage **doux** exponentiel à partir de 85 : pas de sommet tronqué, test : moins de 0,5 % des
+  terres au plafond).
+- **Terre/mer et distance au rivage** : champ continental `C` (terre où `C > 0`), distance **estimée**
+  `C / |∇C|` (gradient de la part lisse, plancher doux), signée, bornée à ±2 600 blocs. Le détail des
+  côtes ne s'ajoute qu'au voisinage du rivage, pour garder fonds marins et plateaux lisses. Courbe de
+  base cubique monotone (Fritsch-Carlson) : plateau continental, plage, plaine côtière, plateau intérieur.
+- **Chaînes** : axe = zéro d'un bruit lent (orientations fondues entre deux directions **fixes** : une
+  rotation dépendant de la position tourne autour de l'origine et tord le monde, première version
+  rejetée), distance à l'axe estimée, intensité par un champ séparé (extrémités de chaînes), **cols** par
+  un troisième champ le long de l'axe, **crêtes secondaires** (second axe limité au voisinage du
+  principal). Profil perpendiculaire cubique monotone plaine → piémont → massif, avec crête. Le bruit
+  fin (amplitude croissant avec la hauteur de chaîne) module sans changer la hiérarchie.
+- **Familles de relief** (`ReliefFamily`) : mer profonde, plateau continental, côte, plaine, plateau,
+  piémont, massif.
+- Tout est une fonction pure de `(graine, x, z)` : aucune région, aucun état.
+
+### Lot 3 : conception de l'hydrologie (`Hydrology`) et pourquoi elle tient ses promesses
+
+Deux échelles : **cellules fines de 64 blocs** (nœud jitteré, altitude macro) et **bassins de 8 × 8
+cellules (512 blocs)**.
+
+1. *Niveau supérieur.* Le nœud d'un bassin est sa cellule fine la plus basse (parmi les 6 × 6 centrales).
+   Un bassin s'écoule vers celui de ses 4 voisins dont `(altitude du nœud, hachage)` est strictement plus
+   bas, par la **passe la plus basse** de la frontière (paire de cellules de bord). Ordre total strict ⇒
+   **acyclique**. Sans voisin plus bas : **puits déclaré**, océan (nœud sous la mer) ou **lac terminal**
+   (bassin fermé intentionnel).
+2. *Profondeur bornée par définition.* Une marche d'au plus `MAX_BASIN_HOPS` + 1 = 49 bassins mesure la
+   profondeur ; un bassin plus profond devient lui-même un puits (« lac plafonné », ses amonts aussi,
+   ses avals gardent leur arête). Aucun chemin n'a donc plus de 48 arêtes inter-bassins et résoudre un
+   bassin ne regarde jamais plus de 49 bassins : pas d'exploration d'un continent.
+3. *Niveau fin.* Chaque cellule s'écoule vers la cellule de sortie de son bassin (ou son nœud si c'est un
+   puits) en prenant, parmi ses voisins **du même bassin strictement plus proches de la cible**, le moins
+   coûteux (altitude + petit tirage de méandre). La distance entière décroît : ni cycle, ni minimum local
+   (au plus 98 pas par bassin, 101 mesurés pour tout un chemin). La sortie passe à l'entrée du bassin aval,
+   de l'autre côté de la frontière. La direction d'une cellule est une **fonction pure** de
+   `(graine, cellule)` qui lit son bassin, ses 4 voisins et leurs bords : **pas de remplissage de
+   dépressions par tuile, pas de couture** ; deux régions séparées ou réunies lisent les mêmes valeurs.
+4. *Contrat de bord* (`EdgeContract`) : fonction pure de l'arête ordonnée (A, B) : cellules de sortie et
+   d'entrée, identité du bassin versant, accumulation, largeur, niveaux d'eau de part et d'autre
+   (`level_out >= level_in`). Les deux voisins appellent la même fonction.
+5. *Profil d'eau.* Niveau d'une cellule = maximum, sur son chemin vers l'exutoire, de
+   `altitude du nœud - 1,5`, plancher à la mer ou au niveau du lac terminal : il **ne remonte jamais vers
+   l'aval** (flottant et après `floor`). Si le terrain monte vers l'aval, le terrain est rehaussé
+   (remblai, au lot 4), pas l'eau.
+6. *Accumulation* : nombre de cellules en amont (elle comprise), exact jusqu'à `ACCUMULATION_CAP` = 384
+   puis saturé ; donc croissant vers l'aval (confluences : l'accumulation de l'aval couvre la somme des
+   affluents, vérifié). Largeur = `1,4 + 0,9 × acc^0,62` (au plus 40 blocs).
+7. *Lacs.* **Terminaux** : tout puits non océanique (rayon 100 à 180, niveau du nœud). **De passage** :
+   cellule de rivière tirée (5 %), isolée dans un voisinage de 7 × 7, rayon 26 à 61 blocs, au niveau de la
+   rivière ; son déversoir est l'arête aval (niveau inférieur ou égal : palier). Rivage déformé par un bruit.
+8. *Vallées* (`MacroWorld::sample`) : bords de lit et berges selon la distance à la rivière (pente douce
+   en plaine alluviale, raide en vallée encaissée), cuvette de lac ; l'altitude se fond dans le terrain
+   sur 56 blocs (moins d'une cellule : les 5 × 5 cellules voisines suffisent).
+
+### Tests du lot 3 (`tests/macro_world.rs`, 5 graines : 7, 42, 1337, 20260, 987654321)
+
+| Exigence | Test | Résultat |
+| --- | --- | --- |
+| Déterminisme (séquentiel, inverse, 4 threads, caches vides, vidés en route, pleins, évincés à 64 entrées) | `samples_are_identical_in_sequence_reverse_parallel_and_any_cache_state`, `hydrology_cells_do_not_depend_on_evaluation_order` | passent, égalité exacte |
+| Raccords (régions séparées/réunies aux bords et coins de quatre régions, négatifs compris ; contrat lu par les deux voisins) | `separate_regions_agree_with_a_united_region_at_edges_and_four_region_corners`, `edge_contracts_are_read_identically_by_both_neighbours` | passent (5 coins dont 3 en négatif ; plus de 200 arêtes par graine) |
+| Acyclicité, terminaison déclarée et bornée | `every_path_is_acyclic_and_ends_at_a_declared_sink_within_the_bound` | 1 500 cellules terrestres par graine : aucun cycle ni cours interrompu ; profondeur max 16 bassins (borne 48) ; plus long chemin 101 cellules ; aucun puits plafonné |
+| Aucune remontée, confluences, lacs | `water_never_climbs_downstream_even_after_rounding_to_blocks`, `lakes_have_a_level_and_an_outlet_or_are_declared_closed` | passent |
+| Coût borné | `a_cold_query_evaluates_a_bounded_number_of_cells`, `resolving_a_basin_looks_at_a_bounded_number_of_basins` | voir les mesures |
+| Géographie (continuité, terres 20-60 %, sommets non écrêtés, massifs) | `geography_is_continuous_across_region_borders_and_in_negative_coordinates`, `land_sea_chains_and_summits_look_like_a_world` | passent |
+
+### Mesures (Apple M3 Pro, release, `cargo bench -p engine_voxel --bench hydrology`, contexte neuf)
+
+| Mesure | Temps |
+| --- | --- |
+| Requête de point à froid, massif / plaine côtière / intérieur | 1,55 ms / 2,29 ms / 2,15 ms |
+| Géographie seule (un point) | environ 0,8 µs |
+| Résolution d'un bassin à froid | 0,44 ms |
+| Zone de 1 024 × 1 024 blocs à froid (4 096 points, pas de 16) | 12,2 ms |
+
+Altitudes évaluées par une requête de point à froid (cellules, avec un contexte neuf, 600 points) :
+2 443 en moyenne, 5 375 au pire ; résoudre un bassin : au plus 1 764. La borne analytique (constantes :
+25 cellules × chemin maximal et accumulation maximale) est de 1,9 million : très large ; le test fige
+une borne mesurée de 12 000. Une carte de 16 384 blocs de côté (1 024 × 1 024 pixels) se calcule en 2,5 à
+3,7 s sur 12 cœurs.
+
+### Lisibilité des cartes (jugement)
+
+Forces : continents et golfes variés, plateau continental, plaines côtières, massifs dont la ligne de
+crête se lit (cols, arcs, flancs), piémonts, réseaux de drainage dendritiques qui se jettent dans la mer
+ou dans des lacs fermés, rivières qui s'élargissent vers l'aval, vallées visibles sur l'altitude. Trois
+graines examinées (42, 7, 1337, en vue large de 16 384 blocs, plus deux zooms), pas une vue choisie.
+
+Défauts connus : (1) les **bassins versants sont des carrés de 512 blocs** sur la carte des bassins (toutes les
+cellules d'un bassin suivent sa sortie) : limite du modèle à deux échelles ; (2) les cours d'eau montrent
+des **segments alignés sur la grille** (surtout en plaine, le long des bords de bassins) et un
+léger dentelage de 64 blocs ; (3) environ **21 % des cellules terrestres échantillonnées** drainent vers un
+lac terminal (un puits intérieur par vallée fermée) : plausible (bassins endoréiques) mais fréquent ;
+(4) les chaînes sont plutôt des **massifs en arcs** que de longues cordillères continues, et les fonds
+marins montrent des tourbillons hérités du « warp » ; (5) un cours qui traverse une crête creuse un
+canyon (ou est précédé d'un remblai) : le profil descend toujours, pas toujours le terrain ; (6) pas de
+méandres de plaine ni de deltas au-delà du jitter des nœuds.
+
+### Limites et ce qui n'est pas fait
+
+- Aucun bloc (lot 4), aucun biome ni climat (lot 5), aucun lien avec les structures, les fluides stables
+  ni les modifications du joueur : l'hydrologie statique n'est qu'un champ interrogeable.
+- Pas de variante `GenerationVersion::V2` ni de choix de générateur à la création d'un monde.
+- Les passes entre bassins sont des arêtes de 4 voisins ; il n'y a pas d'arête diagonale ni de
+  tributaire qui traverse le bord hors du contrat. Le passage de l'eau d'un bassin à l'autre n'a lieu
+  qu'à la passe la plus basse.
+- La borne de profondeur (48 arêtes, 24 576 blocs) est une définition, pas un phénomène observé : elle
+  n'est jamais atteinte sur l'échantillon (profondeur maximale 16). Un bassin plafonné deviendrait un
+  lac terminal ; aucun test n'en a vu.
+- La largeur est limitée à 40 blocs (accumulation saturée) : pas de fleuve plus large. Les lacs de
+  passage font moins d'une cellule de rayon.
+- Pas de mesure de mémoire en jeu (le prototype n'est pas branché au streaming) ; les tables de cache sont vidées au-delà de 262 144 entrées chacune.

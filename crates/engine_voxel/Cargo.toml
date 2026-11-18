@@ -50,3 +50,7 @@ workspace = true
 [[bench]]
 name = "fluids"
 harness = false
+
+[[bench]]
+name = "hydrology"
+harness = false

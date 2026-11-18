@@ -58,6 +58,7 @@ mod trees;
 mod visibility;
 mod world;
 mod worldmap;
+mod worldmap_macro;
 
 pub use biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry, OreDef, PlantDef, Relief};
 pub use block::BlockId;
@@ -91,6 +92,13 @@ pub use fluid_sim::{FULL as FLUID_FULL, FluidKind, FluidReport, FluidSim};
 pub use fluids::{FluidDef, FluidRegistry};
 pub use generation::{
     DataRecord, DimensionRecord, GenerationIssue, GenerationMeta, GenerationVersion, KindRecord,
+};
+pub use generator::{
+    ACCUMULATION_CAP, BASIN_FINE, BASIN_SIZE, BasinCell, BasinChain, BasinFlow, COAST_DISTANCE_MAX,
+    Crossing, EdgeContract, FINE_SIZE, FineCell, GeoSample, Geography, HydroStats, Hydrology, Lake,
+    LakePoint, MAX_BASIN_HOPS, MAX_FINE_PATH, MAX_STEPS_IN_BASIN, MacroSample, MacroWorld,
+    RIVER_DEPTH, ReliefFamily, RiverPoint, STREAM_MIN_ACCUMULATION, SinkKind, VALLEY_REACH,
+    basin_of, fine_cell, river_width,
 };
 pub use generator::{
     Blueprint, ChestLoot, ChestLootEntry, Climate, Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL,
@@ -155,3 +163,4 @@ pub use trees::{Part, Rng64, TreeBlocks, TreeKind, Wood, grow as grow_tree};
 pub use visibility::{FACE_DIRECTIONS, FaceConnections, VisibilityGraph};
 pub use world::World;
 pub use worldmap::{MapArea, MapKind, MapSamples, Raster};
+pub use worldmap_macro::{MacroMapKind, MacroMapSamples};

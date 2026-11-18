@@ -234,13 +234,13 @@ pub fn slope_degrees(dx: f32, dz: f32) -> f32 {
     dx.hypot(dz).atan().to_degrees()
 }
 
-fn gray(t: f32) -> [u8; 3] {
+pub(crate) fn gray(t: f32) -> [u8; 3] {
     let v = (t.clamp(0.0, 1.0) * 255.0).round() as u8;
     [v, v, v]
 }
 
 /// Interpolation linéaire entre des couleurs régulièrement espacées, `t` de 0 à 1.
-fn ramp(t: f32, colors: &[[u8; 3]]) -> [u8; 3] {
+pub(crate) fn ramp(t: f32, colors: &[[u8; 3]]) -> [u8; 3] {
     let t = t.clamp(0.0, 1.0) * (colors.len() - 1) as f32;
     let i = (t.floor() as usize).min(colors.len() - 2);
     let f = t - i as f32;
@@ -249,7 +249,7 @@ fn ramp(t: f32, colors: &[[u8; 3]]) -> [u8; 3] {
     })
 }
 
-fn altitude_color(height: i32, shade: f32) -> [u8; 3] {
+pub(crate) fn altitude_color(height: i32, shade: f32) -> [u8; 3] {
     let sea = SEA_LEVEL;
     let top = WORLD_HEIGHT_CHUNKS * 32 - 2;
     let base = if height < sea {

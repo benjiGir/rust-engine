@@ -323,6 +323,20 @@ Plan et choix : `docs/plan-stockage.md`.
 - **Observation** : `ChunkStreamer::set_pipeline_timing` (`VOXEL_PIPELINE=1` en jeu) mesure les délais
   demande → génération → lumière → maillage → envoi ; `cargo xtask map` exporte des cartes PNG.
 
+### Géographie et drainage macro, prototype v2 (fait : `generator/geography.rs`, `hydrology.rs`, `context.rs`)
+
+- **Prototype non branché** : continents, côtes, chaînes, bassins, rivières et lacs en coordonnées monde,
+  fonctions pures de `(graine, x, z)` (`Geography`, `Hydrology`, `MacroWorld`), sans état global ni
+  frontière de chunk. Ils ne génèrent aucun bloc et `GenerationVersion::FOR_NEW_WORLDS` reste v1 ; la
+  génération v1 est inchangée (`generation_reference`).
+- **Drainage hiérarchique** : cellules de 64 blocs groupées en bassins de 512 blocs ; le graphe de
+  bassins (ordre strict sur l'altitude des nœuds, profondeur bornée à 48 arêtes) est acyclique par
+  construction, les cellules fines suivent une distance entière strictement décroissante vers la
+  sortie. Contrat de bord (`EdgeContract`) lu à l'identique par les deux voisins ; niveaux d'eau qui ne
+  remontent jamais vers l'aval. Détails, mesures et limites : `docs/plan-generation-rendu.md`.
+- **Observation** : `cargo xtask map --generator v2` (terre-mer, rivage, altitude-macro, altitude,
+  chaines, familles, bassins, drainage, lacs).
+
 ### Comment tout s'articule
 
 ```
