@@ -6,6 +6,7 @@
 //! cargo xtask map --seed 7 --x -2048 --z -2048 --size 1024 --step 4
 //! cargo xtask map --maps altitude,biomes --out target/maps/essai --ppm
 //! cargo xtask map --generator v2 --size 1024 --step 8 --maps terre-mer,drainage,bassins
+//! cargo xtask map --generator v2 --size 512 --step 16 --maps biomes-v2,humidite-v2,temperature-v2,canopee,ombre-pluie
 //! cargo xtask map --generator v2 --size 256 --step 4 --maps hauteur-blocs,materiau,eau-blocs,surplombs
 //! cargo xtask map --generator v2 --section z=0 --from -256 --to 256 --ymin 40 --ymax 192 --scale 3
 //! ```
@@ -13,7 +14,10 @@
 //! Options : `--generator v1|v2` (v1 : le monde réel ; v2 : le relief macro des lots 2 et 3, cartes
 //! `terre-mer`, `rivage`, `altitude-macro`, `altitude`, `chaines`, `familles`, `bassins`, `drainage`, `lacs`,
 //! et, issues des **blocs** de la génération v2 (lot 4), `hauteur-blocs`, `materiau`, `eau-blocs`, `parois`,
-//! `surplombs` ; `--section x=N|z=N --from A --to B [--ymin 0 --ymax 192 --scale 2]` dessine la coupe
+//! `surplombs`, et le climat et les biomes de la génération v2 (lot 5) : `ombre-pluie`, `maritime`,
+//! `humidite-regionale` (géographie seule, peu coûteuses) et `biomes-v2`, `temperature-v2`, `humidite-v2`,
+//! `canopee` (lues dans les colonnes du générateur ; la légende de `biomes-v2` est écrite dans
+//! `biomes-v2.txt`) ; `--section x=N|z=N --from A --to B [--ymin 0 --ymax 192 --scale 2]` dessine la coupe
 //! verticale d'une ligne, un bloc par `scale` pixels, dans `coupe-<axe><N>.png`), `--seed N` (42), `--x X --z Z` (coin de la zone, en blocs ; 0 0), `--size L[xH]`
 //! (pixels ; 512), `--step B` (blocs par pixel ; 4), `--maps a,b` (altitude, pente, humidite,
 //! temperature, continentalite, biomes ; toutes), `--out dossier` (target/maps/<graine>), `--ppm`
@@ -26,9 +30,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, bail};
 use engine_voxel::{
-    BlockMapKind, BlockMapSamples, GenerationVersion, MacroMapKind, MacroMapSamples, MacroWorld,
-    MapArea, MapKind, MapSamples, Raster, SectionAxis, SectionSpec, TerrainGenerator,
-    render_section,
+    BlockMapKind, BlockMapSamples, ClimateMapKind, ClimateMapSamples, GenerationVersion,
+    MacroMapKind, MacroMapSamples, MacroWorld, MapArea, MapKind, MapSamples, Raster, SectionAxis,
+    SectionSpec, TerrainGenerator, render_section,
 };
 
 /// Le générateur dont on dessine les cartes.
@@ -227,11 +231,43 @@ fn main() -> Result<()> {
     );
     if options.generator == Generator::V2 {
         // Les cartes de blocs (génération v2) et les cartes macro se demandent par leur nom.
-        let (block_names, macro_names): (Vec<&String>, Vec<&String>) = options
+        let (block_names, other_names): (Vec<&String>, Vec<&String>) = options
             .maps
             .iter()
             .flatten()
             .partition(|n| BlockMapKind::from_name(n).is_some());
+        let (climate_names, macro_names): (Vec<&String>, Vec<&String>) = other_names
+            .into_iter()
+            .partition(|n| ClimateMapKind::from_name(n).is_some());
+        if !climate_names.is_empty() {
+            let kinds: Vec<ClimateMapKind> = climate_names
+                .iter()
+                .map(|n| ClimateMapKind::from_name(n).expect("nom vérifié par la partition"))
+                .collect();
+            let world = MacroWorld::new(options.seed);
+            let generator = kinds
+                .iter()
+                .any(|k| k.needs_columns())
+                .then(|| v2_generator(&options))
+                .transpose()?;
+            let started = std::time::Instant::now();
+            let samples = ClimateMapSamples::compute(&world, generator.as_ref(), area);
+            println!("climat v2 : {} ms", started.elapsed().as_millis());
+            for kind in kinds {
+                save(&out, kind.name(), &samples.render(kind), options.ppm)?;
+                if kind == ClimateMapKind::Biomes {
+                    let legend: String = samples
+                        .biome_legend()
+                        .iter()
+                        .map(|(key, c)| format!("{key}\t#{:02x}{:02x}{:02x}\n", c[0], c[1], c[2]))
+                        .collect();
+                    std::fs::write(out.join("biomes-v2.txt"), legend)?;
+                }
+            }
+            if block_names.is_empty() && macro_names.is_empty() {
+                return Ok(());
+            }
+        }
         if !block_names.is_empty() {
             let generator = v2_generator(&options)?;
             let started = std::time::Instant::now();

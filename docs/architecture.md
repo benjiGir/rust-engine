@@ -347,6 +347,11 @@ Plan et choix : `docs/plan-stockage.md`.
 - Tests : `tests/generation_v2.rs` et `tests/support/reference_v2.rs` (empreintes figées). Observation :
   `cargo xtask map --generator v2 --maps hauteur-blocs,materiau,eau-blocs,surplombs` et
   `--section z=N --from A --to B` (coupes colorées par matériau). Détails : `docs/plan-generation-rendu.md`.
+- Climat, biomes et végétation (lot 5, `generator/climate.rs`, `worldmap_climate.rs`) : température et
+  humidité déduites de la géographie (altitude, mer, continentalité, ombre pluviométrique d'un vent par
+  graine), marais en zone basse humide, plage et côte rocheuse selon la pente, biome de rivière sur le réseau
+  réel, coefficient de végétation par colonne. Acyclique : le climat lit le relief, jamais l'inverse.
+  Tests : `tests/climate_v2.rs`. Cartes : `--maps biomes-v2,temperature-v2,humidite-v2,canopee,ombre-pluie`.
 
 ### Comment tout s'articule
 

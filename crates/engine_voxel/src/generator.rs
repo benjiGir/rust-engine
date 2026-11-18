@@ -1324,6 +1324,7 @@ fn spline(x: f64, points: &[(f64, f64)]) -> f64 {
     points[points.len() - 1].1
 }
 
+mod climate;
 mod column_cache;
 mod context;
 mod density;
@@ -1340,6 +1341,7 @@ mod underground;
 mod v2;
 mod v2_context;
 
+pub use climate::{ClimateSample, WorldClimate};
 use column_cache::{ColumnCache, ColumnGrid, ColumnKey};
 pub use context::{MacroSample, MacroWorld, VALLEY_REACH};
 use features::PlantBlocks;

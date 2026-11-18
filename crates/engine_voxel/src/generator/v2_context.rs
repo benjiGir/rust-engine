@@ -30,15 +30,41 @@
 //! La colonne de chunks voisine calcule les mêmes valeurs dans sa marge : tout est une fonction pure
 //! de la position, jamais de l'ordre ou de l'état d'un cache.
 //!
-//! # Biomes provisoires (lot 5 les remplacera)
+//! # Climat, biomes et végétation (lot 5)
 //!
-//! Le climat est celui de la v1 (les bruits de température, d'humidité et de variété) lu tous les
-//! 16 blocs, l'humidité étant relevée près de l'eau. La famille du biome vient du relief macro :
-//! lit d'un cours ou d'un lac -> rivière ; sous la mer -> océan (profond si la géographie dit « mer
-//! profonde ») ; rivage bas -> plage ; massif en altitude -> montagnes (pics au-dessus de
-//! `SEA + 85`) ; sinon terre. Dans chaque famille, le biome est choisi par son climat comme en v1.
-//! Les `relief` des biomes de `biomes.ron` ne servent plus (la géographie décide du relief).
+//! Le climat est lu **après** le relief et l'hydrologie, tous les 32 blocs sur la grille absolue (une colonne de chunks : quatre points) (voir
+//! `climate.rs` : température régionale refroidie par l'altitude, humidité de la mer, de la
+//! continentalité, des versants au vent et de l'ombre pluviométrique), puis interpolé. Les effets
+//! locaux s'y ajoutent colonne par colonne :
+//!
+//! - **marais** (`wetland`) : une terre basse, plate, humide, en taches, loin du rivage. Les biomes de
+//!   zone humide (climat d'humidité de 0,7 ou plus) ne sont candidats que là où `wetland` dépasse 0,4 ;
+//! - **eau proche** : +0,45 d'humidité près d'un cours ou d'un lac. Elle ne compte que pour la
+//!   végétation (voir plus bas), pas pour le choix du biome : un cours n'ouvre pas une bande de forêt
+//!   d'une autre variété ;
+//! - **rivage** : plage jusqu'à 70 blocs du rivage sur un sol bas et doux ; côte rocheuse (variété de
+//!   `biomes.ron`) là où la pente, lue sur 8 blocs, dépasse 0,22 à 0,45 : le sable ne s'alterne pas
+//!   avec la roche d'une dune à l'autre.
+//!
+//! La famille du biome vient du relief macro : lit d'un cours ou d'un lac -> rivière (le biome de
+//! rivière suit donc le réseau réel) ; sous la mer -> océan (profond si la géographie dit « mer
+//! profonde ») ; rivage bas -> plage ; massif en altitude -> montagnes (pics au-dessus de `SEA + 85`) ;
+//! sinon terre. Dans chaque famille, le biome est choisi par son climat comme en v1. Océans et plages
+//! ne dépendent que de la température ; les rivières n'ont qu'un biome.
+//!
+//! **Les `relief` des biomes de `biomes.ron` ne servent pas en v2.** Le relief se décide avant le
+//! biome (géographie macro, drainage, escarpements) : un biome qui le modulerait fermerait un cycle
+//! (le biome dépend de l'altitude, qui dépendrait du biome) et redessinerait des vallées protégées
+//! après coup. Ils restent lus par la v1. Une adaptation possible plus tard : un biome compatible
+//! module l'amplitude du détail fin dans une famille de relief donnée, jamais dans une zone
+//! réservée, avec la température et l'humidité lues avant (donc sans retour sur elles).
+//!
+//! **Végétation** (`canopy_factor`) : un coefficient par colonne qui multiplie la densité d'arbres du
+//! biome (humidité relative au climat du biome, pente, ligne des arbres selon la température, berges).
+//! Les règles d'apparition et de ressources (essences par biome, sols, groupes) restent celles de la
+//! v1 ; les lisières viennent du gradient d'humidité et des bosquets (`groves`) du biome.
 
+use super::climate::WorldClimate;
 use super::density;
 use super::hydrology::RiverCandidate;
 use super::macro_noise::{fbm, smooth as smooth64};
@@ -51,7 +77,6 @@ use super::{
 };
 use crate::biome::BiomeKind;
 use crate::chunk::CHUNK_SIZE;
-use noise::NoiseFn;
 
 /// Géographie interpolée en un point.
 #[derive(Debug, Clone, Copy)]
@@ -99,6 +124,36 @@ fn massif_detail(seed: u32, x: f64, z: f64, chain: f32, elevation: f32) -> f32 {
                 fbm(seed, 0x5d, x / 310.0, z / 310.0, 2, 0.5) as f32,
             );
     strength * gain * (20.0 * bulk + 4.0 * rough)
+}
+
+/// Le plus fort coefficient de [`canopy_factor`] : la borne que le tirage des arbres utilise pour
+/// écarter vite les candidats (voir `features.rs`).
+pub(super) const MAX_CANOPY: f32 = 2.6;
+
+/// Le coefficient de végétation d'une colonne, de 0 à [`MAX_CANOPY`] : il multiplie la densité
+/// d'arbres du biome (voir `features.rs`). Chaque terme est continu :
+///
+/// - **humidité relative** : plus humide que le climat typique du biome, la forêt se densifie ;
+///   plus sèche, elle s'éclaircit (de 0,65 à 1,35) : une lisière naturelle d'une zone à l'autre ;
+/// - **pente** : plus aucun arbre au-delà de 1,1 de pente, plus rares dès 0,5 ;
+/// - **ligne des arbres** : `SEA + 100 + 28 × température au niveau de la mer` ; au-dessus, la
+///   roche et l'herbe rase, plus d'arbres ;
+/// - **berges** : jusqu'à 80 % d'arbres en plus entre 5 et 9 blocs d'une zone réservée (végétation
+///   riveraine) ; les arbres eux-mêmes restent hors des zones réservées (`clearance_of`).
+pub(super) fn canopy_factor(
+    biome_humidity: f64,
+    humidity: f64,
+    slope: f32,
+    top: i32,
+    sea_temperature: f64,
+    clear: u8,
+) -> f32 {
+    let moisture = 0.65 + 0.7 * smooth64(-0.4, 0.4, humidity - biome_humidity);
+    let steep = 1.0 - smooth64(0.5, 1.1, slope as f64);
+    let line = SEA_LEVEL as f64 + 100.0 + 28.0 * sea_temperature;
+    let height = 1.0 - smooth64(line - 18.0, line + 8.0, top as f64);
+    let riparian = 1.0 + 0.8 * smooth64(9.5, 5.0, clear as f64);
+    ((moisture * steep * height * riparian) as f32).clamp(0.0, MAX_CANOPY)
 }
 
 /// Le dernier bloc plein d'un relief de hauteur flottante `h`.
@@ -240,23 +295,20 @@ impl TerrainGenerator {
         // 5. La distance à la zone réservée (Chebyshev, jusqu'à 9) par deux passes.
         let clearance = clearance_field(&wide);
 
-        // 6. Le climat provisoire, tous les 16 blocs, sur le cœur.
-        let climate = |px: i32, pz: i32| -> (f64, f64, f64) {
-            let p = [px as f64, pz as f64];
-            const WARP: f64 = 120.0;
-            let q = [
-                p[0] + WARP * self.warp_x.get(p),
-                p[1] + WARP * self.warp_z.get(p),
-            ];
-            (
-                (self.temperature.get(q) * 1.8).clamp(-1.0, 1.0),
-                (self.humidity.get(q) * 1.8).clamp(-1.0, 1.0),
-                (self.variety.get(q) * 1.4).clamp(-1.0, 1.0),
-            )
-        };
-        let climate_points: Vec<(f64, f64, f64)> = (0..3)
-            .flat_map(|j| (0..3).map(move |i| (i, j)))
-            .map(|(i, j)| climate(x0 + 16 * i, z0 + 16 * j))
+        // 6. Le climat (voir `climate.rs`), aux quatre coins de la colonne de chunks, sur le cœur : température, humidité,
+        // variété et température au niveau de la mer. Les points tombent sur la grille absolue de
+        // 32 blocs : la colonne de chunks voisine lit les mêmes valeurs à sa frontière.
+        let climate_model = WorldClimate::new(self.seed);
+        let climate_points: Vec<(f64, f64, f64, f64)> = (0..2)
+            .flat_map(|j| (0..2).map(move |i| (i, j)))
+            .map(|(i, j)| {
+                let c = climate_model.sample(
+                    world.geography(),
+                    (x0 + 32 * i) as f64,
+                    (z0 + 32 * j) as f64,
+                );
+                (c.temperature, c.humidity, c.variety, c.sea_temperature)
+            })
             .collect();
 
         // 7. Le cœur : pente, biome, surface, surplombs, nappe, cavernes.
@@ -284,16 +336,56 @@ impl TerrainGenerator {
                 let protect = w.protect as f32 / 255.0;
                 let valley = w.valley as f32 / 255.0;
                 // Le climat interpolé, l'humidité relevée près de l'eau.
-                let (fx, fz) = ((lx % 16) as f64 / 16.0, (lz % 16) as f64 / 16.0);
-                let at = |i: i32, j: i32| climate_points[(j * 3 + i) as usize];
-                let (i0, j0) = (lx / 16, lz / 16);
-                let mix = |f: fn(&(f64, f64, f64)) -> f64| {
+                let (fx, fz) = (lx as f64 / 32.0, lz as f64 / 32.0);
+                let at = |i: i32, j: i32| climate_points[(j * 2 + i) as usize];
+                let (i0, j0) = (0, 0);
+                let mix = |f: fn(&(f64, f64, f64, f64)) -> f64| {
                     let top_row = f(&at(i0, j0)) * (1.0 - fx) + f(&at(i0 + 1, j0)) * fx;
                     let bottom_row = f(&at(i0, j0 + 1)) * (1.0 - fx) + f(&at(i0 + 1, j0 + 1)) * fx;
                     top_row * (1.0 - fz) + bottom_row * fz
                 };
-                let (t, h, vty) = (mix(|c| c.0), mix(|c| c.1), mix(|c| c.2));
-                let h = (h + 0.45 * protect as f64).clamp(-1.0, 1.0);
+                let (t, h_regional, vty, sea_t) =
+                    (mix(|c| c.0), mix(|c| c.1), mix(|c| c.2), mix(|c| c.3));
+                // L'humidité locale : l'eau toute proche (cours, lacs) et les zones basses humides.
+                // Un marais est une terre basse, plate, humide, en taches (voir `climate.rs`) :
+                // jamais en hauteur, jamais au rivage (la plage passe avant), jamais dans le froid.
+                // Le climat seul ne fait pas un marais : les biomes de zone humide ne sont candidats
+                // que si `wetland` dépasse 0,4. La platitude se lit sur 8 blocs de part et d'autre
+                // (la pente locale, quantifiée en blocs, ferait des taches).
+                let flat = {
+                    // Sur l'altitude de la géographie (flottante, sans le creusement des cours ni les
+                    // escarpements), pas sur les blocs : un relief quantifié trace des taches.
+                    let e = |dx: i32, dz: i32| {
+                        geos[(lz + MARGIN + dz) as usize * WIDE + (lx + MARGIN + dx) as usize]
+                            .elevation as f64
+                    };
+                    let here = g.elevation as f64;
+                    ((e(8, 0) - here).abs()
+                        + (e(-8, 0) - here).abs()
+                        + (e(0, 8) - here).abs()
+                        + (e(0, -8) - here).abs())
+                        / 32.0
+                };
+                let wetland = smooth64(
+                    SEA_LEVEL as f64 + 14.0,
+                    SEA_LEVEL as f64 + 5.0,
+                    g.elevation as f64,
+                ) * smooth64(0.30, 0.10, flat)
+                    * smooth64(-0.30, 0.10, h_regional)
+                    * smooth64(
+                        -0.15,
+                        0.25,
+                        climate_model.wetland_noise((x0 + lx) as f64, (z0 + lz) as f64),
+                    )
+                    * smooth64(80.0, 220.0, g.coast as f64);
+                // Le biome se choisit sur l'humidité régionale et les zones humides ; l'eau proche
+                // (+0,45) ne compte que pour la végétation (couvert riverain) : un cours n'ouvre pas
+                // une bande de forêt d'une autre variété.
+                let h_biome = (h_regional + 0.75 * wetland).clamp(-1.0, 1.0);
+                let h = (h_regional + 0.45 * protect as f64 + 0.75 * wetland).clamp(-1.0, 1.0);
+                // La côte est rocheuse là où le terrain monte vite derrière le rivage : la pente est
+                // lue sur 8 blocs pour que le sable ne s'alterne pas avec la roche d'une dune à l'autre.
+                let shore_slope = flat;
                 // La famille du biome.
                 let bed = w.flags & (flag::BED_RIVER | flag::BED_LAKE);
                 let kind = if bed != 0 {
@@ -310,12 +402,19 @@ impl TerrainGenerator {
                     } else {
                         BiomeKind::Mountains
                     }
-                } else if g.coast < 70.0 && top <= SEA_LEVEL + 3 && slope < 0.5 {
+                } else if g.coast < 70.0 && top <= SEA_LEVEL + 4 && slope < 0.9 {
                     BiomeKind::Beach
                 } else {
                     BiomeKind::Land
                 };
-                let biome = self.v2_biome(kind, t, h, vty);
+                // Les océans, les plages et les rivières ne dépendent pas de l'humidité ; une côte
+                // pentue est rocheuse (la « variété » 0,8 désigne la côte rocheuse de `biomes.ron`).
+                let (h_pick, v_pick) = match kind {
+                    BiomeKind::Beach => (0.0, 0.8 * smooth64(0.22, 0.45, shore_slope)),
+                    BiomeKind::Ocean | BiomeKind::DeepOcean | BiomeKind::River => (0.0, 0.0),
+                    _ => (h_biome, vty),
+                };
+                let biome = self.v2_biome(kind, t, h_pick, v_pick, wetland >= 0.4);
                 let def = self.biomes.get(biome);
                 // L'ombre des pentes tournées vers le pôle (-z) : un peu plus froid.
                 let facing = (gz / slope.max(1e-3)).clamp(-1.0, 1.0);
@@ -415,6 +514,7 @@ impl TerrainGenerator {
                     limit = limit.min(w.base as i32 - 4);
                 }
                 let clear = clearance[(lz + MARGIN) as usize * WIDE + (lx + MARGIN) as usize];
+                let canopy = canopy_factor(def.climate.1, h, slope, top, sea_t, clear);
                 let cell = CoreCell {
                     top: top as i16,
                     slope,
@@ -429,6 +529,9 @@ impl TerrainGenerator {
                     table,
                     cave_limit: limit as i16,
                     clear,
+                    humidity: h as f32,
+                    climate: t as f32,
+                    canopy,
                 };
                 core.push(cell);
                 columns[lx as usize][lz as usize] = Column {

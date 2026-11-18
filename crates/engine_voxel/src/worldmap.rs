@@ -276,7 +276,7 @@ pub(crate) fn altitude_color(height: i32, shade: f32) -> [u8; 3] {
 
 /// Une couleur stable par biome : l'eau en bleus (océan profond, océan, rivière) et le rivage en
 /// sable, puis, pour les autres, une teinte qui avance de l'angle d'or à chaque numéro.
-fn biome_color(kind: BiomeKind, id: u8) -> [u8; 3] {
+pub(crate) fn biome_color(kind: BiomeKind, id: u8) -> [u8; 3] {
     match kind {
         BiomeKind::DeepOcean => return [15, 30, 120],
         BiomeKind::Ocean => return [40, 100, 200],

@@ -127,6 +127,12 @@ pub(super) struct CoreCell {
     /// Distance (Chebyshev, jusqu'à 9) à la zone réservée ou à l'eau la plus proche : les arbres et
     /// les structures s'en tiennent à distance.
     pub clear: u8,
+    /// L'humidité locale, de -1 à 1 : le climat, l'eau proche et les zones basses humides.
+    pub humidity: f32,
+    /// La température du climat (altitude comprise), de -1 à 1.
+    pub climate: f32,
+    /// Le coefficient de végétation, de 0 à `MAX_CANOPY` : voir `canopy_factor`.
+    pub canopy: f32,
 }
 
 /// Tout ce qu'une colonne de chunks sait d'elle-même (voir la documentation du module).
@@ -201,6 +207,12 @@ pub struct SurfaceInfo {
     pub wall_distance: f32,
     /// Le relief continu (le dernier bloc plein sans les entailles) : `top` s'en écarte sous un surplomb.
     pub relief_top: i32,
+    /// L'humidité locale, de -1 à 1.
+    pub humidity: f32,
+    /// La température du climat (altitude comprise), de -1 à 1.
+    pub climate: f32,
+    /// Le coefficient de végétation : 0 (aucun arbre) à `MAX_CANOPY`.
+    pub canopy: f32,
 }
 
 /// Les blocs que la v2 emploie en plus de ceux de la v1.
@@ -351,6 +363,9 @@ impl TerrainGenerator {
             escarpment: core.jump,
             wall_distance: core.dist,
             relief_top: wide.top as i32,
+            humidity: core.humidity,
+            climate: core.climate,
+            canopy: core.canopy,
         })
     }
 
@@ -377,6 +392,17 @@ impl TerrainGenerator {
         let ctx = self.v2_context(x.div_euclid(size), z.div_euclid(size));
         ctx.core_at(x.rem_euclid(size) as usize, z.rem_euclid(size) as usize)
             .clear
+    }
+
+    /// Le coefficient de végétation de la colonne (x, z) : 1 sans génération v2 (rien ne change).
+    pub(super) fn v2_canopy(&self, x: i32, z: i32) -> f32 {
+        if self.v2.is_none() {
+            return 1.0;
+        }
+        let size = CHUNK_SIZE as i32;
+        let ctx = self.v2_context(x.div_euclid(size), z.div_euclid(size));
+        ctx.core_at(x.rem_euclid(size) as usize, z.rem_euclid(size) as usize)
+            .canopy
     }
 
     /// Vrai si la colonne (x, z) est une colonne à surplomb (l'entaille du pied d'une paroi passe
@@ -601,8 +627,10 @@ impl TerrainGenerator {
         self.v2.as_ref().expect("génération v2 active").blocks
     }
 
-    /// Le biome d'un type donné le plus proche du climat (pour l'assignation provisoire).
-    pub(super) fn v2_biome(&self, kind: BiomeKind, t: f64, h: f64, v: f64) -> BiomeId {
+    /// Le biome d'un type donné le plus proche du climat. Les biomes d'une zone humide (climat
+    /// d'humidité de [`WETLAND_HUMIDITY`] ou plus : le marais) ne sont candidats que là où la
+    /// géographie fait une zone basse humide (`wet`) : le climat seul ne fait pas un marais.
+    pub(super) fn v2_biome(&self, kind: BiomeKind, t: f64, h: f64, v: f64, wet: bool) -> BiomeId {
         let candidates = match kind {
             BiomeKind::Land => &self.land,
             other => self
@@ -611,7 +639,17 @@ impl TerrainGenerator {
                 .find(|(k, _)| *k == other)
                 .map_or(&self.land, |(_, ids)| ids),
         };
-        self.nearest(candidates, t, h, v)
+        let allowed = |id: &BiomeId| wet || self.biomes.get(*id).climate.1 < WETLAND_HUMIDITY;
+        candidates
+            .iter()
+            .filter(|id| allowed(id))
+            .min_by(|a, b| {
+                let distance =
+                    |id: &&BiomeId| super::climate_distance(self.biomes.get(**id), t, h, v);
+                distance(a).total_cmp(&distance(b))
+            })
+            .copied()
+            .unwrap_or_else(|| self.nearest(candidates, t, h, v))
     }
 
     /// Un point d'apparition pour la génération v2 : la première terre plate hors de l'eau, en
@@ -653,6 +691,9 @@ impl TerrainGenerator {
         (0, 0)
     }
 }
+
+/// L'humidité de climat à partir de laquelle un biome de terre est un biome de zone humide.
+pub(super) const WETLAND_HUMIDITY: f64 = 0.7;
 
 /// L'altitude de la lave et du premier bloc d'eau d'une nappe : voir `underground.rs`.
 pub(super) const LAVA_GAP: i32 = 4;

@@ -178,6 +178,16 @@ impl TerrainGenerator {
             .map(|(_, b)| b.tree_density * (1.0 - b.groves + b.groves * MAX_GROVE))
             .fold(0.0, f32::max)
             / CANDIDATES as f32;
+        // Génération v2 : la végétation suit l'humidité, la pente, l'altitude et les berges, avec
+        // un coefficient jusqu'à `MAX_CANOPY` (voir `canopy_factor`) ; la borne de rejet rapide
+        // s'élargit d'autant. Elle n'écarte que des candidats que le test final rejetterait aussi :
+        // la v1 ne change pas.
+        let canopy_bound = if self.v2.is_some() {
+            super::v2_context::MAX_CANOPY
+        } else {
+            1.0
+        };
+        let best = best * canopy_bound;
         for _ in 0..CANDIDATES {
             // Tous les tirages d'abord, quoi qu'il arrive : la suite reste la même pour
             // chaque emplacement, que les précédents soient retenus ou non.
@@ -207,7 +217,8 @@ impl TerrainGenerator {
                 continue;
             }
             let grove = grove_factor(self.seed, x, z, biome.groves);
-            if accept >= biome.tree_density * grove / CANDIDATES as f32 {
+            let canopy = self.v2_canopy(x, z);
+            if accept >= biome.tree_density * grove * canopy / CANDIDATES as f32 {
                 continue;
             }
             if column.height < SEA_LEVEL {

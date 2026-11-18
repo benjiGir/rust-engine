@@ -965,3 +965,83 @@ cartes : aucune capture du jeu (consigne : ne pas lancer le jeu graphique).
   d'un cours dans un lac et sur les paliers : elle s'écoule vers l'aval, jamais vers l'amont.
 - Les nappes sont liées au niveau des cours et lacs voisins, pas à un modèle d'eau souterraine.
 - Aucun monde v2 n'est jouable par défaut : créer un monde de test avec `VOXEL_GENERATION=2`.
+
+## Statut du lot 5 (climat, biomes et végétation liés au paysage)
+
+Le climat et les biomes de la génération v2 sont déduits de la géographie. Le calcul reste **acyclique** :
+relief et hydrologie -> climat -> biomes -> végétation ; la pluie n'agrandit aucun bassin et ne remplit aucun
+lac. `FOR_NEW_WORLDS` reste v1 ; v2 se crée avec `VOXEL_GENERATION=2`.
+
+### Conception
+
+- **Température** (`generator/climate.rs`) : un champ régional lent (8 000 blocs), tempéré près des côtes
+  (-30 % d'amplitude au rivage), refroidi par l'altitude du relief macro (0,0065 par bloc au-dessus de
+  `SEA + 25`). La température au niveau de la mer est gardée à part : elle règle la ligne des arbres.
+- **Humidité et ombre pluviométrique** : un vent dominant par graine, qui dérive lentement (12 000 blocs). Trois
+  chemins d'air de front (150 blocs d'écart), 12 pas de 107 blocs (1 280 blocs amont, 36 lectures de la
+  géographie macro : coût borné). On en tire l'apport maritime (+0,55 au plus), la continentalité (-0,55 loin
+  des côtes), l'**ombre pluviométrique** (-0,9 au plus : un relief amont plus haut d'au moins 20 blocs retient la
+  pluie, pleinement à 90) et le surcroît des versants au vent (+0,45). L'indicateur de mer est lissé (SEA ± 8) :
+  un chemin qui effleure une côte ne fait pas d'à-coups. Un premier essai à 8 pas et un seul chemin traçait des
+  sillages étroits derrière chaque île ; un autre, avec un indicateur binaire, faisait osciller le biome
+  d'une centaine de blocs à l'autre : tous deux corrigés.
+- **Lecture** : le climat n'est évalué qu'aux quatre coins de la colonne de chunks (grille absolue de
+  32 blocs) puis interpolé : la colonne voisine lit les mêmes valeurs à sa frontière.
+- **Effets locaux** (`v2_context.rs`) : les **marais** sont une terre basse, plate, humide, en taches, loin du
+  rivage ; les biomes de zone humide (climat d'humidité de 0,7 ou plus) ne sont candidats que là où cette zone
+  dépasse 0,4, le climat seul n'en fait pas. La **plage** passe jusqu'à 70 blocs du rivage sur sol bas et doux ;
+  la côte devient rocheuse là où la pente, lue sur 8 blocs, passe de 0,22 à 0,45. Le **biome de rivière** suit le
+  réseau réel (lit d'un cours ou d'un lac). L'eau proche (+0,45) ne compte que pour la végétation.
+- **Variété** : amplitude réduite (1,1) et longueur d'onde de 1 100 blocs : les variantes (prairie fleurie,
+  forêt sombre...) sont des variations locales, pas la trame des régions.
+- **Végétation** (`canopy_factor`) : un coefficient par colonne, de 0 à 2,6, qui multiplie la densité d'arbres
+  du biome. Il dépend de l'humidité relative au climat du biome (forêt plus dense en zone plus humide, éclaircie
+  en zone plus sèche : une lisière naturelle), de la pente (aucun arbre au-delà de 1,1), de la ligne des arbres
+  (`SEA + 100 + 28 × température au niveau de la mer`) et des berges (+80 % entre 5 et 9 blocs d'une zone
+  réservée). Essences, sols, bosquets et règles d'apparition restent ceux de la v1 ; le tirage v1 est inchangé
+  (la borne de rejet rapide ne s'élargit qu'en v2).
+- **Paramètres `Relief` des biomes** : non utilisés en v2. Le relief se décide avant le biome ; un biome qui le modulerait
+  fermerait un cycle (le biome dépend de l'altitude) et redessinerait des vallées protégées. Adaptation
+  possible plus tard : un biome compatible module l'amplitude du détail fin dans une famille donnée, jamais en
+  zone réservée.
+- **Outils** : `cargo xtask map --generator v2 --maps ...` gagne `ombre-pluie`, `maritime`, `humidite-regionale`
+  (géographie seule) et `biomes-v2`, `temperature-v2`, `humidite-v2`, `canopee` (colonnes du générateur ; la
+  légende des biomes est écrite dans `biomes-v2.txt`).
+
+### Tests (`tests/climate_v2.rs`, 15 + 2 ignorés ; `generator/tests.rs`, 4)
+
+Pureté et continuité du climat (ordre, graine, pas de 16 blocs) ; altitude qui refroidit ; vent par graine ;
+**ombre pluviométrique** (211 points d'ombre à -0,64 d'humidité moyenne, contre -0,11 pour 8 446 points
+dégagés) ; biomes d'accord avec le relief et l'eau (océan sous la mer, pics et montagnes en altitude, rivière
+exactement sur les lits, plage en bas, marais bas, plat, humide, jamais gelé) ; biome de terre proche de son
+climat ; tout rivage bas et doux est une plage ; au plus 6 changements de biome de 120 blocs en mer à
+250 blocs dans les terres (les cours exclus) ; diversité (au moins 8 biomes de terre, aucun au-delà de 45 %) et
+régions étendues (plus de 250 blocs en moyenne) ; terres constructibles (au moins 40 % de colonnes plates) ;
+coefficient de végétation (bornes, falaises, ligne des arbres, berges) ; **chaque tronc généré pousse là où la
+végétation est permise** ; du bois à moins de 200 blocs du point d'apparition ; déterminisme (ordre inverse,
+caches vidés, générateur neuf) ; continuité de l'humidité et de la température aux frontières de colonnes de
+chunks. `generation_reference` (v1) est inchangé ; les empreintes v2 ont été régénérées (v2 n'est portée par
+aucun monde) et deux générations successives donnent la même table.
+
+### Mesures (M3 Pro, release)
+
+- Marais : 0 à 1,4 % des terres échantillonnées selon la graine (0 sur la graine 7, une région froide).
+- Terres : 11 à 17 biomes par graine sur 4 graines.
+- Coût (`cargo bench -p engine_voxel --bench generation -- v2`) : verticale à froid 3,08 -> 3,44 ms (+11 %),
+  zone 8 × 8 à froid 177 -> 180 ms (+2 %), massif zone 8 × 8 259 -> 296 ms (+14 %). Une première version
+  qui lisait le climat tous les 16 blocs coûtait +18 %, +12 % et +24 % : la grille de 32 blocs suffit, les
+  champs variant sur des centaines de blocs.
+
+### Jugement sur les cartes (graines 42, 7, 1337, 20260 ; images dans le dossier de travail de la séance)
+
+Les régions sont étendues et cohérentes (une plaine, une forêt ou une taïga couvre des centaines à des milliers
+de blocs) ; la plage forme un ruban continu le long du rivage ; un marais apparaît dans la plaine basse d'un
+estuaire ; les rivières traversent plusieurs biomes sans en changer ; le couvert végétal s'éclaircit vers les
+pentes et les sommets et s'épaissit le long des cours.
+
+Défauts assumés : (a) les frontières de biome restent des courbes lisses mais parfois **rectilignes** sur des
+centaines de blocs (iso-lignes du climat interpolé) ; (b) les marais sont rares (au plus 1,4 % des terres) et
+petits ; (c) la graine 7 est presque entièrement froide : le climat régional d'une graine peut ne pas couvrir
+toute la palette ; (d) aucune rétroaction de la pluie sur le relief ou les cours (voulu) ; (e) la direction du
+vent est unique par région : pas de moussons ni de saisons ; (f) pas de capture à hauteur de joueur : le jeu
+graphique n'a pas été lancé.
