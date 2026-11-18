@@ -79,6 +79,7 @@ impl VoxelGame {
                     },
                 );
             }
+            MachineAction::QuestSignal { id } => self.quest_book.note_signal(id),
             MachineAction::Say { text } => self.chat(&text),
             MachineAction::ConsumeHeld { count } => {
                 for _ in 0..count {

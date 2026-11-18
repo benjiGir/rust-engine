@@ -515,6 +515,7 @@ fait aussitôt. `cargo xtask ctl console /commande` la lance sans clavier (pour 
 | `Tick` (4) | un tick de machines (20 par seconde) | le numéro du tick (u64) |
 | `PlayerDamaged` (5) | le joueur a perdu de la vie | `dégâts, vie restante` (f32) |
 | `ItemUsed` (7) | le joueur a fait un clic droit avec un objet `usable` en main (hors d'une action du jeu : poser un bloc, ouvrir un coffre...) | `objet` (i32 : son numéro, voir `item_id`) |
+| `QuestCompleted` (8) | une quête vient de se terminer (une seule fois par quête et par monde, ses récompenses restent à récupérer) | l'identifiant de la quête (`mod:chapitre/quête`) en UTF-8 |
 | `ChunkGenerated` (6) | un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde) : le mod peut le décorer | `grille, cx, cy, cz` (i32 ; coordonnées de chunk, 32 blocs de côté) |
 <!-- /hooks:events -->
 
@@ -777,6 +778,13 @@ test vérifie que le jeu définit exactement ces fonctions.
 | `item_durability(ptr: i32, len: i32) -> i32` | Le nombre d'utilisations d'un objet avant qu'il casse (outils, armures) ; 0 s'il n'use pas ou n'existe pas. |
 | `give_stack(id: i32, count: i32)` | Donne `count` objets de numéro `id` (voir `item_id`) au joueur. |
 | `recipe_find(kind_ptr: i32, kind_len: i32, in_ptr: i32, in_len: i32, out_ptr: i32, out_cap: i32) -> i32` | Cherche une recette du type donné (`example:press`) faisable avec les objets `cle*nombre,cle*nombre` de l'entrée. Écrit `ticks;énergie;entrées;sorties` (même format) dans la sortie ; renvoie sa taille, −1 sans recette. |
+
+*Quêtes*
+
+| Fonction | Rôle |
+|---|---|
+| `quest_signal(ptr: i32, len: i32) -> i32` | Envoie le signal `nom` du mod au livre de quêtes : les tâches `Signal("<mod>:nom")` de ses quêtes se remplissent (l'espace de noms est toujours celui du mod). Le nom : minuscules, chiffres, `_`, `-`, `.` et `/`, 64 octets au plus. 1 si le signal est pris en compte, 0 si le nom est refusé. |
+| `quest_done(ptr: i32, len: i32) -> i32` | 1 si la quête (son identifiant complet, `core:wood/workbench`) est terminée dans ce monde, 0 sinon (aussi pour une quête inconnue ou si le livre n'est pas encore chargé). |
 
 <!-- /hooks:imports -->
 
@@ -1159,8 +1167,17 @@ de chapitre.
   les remet à la main ; `crafted: true` : seuls comptent ceux qu'on fabrique), `Check` (une case à
   cocher), `Break(block, count)`, `Place(block, count)`, `Kill(creature, count)` (sans `creature` :
   n'importe quelle hostile, tuée à moins de 16 blocs du joueur), `Dimension(id)`, `Biome(id)`,
-  `Structure(id)`, `Depth(y)` (descendre sous cette hauteur), `Level(n)`, `Tier(n)`. Un compteur ne
+  `Structure(id)`, `Depth(y)` (descendre sous cette hauteur), `Level(n)`, `Tier(n)`, `Signal("nom")` (le script du mod l'envoie, voir plus bas). Un compteur ne
   redescend jamais : jeter l'objet ensuite ne défait rien. `Break` et `Place` ignorent les états du bloc (`core:stairs[facing=west]` compte comme `core:stairs`).
+- **Signaux** : `Signal("nom")` (ou `Signal("monmod:nom")`) se remplit quand le script du mod appelle
+  `quest_signal("nom")`. Le jeu ajoute **toujours** l'espace de noms du mod appelant : un mod ne remplit
+  que ses propres signaux, et le fichier ne peut déclarer que `Signal("<son mod>:...")` (sinon le chargement
+  refuse la quête, avec un message clair). Le nom : minuscules, chiffres, `_`, `-`, `.`, `/`, 64 octets au
+  plus. Un signal reçu quand la quête est verrouillée suit le mode de progression (`Flexible` : mémorisé ;
+  `Linear` : ignoré), comme `Break` ou `Kill`. Pour remplacer une case `Check` « je l'ai fait » par une
+  vérification du script : il suffit d'appeler `quest_signal` au bon moment (magie : un sort lancé).
+  Dans l'autre sens, l'événement `QuestCompleted` (identifiant de la quête, une seule fois par quête) et
+  l'appel `quest_done("mod:chapitre/quête")` permettent à un script de réagir au livre.
 - **Récompenses** : `Item(item, count)`, `Xp(points)`, `Loot("table")`, `Choice([(item: ..., count: ...), ...])`
   (le joueur choisit un objet). Elles se récupèrent à la main et ne sont données **qu'une fois**.
 - **Vérifications au chargement** (une erreur claire, comme pour `guide.ron`) : objet, groupe d'objets, bloc,

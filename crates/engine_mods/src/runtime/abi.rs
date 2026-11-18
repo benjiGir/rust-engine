@@ -14,6 +14,8 @@ pub const EVENT_TICK: i32 = 4;
 pub const EVENT_PLAYER_DAMAGED: i32 = 5;
 /// ItemUsed : le joueur a fait un clic droit avec un objet `usable` en main (hors d'une action du jeu : poser un bloc, ouvrir un coffre...).
 pub const EVENT_ITEM_USED: i32 = 7;
+/// QuestCompleted : une quête vient de se terminer (une seule fois par quête et par monde, ses récompenses restent à récupérer).
+pub const EVENT_QUEST_COMPLETED: i32 = 8;
 /// ChunkGenerated : un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde) : le mod peut le décorer.
 pub const EVENT_CHUNK_GENERATED: i32 = 6;
 

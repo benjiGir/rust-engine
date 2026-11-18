@@ -105,6 +105,10 @@ fn the_wand_throws_a_flame_where_the_player_looks_and_costs_mana() {
     );
     // Puissance 1 : +60 % de dégâts et un rayon plus grand.
     assert_eq!((hurt.1, hurt.2), (3.0, 8.0));
+    // Le livre de quêtes est prévenu, dans l'espace de noms du mod.
+    assert!(requests.actions.contains(&MachineAction::QuestSignal {
+        id: "magie:spell_cast".into()
+    }));
     // 12 de base + 6 pour la puissance : 50 - 18 = 32, et c'est sauvegardé.
     assert_eq!(h.world_data.borrow().get("magie", "mana"), Some("32.0"));
 }
@@ -123,6 +127,13 @@ fn without_enough_mana_or_without_a_spell_nothing_is_cast() {
             .actions
             .iter()
             .any(|a| matches!(a, MachineAction::PlayerHeal { .. }))
+    );
+    // Un sort qui ne part pas n'envoie pas de signal.
+    assert!(
+        !poor
+            .actions
+            .iter()
+            .any(|a| matches!(a, MachineAction::QuestSignal { .. }))
     );
     assert_eq!(
         h.world_data.borrow().get("magie", "mana"),

@@ -251,6 +251,14 @@
         (name: "recipe_find", group: "Objets et recettes",
          params: [("kind_ptr", I32), ("kind_len", I32), ("in_ptr", I32), ("in_len", I32), ("out_ptr", I32), ("out_cap", I32)], ret: I32, fallback: "-1",
          doc: "Cherche une recette du type donné (`example:press`) faisable avec les objets `cle*nombre,cle*nombre` de l'entrée. Écrit `ticks;énergie;entrées;sorties` (même format) dans la sortie ; renvoie sa taille, −1 sans recette."),
+
+        // Quêtes.
+        (name: "quest_signal", group: "Quêtes",
+         params: [("ptr", I32), ("len", I32)], ret: I32, fallback: "0",
+         doc: "Envoie le signal `nom` du mod au livre de quêtes : les tâches `Signal(\"<mod>:nom\")` de ses quêtes se remplissent (l'espace de noms est toujours celui du mod). Le nom : minuscules, chiffres, `_`, `-`, `.` et `/`, 64 octets au plus. 1 si le signal est pris en compte, 0 si le nom est refusé."),
+        (name: "quest_done", group: "Quêtes",
+         params: [("ptr", I32), ("len", I32)], ret: I32, fallback: "0",
+         doc: "1 si la quête (son identifiant complet, `core:wood/workbench`) est terminée dans ce monde, 0 sinon (aussi pour une quête inconnue ou si le livre n'est pas encore chargé)."),
     ],
     events: [
         (id: 1, name: "BlockBroken", constant: "BLOCK_BROKEN",
@@ -267,6 +275,9 @@
         (id: 7, name: "ItemUsed", constant: "ITEM_USED",
          data: "`objet` (i32 : son numéro, voir `item_id`)",
          doc: "le joueur a fait un clic droit avec un objet `usable` en main (hors d'une action du jeu : poser un bloc, ouvrir un coffre...)"),
+        (id: 8, name: "QuestCompleted", constant: "QUEST_COMPLETED",
+         data: "l'identifiant de la quête (`mod:chapitre/quête`) en UTF-8",
+         doc: "une quête vient de se terminer (une seule fois par quête et par monde, ses récompenses restent à récupérer)"),
         (id: 6, name: "ChunkGenerated", constant: "CHUNK_GENERATED",
          data: "`grille, cx, cy, cz` (i32 ; coordonnées de chunk, 32 blocs de côté)",
          doc: "un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde) : le mod peut le décorer"),

@@ -115,6 +115,7 @@ impl Namer<'_> {
             Task::Depth(y) => format!("Descendre sous la hauteur {y}"),
             Task::Level(n) => format!("Atteindre le niveau {n}"),
             Task::Tier(n) => format!("Débloquer le palier {n}"),
+            Task::Signal(_) => "Le faire en jeu".into(),
         }
     }
 

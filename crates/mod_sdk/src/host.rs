@@ -779,6 +779,24 @@ pub fn mod_loaded(mod_id: &str) -> bool {
     unsafe { ffi::mod_loaded(ptr, len) != 0 }
 }
 
+/// Envoie le signal `name` du mod au livre de quêtes : les tâches `Signal("<mod>:name")` des
+/// quêtes du mod se remplissent (le jeu ajoute toujours l'espace de noms du mod appelant : un
+/// mod ne peut remplir que ses propres signaux). Le nom : minuscules, chiffres, `_`, `-`, `.` et
+/// `/`, 64 octets au plus. Renvoie `false` si le nom est refusé.
+pub fn quest_signal(name: &str) -> bool {
+    let (ptr, len) = addr(name.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `name`.
+    unsafe { ffi::quest_signal(ptr, len) != 0 }
+}
+
+/// Vrai si la quête (son identifiant complet, `"core:wood/workbench"`) est terminée dans ce
+/// monde. Faux aussi pour une quête inconnue.
+pub fn quest_done(quest: &str) -> bool {
+    let (ptr, len) = addr(quest.as_bytes());
+    // SAFETY: l'hôte lit `len` octets à `ptr`, dans `quest`.
+    unsafe { ffi::quest_done(ptr, len) != 0 }
+}
+
 /// L'état du joueur, vu d'un script.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerInfo {

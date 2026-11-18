@@ -80,6 +80,8 @@ pub struct ModSystem {
     brain_active: Vec<String>,
     /// L'instantané du joueur que les scripts lisent (`player_info`).
     player: engine_mods::player::SharedPlayer,
+    /// Les quêtes terminées du monde, que les scripts lisent (`quest_done`).
+    quests_done: engine_mods::player::SharedQuests,
     /// Les réglages des mods (`mod_settings.ron`), partagés avec leurs scripts.
     settings: Rc<RefCell<ModSettings>>,
     settings_path: PathBuf,
@@ -115,6 +117,7 @@ impl ModSystem {
             .map(|m| (m.id().to_string(), m.manifest.name.clone()))
             .collect();
         let player = engine_mods::player::SharedPlayer::default();
+        let quests_done = engine_mods::player::SharedQuests::default();
         let mut machines = Machines::with_natives(&registry);
         machines.set_item_rules(content.items.clone(), content.machine_recipes.clone());
         let mut runtime = ModRuntime::default();
@@ -127,6 +130,7 @@ impl ModSystem {
                 host.set_world_data(world_data.clone());
                 host.set_peers(runtime.peers());
                 host.set_player(player.clone());
+                host.set_quests_done(quests_done.clone());
                 host
             });
         let scripts: Vec<(String, PathBuf)> = order
@@ -159,6 +163,7 @@ impl ModSystem {
             brain_clock: 0,
             brain_active: Vec::new(),
             player,
+            quests_done,
             settings,
             settings_path,
             world_data,
@@ -253,6 +258,13 @@ impl ModSystem {
         let mut actions = Vec::new();
         let used = self.machines.use_block(&self.world, pos, &mut actions);
         (used, actions)
+    }
+
+    /// Remplace la liste des quêtes terminées que les scripts lisent (`quest_done`).
+    pub fn set_quests_done(&mut self, done: impl IntoIterator<Item = String>) {
+        let mut set = self.quests_done.borrow_mut();
+        set.clear();
+        set.extend(done);
     }
 
     /// Rafraîchit l'instantané du joueur que les scripts lisent.

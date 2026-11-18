@@ -48,10 +48,10 @@
                 icon: "rune_flame",
                 title: "Un premier sort",
                 subtitle: "Une flamme, là où tu vises",
-                text: "Pose la rune de flamme sur la table, inscris le sort, puis lance-le d'un clic droit avec la baguette : une explosion de feu éclate à l'endroit visé. Coche la case quand tu l'as vue.",
+                text: "Pose la rune de flamme sur la table, inscris le sort, puis lance-le d'un clic droit avec la baguette : une explosion de feu éclate à l'endroit visé. La quête se valide toute seule dès qu'un sort part.",
                 x: 6.5, y: 3.75, shape: Hexagon, size: 2.0,
                 after: ["magie:runes/flame", "magie:runes/table", "magie:runes/wand"],
-                tasks: [Check],
+                tasks: [Signal("spell_cast")],
                 rewards: [Item(item: "magie:mana_crystal", count: 2), Xp(25)],
             ),
             (

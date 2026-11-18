@@ -1875,6 +1875,7 @@ impl VoxelGame {
                 | MachineAction::PlayerEffect { .. }
                 | MachineAction::HurtArea { .. }
                 | MachineAction::Say { .. }
+                | MachineAction::QuestSignal { .. }
                 | MachineAction::PlayerHurt { .. }
                 | MachineAction::ConsumeHeld { .. }
                 | MachineAction::HudBar { .. }

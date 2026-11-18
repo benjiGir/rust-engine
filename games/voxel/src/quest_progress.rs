@@ -79,6 +79,8 @@ pub enum Event {
     },
     /// Un objet fabriqué (grille d'artisanat ou livre de recettes).
     Crafted(ItemId, u32),
+    /// Un signal d'un script de mod (identifiant complet, `forge:smelted`).
+    Signal(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,6 +159,14 @@ fn options() -> ron::Options {
 
 impl Progress {
     // ----- États -------------------------------------------------------------------------
+
+    /// Les identifiants des quêtes finies (y compris celles d'un mod retiré, conservées).
+    pub fn done_ids(&self) -> impl Iterator<Item = &str> {
+        self.records
+            .iter()
+            .filter(|(_, r)| r.done)
+            .map(|(id, _)| id.as_str())
+    }
 
     fn is_done(&self, id: &str) -> bool {
         self.records.get(id).is_some_and(|r| r.done)
@@ -381,6 +391,11 @@ impl Progress {
                 Task::Depth(y) => u32::from(snapshot.y < *y as f32),
                 Task::Level(n) => u32::from(snapshot.level >= *n),
                 Task::Tier(n) => u32::from(snapshot.tier >= *n),
+                Task::Signal(id) => counter.saturating_add(u32::from(
+                    events
+                        .iter()
+                        .any(|e| matches!(e, Event::Signal(s) if s == id)),
+                )),
             };
             *counter = (*counter).max(seen.min(target));
         }
@@ -835,6 +850,72 @@ mod tests {
             progress.status(&quests, id_of(&quests, "kill")),
             Status::Started
         );
+    }
+
+    /// Un signal de mod suit le mode de progression, comme les autres tâches : mémorisé en
+    /// `Flexible` (la quête se termine quand ses dépendances le sont), ignoré en `Linear` ; celui
+    /// d'un autre nom ne compte pas ; la quête ne se termine (et ne l'annonce) qu'une fois.
+    #[test]
+    fn signals_follow_the_progression_mode() {
+        let text = r#"(groups: [(id: "core:g", title: "G", icon: "stick")],
+            chapters: [(id: "core:c", group: "core:g", title: "C", icon: "stick", quests: [
+              (id: "core:c/first", title: "First", tasks: [Check]),
+              (id: "core:c/flex", title: "Flex", after: ["core:c/first"], progression: Flexible,
+               tasks: [Signal("core:ping")]),
+              (id: "core:c/linear", title: "Linear", after: ["core:c/first"], progression: Linear,
+               tasks: [Signal("core:ping")]),
+              (id: "core:c/free", title: "Free", tasks: [Signal("core:ping"), Check])])])"#;
+        let quests = load(text).unwrap();
+        let (first, flex, linear, free) = (
+            id_of(&quests, "first"),
+            id_of(&quests, "flex"),
+            id_of(&quests, "linear"),
+            id_of(&quests, "free"),
+        );
+        let ping = || Event::Signal("core:ping".into());
+        let mut progress = Progress::default();
+        // Un autre signal (celui d'un autre mod, ou un autre nom) ne remplit rien.
+        progress.update(
+            &quests,
+            &Snapshot::default(),
+            &[
+                Event::Signal("autre:ping".into()),
+                Event::Signal("core:pong".into()),
+            ],
+        );
+        assert_eq!(progress.counter("core:c/free", 0), 0);
+        // Verrouillées : `Flexible` retient le signal, `Linear` l'ignore.
+        let done = progress.update(&quests, &Snapshot::default(), &[ping()]);
+        assert!(done.is_empty());
+        assert_eq!(progress.status(&quests, flex), Status::Locked);
+        assert_eq!(progress.counter("core:c/flex", 0), 1);
+        assert_eq!(progress.counter("core:c/linear", 0), 0);
+        assert_eq!(progress.counter("core:c/free", 0), 1);
+        // La dépendance finie : la quête `Flexible` se termine d'elle-même, la `Linear` attend un
+        // nouveau signal (que la quête soit débloquée, cette fois).
+        progress.force_done(&quests, first);
+        let done = progress.update(&quests, &Snapshot::default(), &[]);
+        assert_eq!(done, vec![flex]);
+        assert_eq!(progress.status(&quests, linear), Status::Available);
+        assert_eq!(
+            progress.update(&quests, &Snapshot::default(), &[ping()]),
+            vec![linear]
+        );
+        // Terminée une seule fois : un signal de plus n'annonce plus rien.
+        assert!(
+            progress
+                .update(&quests, &Snapshot::default(), &[ping()])
+                .is_empty()
+        );
+        // Une quête avec un signal et une case : les deux sont nécessaires.
+        assert_eq!(progress.status(&quests, free), Status::Started);
+        assert!(progress.check(&quests, free, 1));
+        assert_eq!(
+            progress.update(&quests, &Snapshot::default(), &[]),
+            vec![free]
+        );
+        // Le signal reçu avant la sauvegarde se retrouve après.
+        assert!(progress.done_ids().any(|id| id == "core:c/flex"));
     }
 
     #[test]

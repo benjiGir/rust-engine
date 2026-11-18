@@ -47,11 +47,11 @@ pub use host::{
     fluid_fill, get_block, give_effect, give_item, give_stack, heal_player, hud_bar, hud_clear,
     hurt_area, hurt_player, item_count, item_durability, item_extract, item_id, item_insert,
     item_max_stack, kinetic_speed, log, mob_attack, mob_jump, mob_kind, mob_move, mob_move_to,
-    mob_state, mod_loaded, player, player_target, power, random, received_power, register_command,
-    say, schedule_tick, set_block, set_data, set_kinetic, set_power, set_setting, set_slot,
-    set_slot_damage, set_world_value, setting, setting_bool, setting_f32, setting_i32, show_menu,
-    show_options, slot, slot_damage, spawn_entity, subscribe, teleport_player, travel_to,
-    world_value,
+    mob_state, mod_loaded, player, player_target, power, quest_done, quest_signal, random,
+    received_power, register_command, say, schedule_tick, set_block, set_data, set_kinetic,
+    set_power, set_setting, set_slot, set_slot_damage, set_world_value, setting, setting_bool,
+    setting_f32, setting_i32, show_menu, show_options, slot, slot_damage, spawn_entity, subscribe,
+    teleport_player, travel_to, world_value,
 };
 
 /// Une grille de blocs : le monde (`Grid::WORLD`), ou une structure mobile (plus tard).
@@ -204,6 +204,8 @@ pub enum EventKind {
     ChunkGenerated = ffi::EVENT_CHUNK_GENERATED,
     /// Un clic droit avec un objet `usable` ([`Event::ItemUsed`]).
     ItemUsed = ffi::EVENT_ITEM_USED,
+    /// Une quête vient de se terminer ([`Event::QuestCompleted`]).
+    QuestCompleted = ffi::EVENT_QUEST_COMPLETED,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -247,6 +249,12 @@ pub enum Event {
     ItemUsed {
         /// L'objet utilisé (son numéro : à comparer avec [`item_id`]).
         item: Item,
+    },
+    /// Une quête du livre vient de se terminer (une seule fois par quête et par monde). Ses
+    /// récompenses restent à récupérer par le joueur.
+    QuestCompleted {
+        /// Son identifiant complet (`"forge:smithing/ingot"`).
+        quest: String,
     },
     /// Un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde).
     /// `chunk` : ses coordonnées de chunk ; son coin minimal est [`Pos::chunk_origin`]. Pour le
@@ -383,6 +391,9 @@ pub mod __private {
             }
             ffi::EVENT_ITEM_USED => Event::ItemUsed {
                 item: Item(*v.first()? as u16),
+            },
+            ffi::EVENT_QUEST_COMPLETED => Event::QuestCompleted {
+                quest: String::from_utf8_lossy(bytes).into_owned(),
             },
             ffi::EVENT_CHUNK_GENERATED => Event::ChunkGenerated {
                 chunk: grid_pos(0)?,
@@ -605,6 +616,12 @@ mod tests {
         died.extend(b"core:zombie");
         assert!(
             matches!(decode_event(3, &died), Some(Event::EntityDied { kind, .. }) if kind == "core:zombie")
+        );
+        assert_eq!(
+            decode_event(8, b"forge:smithing/ingot"),
+            Some(Event::QuestCompleted {
+                quest: "forge:smithing/ingot".into()
+            })
         );
         // Données tronquées : pas d'événement plutôt qu'un plantage.
         assert_eq!(decode_event(1, &bytes(&[1, 2])), None);

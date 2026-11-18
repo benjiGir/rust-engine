@@ -78,6 +78,10 @@ pub enum ModEvent {
     ItemUsed {
         item: engine_voxel::ItemId,
     },
+    /// Une quête du livre vient de se terminer (son identifiant complet).
+    QuestCompleted {
+        quest: String,
+    },
     /// Un chunk (coordonnées de chunk) vient d'être généré pour la première fois.
     ChunkGenerated {
         chunk: IVec3,
@@ -94,6 +98,7 @@ impl ModEvent {
             Self::PlayerDamaged { .. } => abi::EVENT_PLAYER_DAMAGED,
             Self::ChunkGenerated { .. } => abi::EVENT_CHUNK_GENERATED,
             Self::ItemUsed { .. } => abi::EVENT_ITEM_USED,
+            Self::QuestCompleted { .. } => abi::EVENT_QUEST_COMPLETED,
         }
     }
 
@@ -135,6 +140,7 @@ impl ModEvent {
                 int(health_left.to_bits() as i32);
             }
             Self::ItemUsed { item } => int(item.0 as i32),
+            Self::QuestCompleted { quest } => out.extend(quest.as_bytes()),
             Self::ChunkGenerated { chunk } => {
                 int(0);
                 chunk.to_array().into_iter().for_each(&mut int);
@@ -198,6 +204,8 @@ pub struct HostState {
     world_data: Rc<RefCell<crate::ModSettings>>,
     peers: Peers,
     player: crate::player::SharedPlayer,
+    /// Les quêtes terminées de ce monde (`quest_done`), que le jeu tient à jour.
+    quests_done: crate::player::SharedQuests,
     /// Les commandes déclarées par le script (`register_command`) : (nom, aide).
     commands: Vec<(String, String)>,
     requests: Requests,
@@ -215,6 +223,7 @@ pub struct ScriptHost {
     world_data: Rc<RefCell<crate::ModSettings>>,
     peers: Peers,
     player: crate::player::SharedPlayer,
+    quests_done: crate::player::SharedQuests,
 }
 
 impl ScriptHost {
@@ -233,6 +242,7 @@ impl ScriptHost {
             world_data: Rc::new(RefCell::new(crate::ModSettings::default().for_world())),
             peers: Peers::default(),
             player: Default::default(),
+            quests_done: Default::default(),
         })
     }
 
@@ -249,6 +259,11 @@ impl ScriptHost {
     /// L'instantané du joueur que le jeu rafraîchit et que les scripts lisent.
     pub fn set_player(&mut self, player: crate::player::SharedPlayer) {
         self.player = player;
+    }
+
+    /// Les quêtes terminées que le jeu rafraîchit et que les scripts lisent (`quest_done`).
+    pub fn set_quests_done(&mut self, quests: crate::player::SharedQuests) {
+        self.quests_done = quests;
     }
 
     /// Les scripts que les mods peuvent s'appeler (`ModRuntime::peers`).
@@ -281,6 +296,7 @@ impl ScriptHost {
             world_data: self.world_data.clone(),
             peers: self.peers.clone(),
             player: self.player.clone(),
+            quests_done: self.quests_done.clone(),
             commands: Vec::new(),
             requests: Requests::default(),
             subscriptions: Vec::new(),

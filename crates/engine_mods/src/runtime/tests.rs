@@ -380,6 +380,7 @@ fn host_matches_the_catalog() {
         world_data: Default::default(),
         peers: Default::default(),
         player: Default::default(),
+        quests_done: Default::default(),
         commands: Vec::new(),
         requests: Requests::default(),
         subscriptions: Vec::new(),
@@ -474,6 +475,12 @@ fn event_numbers_match_the_catalog() {
             "ItemUsed",
             ModEvent::ItemUsed {
                 item: engine_voxel::ItemId(4),
+            },
+        ),
+        (
+            "QuestCompleted",
+            ModEvent::QuestCompleted {
+                quest: "example:chapter/quest".into(),
             },
         ),
         (
@@ -895,4 +902,88 @@ fn only_valid_command_names_are_registered() {
         script.commands(),
         [("bon_nom".to_string(), "aide".to_string())]
     );
+}
+
+#[test]
+fn quest_signals_belong_to_the_calling_mod_and_quest_done_reads_the_book() {
+    let s = loaded_streamer();
+    let registry = s.borrow().world().registry().clone();
+    // À `QuestCompleted` (événement 8, dont les données sont l'identifiant de la quête) : le mod
+    // envoie « ok_name » (accepté), « Bad:Name » (refusé) puis donne `1` objet en nombre
+    // 5 + `quest_done(quête de l'événement)`.
+    let wat = r#"(module
+        (import "voxel" "subscribe" (func $subscribe (param i32)))
+        (import "voxel" "give_item" (func $give (param i32 i32)))
+        (import "voxel" "quest_signal" (func $signal (param i32 i32) (result i32)))
+        (import "voxel" "quest_done" (func $done (param i32 i32) (result i32)))
+        (memory (export "memory") 1)
+        (data (i32.const 0) "ok_name")
+        (data (i32.const 16) "Bad:Name")
+        (func (export "sdk_alloc") (param i32) (result i32) i32.const 1024)
+        (func (export "mod_init") (call $subscribe (i32.const 8)))
+        (func (export "on_event") (param $kind i32) (param $ptr i32) (param $len i32)
+            (call $give
+                (call $signal (i32.const 0) (i32.const 7))
+                (i32.add
+                    (call $done (local.get $ptr) (local.get $len))
+                    (i32.add (call $signal (i32.const 16) (i32.const 8)) (i32.const 5)))))
+    )"#;
+    let event = ModEvent::QuestCompleted {
+        quest: "test:chapter/quest".into(),
+    };
+    for (done, count) in [(false, 5), (true, 6)] {
+        let mut host = ScriptHost::new().unwrap();
+        let shared = crate::player::SharedQuests::default();
+        if done {
+            shared.borrow_mut().insert("test:chapter/quest".into());
+        }
+        host.set_quests_done(shared);
+        let mut script = host
+            .load("test", wat.as_bytes(), s.clone(), registry.clone())
+            .unwrap();
+        let requests = script.send_event(&event).unwrap();
+        assert_eq!(
+            requests.actions,
+            vec![
+                // L'espace de noms est celui du mod, jamais celui que le script voudrait.
+                MachineAction::QuestSignal {
+                    id: "test:ok_name".into()
+                },
+                MachineAction::GiveItem {
+                    block: BlockId(1),
+                    count
+                },
+            ]
+        );
+    }
+    assert!(super::host::valid_signal_name("a-b.c/d_1"));
+    assert!(!super::host::valid_signal_name(""));
+    assert!(!super::host::valid_signal_name("A"));
+    assert!(!super::host::valid_signal_name("a:b"));
+    assert!(!super::host::valid_signal_name(&"a".repeat(65)));
+}
+
+/// Les scripts compilés avant les appels de quêtes (`quest_signal`, `quest_done`) n'importent
+/// pas ces fonctions : ils se chargent toujours (l'hôte en définit plus qu'ils n'en demandent).
+#[test]
+fn scripts_compiled_before_the_quest_calls_still_load() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let registry =
+        Arc::new(BlockRegistry::load(&root.join("assets"), Some(&root.join("mods"))).unwrap());
+    let s = streamer_with(TerrainGenerator::with_registry(7, registry.clone()).unwrap());
+    let mut loaded = 0;
+    for id in ["example", "forge", "mecanique", "entrepot", "donjons"] {
+        let bytes = std::fs::read(root.join(format!("mods/{id}/{id}.wasm"))).unwrap();
+        // Ces scripts ont été compilés avec un SDK qui ne connaissait pas ces appels.
+        assert!(
+            !String::from_utf8_lossy(&bytes).contains("quest_signal"),
+            "{id} : doit rester un ancien script pour ce test"
+        );
+        ScriptHost::new()
+            .unwrap()
+            .load(id, &bytes, s.clone(), registry.clone())
+            .unwrap_or_else(|e| panic!("{id} : {e:#}"));
+        loaded += 1;
+    }
+    assert_eq!(loaded, 5);
 }

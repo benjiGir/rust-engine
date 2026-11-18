@@ -161,6 +161,8 @@ struct Readers {
 
 struct Loaded {
     quests: Arc<Quests>,
+    /// Les signaux de mods que des quêtes attendent : les autres sont ignorés.
+    signals: HashSet<String>,
     progress: Progress,
     readers: Readers,
 }
@@ -175,7 +177,31 @@ pub struct QuestBook {
     events: Vec<Event>,
 }
 
+/// Au plus ce nombre de signaux en attente entre deux mises à jour (un script qui en envoie
+/// trop ne fait pas grossir la file).
+const MAX_PENDING_SIGNALS: usize = 256;
+
 impl QuestBook {
+    /// Un script de mod a envoyé ce signal (`mod:nom`) : il compte pour les tâches `Signal` qui
+    /// l'attendent, au prochain passage. Un signal que nulle quête n'attend, ou déjà en attente,
+    /// est ignoré.
+    pub fn note_signal(&mut self, id: String) {
+        if self
+            .loaded
+            .as_ref()
+            .is_some_and(|l| !l.signals.contains(&id))
+        {
+            return;
+        }
+        let pending = self
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::Signal(s) if *s == id));
+        if !pending && self.events.len() < MAX_PENDING_SIGNALS {
+            self.events.push(Event::Signal(id));
+        }
+    }
+
     /// Un objet vient d'être fabriqué (grille d'artisanat ou livre de recettes).
     pub fn note_crafted(&mut self, item: ItemId, count: u32) {
         self.events.push(Event::Crafted(item, count));
@@ -261,10 +287,22 @@ impl VoxelGame {
             quests.chapters.len()
         );
         self.quest_book.loaded = Some(Loaded {
+            signals: quests.wanted_signals(),
             quests,
             progress,
             readers,
         });
+        self.sync_quests_done();
+    }
+
+    /// Dit aux scripts quelles quêtes sont finies (`quest_done`).
+    pub(crate) fn sync_quests_done(&mut self) {
+        let done: Vec<String> = self
+            .quest_book
+            .progress()
+            .map(|p| p.done_ids().map(str::to_string).collect())
+            .unwrap_or_default();
+        self.mods.set_quests_done(done);
     }
 
     /// À chaque pas de simulation : rassemble les événements, et met la progression à jour dès
@@ -390,6 +428,15 @@ impl VoxelGame {
         let Some(&first) = finished.first() else {
             return;
         };
+        self.sync_quests_done();
+        // Les scripts abonnés l'apprennent (une seule fois : une quête ne se termine qu'une fois).
+        for &index in finished {
+            let quest = quests.quests[index].id.clone();
+            let actions = self
+                .mods
+                .dispatch(&engine_mods::ModEvent::QuestCompleted { quest });
+            self.apply_machine_actions(actions);
+        }
         let mut text = format!("Quête terminée : {}", quests.quests[first].title);
         if finished.len() > 1 {
             text.push_str(&format!(" (+{})", finished.len() - 1));
@@ -666,5 +713,40 @@ pub(crate) mod tests {
         assert!(claimed > 0);
         assert!(progress.pending(&quests).is_empty());
         let _ = Snapshot::default();
+    }
+
+    /// Chaque signal attendu par une quête livrée est envoyé par le script de son mod
+    /// (`quest_signal("nom")` dans `mods/<mod>/script/src`) : aucune quête ne reste sans émetteur.
+    #[test]
+    fn every_shipped_signal_is_sent_by_its_mod_script() {
+        let (_, _, quests) = shipped();
+        let signals = quests.wanted_signals();
+        assert!(signals.contains("magie:spell_cast"), "{signals:?}");
+        for id in signals {
+            let (ns, name) = id.split_once(':').unwrap();
+            let src = assets().join(format!("../mods/{ns}/script/src"));
+            let sent = std::fs::read_dir(&src)
+                .unwrap_or_else(|_| panic!("{} : le script de {ns}", src.display()))
+                .flatten()
+                .filter_map(|f| std::fs::read_to_string(f.path()).ok())
+                .any(|code| code.contains(&format!("quest_signal(\"{name}\")")));
+            assert!(
+                sent,
+                "{id} : aucun quest_signal({name:?}) dans le script de {ns}"
+            );
+        }
+    }
+
+    /// Les signaux en attente ne s'empilent pas : un doublon est ignoré, et la file a un plafond.
+    #[test]
+    fn pending_signals_are_deduplicated_and_bounded() {
+        let mut book = QuestBook::default();
+        book.note_signal("magie:spell_cast".into());
+        book.note_signal("magie:spell_cast".into());
+        assert_eq!(book.events.len(), 1);
+        for n in 0..1000 {
+            book.note_signal(format!("magie:s{n}"));
+        }
+        assert_eq!(book.events.len(), super::MAX_PENDING_SIGNALS);
     }
 }

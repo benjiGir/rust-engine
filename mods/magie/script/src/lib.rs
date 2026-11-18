@@ -8,6 +8,7 @@
 //!   coûte du mana en plus. Le sort inscrit est celui que la baguette lance.
 //! - **La baguette** (`magie:wand`, `usable`) lance le sort inscrit sur un clic droit
 //!   (`Event::ItemUsed`) ; le **cristal de mana** (`magie:mana_crystal`) rend du mana.
+//! - Chaque sort lancé envoie le signal de quête `magie:spell_cast` (`quest_signal`).
 //! - Les commandes `/mana` et `/sort` donnent l'état.
 
 use mod_sdk::ui::{Menu, UiEvent};
@@ -269,6 +270,8 @@ impl Magie {
         self.set_mana(left);
         self.save_mana();
         self.update_hud();
+        // Le livre de quêtes (`Signal("spell_cast")`) : un sort est parti.
+        mod_sdk::quest_signal("spell_cast");
     }
 }
 

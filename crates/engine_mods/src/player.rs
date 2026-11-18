@@ -2,7 +2,8 @@
 //! simulation (et juste avant de lui confier un clic). Le script le lit avec `player_info`, et
 //! lance des rayons dans le monde avec `player_target` sans repasser par le jeu.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use glam::Vec3;
@@ -51,6 +52,10 @@ impl PlayerSnapshot {
 
 /// Le même instantané, partagé entre le jeu (qui l'écrit) et les scripts (qui le lisent).
 pub type SharedPlayer = Rc<Cell<PlayerSnapshot>>;
+
+/// Les identifiants des quêtes terminées du monde, partagés entre le jeu (qui les écrit) et les
+/// scripts (`quest_done`).
+pub type SharedQuests = Rc<RefCell<HashSet<String>>>;
 
 /// Les noms d'effets que `player_effect` accepte.
 pub const EFFECTS: [&str; 5] = [

@@ -138,6 +138,7 @@ fn describe(task: &Task, items: &engine_voxel::ItemRegistry) -> (&'static str, S
         Task::Depth(y) => ("Depth", y.to_string()),
         Task::Level(n) => ("Level", n.to_string()),
         Task::Tier(n) => ("Tier", n.to_string()),
+        Task::Signal(id) => ("Signal", id.clone()),
     }
 }
 
@@ -224,6 +225,7 @@ impl VoxelGame {
                     self.quest_lookup(id)?;
                 }
                 self.quest_book.progress_mut()?.reset(id.as_deref());
+                self.sync_quests_done();
                 Ok("{\"ok\":true}".into())
             }
             Command::Open(chapter) => {

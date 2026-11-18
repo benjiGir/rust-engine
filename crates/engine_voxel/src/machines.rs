@@ -111,6 +111,11 @@ pub enum MachineAction {
     PlayerHurt {
         amount: f32,
     },
+    /// Un signal de quête d'un mod (`quest_signal`) : l'identifiant est déjà complet
+    /// (`mod:nom`).
+    QuestSignal {
+        id: String,
+    },
     /// Une ligne dans la console du joueur.
     Say {
         text: String,

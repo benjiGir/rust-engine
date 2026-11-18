@@ -159,6 +159,9 @@ pub enum TaskEntry {
     Depth(i32),
     Level(u32),
     Tier(u8),
+    /// Un signal du script du mod (`quest_signal(nom)` donne `<mod>:nom`) ; sans espace de noms,
+    /// celui du fichier. Il doit être de l'espace de noms du fichier qui le déclare.
+    Signal(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -303,6 +306,8 @@ pub enum Task {
     Depth(i32),
     Level(u32),
     Tier(u8),
+    /// Le nom complet du signal (`forge:smelted`).
+    Signal(String),
 }
 
 impl Task {
@@ -448,6 +453,15 @@ pub fn scoped(key: &str, namespace: &str) -> String {
     } else {
         format!("{namespace}:{key}")
     }
+}
+
+/// Le nom d'un signal (sans l'espace de noms) : celui que `quest_signal` accepte.
+fn valid_signal(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_-./".contains(&b))
 }
 
 fn namespace_of(id: &str) -> &str {
@@ -742,6 +756,20 @@ impl Quests {
                     }
                     Task::Tier(n)
                 }
+                TaskEntry::Signal(name) => {
+                    let full = scoped(&name, namespace);
+                    // Seul le mod de ce nom peut l'envoyer : un signal d'un autre espace ne se
+                    // remplirait jamais.
+                    if namespace_of(&full) != namespace || !valid_signal(&full[namespace.len() + 1..]) {
+                        bail!(
+                            "{}",
+                            ctx(format!(
+                                "signal « {name} » : il doit s'écrire `{namespace}:nom` (minuscules, chiffres, `_`, `-`, `.`, `/`), l'espace de noms du fichier"
+                            ))
+                        );
+                    }
+                    Task::Signal(full)
+                }
             });
         }
         let mut rewards = Vec::new();
@@ -930,6 +958,18 @@ impl Quests {
 
     pub fn is_empty(&self) -> bool {
         self.quests.is_empty()
+    }
+
+    /// Les signaux que des tâches attendent (le jeu ignore les autres).
+    pub fn wanted_signals(&self) -> HashSet<String> {
+        self.quests
+            .iter()
+            .flat_map(|q| &q.tasks)
+            .filter_map(|t| match t {
+                Task::Signal(id) => Some(id.clone()),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Les clés de structures que des tâches cherchent (le jeu ne cherche qu'elles).
@@ -1156,6 +1196,51 @@ pub(crate) mod tests {
             assert_eq!(quests.quest("forge:f/a").unwrap().deps, vec![0]);
             assert_eq!(quests.chapters[1].group, "core:g");
         });
+    }
+
+    /// Un signal est de l'espace de noms du fichier qui le déclare : `forge:smelted`, ou `smelted`
+    /// (l'espace du fichier est ajouté). Celui d'un autre mod ne se remplirait jamais.
+    #[test]
+    fn signals_must_belong_to_the_namespace_of_their_file() {
+        with_catalog(|c| {
+            let forge = |signal: &str| {
+                format!(
+                    r#"(chapters: [(id: "forge:f", group: "core:g", title: "Forge", icon: "core:stick",
+                    quests: [(id: "forge:f/a", title: "FA", tasks: [Signal("{signal}")])])])"#
+                )
+            };
+            let core = chapter(r#"(id: "core:c/a", title: "A", tasks: [Check])"#);
+            let load_forge = |signal: &str| {
+                Quests::load(
+                    &[
+                        ("core".to_string(), core.clone(), "core".to_string()),
+                        ("forge".to_string(), forge(signal), "forge".to_string()),
+                    ],
+                    c,
+                )
+            };
+            for written in ["forge:smelted", "smelted", "ingot/steel-2.x"] {
+                let quests = load_forge(written).unwrap();
+                let Task::Signal(full) = &quests.quest("forge:f/a").unwrap().tasks[0] else {
+                    panic!("une tâche Signal");
+                };
+                assert_eq!(
+                    *full,
+                    format!("forge:{}", written.trim_start_matches("forge:"))
+                );
+                assert_eq!(quests.wanted_signals(), HashSet::from([full.clone()]));
+            }
+            for refused in ["core:smelted", "autre:smelted", "forge:", "", "Majuscule"] {
+                let err = format!("{:#}", load_forge(refused).unwrap_err());
+                assert!(err.contains("signal"), "{refused} : {err}");
+            }
+        });
+        // Dans core, un signal sans espace de noms est `core:...`.
+        let quests = load(&chapter(
+            r#"(id: "core:c/a", title: "A", tasks: [Signal("hello")])"#,
+        ))
+        .unwrap();
+        assert_eq!(quests.quests[0].tasks[0], Task::Signal("core:hello".into()));
     }
 
     #[test]

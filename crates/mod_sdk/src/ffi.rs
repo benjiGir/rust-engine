@@ -16,6 +16,8 @@ pub const EVENT_TICK: i32 = 4;
 pub const EVENT_PLAYER_DAMAGED: i32 = 5;
 /// ItemUsed : le joueur a fait un clic droit avec un objet `usable` en main (hors d'une action du jeu : poser un bloc, ouvrir un coffre...).
 pub const EVENT_ITEM_USED: i32 = 7;
+/// QuestCompleted : une quête vient de se terminer (une seule fois par quête et par monde, ses récompenses restent à récupérer).
+pub const EVENT_QUEST_COMPLETED: i32 = 8;
 /// ChunkGenerated : un chunk non vide vient d'être généré pour la première fois (pas relu d'une sauvegarde) : le mod peut le décorer.
 pub const EVENT_CHUNK_GENERATED: i32 = 6;
 
@@ -252,6 +254,10 @@ unsafe extern "C" {
         out_ptr: i32,
         out_cap: i32,
     ) -> i32;
+    /// Envoie le signal `nom` du mod au livre de quêtes : les tâches `Signal("<mod>:nom")` de ses quêtes se remplissent (l'espace de noms est toujours celui du mod). Le nom : minuscules, chiffres, `_`, `-`, `.` et `/`, 64 octets au plus. 1 si le signal est pris en compte, 0 si le nom est refusé.
+    pub fn quest_signal(ptr: i32, len: i32) -> i32;
+    /// 1 si la quête (son identifiant complet, `core:wood/workbench`) est terminée dans ce monde, 0 sinon (aussi pour une quête inconnue ou si le livre n'est pas encore chargé).
+    pub fn quest_done(ptr: i32, len: i32) -> i32;
 }
 
 /// Hors WebAssembly (compilation native du workspace, tests des mods) : des
@@ -529,6 +535,14 @@ mod inert {
     #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn recipe_find(_: i32, _: i32, _: i32, _: i32, _: i32, _: i32) -> i32 {
         -1
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn quest_signal(_: i32, _: i32) -> i32 {
+        0
+    }
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
+    pub unsafe fn quest_done(_: i32, _: i32) -> i32 {
+        0
     }
 }
 

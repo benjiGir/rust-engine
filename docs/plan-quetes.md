@@ -193,7 +193,7 @@ Exemple (le format exact est à fixer par l'agent, dans cet esprit) :
 | `Depth(y)` | le joueur descend sous cette hauteur | une fois par seconde |
 | `Level(n)` | le joueur atteint ce niveau d'expérience | une fois par seconde |
 | `Tier(n)` | ce palier du monde est débloqué | `tiers.rs::Progress` |
-| `Signal(id)` | un mod l'envoie (phase 4) | nouvel appel de l'API des mods |
+| `Signal(id)` | un script de mod l'envoie (`quest_signal`) | appel de l'API des mods (phase 4) |
 
 Le compteur d'une tâche (blocs, créatures) n'avance que si la quête est **disponible** en mode
 `Linear`, et toujours en mode `Flexible`.
@@ -353,7 +353,7 @@ Une phase à la fois, chacune verte et vérifiée avant la suivante, avec un com
 - `Structure` : le joueur doit être à moins du rayon de la structure (horizontalement, sans regarder la
   hauteur : une mine ou un donjon enterré compte dès qu'on est au-dessus).
 - `Depth(y)` est une hauteur absolue (`y` du monde), pas une profondeur sous la mer.
-- `Signal` n'existe pas encore (phase 4).
+- `Signal` : voir la phase 4.
 - Non essayé en jeu : `crafted`, `consume` (testés en unitaire), `Choice` (idem, et `quest choose`),
   l'ouverture des recettes d'un clic et « Lire dans le guide » (phase 2).
 
@@ -460,6 +460,31 @@ Le kit de départ ne contient plus que le Guide du voyageur et trois pains : la 
 - Les quêtes `Structure` n'ont pas de repère en jeu (pas de carte) : le texte donne seulement les biomes où
   chercher. Non essayé en jeu : les récompenses `Choice` et `Loot` de ces chapitres (elles sont testées par la
   suite), le troc, les structures elles-mêmes (seuls l'écran et la détection d'une pose ont été vus).
+
+### Phase 4 : l'API des mods (faite)
+
+- **Appels** (`hooks.ron`, groupe « Quêtes », 72 fonctions au total) : `quest_signal(ptr, len) -> i32` (envoie
+  le signal `nom` du mod ; 1 si pris en compte, 0 si le nom est refusé) et `quest_done(ptr, len) -> i32` (1 si
+  la quête, identifiant complet, est terminée dans ce monde). Côté SDK : `mod_sdk::quest_signal(&str) -> bool`,
+  `mod_sdk::quest_done(&str) -> bool`.
+- **Événement 8, `QuestCompleted`** : données = l'identifiant complet de la quête en UTF-8, envoyé une seule
+  fois (au passage à « finie », avant la récupération des récompenses). Les numéros existants ne changent pas
+  (le 6 reste `ChunkGenerated`, le 7 `ItemUsed`).
+- **Tâche `Signal(nom)`** : l'espace de noms est celui du mod appelant (ajouté par l'hôte) ; au chargement, une
+  tâche `Signal` doit être de l'espace de noms de son fichier et d'un nom valide, sinon le fichier est refusé.
+  Le jeu ne garde que les signaux que des quêtes attendent (file de 256 au plus, sans doublon). Verrouillée :
+  `Flexible` mémorise, `Linear` ignore.
+- **Contenu** : la quête « Un premier sort » des runes passe de `Check` à `Signal("spell_cast")` ; le script
+  de magie envoie `quest_signal("spell_cast")` quand un sort part (mana suffisant), et `magie.wasm` est
+  recompilé (`cargo xtask build-mods`, identique octet pour octet).
+- **Tests** : chargement (signal valide avec ou sans espace, autre espace refusé), progression (`Flexible`,
+  `Linear`, autre signal ignoré, une seule fin), hôte (espace de noms imposé, `quest_done`), script de magie
+  chargé en test (le signal part, et pas sans mana), file bornée, et chaque signal livré a bien un émetteur
+  dans le script de son mod. Les anciens `.wasm` (non recompilés) se chargent toujours.
+
+**Limites** : `quest_done` ne voit que l'état à la
+dernière fin de quête ou au chargement du monde ; les autres mods n'ont pas de signal (leurs cases à cocher
+restent des `Check`).
 
 ## Hors périmètre (à décider plus tard)
 

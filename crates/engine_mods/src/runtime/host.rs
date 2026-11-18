@@ -58,6 +58,19 @@ fn memory(caller: &mut Caller<'_, HostState>) -> HostResult<wasmtime::Memory> {
         .ok_or_else(|| format_err!("pas de mémoire exportée"))
 }
 
+/// La longueur maximale du nom d'un signal de quête (`quest_signal`).
+const MAX_SIGNAL_NAME: usize = 64;
+
+/// Un nom de signal : minuscules, chiffres, `_`, `-`, `.` et `/` (pas d'espace de noms : c'est
+/// celui du mod).
+pub(super) fn valid_signal_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_SIGNAL_NAME
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_-./".contains(&b))
+}
+
 /// Lit `len` octets à `ptr` dans la mémoire du mod.
 fn read_guest(caller: &mut Caller<'_, HostState>, ptr: i32, len: i32) -> HostResult<Vec<u8>> {
     let memory = memory(caller)?;
@@ -1459,6 +1472,38 @@ fn define_calls(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
             let n = reply.len().min(cap.max(0) as usize);
             write_guest(&mut caller, out_ptr, &reply[..n])?;
             Ok(reply.len() as i32)
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "quest_signal",
+        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> HostResult<i32> {
+            if !(1..=MAX_SIGNAL_NAME as i32).contains(&len) {
+                return Ok(0);
+            }
+            let name = read_string(&mut caller, ptr, len)?;
+            if !valid_signal_name(&name) {
+                return Ok(0);
+            }
+            // L'espace de noms est toujours celui du mod appelant.
+            let state = caller.data_mut();
+            let id = format!("{}:{name}", state.mod_id);
+            state
+                .requests
+                .actions
+                .push(MachineAction::QuestSignal { id });
+            Ok(1)
+        },
+    )?;
+    linker.func_wrap(
+        "voxel",
+        "quest_done",
+        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> HostResult<i32> {
+            if !(1..=256).contains(&len) {
+                return Ok(0);
+            }
+            let id = read_string(&mut caller, ptr, len)?;
+            Ok(i32::from(caller.data().quests_done.borrow().contains(&id)))
         },
     )?;
     linker.func_wrap(
