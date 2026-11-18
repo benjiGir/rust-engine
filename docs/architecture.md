@@ -337,6 +337,17 @@ Plan et choix : `docs/plan-stockage.md`.
 - **Observation** : `cargo xtask map --generator v2` (terre-mer, rivage, altitude-macro, altitude,
   chaines, familles, bassins, drainage, lacs).
 
+### Génération v2 : relief 3D en blocs, monde de test (fait : `generator/v2*.rs`, `density.rs`, `surface.rs`, `underground.rs`, `worldmap_blocks.rs`)
+
+- `GenerationVersion::V2` matérialise la géographie et le drainage macro en blocs (contexte de colonne en
+  cache borné, densité 3D interpolée, surface selon la pente, strates régionales, cavernes et nappes liées au
+  drainage). **Pas activée pour les nouveaux mondes** (`FOR_NEW_WORLDS` = v1) : un monde de test se crée avec
+  `VOXEL_GENERATION=2` ; `WorldMeta::generation_version()` aiguille ensuite la réouverture (v2 -> v2, v1 ou
+  sans métadonnée -> v1).
+- Tests : `tests/generation_v2.rs` et `tests/support/reference_v2.rs` (empreintes figées). Observation :
+  `cargo xtask map --generator v2 --maps hauteur-blocs,materiau,eau-blocs,surplombs` et
+  `--section z=N --from A --to B` (coupes colorées par matériau). Détails : `docs/plan-generation-rendu.md`.
+
 ### Comment tout s'articule
 
 ```

@@ -1,0 +1,633 @@
+//! La construction du contexte d'une colonne de chunks (génération v2) : le relief macro, les
+//! cours et les lacs réservés, les berges fermées, les biomes provisoires, les règles de surface,
+//! les surplombs, la nappe et les cavernes.
+//!
+//! # Du relief macro aux blocs
+//!
+//! 1. **Géographie** évaluée tous les 4 blocs (absolus) sur la zone large, interpolée au bloc.
+//! 2. **Cours et lacs** : les arêtes de drainage et les lacs de la zone sont lus une fois
+//!    ([`Hydrology::river_candidates`], [`Hydrology::lakes_near`]) puis évalués colonne par colonne,
+//!    exactement comme [`MacroWorld::sample`](super::MacroWorld::sample) (même `river_near`, mêmes
+//!    formules de vallée) avec deux différences : le remblai des berges monte jusqu'à [`FILL`] blocs
+//!    au lieu de 2, et les lits sont creusés **en blocs** (voir ci-dessous).
+//! 3. **Quantification** : le relief devient `top`, le dernier bloc plein : `ceil(h - 0,5)`.
+//! 4. **Lits** : l'eau d'un cours est à `floor(niveau)` (l'arrondi vers le bas conserve la
+//!    décroissance du profil : l'eau ne monte jamais vers l'aval) ; le lit est creusé d'au moins un
+//!    bloc sous elle au centre (de deux à trois pour un grand cours), jamais au-dessus à la rive.
+//!    L'eau d'un lac est à `floor(niveau du lac)` partout.
+//! 5. **Berges fermées** : une colonne de terre dont une voisine (4 directions) porte de l'eau plus
+//!    haut qu'elle est relevée à ce niveau. L'eau d'un lac ou d'un cours ne déborde donc jamais d'un
+//!    bloc : le seul écoulement est celui du cours vers l'aval (et le déversoir d'un lac).
+//! 6. **Réservation** : un poids de 0 à 1, plein dans le lit, sur les berges (3 blocs au-delà de la
+//!    demi-largeur), dans les lacs et sur leur rive, décroissant sur 6 blocs. Il pilote l'amplitude des
+//!    surplombs, la profondeur des cavernes, la distance de dégagement des arbres et des structures.
+//!
+//! La colonne de chunks voisine calcule les mêmes valeurs dans sa marge : tout est une fonction pure
+//! de la position, jamais de l'ordre ou de l'état d'un cache.
+//!
+//! # Biomes provisoires (lot 5 les remplacera)
+//!
+//! Le climat est celui de la v1 (les bruits de température, d'humidité et de variété) lu tous les
+//! 16 blocs, l'humidité étant relevée près de l'eau. La famille du biome vient du relief macro :
+//! lit d'un cours ou d'un lac -> rivière ; sous la mer -> océan (profond si la géographie dit « mer
+//! profonde ») ; rivage bas -> plage ; massif en altitude -> montagnes (pics au-dessus de
+//! `SEA + 85`) ; sinon terre. Dans chaque famille, le biome est choisi par son climat comme en v1.
+//! Les `relief` des biomes de `biomes.ron` ne servent plus (la géographie décide du relief).
+
+use super::density::{self, NoiseGrid};
+use super::hydrology::RiverCandidate;
+use super::macro_noise::{fbm, smooth as smooth64};
+use super::surface::{CLIFF_SLOPE, SurfaceInputs};
+use super::v2::{ColumnContext, CoreCell, FILL, MARGIN, NO_WATER, V2State, WIDE, WideCell, flag};
+use super::{
+    Column, LAVA_LEVEL, Lake, MAX_HEIGHT, SEA_LEVEL, TerrainGenerator, VALLEY_REACH, fine_cell,
+    value_noise,
+};
+use crate::biome::BiomeKind;
+use crate::chunk::CHUNK_SIZE;
+use noise::NoiseFn;
+
+/// Géographie interpolée en un point.
+#[derive(Debug, Clone, Copy)]
+struct Geo {
+    elevation: f32,
+    macro_elevation: f32,
+    chain: f32,
+    coast: f32,
+    /// Le détail de massif ajouté au relief (blocs, signé) : voir [`massif_detail`].
+    detail: f32,
+}
+
+/// Points de la grille de géographie par côté de la zone large (un point tous les 4 blocs).
+const GEO_POINTS: usize = WIDE / 4 + 1;
+/// Distance (blocs) de la rive d'un lac jusqu'où son remblai agit.
+const LAKE_REACH: f32 = 56.0;
+
+fn smooth(edge0: f32, edge1: f32, x: f32) -> f32 {
+    smooth64(edge0 as f64, edge1 as f64, x as f64) as f32
+}
+
+/// Le détail de massif : des **gradins** (paliers de 8 blocs séparés de falaises, comme des strates
+/// résistantes) et un relief rugueux de crêtes et d'à-pics (jusqu'à ±12 blocs, 20 à 50 blocs de
+/// long), ajoutés au relief là où la chaîne est forte et au-dessus de la mer. Le relief macro est
+/// lisse (pentes de 0,3 en moyenne) : c'est ce détail qui donne des falaises, des éboulis et des
+/// surplombs aux massifs. Atténué près des cours et des lacs (voir `wide_cell`).
+fn massif_detail(seed: u32, x: f64, z: f64, chain: f32, elevation: f32) -> f32 {
+    let strength = smooth(18.0, 55.0, chain)
+        * smooth(SEA_LEVEL as f32 + 4.0, SEA_LEVEL as f32 + 14.0, elevation);
+    if strength <= 0.0 {
+        return 0.0;
+    }
+    let rough = 12.0 * fbm(seed, 0x5a, x / 46.0, z / 46.0, 3, 0.55) as f32;
+    // Les gradins : la hauteur (décalée par un bruit lent) en paliers plats, puis une falaise.
+    let jitter = 14.0 * fbm(seed, 0x5b, x / 85.0, z / 85.0, 3, 0.5) as f32;
+    // Les gradins ne couvrent qu'une partie du massif (les couches dures affleurent par plages) :
+    // ils ne dessinent pas des courbes de niveau régulières.
+    let mask = smooth(
+        -0.05,
+        0.3,
+        fbm(seed, 0x5d, x / 200.0, z / 200.0, 2, 0.5) as f32,
+    );
+    let k = (elevation + jitter) / TERRACE;
+    let stepped = (k.floor() + smooth(0.9, 1.0, k.fract())) * TERRACE;
+    let terrace = stepped - (elevation + jitter);
+    strength * (0.7 * mask * terrace + rough)
+}
+
+/// Hauteur d'un gradin de massif, en blocs.
+const TERRACE: f32 = 8.0;
+
+/// Le dernier bloc plein d'un relief de hauteur flottante `h`.
+pub(super) fn quantize(h: f32) -> i32 {
+    (h - 0.5).ceil() as i32
+}
+
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+fn lerp_geo(a: Geo, b: Geo, t: f32) -> Geo {
+    Geo {
+        elevation: lerp(a.elevation, b.elevation, t),
+        macro_elevation: lerp(a.macro_elevation, b.macro_elevation, t),
+        chain: lerp(a.chain, b.chain, t),
+        coast: lerp(a.coast, b.coast, t),
+        detail: lerp(a.detail, b.detail, t),
+    }
+}
+
+impl TerrainGenerator {
+    /// Le contexte de la colonne de chunks (cx, cz) : voir la documentation du module.
+    pub(super) fn build_context(&self, v2: &V2State, cx: i32, cz: i32) -> ColumnContext {
+        let size = CHUNK_SIZE as i32;
+        let (x0, z0) = (cx * size, cz * size);
+        let (wx0, wz0) = (x0 - MARGIN, z0 - MARGIN);
+        let world = &v2.world;
+        let hydro = world.hydrology();
+
+        // 1. La géographie sur une grille de 4 blocs.
+        let mut grid = Vec::with_capacity(GEO_POINTS * GEO_POINTS);
+        for j in 0..GEO_POINTS {
+            for i in 0..GEO_POINTS {
+                let g = world
+                    .geography()
+                    .sample((wx0 + 4 * i as i32) as f64, (wz0 + 4 * j as i32) as f64);
+                grid.push(Geo {
+                    elevation: g.elevation,
+                    macro_elevation: g.macro_elevation,
+                    chain: g.chain_height,
+                    coast: g.coast_distance,
+                    detail: massif_detail(
+                        self.seed,
+                        (wx0 + 4 * i as i32) as f64,
+                        (wz0 + 4 * j as i32) as f64,
+                        g.chain_height,
+                        g.elevation,
+                    ),
+                });
+            }
+        }
+        let geo_at = |wi: usize, wj: usize| {
+            let (gi, gj) = (wi / 4, wj / 4);
+            let (fx, fz) = ((wi % 4) as f32 / 4.0, (wj % 4) as f32 / 4.0);
+            let row =
+                |j: usize| lerp_geo(grid[j * GEO_POINTS + gi], grid[j * GEO_POINTS + gi + 1], fx);
+            lerp_geo(row(gj), row(gj + 1), fz)
+        };
+
+        // 2. Les cours et les lacs de la zone, lus une fois.
+        let c_min = fine_cell(wx0 as f64, wz0 as f64);
+        let c_max = fine_cell(
+            (wx0 + WIDE as i32 - 1) as f64,
+            (wz0 + WIDE as i32 - 1) as f64,
+        );
+        let candidates: Vec<RiverCandidate> =
+            hydro.river_candidates((c_min.0 - 2, c_min.1 - 2), (c_max.0 + 2, c_max.1 + 2));
+        let mut lakes: Vec<Lake> = Vec::new();
+        // Un lac peut agir à 56 blocs de son rivage : on lit ceux des cellules à 3 cellules de la
+        // zone, assez pour que chaque colonne voie tous les lacs qui l'influencent (voir la doc de
+        // `lakes_near`), quel que soit son contexte.
+        for fz in c_min.1 - 3..=c_max.1 + 3 {
+            for fx in c_min.0 - 3..=c_max.0 + 3 {
+                for lake in hydro.lakes_near((fx, fz)) {
+                    if !lakes.contains(&lake) {
+                        lakes.push(lake);
+                    }
+                }
+            }
+        }
+
+        // 3. Chaque colonne de la zone large.
+        let mut wide = vec![
+            WideCell {
+                top: 0,
+                water: NO_WATER,
+                flags: 0,
+                protect: 0,
+                valley: 0,
+                river_width: 0,
+                table: 0.0,
+            };
+            WIDE * WIDE
+        ];
+        let mut geos = Vec::with_capacity(WIDE * WIDE);
+        for wj in 0..WIDE {
+            for wi in 0..WIDE {
+                let (x, z) = (wx0 + wi as i32, wz0 + wj as i32);
+                let g = geo_at(wi, wj);
+                geos.push(g);
+                wide[wj * WIDE + wi] =
+                    self.wide_cell(hydro, &candidates, &lakes, x as f64, z as f64, g);
+            }
+        }
+
+        // 4. Les berges fermées : une colonne de terre plus basse que l'eau voisine est relevée.
+        let raised: Vec<(usize, i16)> = (1..WIDE - 1)
+            .flat_map(|wj| (1..WIDE - 1).map(move |wi| (wj, wi)))
+            .filter_map(|(wj, wi)| {
+                let i = wj * WIDE + wi;
+                let cell = &wide[i];
+                if cell.water != NO_WATER || (cell.top as i32) < SEA_LEVEL {
+                    return None;
+                }
+                let need = [i - 1, i + 1, i - WIDE, i + WIDE]
+                    .into_iter()
+                    .map(|n| wide[n].water)
+                    .max()
+                    .unwrap_or(NO_WATER);
+                (need != NO_WATER && need > cell.top).then_some((i, need))
+            })
+            .collect();
+        for (i, level) in raised {
+            wide[i].top = level;
+        }
+
+        // 5. La distance à la zone réservée (Chebyshev, jusqu'à 9) par deux passes.
+        let clearance = clearance_field(&wide);
+
+        // 6. Le climat provisoire, tous les 16 blocs, sur le cœur.
+        let climate = |px: i32, pz: i32| -> (f64, f64, f64) {
+            let p = [px as f64, pz as f64];
+            const WARP: f64 = 120.0;
+            let q = [
+                p[0] + WARP * self.warp_x.get(p),
+                p[1] + WARP * self.warp_z.get(p),
+            ];
+            (
+                (self.temperature.get(q) * 1.8).clamp(-1.0, 1.0),
+                (self.humidity.get(q) * 1.8).clamp(-1.0, 1.0),
+                (self.variety.get(q) * 1.4).clamp(-1.0, 1.0),
+            )
+        };
+        let climate_points: Vec<(f64, f64, f64)> = (0..3)
+            .flat_map(|j| (0..3).map(move |i| (i, j)))
+            .map(|(i, j)| climate(x0 + 16 * i, z0 + 16 * j))
+            .collect();
+
+        // 7. Le cœur : pente, biome, surface, surplombs, nappe, cavernes.
+        let top_at = |lx: i32, lz: i32| wide[ColumnContext::wide_index(lx, lz)].top as i32;
+        let mut core = Vec::with_capacity(CHUNK_SIZE * CHUNK_SIZE);
+        let mut columns = Box::new([[Column::default(); CHUNK_SIZE]; CHUNK_SIZE]);
+        let mut biomes = vec![0u8; CHUNK_SIZE * CHUNK_SIZE];
+        let mut grid_span: Option<(i32, i32)> = None;
+        let mut pending: Vec<(usize, usize)> = Vec::new();
+        for lz in 0..size {
+            for lx in 0..size {
+                let w = wide[ColumnContext::wide_index(lx, lz)];
+                let g = geos[(lz + MARGIN) as usize * WIDE + (lx + MARGIN) as usize];
+                let top = w.top as i32;
+                // La pente et la marche, sur les hauteurs en blocs.
+                let (gx, gz) = (
+                    (top_at(lx + 2, lz) - top_at(lx - 2, lz)) as f32 / 4.0,
+                    (top_at(lx, lz + 2) - top_at(lx, lz - 2)) as f32 / 4.0,
+                );
+                let slope = gx.hypot(gz);
+                let step = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                    .iter()
+                    .map(|&(dx, dz)| (top_at(lx + dx, lz + dz) - top).abs())
+                    .max()
+                    .unwrap_or(0);
+                let protect = w.protect as f32 / 255.0;
+                let valley = w.valley as f32 / 255.0;
+                // Le climat interpolé, l'humidité relevée près de l'eau.
+                let (fx, fz) = ((lx % 16) as f64 / 16.0, (lz % 16) as f64 / 16.0);
+                let at = |i: i32, j: i32| climate_points[(j * 3 + i) as usize];
+                let (i0, j0) = (lx / 16, lz / 16);
+                let mix = |f: fn(&(f64, f64, f64)) -> f64| {
+                    let top_row = f(&at(i0, j0)) * (1.0 - fx) + f(&at(i0 + 1, j0)) * fx;
+                    let bottom_row = f(&at(i0, j0 + 1)) * (1.0 - fx) + f(&at(i0 + 1, j0 + 1)) * fx;
+                    top_row * (1.0 - fz) + bottom_row * fz
+                };
+                let (t, h, vty) = (mix(|c| c.0), mix(|c| c.1), mix(|c| c.2));
+                let h = (h + 0.45 * protect as f64).clamp(-1.0, 1.0);
+                // La famille du biome.
+                let bed = w.flags & (flag::BED_RIVER | flag::BED_LAKE);
+                let kind = if bed != 0 {
+                    BiomeKind::River
+                } else if top < SEA_LEVEL {
+                    if g.macro_elevation < SEA_LEVEL as f32 - 28.0 {
+                        BiomeKind::DeepOcean
+                    } else {
+                        BiomeKind::Ocean
+                    }
+                } else if g.chain >= 24.0 && top > SEA_LEVEL + 10 {
+                    if top > SEA_LEVEL + 85 {
+                        BiomeKind::Peaks
+                    } else {
+                        BiomeKind::Mountains
+                    }
+                } else if g.coast < 70.0 && top <= SEA_LEVEL + 3 && slope < 0.5 {
+                    BiomeKind::Beach
+                } else {
+                    BiomeKind::Land
+                };
+                let biome = self.v2_biome(kind, t, h, vty);
+                let def = self.biomes.get(biome);
+                // L'ombre des pentes tournées vers le pôle (-z) : un peu plus froid.
+                let facing = (gz / slope.max(1e-3)).clamp(-1.0, 1.0);
+                let shade = smooth(0.1, 0.5, slope) * facing.max(0.0);
+                let altitude = (top - (SEA_LEVEL + 40)).max(0) as f32;
+                let temperature = def.temperature - altitude * 0.012 - 0.10 * shade;
+                // La rive : de l'eau d'un cours ou d'un lac à deux blocs au plus.
+                let mut bank: Option<i32> = None;
+                let mut wide_bank = false;
+                if w.water == NO_WATER && bed == 0 {
+                    for dz in -2..=2 {
+                        for dx in -2..=2 {
+                            let n = wide[ColumnContext::wide_index(lx + dx, lz + dz)];
+                            if n.water != NO_WATER {
+                                bank = Some(bank.map_or(n.water as i32, |b| b.max(n.water as i32)));
+                                wide_bank |= n.river_width >= 6 || n.flags & flag::WATER_LAKE != 0;
+                            }
+                        }
+                    }
+                }
+                let (x, z) = (x0 + lx, z0 + lz);
+                let rule = self.surface_rule(&SurfaceInputs {
+                    x,
+                    z,
+                    biome,
+                    top,
+                    slope,
+                    step,
+                    temperature,
+                    bed,
+                    river_width: w.river_width as f32,
+                    bank,
+                    bank_wide: wide_bank,
+                });
+                // Les surplombs : pente raide, massifs et falaises, hors des zones réservées.
+                let chain_w = smooth(14.0, 40.0, g.chain);
+                let steep = smooth(0.6, 1.4, slope);
+                let eligible = steep
+                    * chain_w.max(0.45 * smooth(1.0, 1.8, slope))
+                    * smooth(SEA_LEVEL as f32 + 2.0, SEA_LEVEL as f32 + 10.0, top as f32)
+                    * (1.0 - protect)
+                    * (1.0 - 0.7 * valley);
+                let amplitude = if eligible >= 0.04 {
+                    density::AMPLITUDE * eligible
+                } else {
+                    0.0
+                };
+                let drop = if amplitude > 0.0 {
+                    let lowest = [
+                        (1, 0),
+                        (-1, 0),
+                        (0, 1),
+                        (0, -1),
+                        (2, 0),
+                        (-2, 0),
+                        (0, 2),
+                        (0, -2),
+                    ]
+                    .iter()
+                    .map(|&(dx, dz)| top_at(lx + dx, lz + dz))
+                    .min()
+                    .unwrap_or(top);
+                    (top - lowest).clamp(0, 255) as u8
+                } else {
+                    0
+                };
+                if amplitude > 0.0 {
+                    let (lo, hi) = density::noise_span(top);
+                    grid_span = Some(grid_span.map_or((lo, hi), |(a, b)| (a.min(lo), b.max(hi))));
+                    pending.push((lx as usize, lz as usize));
+                }
+                // La nappe, bornée à 8 blocs sous le relief le plus bas des 5 × 5 voisines.
+                let lowest = (-2..=2)
+                    .flat_map(|dz| (-2..=2).map(move |dx| (dx, dz)))
+                    .map(|(dx, dz)| top_at(lx + dx, lz + dz))
+                    .min()
+                    .unwrap_or(top);
+                let table = (w.table.floor() as i32).min(lowest - 8);
+                let table = if table >= LAVA_LEVEL + super::v2::LAVA_GAP {
+                    table as i16
+                } else {
+                    NO_WATER
+                };
+                // La profondeur des cavernes : celle de la v1, plus profonde sous l'eau ; sous une
+                // zone réservée, à plus de 10 blocs sous le lit. Une entrée contrôlée peut
+                // affleurer sur une falaise nue (jamais dans une zone réservée, jamais sous un
+                // sol qui tombe).
+                let wet = w.water != NO_WATER || top < SEA_LEVEL + 2;
+                let mut limit = if wet { top - 9 } else { top - 4 };
+                if w.protect > 0 {
+                    limit = limit.min(top - 10);
+                }
+                let entrance = w.protect == 0
+                    && slope >= CLIFF_SLOPE
+                    && top > SEA_LEVEL + 6
+                    && value_noise(self.seed, x, z, 23, 70) > 0.88
+                    && rule.top == super::surface::Mat::Rock;
+                if entrance {
+                    limit = top - 2;
+                }
+                let clear = clearance[(lz + MARGIN) as usize * WIDE + (lx + MARGIN) as usize];
+                let cell = CoreCell {
+                    top: top as i16,
+                    slope,
+                    amplitude,
+                    drop,
+                    cliff: if amplitude > 0.0 { eligible } else { 0.0 },
+                    biome,
+                    rule,
+                    table,
+                    cave_limit: limit as i16,
+                    clear,
+                };
+                core.push(cell);
+                columns[lx as usize][lz as usize] = Column {
+                    height: top,
+                    biome,
+                    temperature,
+                    climate_temperature: t as f32,
+                };
+                biomes[(lx + lz * size) as usize] = biome.0;
+            }
+        }
+
+        // 8. Les bruits de densité, une fois pour la verticale, puis le vrai sommet des colonnes à
+        // surplombs.
+        let noise = grid_span.map(|(lo, hi)| NoiseGrid::new(&v2.noise, x0, z0, lo, hi));
+        if let Some(grid) = &noise {
+            for (lx, lz) in pending {
+                let i = lx + lz * CHUNK_SIZE;
+                let strata = self.strata_column(x0 + lx as i32, z0 + lz as i32);
+                let top = density::real_top(grid, &strata, lx, lz, &core[i]);
+                let cell = &mut core[i];
+                cell.top = top as i16;
+                columns[lx][lz].height = top;
+            }
+        }
+        let mut max_y = SEA_LEVEL.min(0);
+        for lz in 0..CHUNK_SIZE {
+            for lx in 0..CHUNK_SIZE {
+                let wt = {
+                    let cell = &wide[ColumnContext::wide_index(lx as i32, lz as i32)];
+                    if cell.water != NO_WATER {
+                        cell.water as i32
+                    } else if (cell.top as i32) < SEA_LEVEL {
+                        SEA_LEVEL
+                    } else {
+                        i32::MIN
+                    }
+                };
+                max_y = max_y.max(core[lx + lz * CHUNK_SIZE].top as i32).max(wt);
+            }
+        }
+        let cave_ceiling = core.iter().map(|c| c.cave_limit as i32).max().unwrap_or(0);
+        ColumnContext {
+            wide,
+            core,
+            columns,
+            biomes,
+            noise,
+            max_y,
+            cave_ceiling,
+        }
+    }
+
+    /// Une colonne de la zone large : relief après vallée, lits et lacs, eau, réservation.
+    fn wide_cell(
+        &self,
+        hydro: &super::Hydrology,
+        candidates: &[RiverCandidate],
+        lakes: &[Lake],
+        x: f64,
+        z: f64,
+        g: Geo,
+    ) -> WideCell {
+        let sea = SEA_LEVEL as f32;
+        let river = (g.macro_elevation >= sea - 1.0)
+            .then(|| hydro.river_in(candidates, x, z))
+            .flatten();
+        let mut elevation = g.elevation;
+        let mut flags = 0u8;
+        let mut protect = 0.0f32;
+        let mut valley = 0.0f32;
+        let mut river_width = 0.0f32;
+        let mut table = sea - 6.0 + 0.28 * (g.macro_elevation - sea);
+        // (niveau en blocs, au centre) d'un lit de cours.
+        let mut river_bed: Option<(i32, i32)> = None;
+        // Le plancher des berges : le détail ne creuse pas la vallée sous le niveau de l'eau.
+        let mut bank_floor = f32::NEG_INFINITY;
+        if let Some(r) = river {
+            let half = r.width * 0.5;
+            let over = (r.distance - half).max(0.0);
+            let relief = (g.elevation - r.level).max(0.0);
+            let slope = 0.12 + 0.68 * smooth(8.0, 60.0, relief);
+            let floor = (r.level + 1.0).min(g.elevation + FILL);
+            let target = g.elevation.clamp(floor, floor + slope * over);
+            let k = (1.0 - smooth(0.0, VALLEY_REACH, over)) * r.taper;
+            bank_floor = bank_floor.max(floor);
+            elevation += (target - elevation) * k;
+            valley = valley.max(k);
+            protect = protect.max(1.0 - smooth(half + 3.0, half + 9.0, r.distance));
+            river_width = r.width;
+            let dd = over;
+            let drain = r.level - 2.0 + 0.1 * dd;
+            table += (drain - table) * (1.0 - smooth(20.0, 140.0, dd));
+            if r.distance <= half {
+                flags |= flag::BED_RIVER;
+                let depth = 1.0 + 0.1 * r.width;
+                elevation = elevation.min(r.level - depth * (1.0 - r.distance / half.max(0.5)));
+                let wl = r.level.floor() as i32;
+                // Le lit est creusé en blocs : au moins un bloc d'eau au centre.
+                let dep = 1 + i32::from(r.width >= 12.0) + i32::from(r.width >= 30.0);
+                river_bed = Some((wl, if r.distance <= 0.7 * half { dep } else { 0 }));
+            }
+        }
+        // Le lac le plus proche (le plus « dedans »).
+        let mut lake: Option<(Lake, f64, f64)> = None;
+        for l in lakes {
+            let (dist, radius) = hydro.lake_geometry(l, x, z);
+            let sd = dist - radius;
+            if sd < LAKE_REACH as f64 && lake.as_ref().is_none_or(|(_, best, _)| sd < *best) {
+                lake = Some((*l, sd, radius));
+            }
+        }
+        let mut lake_bed: Option<(i32, f32)> = None;
+        if let Some((l, sd, radius)) = lake {
+            let sd = sd as f32;
+            let drain = l.level - 2.0 + 0.1 * sd.max(0.0);
+            table += (drain - table) * (1.0 - smooth(0.0, LAKE_REACH, sd.max(0.0)));
+            protect = protect.max(1.0 - smooth(3.0, 9.0, sd));
+            if sd < 0.0 {
+                let fraction = (-sd as f64 / radius) as f32;
+                let bottom = l.level - 1.0 - 5.0 * fraction.sqrt();
+                elevation += (bottom - elevation) * smooth(0.0, 0.25, fraction);
+                flags |= flag::BED_LAKE;
+                valley = 1.0;
+                lake_bed = Some((l.level.floor() as i32, fraction));
+            } else {
+                let floor = (l.level + 1.0).min(g.elevation + FILL);
+                bank_floor = bank_floor.max(floor);
+                let k = 1.0 - smooth(0.0, LAKE_REACH, sd);
+                elevation += (elevation.max(floor) - elevation) * k;
+                valley = valley.max(k);
+            }
+        }
+        // Le détail de massif, atténué dans la vallée et nul dans la zone réservée ; il ne creuse
+        // pas sous le niveau des berges.
+        if g.detail != 0.0 {
+            let before = elevation;
+            let attenuation = (1.0 - protect) * (1.0 - valley);
+            elevation = (before + g.detail * attenuation).max(bank_floor.min(before));
+        }
+        let mut top = quantize(elevation).clamp(1, MAX_HEIGHT);
+        let mut water = NO_WATER as i32;
+        if let Some((wl, center_depth)) = river_bed {
+            top = top.min(if center_depth > 0 {
+                wl - center_depth
+            } else {
+                wl
+            });
+            if top < wl {
+                water = water.max(wl);
+                flags |= flag::WATER_RIVER;
+            }
+        }
+        if let Some((wl, fraction)) = lake_bed {
+            top = top.min(if fraction > 0.15 { wl - 1 } else { wl });
+            if top < wl {
+                water = water.max(wl);
+                flags |= flag::WATER_LAKE;
+            }
+        }
+        WideCell {
+            top: top as i16,
+            water: if water == NO_WATER as i32 {
+                NO_WATER
+            } else {
+                water as i16
+            },
+            flags,
+            protect: (protect * 255.0).round() as u8,
+            valley: (valley * 255.0).round() as u8,
+            river_width: river_width.round().clamp(0.0, 255.0) as u8,
+            table,
+        }
+    }
+}
+
+/// La distance de Chebyshev (au plus 9) de chaque colonne à la zone réservée ou à l'eau la plus
+/// proche : deux passes de chanfrein à huit voisins, exactes jusqu'à 8 pour les colonnes du cœur
+/// (la marge est de 8 blocs).
+fn clearance_field(wide: &[WideCell]) -> Vec<u8> {
+    const CAP: u8 = 9;
+    let mut d: Vec<u8> = wide
+        .iter()
+        .map(|c| {
+            if c.protect > 0 || c.water != NO_WATER {
+                0
+            } else {
+                CAP
+            }
+        })
+        .collect();
+    for j in 0..WIDE {
+        for i in 0..WIDE {
+            let mut best = d[j * WIDE + i];
+            for (di, dj) in [(-1i32, -1i32), (0, -1), (1, -1), (-1, 0)] {
+                let (ni, nj) = (i as i32 + di, j as i32 + dj);
+                if (0..WIDE as i32).contains(&ni) && (0..WIDE as i32).contains(&nj) {
+                    best = best.min(d[nj as usize * WIDE + ni as usize].saturating_add(1));
+                }
+            }
+            d[j * WIDE + i] = best.min(CAP);
+        }
+    }
+    for j in (0..WIDE).rev() {
+        for i in (0..WIDE).rev() {
+            let mut best = d[j * WIDE + i];
+            for (di, dj) in [(1i32, 1i32), (0, 1), (-1, 1), (1, 0)] {
+                let (ni, nj) = (i as i32 + di, j as i32 + dj);
+                if (0..WIDE as i32).contains(&ni) && (0..WIDE as i32).contains(&nj) {
+                    best = best.min(d[nj as usize * WIDE + ni as usize].saturating_add(1));
+                }
+            }
+            d[j * WIDE + i] = best.min(CAP);
+        }
+    }
+    d
+}

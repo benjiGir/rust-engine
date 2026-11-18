@@ -58,6 +58,7 @@ mod trees;
 mod visibility;
 mod world;
 mod worldmap;
+mod worldmap_blocks;
 mod worldmap_macro;
 
 pub use biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry, OreDef, PlantDef, Relief};
@@ -104,7 +105,7 @@ pub use generator::{
 pub use generator::{
     Blueprint, ChestLoot, ChestLootEntry, Climate, Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL,
     PENDING_LOOT, SEA_LEVEL, Spot, StructureDef, StructureKind, StructureSet, StructureSite,
-    TerrainGenerator, TreeSite, WORLD_HEIGHT_CHUNKS, pending_loot,
+    SurfaceInfo, TerrainGenerator, TreeSite, WORLD_HEIGHT_CHUNKS, pending_loot,
 };
 pub use grid::{BlockAccess, GridId, GridPos, Grids};
 pub use items::{
@@ -164,4 +165,7 @@ pub use trees::{Part, Rng64, TreeBlocks, TreeKind, Wood, grow as grow_tree};
 pub use visibility::{FACE_DIRECTIONS, FaceConnections, VisibilityGraph};
 pub use world::World;
 pub use worldmap::{MapArea, MapKind, MapSamples, Raster};
+pub use worldmap_blocks::{
+    BlockMapKind, BlockMapSamples, SectionAxis, SectionSpec, render_section,
+};
 pub use worldmap_macro::{MacroMapKind, MacroMapSamples};

@@ -3,7 +3,9 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use engine_voxel::{LightRegion, SEA_LEVEL, TerrainGenerator, World, mesh_greedy};
+use engine_voxel::{
+    GenerationVersion, LightRegion, SEA_LEVEL, TerrainGenerator, World, mesh_greedy,
+};
 use glam::{IVec2, IVec3};
 
 fn bench_generation(c: &mut Criterion) {
@@ -51,6 +53,40 @@ fn bench_generation(c: &mut Criterion) {
             BatchSize::PerIteration,
         )
     });
+    group.finish();
+
+    // La génération v2 (lot 4), mêmes cas à froid : `clear_caches` vide aussi les contextes de
+    // colonne et l'hydrologie macro, la mesure comprend donc la construction du relief.
+    let v2 = TerrainGenerator::new(42)
+        .with_version(GenerationVersion::V2)
+        .unwrap();
+    let mut group = c.benchmark_group("generation v2");
+    group.sample_size(20);
+    group.bench_function("surface (chaud)", |b| {
+        b.iter(|| v2.generate(black_box(IVec3::new(3, 2, 5))))
+    });
+    group.bench_function("verticale à froid (6 chunks)", |b| {
+        b.iter_batched(
+            || v2.clear_caches(),
+            |()| {
+                for y in 0..6 {
+                    black_box(v2.generate(black_box(IVec3::new(3, y, 5))));
+                }
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.sample_size(10);
+    group.bench_function("zone 8 × 8 à froid (384 chunks)", |b| {
+        b.iter_batched(
+            || v2.clear_caches(),
+            |()| v2.generate_area(black_box(IVec3::new(-40, 0, 17)), 8, 8),
+            BatchSize::PerIteration,
+        )
+    });
+    group.finish();
+    let mut group = c.benchmark_group("generation");
+
     // Les chunks de surface les plus chargés : une forêt dense et une jungle (arbres des
     // 9 colonnes voisines recalculés à chaque chunk, voir `generator/features.rs`).
     let mut dense = Vec::new();

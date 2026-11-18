@@ -118,55 +118,122 @@ impl Hydrology {
     /// (distance à l'axe, à comparer à la largeur), pour les arêtes de cours d'eau seulement.
     pub fn river_near(&self, x: f64, z: f64) -> Option<RiverPoint> {
         let c = fine_cell(x, z);
-        let mut best: Option<(f64, RiverPoint)> = None;
-        for dz in -2..=2 {
-            for dx in -2..=2 {
-                let g = (c.0 + dx, c.1 + dz);
+        let candidates = self.river_candidates((c.0 - 2, c.1 - 2), (c.0 + 2, c.1 + 2));
+        self.river_in(&candidates, x, z)
+    }
+
+    /// Les cours d'eau (arêtes de cellules dont l'accumulation atteint [`STREAM_MIN_ACCUMULATION`])
+    /// qui sortent des cellules `min..=max` (indices fins), triés par (z, x) de leur cellule : c'est
+    /// l'ordre de parcours de [`Self::river_near`]. Les valeurs qui ne dépendent pas du point
+    /// (accumulation, largeurs, niveaux) sont lues une fois : le générateur de blocs en évalue
+    /// ensuite un millier de colonnes sans toucher aux caches.
+    pub fn river_candidates(&self, min: FineCell, max: FineCell) -> Vec<RiverCandidate> {
+        let mut out = Vec::new();
+        for gz in min.1..=max.1 {
+            for gx in min.0..=max.0 {
+                let g = (gx, gz);
                 let Some(Edge { next: n, line }) = self.river_edge(g) else {
                     continue;
                 };
-                let (distance, t, at) = nearest_on(&line, x, z);
-                if distance > MAX_INFLUENCE {
-                    continue;
-                }
                 let acc = self.accumulation(g);
                 if acc < STREAM_MIN_ACCUMULATION {
                     continue;
                 }
-                let (w0, w1) = (river_width(acc), river_width(self.accumulation(n)));
-                let level = self.level(g) as f64 + (self.level(n) - self.level(g)) as f64 * t;
-                let mut width = w0 as f64 + (w1 - w0) as f64 * t;
-                // L'embouchure s'évase : près du rivage, à un niveau voisin de la mer.
-                let shore = self.geography.coast_distance_at(at[0], at[1]);
-                let flare = (1.0 - smooth(0.0, MOUTH_REACH, shore))
-                    * (1.0 - smooth(2.0, 10.0, level - SEA_LEVEL as f64))
-                    * (acc as f64 / 40.0).min(1.0);
-                width *= 1.0 + MOUTH_FLARE * flare;
-                // Un ruisseau naît progressivement : étroit et sans vallée à sa source.
-                let taper = smooth(
-                    STREAM_MIN_ACCUMULATION as f64 * 0.8,
-                    STREAM_MIN_ACCUMULATION as f64 * 4.0,
-                    acc as f64,
-                );
-                width *= 0.45 + 0.55 * taper;
-                let score = distance - width * 0.5;
-                if best.is_none_or(|(s, _)| score < s) {
-                    best = Some((
-                        score,
-                        RiverPoint {
-                            distance: distance as f32,
-                            width: width as f32,
-                            level: level as f32,
-                            accumulation: acc,
-                            taper: taper as f32,
-                            basin: self.basin_id(self.basin_of(g)),
-                        },
-                    ));
-                }
+                let bounds = line
+                    .iter()
+                    .fold([f64::MAX, f64::MAX, f64::MIN, f64::MIN], |b, p| {
+                        [
+                            b[0].min(p[0]),
+                            b[1].min(p[1]),
+                            b[2].max(p[0]),
+                            b[3].max(p[1]),
+                        ]
+                    });
+                out.push(RiverCandidate {
+                    cell: g,
+                    line,
+                    bounds,
+                    acc,
+                    width: (river_width(acc), river_width(self.accumulation(n))),
+                    level: (self.level(g), self.level(n)),
+                    basin: self.basin_id(self.basin_of(g)),
+                });
+            }
+        }
+        out
+    }
+
+    /// Ce que [`Self::river_near`] rendrait en (x, z) si ses arêtes étaient `candidates` (seules
+    /// comptent celles dont la cellule est à moins de 2 cellules du point, comme là-bas).
+    pub fn river_in(&self, candidates: &[RiverCandidate], x: f64, z: f64) -> Option<RiverPoint> {
+        let c = fine_cell(x, z);
+        let mut best: Option<(f64, RiverPoint)> = None;
+        for cand in candidates {
+            if (cand.cell.0 - c.0).abs() > 2 || (cand.cell.1 - c.1).abs() > 2 {
+                continue;
+            }
+            // Éliminé sans calcul : la boîte de la courbe est trop loin.
+            let b = cand.bounds;
+            if x < b[0] - MAX_INFLUENCE
+                || x > b[2] + MAX_INFLUENCE
+                || z < b[1] - MAX_INFLUENCE
+                || z > b[3] + MAX_INFLUENCE
+            {
+                continue;
+            }
+            let (distance, t, at) = nearest_on(&cand.line, x, z);
+            if distance > MAX_INFLUENCE {
+                continue;
+            }
+            let acc = cand.acc;
+            let (w0, w1) = cand.width;
+            let level = cand.level.0 as f64 + (cand.level.1 - cand.level.0) as f64 * t;
+            let mut width = w0 as f64 + (w1 - w0) as f64 * t;
+            // L'embouchure s'évase : près du rivage, à un niveau voisin de la mer.
+            let shore = self.geography.coast_distance_at(at[0], at[1]);
+            let flare = (1.0 - smooth(0.0, MOUTH_REACH, shore))
+                * (1.0 - smooth(2.0, 10.0, level - SEA_LEVEL as f64))
+                * (acc as f64 / 40.0).min(1.0);
+            width *= 1.0 + MOUTH_FLARE * flare;
+            // Un ruisseau naît progressivement : étroit et sans vallée à sa source.
+            let taper = smooth(
+                STREAM_MIN_ACCUMULATION as f64 * 0.8,
+                STREAM_MIN_ACCUMULATION as f64 * 4.0,
+                acc as f64,
+            );
+            width *= 0.45 + 0.55 * taper;
+            let score = distance - width * 0.5;
+            if best.is_none_or(|(s, _)| score < s) {
+                best = Some((
+                    score,
+                    RiverPoint {
+                        distance: distance as f32,
+                        width: width as f32,
+                        level: level as f32,
+                        accumulation: acc,
+                        taper: taper as f32,
+                        basin: cand.basin,
+                    },
+                ));
             }
         }
         best.map(|(_, r)| r)
     }
+}
+
+/// Un cours d'eau prêt à être évalué en beaucoup de points (voir [`Hydrology::river_candidates`]).
+#[derive(Debug, Clone, Copy)]
+pub struct RiverCandidate {
+    cell: FineCell,
+    line: Line,
+    /// Boîte englobante de la courbe : (x min, z min, x max, z max).
+    bounds: [f64; 4],
+    acc: u32,
+    /// Largeur (avant évasement) à l'amont et à l'aval de l'arête.
+    width: (f32, f32),
+    /// Niveau d'eau à l'amont et à l'aval de l'arête.
+    level: (f32, f32),
+    basin: u64,
 }
 
 /// Le point de la courbe le plus proche de (x, z) : distance, abscisse `t` dans `[0, 1]` de la

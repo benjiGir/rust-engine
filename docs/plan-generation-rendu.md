@@ -2,7 +2,8 @@
 
 Établi le 17 novembre 2026. Statut au 18 novembre 2026 : **lots 0 et 1 exécutés** (livraison A,
 voir « Statut de la livraison A » en bas) ; **lots 2 et 3 exécutés comme prototype macro** (livraison B,
-voir « Statut de la livraison B ») ; lots 4 à 9 non commencés.
+voir « Statut de la livraison B ») ; **lot 4 exécuté comme monde de test v2** (voir « Statut du lot 4 ») ; lots 5 à 9 non
+commencés.
 
 ## Résultat recherché
 
@@ -190,7 +191,7 @@ réunie, confluences de niveaux compatibles, aucun cycle, aucun cours interrompu
 sans terminaison déclarée, raccords valides aux coins de quatre régions et coût
 borné à froid. Si ces conditions échouent, revoir le modèle macro avant le lot 4.
 
-### Lot 4 — relief 3D, surface et sous-sol cohérents
+### Lot 4 — relief 3D, surface et sous-sol cohérents (fait : monde de test v2, voir le statut du lot 4)
 
 **Dépendance :** lot 3. **Livrable :** géographie matérialisée en blocs.
 
@@ -665,7 +666,7 @@ près des îles.
 
 - Aucun bloc (lot 4), aucun biome ni climat (lot 5), aucun lien avec les structures, les fluides stables
   ni les modifications du joueur : l'hydrologie statique n'est qu'un champ interrogeable.
-- Pas de variante `GenerationVersion::V2` ni de choix de générateur à la création d'un monde.
+- Pas de variante `GenerationVersion::V2` ni de choix de générateur à la création d'un monde (ajoutés au lot 4).
 - La borne de profondeur (48 arêtes de bassin, environ 40 000 blocs) est une définition, pas un phénomène
   observé : elle n'est jamais atteinte sur l'échantillon (profondeur maximale 8). Un bassin plafonné deviendrait un
   lac terminal ; aucun test n'en a vu. De même `MAX_OWNER_STEPS` (392) et `MAX_BASIN_CELLS` sont des bornes
@@ -677,3 +678,117 @@ près des îles.
   quand le point tombe près d'un cours).
 - Pas de mesure de mémoire en jeu (le prototype n'est pas branché au streaming) ; les tables de cache sont
   vidées au-delà de 262 144 entrées chacune (12 tables).
+
+## Statut du lot 4 (relief 3D, surface et sous-sol)
+
+**Ce qui est livré :** `GenerationVersion::V2` et un générateur de blocs v2 (`generator/v2.rs`,
+`v2_context.rs`, `density.rs`, `surface.rs`, `underground.rs`), des cartes et coupes issues des **blocs**
+(`worldmap_blocks.rs`, `cargo xtask map --generator v2`), des tests dédiés (`tests/generation_v2.rs`) et des
+empreintes v2 figées (`tests/support/reference_v2.rs`). `FOR_NEW_WORLDS` reste **v1** : rien n'est activé pour
+les joueurs (lot 9).
+
+### Créer un monde de test v2 et aiguillage
+
+- À la **création** d'un monde, `GenerationVersion::for_new_world()` lit la variable d'environnement
+  `VOXEL_GENERATION` (`2` ou `v2` : monde de test v2 ; absente, `1` ou une valeur inconnue : v1). Elle n'est lue
+  qu'à la création ; la version est écrite dans `world.ron` (`generation.version`).
+- À l'**ouverture**, `WorldMeta::generation_version()` décide : monde enregistré v2 -> v2 (la variable est sans
+  effet) ; monde v1 ou sans métadonnée de génération -> v1 ; numéro inconnu -> refus. Le jeu passe la version à
+  `modding::terrain` (`games/voxel/src/main.rs`), qui appelle `TerrainGenerator::with_dimension_versioned`.
+  Testé avec des dossiers temporaires dans `games/voxel/src/dimensions.rs` et dans `generation.rs`.
+- Pour l'API : `TerrainGenerator::with_version(GenerationVersion::V2)` ; les outils (`worldmap`, benchs,
+  tests) l'utilisent directement.
+
+### Conception
+
+1. **Contexte de colonne** (`ColumnContext`, `v2_context.rs`) : calculé une fois par colonne de chunks (32 x 32
+   plus 8 blocs de marge) et partagé par ses six chunks, les arbres et les structures. Cache borné (512 entrées,
+   clés explicites graine/dimension/version/cx/cz, évincé du plus ancien, calcul hors verrou), vidé par
+   `clear_caches`. Chaque valeur est une fonction pure de la position.
+2. **Relief** : géographie macro tous les 4 blocs (interpolée), cours et lacs lus une fois par zone
+   (`Hydrology::river_candidates`), vallées et lits comme `MacroWorld::sample`, mais remblai des berges jusqu'à
+   10 blocs et lits creusés **en blocs**. Détail de massif (gradins par plages, crêtes) là où la chaîne est
+   forte, atténué dans les vallées.
+3. **Eau** : l'eau d'un cours est à `floor(niveau)` (le niveau ne remonte pas vers l'aval, l'arrondi le
+   conserve) ; celle d'un lac à `floor(niveau du lac)` partout. Toute colonne de terre voisine d'une eau plus
+   haute est relevée à son niveau : l'eau ne déborde jamais d'un côté, le seul écoulement est vers l'aval.
+4. **Réservation** : un poids 0..1 (plein dans le lit, les berges et les lacs, décroissant sur 6 blocs). Il
+   annule l'amplitude des surplombs, impose 10 blocs de roche pleine sous un lit, et fixe la distance de
+   dégagement des arbres et des structures (Chebyshev, 9 au plus).
+5. **Densité** (`density.rs`) : `D = (top + 0,5 - y) - A s(prof) max(0, 0,15 - n) + dureté`, bruit 3D sur une
+   grille de 4 blocs interpolée (une fois par verticale), plus l'**entaille** du pied d'une paroi (colonne à
+   1 ou 2 blocs d'une voisine plus basse de 3 blocs ou plus). Sans amplitude (plaines, côtes, mers, zones
+   réservées) `D > 0` revient exactement à `y <= top` : aucun bruit n'y ouvre ni n'y ferme quoi que ce soit.
+6. **Surface** (`surface.rs`) : règles ordonnées par colonne, sur la pente de la hauteur de surface (+-2 blocs)
+   : lit (gravier, sable, argile), fond marin, falaise (pente >= 1,0 ou marche >= 3 : roche nue), éboulis
+   (0,75 à 1,0 : gravier en altitude, terre grossière), neige (température ressentie : altitude, ombre des
+   pentes exposées au pôle), berges (gravier, sable, argile), roche affleurante, sol du biome. Blocs existants
+   uniquement, aucun identifiant changé.
+7. **Strates** : couches de 3 blocs dont l'altitude ondule en continu (deux bruits de valeurs) et dont la
+   nature (pierre, grès, roche volcanique) suit deux champs régionaux lents ; la dureté entre dans la densité
+   (le grès recule, la pierre saillit). Posées après les minerais (`ores.ron`, fonction de la v1 inchangée).
+   Un **éventail** (±0,25 bloc par bloc autour de y = 96, bruit de 83 blocs) écarte ou resserre les couches
+   avec la profondeur : sans lui, toutes les couches d'une colonne sautaient d'un bloc à la même abscisse et
+   les coupes montraient de fausses failles verticales. Les sites de structures refusent toute colonne à
+   surplombs dans leur emprise (grille de 2 blocs), car les couches tendres y creusent sous la peau.
+8. **Sous-sol** (`underground.rs`) : formes de la v1 (spaghetti et fromage, mêmes tampons par worker `CaveGrid`),
+   règles nouvelles : plafond 4 blocs sous le relief (9 sous l'eau, plus de 10 sous une zone réservée), entrées
+   contrôlées rares sur la roche nue, nappes liées au niveau des cours et lacs voisins (2 blocs sous leur
+   niveau, +0,1 par bloc d'éloignement, effacées à 140 blocs), lave sous `LAVA_LEVEL`, eau jamais sous
+   `LAVA_LEVEL + 4` : aucun contact eau/lave.
+9. **Biomes provisoires** (lot 5 les remplacera) : le climat de la v1 (température, humidité, variété) lu
+   tous les 16 blocs, humidité relevée près de l'eau ; la **famille** vient de la géographie (lit -> rivière,
+   sous la mer -> océan ou océan profond, rivage bas -> plage, massif -> montagnes ou pics, sinon terre) ; dans
+   la famille, le biome est choisi par son climat comme en v1. Les `relief` des biomes ne servent plus. Les
+   biomes, minerais et structures des mods sont lus comme en v1 (même registre).
+10. **Arbres et structures** : le sol est celui du bloc de surface calculé (`ground_block`), la base du tronc est
+    `surface + 1` ; un arbre reste hors de l'eau et à une distance du lit égale au rayon de son feuillage, hors
+    de l'emprise de toute structure ; une structure n'est posée que si une grille de 6 blocs sur son emprise
+    n'approche aucune zone réservée. Les plantes aquatiques utilisent le niveau d'eau réel.
+
+### Tests (`tests/generation_v2.rs`, résultats de cette exécution)
+
+Tous passent (18 tests, 1 ignoré qui imprime la table) : v1 inchangée (`generation_reference` passe ; sélectionner
+V1 explicitement donne les mêmes blocs ; v1 et v2 ne partagent jamais de cache), déterminisme v2 (ordre inverse,
+parallèle sur 4 threads, caches vide/plein/vidé/évincé, bords et coins de quatre colonnes avec voisins en cache
+ou non, coordonnées négatives), rivières (4 graines : eau non remontante, cuvette sans sortie impossible, lit
+ouvert, berges fermées), lacs (niveau constant, rives fermées sauf déversoir ou entrée de cours), arbres (sol
+réel, jamais dans l'eau, jamais flottants avec leurs branches) et structures (jamais près d'un lit ou d'un lac),
+surface/pente (aucune herbe, neige ou sable sur une pente >= 1,0), surplombs (rares, jamais en zone réservée),
+sous-sol (dix blocs de roche sous un lit, jamais d'eau contre la lave), fluides (la simulation s'endort sur
+l'eau d'un cours et d'un lac), couture entre chunks, empreintes figées (7 graines).
+
+### Mesures (Apple M3 Pro, release, `cargo bench -p engine_voxel --bench generation`)
+
+| Cas | v1 | v2 |
+| --- | --- | --- |
+| chunk de surface, à chaud | 0,48 ms | 0,53 ms |
+| verticale de 6 chunks à froid | 1,63 ms | 5,1 ms (x 3,1) |
+| zone 8 x 8 à froid (384 chunks) | 86 ms | 173 ms (x 2,0) |
+
+Le « froid » v2 comprend l'hydrologie macro et le contexte de colonne (`clear_caches` vide tout).
+
+### Lisibilité des cartes et coupes (jugement)
+
+Cartes `hauteur-blocs`, `materiau`, `eau-blocs`, `surplombs` et coupes colorées (graines 42, 7, 1337). Les
+rivières, confluences, deltas et lacs lus dans les blocs concordent avec le relief ; les falaises et éboulis
+suivent la pente ; les strates se suivent d'un chunk à l'autre et changent par régions. Défauts assumés : (a)
+les massifs restent doux, les vraies parois à surplomb sont **rares** (environ 75 blocs d'air ouverts sous un
+bloc plein sur 12 zones de 160 x 160 des quatre graines) ; la carte `surplombs` montre surtout des tunnels proches de la surface, pas des surplombs ; (b) les
+gradins de massif, même cassés par plages, gardent un air de courbes de niveau sur les grands pics enneigés ;
+(c) les strates ondulent désormais en éventail, mais restent des couches de 3 blocs assez régulières ; (d) les rivières sont peu
+nombreuses sur la graine 1337.
+
+### Limites et ce qui n'est pas fait
+
+- Biomes, climat et végétation élaborés : lot 5. Rendu et streaming : lots 6 et 7. Terrain lointain v2 : lot 8
+  (le lointain lit les colonnes v2 sans volume ; les surplombs n'y figurent pas).
+- Les structures lisent toujours `column(x, z).height` et leur propre règle de nivellement : un village sur une
+  pente raide reste possible ; seul le dégagement des cours d'eau est garanti.
+- Le rayon de dégagement des structures utilise le rayon déclaré (grand pour une mine) : des sites sont
+  écartés alors que leur emprise réelle est plus petite.
+- La stabilité des fluides est vérifiée par une simulation headless sur deux zones (réveil de toute l'eau en
+  contact avec l'air) ; une recette en jeu reste à faire (lot 9). Une marche d'eau d'un bloc existe à l'entrée
+  d'un cours dans un lac et sur les paliers : elle s'écoule vers l'aval, jamais vers l'amont.
+- Les nappes sont liées au niveau des cours et lacs voisins, pas à un modèle d'eau souterraine.
+- Aucun monde v2 n'est jouable par défaut : créer un monde de test avec `VOXEL_GENERATION=2`.

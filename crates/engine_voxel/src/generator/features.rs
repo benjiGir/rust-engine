@@ -98,6 +98,16 @@ fn spacing(kind: TreeKind) -> i32 {
     }
 }
 
+/// La distance (blocs) qu'un arbre de cette forme garde avec une zone réservée en génération v2 : le
+/// rayon de son feuillage.
+fn clearance_of(kind: TreeKind) -> u8 {
+    match kind {
+        TreeKind::Cactus | TreeKind::Bush | TreeKind::JungleBush => 2,
+        TreeKind::BigOak | TreeKind::Jungle => 8,
+        _ => 5,
+    }
+}
+
 /// Les emplacements d'arbres déjà calculés, par colonne de chunks.
 ///
 /// Chaque chunk a besoin des arbres des 9 colonnes autour de lui, et une colonne compte 6
@@ -114,7 +124,7 @@ pub type TreeSites = Arc<[TreeSite]>;
 const TREE_CACHE_LIMIT: usize = 8192;
 
 impl TerrainGenerator {
-    /// Vide les caches de calcul (arbres, colonnes) : le générateur repart à froid. Le monde
+    /// Vide les caches de calcul (arbres, colonnes, contextes v2) : le générateur repart à froid. Le monde
     /// généré ne change pas, seulement le temps du prochain calcul. Utile aux mesures à froid et
     /// aux tests qui comparent un cache vide et un cache plein.
     pub fn clear_caches(&self) {
@@ -124,6 +134,11 @@ impl TerrainGenerator {
             .unwrap_or_else(|e| e.into_inner())
             .clear();
         self.column_cache.clear();
+        // La génération v2 : contextes de colonne et caches macro (hydrologie).
+        if let Some(v2) = &self.v2 {
+            v2.contexts.clear();
+            v2.world.clear_caches();
+        }
     }
 
     /// Les arbres plantés dans la colonne de chunks (cx, cz), depuis le cache si possible.
@@ -151,6 +166,9 @@ impl TerrainGenerator {
         let mut sites: Vec<TreeSite> = Vec::new();
         // Pas d'arbres dans un village : on les cherche une fois pour la colonne de chunks.
         let villages = self.village_clearings(cx, cz);
+        // Génération v2 : aucune structure n'est recouverte par un arbre (elles s'écrivent après
+        // eux) ; on garde le feuillage d'un arbre hors de l'emprise de chacune.
+        let footprints = self.v2_footprints(cx, cz);
         // La plus forte chance d'arbre, tous biomes confondus : un tirage au-dessus est rejeté
         // sans évaluer la colonne (le plus cher).
         let best = self
@@ -175,6 +193,12 @@ impl TerrainGenerator {
             if villages.iter().any(|&(vx, vz)| {
                 (x - vx).abs() <= VILLAGE_CLEARING && (z - vz).abs() <= VILLAGE_CLEARING
             }) {
+                continue;
+            }
+            if footprints
+                .iter()
+                .any(|&(sx, sz, r)| (x - sx).abs() <= r + 8 && (z - sz).abs() <= r + 8)
+            {
                 continue;
             }
             let column = self.column(x, z);
@@ -209,9 +233,14 @@ impl TerrainGenerator {
             if crowded {
                 continue;
             }
+            // Génération v2 : jamais dans l'eau d'un cours ou d'un lac, ni assez près d'une zone
+            // réservée pour que le feuillage la recouvre (distance selon la taille de l'arbre).
+            if self.v2.is_some() && self.v2_clearance(x, z) <= clearance_of(kind) {
+                continue;
+            }
             // Le sol doit convenir : du sable pour le cactus, de la terre ou de l'herbe
             // (éventuellement enneigée) pour les autres.
-            let ground = self.layer(x, column.height, z, column);
+            let ground = self.ground_block(x, z, column);
             let ok = if kind == TreeKind::Cactus {
                 ground == self.blocks.sand || ground == self.plant_blocks.red_sand
             } else {
@@ -298,7 +327,15 @@ impl TerrainGenerator {
                 let (x, z) = (origin.x + lx as i32, origin.z + lz as i32);
                 let biome = self.biomes.get(column.biome);
                 let r = roll(self.seed, x, z, 600);
-                if column.height >= SEA_LEVEL {
+                // Sous l'eau : la mer en v1 ; en v2 aussi l'eau d'un cours ou d'un lac, à son niveau.
+                let (wet, water_top) = match &self.v2 {
+                    None => (column.height < SEA_LEVEL, SEA_LEVEL),
+                    Some(_) => {
+                        let level = self.v2_water_top(x, z);
+                        (level > column.height, level)
+                    }
+                };
+                if !wet {
                     // Sur la terre : au plus une plante par colonne. Chaque plante du biome a
                     // son propre tirage, modulé par ses taches ; les plus rares passent
                     // d'abord (le registre les trie), pour que l'herbe ne les étouffe pas.
@@ -306,7 +343,7 @@ impl TerrainGenerator {
                     if !inside(y) || biome.plants.is_empty() {
                         continue;
                     }
-                    let ground = self.layer(x, column.height, z, column);
+                    let ground = self.ground_block(x, z, column);
                     for (i, plant) in biome.plants.iter().enumerate() {
                         let chance = plant.chance
                             * patch_factor(self.seed, x, z, plant.block, plant.patches);
@@ -327,7 +364,7 @@ impl TerrainGenerator {
                         break;
                     }
                 } else {
-                    let depth = SEA_LEVEL - column.height;
+                    let depth = water_top - column.height;
                     let frozen =
                         column.temperature < FREEZING || column.climate_temperature < -0.55;
                     // Des algues au fond, jamais jusqu'à la surface.
@@ -342,7 +379,7 @@ impl TerrainGenerator {
                         }
                     }
                     // Des nénuphars sur l'eau calme et peu profonde.
-                    let y = SEA_LEVEL + 1;
+                    let y = water_top + 1;
                     if depth <= 3
                         && !frozen
                         && roll(self.seed, x, z, 602) < biome.lily_pads

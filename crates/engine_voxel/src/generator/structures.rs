@@ -1508,7 +1508,8 @@ impl TerrainGenerator {
                         .is_some_and(|g| column.height - g.depth() >= 12)
             }
         };
-        ok.then_some(StructureSite {
+        // Génération v2 : une structure ne se pose ni dans l'eau, ni sur un lit, ni sur une berge.
+        (ok && self.v2_site_clear(x, z, def.radius)).then_some(StructureSite {
             def: d,
             kind: def.kind,
             x,

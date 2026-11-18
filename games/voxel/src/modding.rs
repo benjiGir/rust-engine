@@ -470,19 +470,28 @@ pub fn ms(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.0
 }
 
-/// Le terrain du jeu et des mods (leurs minerais, biomes et structures). Un fichier de mod
+/// Le terrain du jeu et des mods (leurs minerais, biomes et structures), généré selon `version`
+/// (celle de `world.ron` : un monde v1 reste v1, un monde de test v2 reste v2). Un fichier de mod
 /// invalide est signalé dans les logs, et le monde se génère sans ce qu'apportent les mods.
 pub fn terrain(
     seed: u32,
     registry: &Arc<BlockRegistry>,
     mods: &[(String, PathBuf)],
     dimension: &engine_voxel::DimensionDef,
+    version: engine_voxel::GenerationVersion,
 ) -> anyhow::Result<engine_voxel::TerrainGenerator> {
-    match engine_voxel::TerrainGenerator::with_dimension(seed, registry.clone(), mods, dimension) {
+    match engine_voxel::TerrainGenerator::with_dimension_versioned(
+        seed,
+        registry.clone(),
+        mods,
+        dimension,
+        version,
+    ) {
         Ok(generator) => Ok(generator),
         Err(err) => {
             log::error!("génération du monde des mods refusée : {err:#}");
-            engine_voxel::TerrainGenerator::with_registry(seed, registry.clone())
+            engine_voxel::TerrainGenerator::with_registry(seed, registry.clone())?
+                .with_version(version)
         }
     }
 }

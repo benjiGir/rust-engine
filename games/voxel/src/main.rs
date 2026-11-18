@@ -448,7 +448,13 @@ impl VoxelGame {
             config.view_radius,
             config.worker_threads
         );
-        let generator = modding::terrain(seed, &registry, &mod_dirs, &dims.current)?;
+        let generator = modding::terrain(
+            seed,
+            &registry,
+            &mod_dirs,
+            &dims.current,
+            dims.generation.generation_version()?,
+        )?;
         let mut streamer = ChunkStreamer::new(generator, config);
         // `VOXEL_PIPELINE=1` : les délais demande → génération → lumière → maillage → envoi.
         streamer.set_pipeline_timing(std::env::var("VOXEL_PIPELINE").is_ok_and(|v| v == "1"));

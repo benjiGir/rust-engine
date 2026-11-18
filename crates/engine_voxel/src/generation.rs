@@ -56,18 +56,47 @@ pub enum GenerationVersion {
     /// Ses blocs sont figés par `tests/generation_reference.rs`.
     #[default]
     V1,
+    /// La génération v2 (lot 4 du plan) : relief macro (géographie et drainage), densité 3D,
+    /// surface selon la pente, strates régionales. **Pas encore activée pour les nouveaux mondes**
+    /// (voir [`GenerationVersion::FOR_NEW_WORLDS`]) : seul un monde de test la choisit, par
+    /// [`GenerationVersion::for_new_world`] et la variable d'environnement
+    /// [`GenerationVersion::ENV_OVERRIDE`].
+    V2,
 }
 
 impl GenerationVersion {
     /// Ce que sélectionne un monde sans métadonnée de génération.
     pub const LEGACY: Self = Self::V1;
-    /// Ce que choisit la création d'un nouveau monde (v2 n'existe pas encore).
+    /// Ce que choisit la création d'un nouveau monde. Reste v1 tant que la recette du lot 9 n'a
+    /// pas eu lieu.
     pub const FOR_NEW_WORLDS: Self = Self::V1;
+    /// La variable d'environnement qui crée un monde de **test** en v2 : `VOXEL_GENERATION=2`
+    /// (ou `v2`). Elle n'est lue qu'à la **création** d'un monde ; un monde existant garde la
+    /// version de son `world.ron`, quelle que soit la variable.
+    pub const ENV_OVERRIDE: &'static str = "VOXEL_GENERATION";
+
+    /// La version d'un monde que l'on crée maintenant : [`Self::FOR_NEW_WORLDS`], ou la version
+    /// demandée par [`Self::ENV_OVERRIDE`] (monde de test).
+    pub fn for_new_world() -> Self {
+        Self::for_new_world_with(std::env::var(Self::ENV_OVERRIDE).ok().as_deref())
+    }
+
+    /// Comme [`Self::for_new_world`], avec la valeur de la variable donnée (testable sans toucher à
+    /// l'environnement). Une valeur inconnue est ignorée : la version par défaut des nouveaux
+    /// mondes.
+    pub fn for_new_world_with(requested: Option<&str>) -> Self {
+        match requested.map(|v| v.trim().to_lowercase()).as_deref() {
+            Some("1" | "v1") => Self::V1,
+            Some("2" | "v2") => Self::V2,
+            _ => Self::FOR_NEW_WORLDS,
+        }
+    }
 
     /// Le numéro écrit dans `world.ron`.
     pub fn number(self) -> u32 {
         match self {
             Self::V1 => 1,
+            Self::V2 => 2,
         }
     }
 
@@ -76,6 +105,7 @@ impl GenerationVersion {
     pub fn from_number(number: u32) -> Result<Self> {
         match number {
             1 => Ok(Self::V1),
+            2 => Ok(Self::V2),
             other => bail!(
                 "version de génération {other} inconnue : ce monde vient d'une version plus récente du jeu"
             ),
@@ -87,6 +117,7 @@ impl std::fmt::Display for GenerationVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::V1 => f.write_str("v1 (historique)"),
+            Self::V2 => f.write_str("v2 (relief macro, monde de test)"),
         }
     }
 }
@@ -322,8 +353,34 @@ mod tests {
         );
         assert_eq!(GenerationVersion::V1.number(), 1);
         assert_eq!(GenerationVersion::LEGACY, GenerationVersion::V1);
+        assert_eq!(
+            GenerationVersion::from_number(2).unwrap(),
+            GenerationVersion::V2
+        );
+        assert_eq!(GenerationVersion::V2.number(), 2);
         assert!(GenerationVersion::from_number(0).is_err());
         assert!(GenerationVersion::from_number(99).is_err());
+    }
+
+    #[test]
+    fn new_worlds_stay_v1_unless_a_test_world_is_requested() {
+        assert_eq!(GenerationVersion::FOR_NEW_WORLDS, GenerationVersion::V1);
+        assert_eq!(
+            GenerationVersion::for_new_world_with(None),
+            GenerationVersion::V1
+        );
+        for v2 in ["2", "v2", " V2 "] {
+            assert_eq!(
+                GenerationVersion::for_new_world_with(Some(v2)),
+                GenerationVersion::V2
+            );
+        }
+        for v1 in ["1", "v1", "", "3", "n'importe quoi"] {
+            assert_eq!(
+                GenerationVersion::for_new_world_with(Some(v1)),
+                GenerationVersion::V1
+            );
+        }
     }
 
     #[test]

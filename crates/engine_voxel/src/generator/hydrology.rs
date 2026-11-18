@@ -74,6 +74,8 @@ use super::macro_noise::{gradient_noise, lattice, unit};
 mod regions;
 mod rivers;
 
+pub use rivers::RiverCandidate;
+
 use regions::{NO_PARENT, Region, RegionTree, SeedInfo};
 
 /// Côté d'une cellule fine, en blocs.
@@ -682,12 +684,25 @@ impl Hydrology {
 
     /// Le lac contenant le point (x, z), s'il y en a un (rivage déformé par un bruit lent).
     pub fn lake_at(&self, x: f64, z: f64) -> Option<LakePoint> {
+        self.lake_point_in(&self.lakes_near(fine_cell(x, z)), x, z)
+    }
+
+    /// La distance du point (x, z) au centre d'un lac et son rayon effectif en ce point (le rivage
+    /// est déformé par un bruit lent) : le point est dans le lac quand la première est inférieure à
+    /// la seconde.
+    pub fn lake_geometry(&self, lake: &Lake, x: f64, z: f64) -> (f64, f64) {
+        let (dx, dz) = (x - lake.center[0], z - lake.center[1]);
+        let shape = 1.0 + 0.22 * gradient_noise(self.seed, SALT_LAKE_SHAPE, x / 55.0, z / 55.0);
+        (dx.hypot(dz), lake.radius * shape)
+    }
+
+    /// Comme [`Self::lake_at`], avec des lacs déjà trouvés (ceux de [`Self::lakes_near`] pour la
+    /// cellule du point : le générateur de blocs les lit une fois pour un millier de colonnes).
+    pub fn lake_point_in(&self, lakes: &[Lake], x: f64, z: f64) -> Option<LakePoint> {
         let mut best: Option<LakePoint> = None;
-        for lake in self.lakes_near(fine_cell(x, z)) {
-            let (dx, dz) = (x - lake.center[0], z - lake.center[1]);
-            let shape = 1.0 + 0.22 * gradient_noise(self.seed, SALT_LAKE_SHAPE, x / 55.0, z / 55.0);
-            let radius = lake.radius * shape;
-            let fraction = 1.0 - dx.hypot(dz) / radius;
+        for lake in lakes {
+            let (distance, radius) = self.lake_geometry(lake, x, z);
+            let fraction = 1.0 - distance / radius;
             if fraction > 0.0 && best.is_none_or(|b| fraction as f32 > b.depth_fraction) {
                 best = Some(LakePoint {
                     level: lake.level,

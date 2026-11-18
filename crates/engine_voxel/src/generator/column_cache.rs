@@ -95,38 +95,59 @@ pub(super) fn cave_ceiling(column: &Column) -> i32 {
 }
 
 /// Une colonne en cours de calcul ou calculée.
-type Slot = Arc<OnceLock<Arc<ColumnGrid>>>;
+type Slot<T> = Arc<OnceLock<Arc<T>>>;
 
-#[derive(Debug, Default)]
-struct Table {
-    slots: FxHashMap<ColumnKey, Slot>,
+#[derive(Debug)]
+struct Table<T> {
+    slots: FxHashMap<ColumnKey, Slot<T>>,
     /// L'ordre d'insertion, pour évincer la plus ancienne.
     order: VecDeque<ColumnKey>,
 }
 
-/// Le cache. Partagé entre les clones d'un générateur et entre les workers.
-#[derive(Debug, Default)]
-pub(super) struct ColumnCache {
-    table: Mutex<Table>,
+impl<T> Default for Table<T> {
+    fn default() -> Self {
+        Self {
+            slots: FxHashMap::default(),
+            order: VecDeque::new(),
+        }
+    }
 }
 
-impl ColumnCache {
+/// Le cache. Partagé entre les clones d'un générateur et entre les workers. Générique : la
+/// génération v2 s'en sert aussi (contextes de colonne, avec sa propre borne).
+#[derive(Debug)]
+pub(super) struct ColumnCache<T = ColumnGrid> {
+    table: Mutex<Table<T>>,
+    limit: usize,
+}
+
+impl<T> Default for ColumnCache<T> {
+    fn default() -> Self {
+        Self::with_limit(COLUMN_CACHE_LIMIT)
+    }
+}
+
+impl<T> ColumnCache<T> {
+    /// Un cache qui garde au plus `limit` entrées.
+    pub fn with_limit(limit: usize) -> Self {
+        Self {
+            table: Mutex::new(Table::default()),
+            limit,
+        }
+    }
+
     /// La colonne `key`, calculée par `compute` si elle manque. Le verrou de la table n'est tenu
     /// ni pendant `compute` ni pendant l'attente d'un autre worker.
-    pub fn get_or_compute(
-        &self,
-        key: ColumnKey,
-        compute: impl FnOnce() -> ColumnGrid,
-    ) -> Arc<ColumnGrid> {
+    pub fn get_or_compute(&self, key: ColumnKey, compute: impl FnOnce() -> T) -> Arc<T> {
         let slot = {
             let mut table = self.table.lock().unwrap_or_else(|e| e.into_inner());
             let Table { slots, order } = &mut *table;
             match slots.entry(key) {
                 Entry::Occupied(entry) => entry.get().clone(),
                 Entry::Vacant(entry) => {
-                    let slot = entry.insert(Slot::default()).clone();
+                    let slot = entry.insert(Slot::<T>::default()).clone();
                     order.push_back(key);
-                    if order.len() > COLUMN_CACHE_LIMIT
+                    if order.len() > self.limit
                         && let Some(oldest) = order.pop_front()
                     {
                         slots.remove(&oldest);

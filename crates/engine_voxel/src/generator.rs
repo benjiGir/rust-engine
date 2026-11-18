@@ -201,8 +201,10 @@ impl TerrainBlocks {
 #[derive(Debug, Clone)]
 pub struct TerrainGenerator {
     seed: u32,
-    /// Comment le terrain est calculé (voir `generation.rs`). Une seule version existe encore.
+    /// Comment le terrain est calculé (voir `generation.rs`).
     version: GenerationVersion,
+    /// L'état de la génération v2 (relief macro, densité 3D) ; `None` en v1. Voir `v2.rs`.
+    v2: Option<Arc<v2::V2State>>,
     continentalness: Fbm<Perlin>,
     erosion: Fbm<Perlin>,
     temperature: Fbm<Perlin>,
@@ -310,6 +312,10 @@ impl TerrainGenerator {
         self.tree_cache = Arc::default();
         self.column_cache = Arc::default();
         self.dimension_tag = self.compute_dimension_tag();
+        // Les contextes de la génération v2 dépendent aussi des biomes : on en repart à neuf.
+        if self.v2.is_some() {
+            self.v2 = self.with_version_state().ok();
+        }
     }
 
     /// L'empreinte du genre de monde et des biomes de terre permis, pour les clés de cache.
@@ -454,7 +460,8 @@ impl TerrainGenerator {
         let world = crate::dimension::WorldKind::Terrain { biomes: Vec::new() };
         let mut generator = Self {
             seed,
-            version: GenerationVersion::FOR_NEW_WORLDS,
+            version: GenerationVersion::V1,
+            v2: None,
             structures,
             structure_blocks,
             continentalness: fbm(0, 4, 1.0 / 1600.0),
@@ -578,6 +585,9 @@ impl TerrainGenerator {
         if let Some(column) = self.constant_column(x, z) {
             return column;
         }
+        if self.v2.is_some() {
+            return self.column_v2(x, z);
+        }
         let fields = self.fields_at(x, z, |gx, gz| self.fields(gx, gz));
         self.interpret(fields)
     }
@@ -588,6 +598,9 @@ impl TerrainGenerator {
     pub fn sample(&self, x: i32, z: i32) -> (Column, Climate) {
         if let Some(column) = self.constant_column(x, z) {
             return (column, Climate::default());
+        }
+        if self.v2.is_some() {
+            return (self.column_v2(x, z), Climate::default());
         }
         let f = self.fields_at(x, z, |gx, gz| self.fields(gx, gz));
         let climate = Climate {
@@ -607,6 +620,9 @@ impl TerrainGenerator {
     pub fn column_at_grid_point(&self, gx: i32, gz: i32) -> Column {
         if let Some(column) = self.constant_column(gx * STEP, gz * STEP) {
             return column;
+        }
+        if self.v2.is_some() {
+            return self.column_v2(gx * STEP, gz * STEP);
         }
         self.interpret(self.fields(gx, gz))
     }
@@ -736,6 +752,9 @@ impl TerrainGenerator {
         if !matches!(self.world, crate::dimension::WorldKind::Terrain { .. }) {
             return (0, 0);
         }
+        if self.v2.is_some() {
+            return self.find_spawn_v2();
+        }
         let ok = |c: Column| {
             self.biome(c.biome).kind == BiomeKind::Land
                 && c.height > SEA_LEVEL + 1
@@ -847,6 +866,9 @@ impl TerrainGenerator {
     /// 9 × 9 points du chunk, puis interpolées pour chaque colonne. Elles viennent du cache des
     /// colonnes (voir [`Self::column_grid`]) : les six chunks d'une verticale les partagent.
     pub fn columns(&self, chunk_pos: IVec3) -> Box<[[Column; CHUNK_SIZE]; CHUNK_SIZE]> {
+        if self.v2.is_some() && matches!(self.world, crate::dimension::WorldKind::Terrain { .. }) {
+            return self.v2_context(chunk_pos.x, chunk_pos.z).columns.clone();
+        }
         Box::new(self.column_grid(chunk_pos.x, chunk_pos.z).columns)
     }
 
@@ -910,6 +932,9 @@ impl TerrainGenerator {
 
     /// Les biomes des colonnes d'un chunk (x + 32 z), comme [`Chunk::set_biomes`] les attend.
     pub fn biome_columns(&self, chunk_pos: IVec3) -> Vec<u8> {
+        if self.v2.is_some() && matches!(self.world, crate::dimension::WorldKind::Terrain { .. }) {
+            return self.v2_context(chunk_pos.x, chunk_pos.z).biomes.clone();
+        }
         self.column_grid(chunk_pos.x, chunk_pos.z).biomes.clone()
     }
 
@@ -918,6 +943,9 @@ impl TerrainGenerator {
     pub fn generate(&self, chunk_pos: IVec3) -> Option<Chunk> {
         if let Some(constant) = self.generate_constant(chunk_pos) {
             return constant;
+        }
+        if self.v2.is_some() {
+            return self.generate_v2(chunk_pos);
         }
         if !(0..WORLD_HEIGHT_CHUNKS).contains(&chunk_pos.y) {
             return None;
@@ -1298,13 +1326,18 @@ fn spline(x: f64, points: &[(f64, f64)]) -> f64 {
 
 mod column_cache;
 mod context;
+mod density;
 mod features;
 mod geography;
 mod hydrology;
 mod macro_noise;
 mod structures;
+mod surface;
 #[cfg(test)]
 mod tests;
+mod underground;
+mod v2;
+mod v2_context;
 
 use column_cache::{ColumnCache, ColumnGrid, ColumnKey};
 pub use context::{MacroSample, MacroWorld, VALLEY_REACH};
@@ -1323,3 +1356,4 @@ pub use structures::{
     Blueprint, ChestLoot, ChestLootEntry, PENDING_LOOT, Spot, StructureDef, StructureKind,
     StructureSet, StructureSite, pending_loot,
 };
+pub use v2::SurfaceInfo;
