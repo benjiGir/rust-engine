@@ -8,12 +8,33 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/engine_inspect/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine_inspect/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine_inspect_derive/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine_mods/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine_mods/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine_render/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine_trace/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine_voxel/benches" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine_voxel/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine_voxel/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mod_sdk/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/exercises/game_of_life/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/games/voxel/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/games/voxel/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mods/donjons/script/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mods/donjons/script/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/mods/entrepot/script/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mods/entrepot/script/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/mods/example/script/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mods/example/script/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/mods/forge/script/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mods/forge/script/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/mods/magie/script/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mods/magie/script/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/mods/mecanique/script/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mods/mecanique/script/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/tools/assetgen/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tools/xtask/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/games/voxel/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine_voxel/examples" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
