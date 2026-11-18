@@ -23,6 +23,8 @@ rustc-hash = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+# Les exemples (`examples/worldmap.rs`) écrivent des cartes en PNG.
+png = { workspace = true }
 
 # `harness = false` : criterion fournit sa propre fonction `main` à la place
 # du lanceur de tests intégré à Rust.

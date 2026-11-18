@@ -17,15 +17,26 @@ use crate::player::MoveMode;
 
 pub const AUTOSAVE_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Le dossier d'un monde : `saves/<nom>` à côté de `assets`. Le nom vient de
-/// `VOXEL_WORLD` (« world » par défaut).
+/// La racine des sauvegardes : `saves/` à côté de `assets`, ou le dossier de `VOXEL_SAVES`
+/// (chemin absolu, ou relatif au dossier de lancement). Les mondes du menu, de `VOXEL_WORLD` et
+/// du décor du menu principal vivent tous dedans : pointer `VOXEL_SAVES` vers un dossier
+/// temporaire isole entièrement une séance de test des vraies sauvegardes.
+pub fn saves_root(project_root: &Path) -> PathBuf {
+    saves_root_from(std::env::var_os("VOXEL_SAVES"), project_root)
+}
+
+fn saves_root_from(variable: Option<std::ffi::OsString>, project_root: &Path) -> PathBuf {
+    match variable {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => project_root.join("saves"),
+    }
+}
+
+/// Le dossier d'un monde : `<racine des sauvegardes>/<nom>`. Le nom vient de `VOXEL_WORLD`
+/// (« world » par défaut), la racine de [`saves_root`].
 pub fn world_dir(assets: &Path) -> PathBuf {
     let name = std::env::var("VOXEL_WORLD").unwrap_or_else(|_| "world".into());
-    assets
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join("saves")
-        .join(name)
+    saves_root(assets.parent().unwrap_or(Path::new("."))).join(name)
 }
 
 /// Ouvre le monde et lit `world.ron` s'il existe.
@@ -105,6 +116,7 @@ impl VoxelGame {
                 .unwrap_or_else(|| self.dims.current.key.clone()),
             arriving: self.dims.leaving.is_some(),
             adventure: self.adventure.progress.to_save(),
+            generation: Some(self.dims.generation.clone()),
         }
     }
 
@@ -219,10 +231,25 @@ mod tests {
 
     #[test]
     fn world_dir_is_next_to_assets() {
-        // Sans `VOXEL_WORLD` dans l'environnement du test, le nom par défaut.
-        if std::env::var("VOXEL_WORLD").is_err() {
+        // Sans `VOXEL_WORLD` ni `VOXEL_SAVES` dans l'environnement du test, les valeurs par défaut.
+        if std::env::var("VOXEL_WORLD").is_err() && std::env::var("VOXEL_SAVES").is_err() {
             let dir = world_dir(Path::new("/jeu/assets"));
             assert_eq!(dir, PathBuf::from("/jeu/saves/world"));
         }
+    }
+
+    #[test]
+    fn saves_root_follows_voxel_saves_only_when_it_is_set() {
+        let project = Path::new("/jeu");
+        assert_eq!(saves_root_from(None, project), PathBuf::from("/jeu/saves"));
+        assert_eq!(
+            saves_root_from(Some("".into()), project),
+            PathBuf::from("/jeu/saves"),
+            "une variable vide ne déplace rien"
+        );
+        assert_eq!(
+            saves_root_from(Some("/tmp/essai".into()), project),
+            PathBuf::from("/tmp/essai")
+        );
     }
 }

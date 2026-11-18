@@ -1212,6 +1212,7 @@ dependencies = [
  "log",
  "lz4_flex",
  "noise",
+ "png",
  "postcard",
  "rayon",
  "ron",

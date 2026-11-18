@@ -26,6 +26,10 @@
 //! - `VOXEL_DAY_LENGTH=120` : la durée d'une journée en secondes (600 par défaut).
 //! - `VOXEL_WORLD=nom` : le monde à ouvrir dans `saves/` (« world » par défaut). Il est
 //!   sauvegardé toutes les 30 secondes et à la fermeture.
+//! - `VOXEL_PIPELINE=1` : journalise toutes les 2 secondes les délais des chunks (génération,
+//!   lumière, maillage, envoi au GPU : médiane, 95e centile et maximum).
+//! - `VOXEL_SAVES=dossier` : la racine des sauvegardes à la place de `saves/` (isoler une séance
+//!   de test des vraies sauvegardes). Ne déplace pas `settings.ron` ni `mod_settings.ron`.
 //! - `VOXEL_MUTE=1` : couper le son. `VOXEL_VOLUME_EFFECTS=0.8`, `VOXEL_VOLUME_AMBIENCE=0.35` :
 //!   volumes des effets et de l'ambiance, de 0 à 1.
 //! - `VOXEL_QUIT_AFTER=20` : quitter proprement après 20 secondes (pour les tests).
@@ -446,6 +450,8 @@ impl VoxelGame {
         );
         let generator = modding::terrain(seed, &registry, &mod_dirs, &dims.current)?;
         let mut streamer = ChunkStreamer::new(generator, config);
+        // `VOXEL_PIPELINE=1` : les délais demande → génération → lumière → maillage → envoi.
+        streamer.set_pipeline_timing(std::env::var("VOXEL_PIPELINE").is_ok_and(|v| v == "1"));
         let far = (far_chunks > 0).then(|| {
             let far = far_terrain::FarTerrain::new(&streamer, near_radius, far_chunks);
             log::info!("terrain lointain : jusqu'à {far_chunks} chunks");
@@ -1354,7 +1360,7 @@ impl Game for App {
             if ready {
                 let request = match step {
                     0 => Request::Play(Launch {
-                        world: Some(project_root().join("saves").join("menu-demo")),
+                        world: Some(persistence::saves_root(&project_root()).join("menu-demo")),
                         seed: Some(7),
                         title: false,
                         difficulty: None,
@@ -2045,6 +2051,7 @@ impl VoxelGame {
                 StreamEvent::Mesh(pos, mesh) => {
                     uploads += 1;
                     self.culling.graph.set(pos, mesh.visibility);
+                    self.streamer_mut().note_uploaded(pos);
                     // `insert` et `remove` rendent l'ancienne valeur : on libère l'ancien maillage.
                     let old = match upload(&mut self.renderer, &mesh) {
                         Some(id) => self.meshes.insert(pos, id),
@@ -2115,6 +2122,9 @@ impl VoxelGame {
                 render.meshes_total,
                 render.meshes_hidden,
             );
+            if let Some(pipeline) = self.streamer().pipeline_report() {
+                log::info!("délais des chunks : {pipeline}");
+            }
             let fluids = self.fluid_report;
             log::info!(
                 "fluides : {} cellules calculées, {} actives, {} modifiées, {:.2} ms",

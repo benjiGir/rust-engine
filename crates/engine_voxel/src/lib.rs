@@ -28,6 +28,7 @@ mod far;
 mod farming;
 mod fluid_sim;
 mod fluids;
+mod generation;
 mod generator;
 mod grid;
 mod items;
@@ -39,6 +40,7 @@ pub use network_visual::{TransitContent, VisualTransfer};
 mod networks;
 mod pathfind;
 mod physics;
+mod pipeline_timing;
 mod plants;
 mod rail_motion;
 mod rail_save;
@@ -55,6 +57,7 @@ mod tech;
 mod trees;
 mod visibility;
 mod world;
+mod worldmap;
 
 pub use biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry, OreDef, PlantDef, Relief};
 pub use block::BlockId;
@@ -86,8 +89,11 @@ pub use farming::{
 };
 pub use fluid_sim::{FULL as FLUID_FULL, FluidKind, FluidReport, FluidSim};
 pub use fluids::{FluidDef, FluidRegistry};
+pub use generation::{
+    DataRecord, DimensionRecord, GenerationIssue, GenerationMeta, GenerationVersion, KindRecord,
+};
 pub use generator::{
-    Blueprint, ChestLoot, ChestLootEntry, Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL,
+    Blueprint, ChestLoot, ChestLootEntry, Climate, Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL,
     PENDING_LOOT, SEA_LEVEL, Spot, StructureDef, StructureKind, StructureSet, StructureSite,
     TerrainGenerator, TreeSite, WORLD_HEIGHT_CHUNKS, pending_loot,
 };
@@ -110,6 +116,7 @@ pub use networks::{
 };
 pub use pathfind::{Path, PathRules, find_path};
 pub use physics::{GRAVITY, PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
+pub use pipeline_timing::{PipelineReport, Stage as PipelineStage, StageReport};
 pub use plants::{Precipitation, precipitation_at};
 pub use rail_motion::{
     DEFAULT_MAX_SPEED, Derail, Drive, MAX_STEP, RailMotion, SPEED_LIMIT, bump, couple,
@@ -147,3 +154,4 @@ pub use subgrid::{
 pub use trees::{Part, Rng64, TreeBlocks, TreeKind, Wood, grow as grow_tree};
 pub use visibility::{FACE_DIRECTIONS, FaceConnections, VisibilityGraph};
 pub use world::World;
+pub use worldmap::{MapArea, MapKind, MapSamples, Raster};

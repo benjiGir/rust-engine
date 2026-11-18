@@ -41,6 +41,7 @@ use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use crate::biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry};
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
+use crate::generation::GenerationVersion;
 use crate::registry::BlockRegistry;
 use crate::trees::TreeBlocks;
 use crate::world::World;
@@ -76,6 +77,24 @@ pub struct Column {
     pub temperature: f32,
     /// La valeur brute de température du climat (de -1 à 1) : gèle aussi les océans froids.
     pub climate_temperature: f32,
+}
+
+/// Les cartes de climat en un point (au bloc), pour les outils d'observation : voir
+/// [`TerrainGenerator::sample`]. Les valeurs sont celles que lit la génération, avant le choix
+/// du biome et de la hauteur.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Climate {
+    /// De l'océan profond (très négatif) à l'intérieur des terres.
+    pub continentalness: f32,
+    /// Faible érosion : montagnes.
+    pub erosion: f32,
+    /// De -1 (glacial) à 1 (brûlant).
+    pub temperature: f32,
+    /// De -1 (aride) à 1 (détrempé).
+    pub humidity: f32,
+    pub variety: f32,
+    /// La carte des rivières : elles coulent là où elle passe par zéro.
+    pub river: f32,
 }
 
 /// Les cartes de bruit en un point, avant interprétation.
@@ -182,6 +201,8 @@ impl TerrainBlocks {
 #[derive(Debug, Clone)]
 pub struct TerrainGenerator {
     seed: u32,
+    /// Comment le terrain est calculé (voir `generation.rs`). Une seule version existe encore.
+    version: GenerationVersion,
     continentalness: Fbm<Perlin>,
     erosion: Fbm<Perlin>,
     temperature: Fbm<Perlin>,
@@ -216,6 +237,10 @@ pub struct TerrainGenerator {
     tree_blocks: Option<TreeBlocks>,
     /// Les arbres déjà tirés, partagés entre les threads (et entre les clones du générateur).
     tree_cache: Arc<features::TreeCache>,
+    /// Les colonnes déjà calculées, partagées de la même façon (voir `column_cache.rs`).
+    column_cache: Arc<ColumnCache>,
+    /// Ce qui distingue la dimension de ce générateur dans les clés du cache des colonnes.
+    dimension_tag: u64,
     /// Villages, ruines, donjons, mines (phase O9) ; `None` si un bloc manque.
     structures: Option<StructureSet>,
     structure_blocks: Option<StructureBlocks>,
@@ -280,8 +305,16 @@ impl TerrainGenerator {
             }
         }
         self.world = kind.clone();
-        // Les arbres dépendent des biomes et des villages : on repart d'un cache vide.
+        // Les arbres et les colonnes dépendent des biomes, du genre de monde et des villages : on
+        // repart de caches vides (et neufs, pour ne rien partager avec un clone qui n'a pas changé).
         self.tree_cache = Arc::default();
+        self.column_cache = Arc::default();
+        self.dimension_tag = self.compute_dimension_tag();
+    }
+
+    /// L'empreinte du genre de monde et des biomes de terre permis, pour les clés de cache.
+    fn compute_dimension_tag(&self) -> u64 {
+        crate::generation::fnv1a(format!("{:?}|{:?}", self.world, self.land).as_bytes())
     }
 
     /// La colonne d'un monde plat ou vide (la même partout, sauf la plateforme du vide).
@@ -364,8 +397,7 @@ impl TerrainGenerator {
         if !any {
             return Some(None);
         }
-        let columns = self.columns(chunk_pos);
-        chunk.set_biomes(biome_ids(&columns));
+        chunk.set_biomes(self.biome_columns(chunk_pos));
         Some(Some(chunk))
     }
 
@@ -420,8 +452,9 @@ impl TerrainGenerator {
         let (structures, structure_blocks) =
             structures::load(&registry, &biomes, structure_sources)?;
         let world = crate::dimension::WorldKind::Terrain { biomes: Vec::new() };
-        Ok(Self {
+        let mut generator = Self {
             seed,
+            version: GenerationVersion::FOR_NEW_WORLDS,
             structures,
             structure_blocks,
             continentalness: fbm(0, 4, 1.0 / 1600.0),
@@ -445,9 +478,13 @@ impl TerrainGenerator {
             plant_blocks: PlantBlocks::resolve(&registry)?,
             tree_blocks: TreeBlocks::resolve(&registry).ok(),
             tree_cache: Arc::default(),
+            column_cache: Arc::default(),
+            dimension_tag: 0,
             world,
             registry,
-        })
+        };
+        generator.dimension_tag = generator.compute_dimension_tag();
+        Ok(generator)
     }
 
     pub fn registry(&self) -> &Arc<BlockRegistry> {
@@ -464,6 +501,11 @@ impl TerrainGenerator {
 
     pub fn seed(&self) -> u32 {
         self.seed
+    }
+
+    /// La version de génération de ce générateur.
+    pub fn version(&self) -> GenerationVersion {
+        self.version
     }
 
     /// Les cartes de bruit au point de grille (gx, gz), soit au bloc (4 gx, 4 gz).
@@ -538,6 +580,25 @@ impl TerrainGenerator {
         }
         let fields = self.fields_at(x, z, |gx, gz| self.fields(gx, gz));
         self.interpret(fields)
+    }
+
+    /// La colonne et le climat au bloc (x, z), pour les outils d'observation (cartes exportées
+    /// par `cargo xtask map`). La colonne est exactement celle de [`Self::column`] ; le climat
+    /// est nul dans un monde plat ou vide.
+    pub fn sample(&self, x: i32, z: i32) -> (Column, Climate) {
+        if let Some(column) = self.constant_column(x, z) {
+            return (column, Climate::default());
+        }
+        let f = self.fields_at(x, z, |gx, gz| self.fields(gx, gz));
+        let climate = Climate {
+            continentalness: f.continentalness as f32,
+            erosion: f.erosion as f32,
+            temperature: f.temperature as f32,
+            humidity: f.humidity as f32,
+            variety: f.variety as f32,
+            river: f.river as f32,
+        };
+        (self.interpret(f), climate)
     }
 
     /// La colonne au point de grille (gx, gz), soit au bloc (4 gx, 4 gz) : les cartes y sont
@@ -783,8 +844,32 @@ impl TerrainGenerator {
     }
 
     /// Les 32 × 32 colonnes d'un chunk, `[x][z]` : les cartes de bruit sur la grille de
-    /// 9 × 9 points du chunk, puis interpolées pour chaque colonne.
+    /// 9 × 9 points du chunk, puis interpolées pour chaque colonne. Elles viennent du cache des
+    /// colonnes (voir [`Self::column_grid`]) : les six chunks d'une verticale les partagent.
     pub fn columns(&self, chunk_pos: IVec3) -> Box<[[Column; CHUNK_SIZE]; CHUNK_SIZE]> {
+        Box::new(self.column_grid(chunk_pos.x, chunk_pos.z).columns)
+    }
+
+    /// Les colonnes de la colonne de chunks (cx, cz), depuis le cache si possible. Un monde plat ou
+    /// vide n'a pas besoin du cache (ses colonnes sont constantes) : il les recalcule.
+    fn column_grid(&self, cx: i32, cz: i32) -> Arc<ColumnGrid> {
+        let chunk_pos = IVec3::new(cx, 0, cz);
+        if !matches!(self.world, crate::dimension::WorldKind::Terrain { .. }) {
+            return Arc::new(ColumnGrid::new(*self.compute_columns(chunk_pos)));
+        }
+        let key = ColumnKey {
+            seed: self.seed,
+            dimension: self.dimension_tag,
+            version: self.version,
+            cx,
+            cz,
+        };
+        self.column_cache
+            .get_or_compute(key, || ColumnGrid::new(*self.compute_columns(chunk_pos)))
+    }
+
+    /// Le calcul des colonnes d'un chunk, sans cache.
+    fn compute_columns(&self, chunk_pos: IVec3) -> Box<[[Column; CHUNK_SIZE]; CHUNK_SIZE]> {
         let origin = World::chunk_origin(chunk_pos);
         if !matches!(self.world, crate::dimension::WorldKind::Terrain { .. }) {
             let mut columns = Box::new([[Column::default(); CHUNK_SIZE]; CHUNK_SIZE]);
@@ -815,9 +900,17 @@ impl TerrainGenerator {
         columns
     }
 
+    /// Le nombre maximal de colonnes gardées dans le cache des colonnes.
+    pub const COLUMN_CACHE_LIMIT: usize = column_cache::COLUMN_CACHE_LIMIT;
+
+    /// Le nombre de colonnes gardées dans le cache (pour les mesures et les tests).
+    pub fn cached_columns(&self) -> usize {
+        self.column_cache.len()
+    }
+
     /// Les biomes des colonnes d'un chunk (x + 32 z), comme [`Chunk::set_biomes`] les attend.
     pub fn biome_columns(&self, chunk_pos: IVec3) -> Vec<u8> {
-        biome_ids(&self.columns(chunk_pos))
+        self.column_grid(chunk_pos.x, chunk_pos.z).biomes.clone()
     }
 
     /// Génère un chunk. Renvoie `None` s'il ne contient que de l'air
@@ -832,14 +925,10 @@ impl TerrainGenerator {
         let origin = World::chunk_origin(chunk_pos);
         let size = CHUNK_SIZE as i32;
 
-        let columns = self.columns(chunk_pos);
-        let highest = columns
-            .iter()
-            .flatten()
-            .map(|c| c.height)
-            .max()
-            .unwrap_or(0)
-            .max(SEA_LEVEL);
+        // Les colonnes viennent du cache : les six chunks de la verticale les partagent.
+        let grid = self.column_grid(chunk_pos.x, chunk_pos.z);
+        let columns = &grid.columns;
+        let highest = grid.max_height.max(SEA_LEVEL);
         // Les structures qui touchent ce chunk : un toit peut dépasser du terrain.
         let plans = self.structure_plans(chunk_pos);
         let highest = if plans.is_empty() {
@@ -851,19 +940,16 @@ impl TerrainGenerator {
             return None; // Tout le chunk est au-dessus du sol et de la mer.
         }
 
-        let caves = CaveGrid::new(self, origin);
+        // Les bruits de grottes ne servent qu'aux blocs sous le plafond des grottes : un chunk
+        // entièrement au-dessus (le haut des reliefs, le ciel) ne les calcule pas.
+        let caves = (origin.y <= grid.max_cave_ceiling).then(|| CaveGrid::new(self, origin));
         let mut chunk = Chunk::new();
-        chunk.set_biomes(biome_ids(&columns));
+        chunk.set_biomes(grid.biomes.clone());
         for (lx, row) in columns.iter().enumerate() {
             for (lz, &column) in row.iter().enumerate() {
                 let (x, z) = (origin.x + lx as i32, origin.z + lz as i32);
-                // Pas de grotte juste sous l'eau : elle viderait la mer (qui ne coule pas
-                // encore) ; ni juste sous la surface, pour ne pas trouer le sol partout.
-                let cave_ceiling = if column.height < SEA_LEVEL + 2 {
-                    column.height - 9
-                } else {
-                    column.height - 4
-                };
+                // Pas de grotte juste sous l'eau, ni juste sous la surface (voir `cave_ceiling`).
+                let cave_ceiling = column_cache::cave_ceiling(&column);
                 let frozen = column.temperature < FREEZING || column.climate_temperature < -0.55;
                 for ly in 0..size {
                     let y = origin.y + ly;
@@ -879,7 +965,9 @@ impl TerrainGenerator {
                         }
                     } else if y > 0
                         && y <= cave_ceiling
-                        && let Some(fill) = caves.carve(self, lx, ly as usize, lz, y, column)
+                        && let Some(fill) = caves
+                            .as_ref()
+                            .and_then(|caves| caves.carve(self, lx, ly as usize, lz, y, column))
                     {
                         match fill {
                             CaveFill::Air => continue,
@@ -893,8 +981,8 @@ impl TerrainGenerator {
                 }
             }
         }
-        self.place_ores(&mut chunk, chunk_pos, &columns);
-        self.place_plants(&mut chunk, chunk_pos, &columns);
+        self.place_ores(&mut chunk, chunk_pos, columns);
+        self.place_plants(&mut chunk, chunk_pos, columns);
         self.place_trees(&mut chunk, chunk_pos);
         self.place_structures(&mut chunk, chunk_pos, &plans);
         // Les grottes ont pu tout vider.
@@ -985,16 +1073,6 @@ fn climate_distance(b: &BiomeDef, temperature: f64, humidity: f64, variety: f64)
         + 0.6 * (variety - b.variety).powi(2)
 }
 
-fn biome_ids(columns: &[[Column; CHUNK_SIZE]; CHUNK_SIZE]) -> Vec<u8> {
-    let mut ids = vec![0; CHUNK_SIZE * CHUNK_SIZE];
-    for (x, row) in columns.iter().enumerate() {
-        for (z, column) in row.iter().enumerate() {
-            ids[x + z * CHUNK_SIZE] = column.biome.0;
-        }
-    }
-    ids
-}
-
 /// Ce qui remplit une grotte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CaveFill {
@@ -1005,23 +1083,53 @@ enum CaveFill {
     Lava,
 }
 
+/// Les valeurs des quatre bruits 3D des grottes aux points de grille d'un chunk.
+struct CaveBuffers {
+    tunnel_a: [f32; GRID * GRID * GRID],
+    tunnel_b: [f32; GRID * GRID * GRID],
+    cheese: [f32; GRID * GRID * GRID],
+    aquifer: [f32; GRID * GRID * GRID],
+}
+
+thread_local! {
+    /// Les tampons de travail de ce thread. Un worker génère des centaines de chunks : il
+    /// réemploie les mêmes (environ 12 Kio) au lieu d'en allouer quatre par chunk. Chaque thread a
+    /// les siens, sans verrou ; ils ne gardent aucune valeur d'un chunk à l'autre (chaque case est
+    /// réécrite avant d'être lue).
+    static CAVE_BUFFERS: std::cell::RefCell<Option<Box<CaveBuffers>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// Les bruits 3D des grottes, évalués tous les 4 blocs puis interpolés.
 struct CaveGrid {
-    tunnel_a: Vec<f32>,
-    tunnel_b: Vec<f32>,
-    cheese: Vec<f32>,
-    aquifer: Vec<f32>,
+    /// Rendus au thread quand la grille est détruite.
+    buffers: Option<Box<CaveBuffers>>,
+}
+
+impl Drop for CaveGrid {
+    fn drop(&mut self) {
+        if let Some(buffers) = self.buffers.take() {
+            // `try_with` : le thread peut déjà être en train de se terminer.
+            let _ = CAVE_BUFFERS.try_with(|slot| *slot.borrow_mut() = Some(buffers));
+        }
+    }
 }
 
 impl CaveGrid {
     fn new(generator: &TerrainGenerator, origin: IVec3) -> Self {
-        let n = GRID * GRID * GRID;
-        let mut grid = Self {
-            tunnel_a: Vec::with_capacity(n),
-            tunnel_b: Vec::with_capacity(n),
-            cheese: Vec::with_capacity(n),
-            aquifer: Vec::with_capacity(n),
-        };
+        let mut buffers = CAVE_BUFFERS
+            .try_with(|slot| slot.borrow_mut().take())
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| {
+                Box::new(CaveBuffers {
+                    tunnel_a: [0.0; GRID * GRID * GRID],
+                    tunnel_b: [0.0; GRID * GRID * GRID],
+                    cheese: [0.0; GRID * GRID * GRID],
+                    aquifer: [0.0; GRID * GRID * GRID],
+                })
+            });
+        let mut n = 0;
         for i in 0..GRID {
             for j in 0..GRID {
                 for k in 0..GRID {
@@ -1029,16 +1137,24 @@ impl CaveGrid {
                     let (x, y, z) = (p.x as f64, p.y as f64, p.z as f64);
                     // On étire les tunnels horizontalement : des galeries plutôt horizontales.
                     let tunnel = [x / 48.0, y / 28.0, z / 48.0];
-                    grid.tunnel_a.push(generator.cave_a.get(tunnel) as f32);
-                    grid.tunnel_b.push(generator.cave_b.get(tunnel) as f32);
-                    grid.cheese
-                        .push(generator.cheese.get([x / 90.0, y / 45.0, z / 90.0]) as f32);
-                    grid.aquifer
-                        .push(generator.aquifer.get([x / 96.0, y / 40.0, z / 96.0]) as f32);
+                    buffers.tunnel_a[n] = generator.cave_a.get(tunnel) as f32;
+                    buffers.tunnel_b[n] = generator.cave_b.get(tunnel) as f32;
+                    buffers.cheese[n] = generator.cheese.get([x / 90.0, y / 45.0, z / 90.0]) as f32;
+                    buffers.aquifer[n] =
+                        generator.aquifer.get([x / 96.0, y / 40.0, z / 96.0]) as f32;
+                    n += 1;
                 }
             }
         }
-        grid
+        Self {
+            buffers: Some(buffers),
+        }
+    }
+
+    fn buffers(&self) -> &CaveBuffers {
+        self.buffers
+            .as_ref()
+            .expect("tampons présents jusqu'au Drop")
     }
 
     /// Interpolation trilinéaire d'un des bruits au bloc local (lx, ly, lz).
@@ -1073,19 +1189,21 @@ impl CaveGrid {
     ) -> Option<CaveFill> {
         // Tunnels « spaghetti » : chaque bruit vaut zéro sur une surface tordue ;
         // là où deux de ces surfaces se croisent, on obtient un tunnel.
-        let a = Self::sample(&self.tunnel_a, lx, ly, lz);
-        let b = Self::sample(&self.tunnel_b, lx, ly, lz);
+        let buffers = self.buffers();
+        let a = Self::sample(&buffers.tunnel_a, lx, ly, lz);
+        let b = Self::sample(&buffers.tunnel_b, lx, ly, lz);
         let tunnel = a * a + b * b < 0.006;
         // Cavernes « fromage » : de grands vides là où le bruit est haut. Plus rares
         // près de la surface, pour que le sol ne s'effondre pas.
         let near_surface = (y - (column.height - 24)).max(0) as f32;
-        let cheese = !tunnel && Self::sample(&self.cheese, lx, ly, lz) > 0.42 + near_surface * 0.02;
+        let cheese =
+            !tunnel && Self::sample(&buffers.cheese, lx, ly, lz) > 0.42 + near_surface * 0.02;
         if !tunnel && !cheese {
             return None;
         }
         Some(if y <= LAVA_LEVEL {
             CaveFill::Lava
-        } else if y < SEA_LEVEL - 12 && Self::sample(&self.aquifer, lx, ly, lz) > 0.35 {
+        } else if y < SEA_LEVEL - 12 && Self::sample(&buffers.aquifer, lx, ly, lz) > 0.35 {
             CaveFill::Water
         } else {
             CaveFill::Air
@@ -1178,11 +1296,13 @@ fn spline(x: f64, points: &[(f64, f64)]) -> f64 {
     points[points.len() - 1].1
 }
 
+mod column_cache;
 mod features;
 mod structures;
 #[cfg(test)]
 mod tests;
 
+use column_cache::{ColumnCache, ColumnGrid, ColumnKey};
 use features::PlantBlocks;
 pub use features::TreeSite;
 use structures::StructureBlocks;

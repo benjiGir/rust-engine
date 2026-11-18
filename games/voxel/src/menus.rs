@@ -57,7 +57,7 @@ pub struct SavedWorld {
 
 /// Les mondes du dossier `saves/`, du plus récent au plus ancien.
 pub fn saved_worlds() -> Vec<SavedWorld> {
-    let dir = project_root().join("saves");
+    let dir = crate::persistence::saves_root(&project_root());
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
@@ -318,7 +318,7 @@ impl VoxelGame {
                 };
                 if create {
                     let folder = sanitize(&name);
-                    let dir = project_root().join("saves").join(&folder);
+                    let dir = crate::persistence::saves_root(&project_root()).join(&folder);
                     if folder.is_empty() {
                         page = TitlePage::NewWorld {
                             name,

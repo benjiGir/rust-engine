@@ -11,6 +11,9 @@
 //! - `check-arch` : vérifie les règles d'architecture (voir `check_arch.rs`).
 //! - `ctl <commande>...` : pilote le jeu lancé avec `VOXEL_CONTROL` (voir `ctl.rs`).
 //! - `bench [--runs N] [--compare ancien.csv]` : le benchmark reproductible (voir `bench.rs`).
+//! - `map [options]` : exporte sans fenêtre des cartes PNG d'une graine (altitude, pente, humidité,
+//!   température, continentalité, biomes) ; les options sont décrites dans
+//!   `crates/engine_voxel/examples/worldmap.rs`.
 //! - `hooks [--check]` : génère l'interface des mods depuis son catalogue (voir `hooks.rs`).
 
 mod bench;
@@ -42,13 +45,38 @@ fn main() -> Result<()> {
         "docs" => docs::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         "hooks" => hooks::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         "bench" => bench::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
+        "map" => map(&std::env::args().skip(2).collect::<Vec<_>>()),
         _ => {
             eprintln!(
-                "usage : cargo xtask build-mods | new-mod <id> | test-mod <id> | docs | check-arch | ctl <commande>... | bench | hooks"
+                "usage : cargo xtask build-mods | new-mod <id> | test-mod <id> | docs | check-arch | ctl <commande>... | bench | hooks | map"
             );
             bail!("tâche inconnue : « {task} »")
         }
     }
+}
+
+/// `cargo xtask map [options]` : lance l'exemple `worldmap` du moteur en release (le calcul du
+/// terrain en debug serait lent) et lui passe les options telles quelles.
+fn map(args: &[String]) -> Result<()> {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let status = Command::new(cargo)
+        .current_dir(root())
+        .args([
+            "run",
+            "--release",
+            "--quiet",
+            "--package",
+            "engine_voxel",
+            "--example",
+            "worldmap",
+            "--",
+        ])
+        .args(args)
+        .status()?;
+    if !status.success() {
+        bail!("l'export des cartes a échoué");
+    }
+    Ok(())
 }
 
 fn root() -> PathBuf {

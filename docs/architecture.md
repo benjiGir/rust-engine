@@ -302,6 +302,27 @@ Plan et choix : `docs/plan-stockage.md`.
   des listes de cases, avec les règles de chaque côté), la colonne des emplacements d'amélioration et
   les filtres. `chest_preview.rs` regroupe le contenu pour l'aperçu de la fiche de visée.
 
+### Génération : version, empreintes et cache des colonnes (fait : `generation.rs`, `generator/column_cache.rs`, `worldmap.rs`)
+
+- **Version de génération** (`GenerationVersion`), distincte de la version du format de sauvegarde :
+  `world.ron` écrit `generation` (version, configuration effective par dimension, empreintes des
+  fichiers `biomes.ron`, `ores.ron`, `structures.ron` et `dimensions.ron` du jeu et des mods). Un
+  monde sans ce champ est lu en **v1, la génération historique** ; une version inconnue est refusée.
+  Les écarts de configuration (mod retiré, modifié ou ajouté) sont signalés dans les logs à
+  l'ouverture ; la référence enregistrée n'est pas réécrite.
+- **La génération v1 est figée** par `crates/engine_voxel/tests/generation_reference.rs` : des
+  empreintes de blocs (graines 7, 42 et un corpus fixe, surface, sous-sol, bords, coordonnées
+  négatives) qui ne changent jamais, dans l'ordre séquentiel, inverse, en parallèle, cache vide,
+  plein, vidé ou évincé.
+- **Cache des colonnes** : la hauteur, le biome et les températures d'une colonne (x, z) ne dépendent
+  pas de l'altitude ; les six chunks d'une verticale partagent un instantané immuable (`Arc`),
+  gardé dans un cache borné (1 024 colonnes, environ 17 Mio) à clés explicites (graine, dimension,
+  version, coordonnées). Aucun verrou n'est tenu pendant le calcul, et deux workers qui demandent
+  la même colonne ne la calculent qu'une fois. Les bruits de grottes ne sont calculés que pour les
+  chunks qui ont des blocs sous le plafond des grottes, dans des tampons réemployés par thread.
+- **Observation** : `ChunkStreamer::set_pipeline_timing` (`VOXEL_PIPELINE=1` en jeu) mesure les délais
+  demande → génération → lumière → maillage → envoi ; `cargo xtask map` exporte des cartes PNG.
+
 ### Comment tout s'articule
 
 ```

@@ -42,6 +42,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::block::BlockId;
 use crate::chunk::{BlockEntity, Chunk};
+use crate::generation::{GenerationMeta, GenerationVersion};
 use crate::registry::BlockRegistry;
 
 /// Version du format. À augmenter si la structure des fichiers change.
@@ -132,6 +133,22 @@ pub struct WorldMeta {
     /// Les paliers du monde et ce qui les débloque (absent d'un monde plus ancien).
     #[serde(default)]
     pub adventure: AdventureSave,
+    /// La version de génération et la configuration effective du terrain, par dimension (voir
+    /// `generation.rs`). `None` dans un monde d'avant ce champ : génération historique v1,
+    /// sélectionnée explicitement par [`WorldMeta::generation_version`].
+    #[serde(default)]
+    pub generation: Option<GenerationMeta>,
+}
+
+impl WorldMeta {
+    /// La version de génération de ce monde : celle enregistrée, ou la version historique si le
+    /// champ est absent. Un numéro inconnu (monde d'un jeu plus récent) est une erreur.
+    pub fn generation_version(&self) -> Result<GenerationVersion> {
+        match &self.generation {
+            Some(generation) => generation.generation_version(),
+            None => Ok(GenerationVersion::LEGACY),
+        }
+    }
 }
 
 fn normal_difficulty() -> u8 {
@@ -266,6 +283,8 @@ impl SaveStore {
                 meta.format_version
             );
         }
+        meta.generation_version()
+            .with_context(|| format!("{}", path.display()))?;
         Ok(Some(meta))
     }
 
@@ -642,6 +661,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::generation::{DataRecord, DimensionRecord, KindRecord};
     use crate::registry::test_blocks::{dirt, stone};
 
     /// Un dossier temporaire neuf, propre à ce test.
@@ -1044,9 +1064,63 @@ pub(crate) mod tests {
                 best_rarity: 3,
                 depth: 31,
             },
+            generation: Some(GenerationMeta {
+                version: 1,
+                dimensions: vec![DimensionRecord {
+                    key: "core:overworld".into(),
+                    seed_offset: 0,
+                    kind: KindRecord::Terrain { biomes: Vec::new() },
+                }],
+                data: vec![DataRecord {
+                    namespace: "core".into(),
+                    file: "biomes.ron".into(),
+                    hash: u64::MAX - 3,
+                }],
+            }),
         };
         store.save_meta(&meta).unwrap();
         assert_eq!(store.load_meta().unwrap(), Some(meta));
+    }
+
+    #[test]
+    fn old_world_files_without_generation_are_read_as_v1() {
+        // Un `world.ron` d'avant le champ `generation` : écrit à la main, sans lui.
+        let store = SaveStore::open(temp_dir("old-generation")).unwrap();
+        let old = "(format_version: 4, seed: 3, time_of_day: 0.5, player: None, mods: [\"core\"])";
+        std::fs::write(store.dir().join("world.ron"), old).unwrap();
+        let meta = store.load_meta().unwrap().unwrap();
+        assert_eq!(meta.generation, None);
+        assert_eq!(meta.generation_version().unwrap(), GenerationVersion::V1);
+        assert_eq!(
+            meta.generation_version().unwrap(),
+            GenerationVersion::LEGACY
+        );
+
+        // Un `WorldMeta` d'aujourd'hui sérialisé puis amputé du champ : même résultat.
+        let mut meta = meta;
+        meta.generation = Some(GenerationMeta {
+            version: 1,
+            dimensions: Vec::new(),
+            data: Vec::new(),
+        });
+        let text = ron::ser::to_string_pretty(&meta, ron::ser::PrettyConfig::default()).unwrap();
+        let start = text.find("generation:").expect("le champ est écrit");
+        let stripped = format!("{}\n)", text[..start].trim_end());
+        let back: WorldMeta = ron::from_str(&stripped).unwrap();
+        assert_eq!(back.generation, None);
+        assert_eq!(back.generation_version().unwrap(), GenerationVersion::V1);
+    }
+
+    #[test]
+    fn a_world_from_a_newer_generation_is_refused() {
+        let store = SaveStore::open(temp_dir("future-generation")).unwrap();
+        let future = "(format_version: 4, seed: 3, time_of_day: 0.5, player: None, mods: [], generation: Some((version: 99, dimensions: [], data: [])))";
+        std::fs::write(store.dir().join("world.ron"), future).unwrap();
+        let err = store.load_meta().unwrap_err();
+        assert!(
+            format!("{err:#}").contains("version de génération 99"),
+            "{err:#}"
+        );
     }
 
     #[test]

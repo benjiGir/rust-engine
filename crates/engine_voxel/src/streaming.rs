@@ -61,6 +61,7 @@ use crate::chunk::{BlockEntity, Chunk};
 use crate::generator::{TerrainGenerator, WORLD_HEIGHT_CHUNKS};
 use crate::light::{ColumnLight, LightRegion, apply_column_light, update_light};
 use crate::mesh::{ChunkMesh, Mesher, Neighbourhood};
+use crate::pipeline_timing::{PipelineReport, PipelineTimings};
 use crate::registry::BlockRegistry;
 use crate::save::{ChunkToSave, SaveReport, SaveStore, UnknownBlocks};
 use crate::world::World;
@@ -237,6 +238,9 @@ pub struct ChunkStreamer {
     /// La sauvegarde en cours en tâche de fond : les chunks qu'elle écrit et le canal
     /// par lequel elle rendra son résultat.
     saving: Option<(Vec<IVec3>, Receiver<anyhow::Result<SaveReport>>)>,
+    /// Les délais demande → génération → lumière → maillage → envoi, si le suivi est activé
+    /// (voir `pipeline_timing.rs`).
+    timings: Option<PipelineTimings>,
 }
 
 impl ChunkStreamer {
@@ -282,6 +286,25 @@ impl ChunkStreamer {
             loaded_block_entities: Vec::new(),
             fresh_chunks: Vec::new(),
             saving: None,
+            timings: None,
+        }
+    }
+
+    /// Active ou éteint le suivi des délais du pipeline des chunks ; allumer repart de zéro. Éteint
+    /// (par défaut), il ne coûte qu'un test par étape.
+    pub fn set_pipeline_timing(&mut self, enabled: bool) {
+        self.timings = enabled.then(PipelineTimings::default);
+    }
+
+    /// Le bilan des délais depuis l'activation, ou `None` si le suivi est éteint.
+    pub fn pipeline_report(&self) -> Option<PipelineReport> {
+        self.timings.as_ref().map(PipelineTimings::report)
+    }
+
+    /// Le jeu a envoyé le maillage de ce chunk au GPU : dernière étape du suivi des délais.
+    pub fn note_uploaded(&mut self, chunk: IVec3) {
+        if let Some(timings) = &mut self.timings {
+            timings.uploaded(chunk);
         }
     }
 
@@ -888,6 +911,15 @@ impl ChunkStreamer {
         // `sort_by_key` trie selon la valeur renvoyée : ici la distance au carré
         // (inutile de calculer la racine pour comparer des distances).
         wanted.sort_by_key(|&pos| (pos - centre).length_squared());
+        if let Some(timings) = &mut self.timings {
+            // Une demande garde sa date d'origine ; une demande abandonnée (le joueur s'est
+            // éloigné avant que le chunk soit chargé) est oubliée.
+            let queued: HashSet<IVec3> = wanted.iter().copied().collect();
+            for &pos in &wanted {
+                timings.requested(pos);
+            }
+            timings.retain(|pos| queued.contains(&pos) || self.slots.contains_key(&pos));
+        }
         self.load_queue = wanted.into();
 
         // 3. Ce qui entre dans les rayons de lumière et de vue doit être éclairé ou maillé.
@@ -969,6 +1001,9 @@ impl ChunkStreamer {
                 JobResult::Meshed { pos, ticket, mesh } => {
                     if self.slots.get(&pos) == Some(&Slot::Generated(MeshState::Meshing(ticket))) {
                         self.slots.insert(pos, Slot::Generated(MeshState::Done));
+                        if let Some(timings) = &mut self.timings {
+                            timings.meshed(pos);
+                        }
                         self.events.push_back(StreamEvent::Mesh(pos, mesh));
                     } else {
                         self.jobs_discarded += 1;
@@ -996,6 +1031,9 @@ impl ChunkStreamer {
                 let local = IVec3::new((i % 32) as i32, (i / 1024) as i32, ((i / 32) % 32) as i32);
                 self.loaded_block_entities.push(origin + local);
             }
+        }
+        if let Some(timings) = &mut self.timings {
+            timings.generated(pos);
         }
         self.slots.insert(pos, Slot::Generated(MeshState::Missing));
         let column = IVec2::new(pos.x, pos.z);
@@ -1164,8 +1202,14 @@ impl ChunkStreamer {
             .map(|hood| hood.with_leaf_culling(self.config.leaf_culling))
         else {
             self.slots.insert(pos, Slot::Generated(MeshState::Done));
+            if let Some(timings) = &mut self.timings {
+                timings.forget(pos);
+            }
             return;
         };
+        if let Some(timings) = &mut self.timings {
+            timings.mesh_started(pos);
+        }
         let ticket = self.ticket();
         let mesher = self.config.mesher;
         let sender = self.sender.clone();
@@ -1318,6 +1362,45 @@ pub(crate) mod tests {
 
     /// Le maillage fait en tâche de fond doit être identique au maillage direct :
     /// les faces de bordure tiennent bien compte des voisins.
+    #[test]
+    fn pipeline_timing_is_off_by_default_and_measures_every_uploaded_chunk_when_on() {
+        let mut off = streamer();
+        assert!(off.pipeline_report().is_none());
+        off.note_uploaded(IVec3::ZERO); // sans effet, sans panique
+
+        let mut on = streamer();
+        on.set_pipeline_timing(true);
+        let events = pump(&mut on, Vec3::new(0.5, 70.0, 0.5));
+        let uploaded = events
+            .iter()
+            .filter(|e| matches!(e, StreamEvent::Mesh(..)))
+            .count();
+        assert!(uploaded > 0);
+        for event in &events {
+            if let StreamEvent::Mesh(pos, _) = event {
+                on.note_uploaded(*pos);
+            }
+        }
+        let report = on.pipeline_report().unwrap();
+        let total = report.stage(crate::PipelineStage::Total);
+        assert_eq!(total.count, uploaded as u64, "un chunk, une mesure");
+        assert!(total.p50_ms <= total.max_ms);
+        for stage in [
+            crate::PipelineStage::Generation,
+            crate::PipelineStage::Light,
+            crate::PipelineStage::Meshing,
+            crate::PipelineStage::Upload,
+        ] {
+            assert_eq!(report.stage(stage).count, total.count);
+            assert!(report.stage(stage).max_ms <= total.max_ms + 0.01);
+        }
+        assert!(
+            report
+                .to_string()
+                .contains(&format!("{uploaded} chunks mesurés"))
+        );
+    }
+
     #[test]
     fn streamed_meshes_match_direct_meshing() {
         let mut s = streamer();

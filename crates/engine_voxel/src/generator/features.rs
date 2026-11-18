@@ -114,6 +114,18 @@ pub type TreeSites = Arc<[TreeSite]>;
 const TREE_CACHE_LIMIT: usize = 8192;
 
 impl TerrainGenerator {
+    /// Vide les caches de calcul (arbres, colonnes) : le générateur repart à froid. Le monde
+    /// généré ne change pas, seulement le temps du prochain calcul. Utile aux mesures à froid et
+    /// aux tests qui comparent un cache vide et un cache plein.
+    pub fn clear_caches(&self) {
+        self.tree_cache
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.column_cache.clear();
+    }
+
     /// Les arbres plantés dans la colonne de chunks (cx, cz), depuis le cache si possible.
     pub fn tree_sites(&self, cx: i32, cz: i32) -> TreeSites {
         let lock = || self.tree_cache.0.lock().unwrap_or_else(|e| e.into_inner());

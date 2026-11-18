@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use engine_voxel::{
-    BiomeRegistry, BlockId, BlockRegistry, DimensionDef, DimensionRegistry, OVERWORLD, SaveStore,
-    TerrainGenerator, WorldKind, WorldMeta,
+    BiomeRegistry, BlockId, BlockRegistry, DimensionDef, DimensionRegistry, GenerationMeta,
+    GenerationVersion, OVERWORLD, SaveStore, TerrainGenerator, WorldKind, WorldMeta,
 };
 use glam::{IVec3, Vec3};
 
@@ -35,6 +35,10 @@ pub struct Dimensions {
     pub meta_store: Option<Arc<SaveStore>>,
     /// La graine du monde (celle de `world.ron`) ; le générateur d'une dimension y ajoute son décalage.
     pub base_seed: u32,
+    /// La version de génération et la configuration effective, telles qu'elles sont écrites dans
+    /// `world.ron`. Pour un monde existant, c'est la **référence enregistrée** (celle de sa
+    /// création) : elle n'est pas réécrite quand un mod change, pour que l'écart reste signalé.
+    pub generation: GenerationMeta,
     /// La dimension vers laquelle on part : `world.ron` annonce l'arrivée, y compris dans la
     /// dernière sauvegarde que le jeu fait en se déchargeant.
     pub leaving: Option<String>,
@@ -77,6 +81,7 @@ pub fn open(
         _ => root.clone(),
     };
     log::info!("dimension : {} ({})", current.name, current.key);
+    let generation = open_generation(meta, &registry, blocks, &biomes, mods)?;
     let arriving = meta.is_some_and(|m| m.arriving);
     Ok((
         Dimensions {
@@ -84,6 +89,7 @@ pub fn open(
             current: Arc::new(current),
             meta_store: root,
             base_seed: 0,
+            generation,
             leaving: None,
             pending_arrival: None,
             portal_timer: 0.0,
@@ -92,6 +98,35 @@ pub fn open(
         },
         store,
     ))
+}
+
+/// La version de génération et la configuration à enregistrer. Un monde neuf prend la version
+/// des nouveaux mondes et la configuration d'aujourd'hui ; un monde sans métadonnée de génération
+/// (d'avant ce champ) reste en génération historique v1 et adopte la configuration d'aujourd'hui
+/// comme référence ; un monde qui en a une la garde, et chaque écart avec aujourd'hui (mod retiré,
+/// modifié ou ajouté) est signalé dans les logs.
+fn open_generation(
+    meta: Option<&WorldMeta>,
+    dimensions: &DimensionRegistry,
+    blocks: &BlockRegistry,
+    biomes: &BiomeRegistry,
+    mods: &[(String, PathBuf)],
+) -> Result<GenerationMeta> {
+    let version = match meta {
+        Some(meta) => meta.generation_version()?,
+        None => GenerationVersion::FOR_NEW_WORLDS,
+    };
+    let now = GenerationMeta::describe(version, dimensions, blocks, biomes, mods);
+    let Some(saved) = meta.and_then(|m| m.generation.as_ref()) else {
+        if meta.is_some() {
+            log::info!("monde sans version de génération : génération historique {version}");
+        }
+        return Ok(now);
+    };
+    for issue in saved.compare(&now) {
+        log::warn!("génération du monde : {issue}");
+    }
+    Ok(saved.clone())
 }
 
 impl Dimensions {
@@ -228,6 +263,7 @@ mod tests {
             dimension: dimension.into(),
             arriving,
             adventure: Default::default(),
+            generation: None,
         }
     }
 
@@ -244,6 +280,36 @@ mod tests {
         // La dimension demandée au lancement l'emporte sur celle du fichier.
         let (dims, _) = open(&blocks, &[], None, Some(&missing), Some(OVERWORLD)).unwrap();
         assert_eq!(dims.current.key, OVERWORLD);
+    }
+
+    #[test]
+    fn the_generation_version_is_v1_for_new_and_old_worlds_and_the_saved_reference_is_kept() {
+        let blocks = registry();
+        // Monde neuf : la version des nouveaux mondes et la configuration d'aujourd'hui.
+        let (new, _) = open(&blocks, &[], None, None, None).unwrap();
+        assert_eq!(
+            new.generation.version,
+            GenerationVersion::FOR_NEW_WORLDS.number()
+        );
+        assert_eq!(new.generation.dimensions.len(), 1);
+        // Un monde d'avant le champ : génération historique, configuration d'aujourd'hui.
+        let old = meta(OVERWORLD, false);
+        let (dims, _) = open(&blocks, &[], None, Some(&old), None).unwrap();
+        assert_eq!(dims.generation, new.generation);
+        // Un monde qui a une référence la garde, même si elle ne correspond plus.
+        let mut saved = new.generation.clone();
+        saved.data[0].hash ^= 1;
+        let mut kept = meta(OVERWORLD, false);
+        kept.generation = Some(saved.clone());
+        let (dims, _) = open(&blocks, &[], None, Some(&kept), None).unwrap();
+        assert_eq!(dims.generation, saved);
+        // Une version inconnue (monde d'un jeu plus récent) est refusée.
+        let mut future = meta(OVERWORLD, false);
+        future.generation = Some(GenerationMeta {
+            version: 99,
+            ..saved
+        });
+        assert!(open(&blocks, &[], None, Some(&future), None).is_err());
     }
 
     #[test]

@@ -36,7 +36,7 @@ crates/engine_voxel     # blocs et fluides (registres moddables), chunks 32³, t
                         # sauvegarde, machines (block entities, capacités, ticks programmés), grilles
 crates/engine_mods      # mods : manifestes mod.ron, ordre de chargement, scripts WebAssembly (wasmtime, bac à sable)
 crates/mod_sdk          # le kit pour écrire le script d'un mod en Rust (compilé en wasm32)
-tools/xtask             # tâches du projet : cargo xtask build-mods, check-arch, hooks, bench, ctl
+tools/xtask             # tâches du projet : cargo xtask build-mods, check-arch, hooks, bench, ctl, map
 docs/                   # modding.md (écrire un mod), architecture.md (réseaux, fluides, structures mobiles)
 games/voxel             # le jeu (E : inventaire et artisanat, avec l'explorateur de recettes façon JEI : liste de tous les objets à droite, recherche (`@mod`), R/U sur un objet survolé : recettes/usages, A : favori, mode triche ; clic droit : établi/four/coffre, F3 : inspecteur,
                         # F : vol, T : temps, F1/F2 : rendu, circuits (câble, levier, bouton, inverseur, répéteur, herse, pistons : clic droit sur levier/bouton/répéteur ; l'inverseur, le répéteur et les pistons visent où l'on regarde), structures mobiles (assembleur : clic droit détache et repose un vaisseau ; ballon, hélice, barre ; `assemble`, `land`, `ships`, `steer` en commande), wagonnets (rails normal, accélérateur, détecteur, activateur, butoir ; wagonnet, wagon coffre, wagon trémie, locomotive, attelage ; clic droit sur un rail pose le wagon, sur un wagonnet on s'assoit (Maj : descendre, avancer : pousser), sur un autre wagon : son inventaire ; stockage (coffres à paliers cuivre, fer, or, saphir : un kit en clic droit monte le coffre sur place ; emplacements d'amélioration : pile ×2/×4, compactage, néant, entonnoir ; contrôleur de stockage ; sacs à dos, touche B ; aperçu du contenu des coffres en les regardant ; Déposer, Compléter, Tout prendre, Trier, Maj + clic) ; chargeur et déchargeur de wagon ; vitesse maximale dans les options ; `carts`, `cart sorte x y z`, `ride`, `dismount`, `couple`, `cartstock` en commande), réseaux (câbles, tuyaux, arbres ; panneau solaire, batterie, pompe, réservoir, moteur… ; `inspect x y z` et `networks` en commande), enchantement (table d'enchantement : niveaux d'expérience + saphirs), alchimie (alambic, fioles, potions), musique et ambiance, structures (villages avec habitants qui commercent : clic droit ; ruines, donjons, mines ; `structures 500` en commande les localise), météo (pluie, neige, orage, nuages ; `weather clear|rain|storm` en commande), F4 : bras, houe : clic droit laboure, graines : se plantent sur la terre labourée, engrais : accélère la pousse, blé/carotte : élevage, F6 : culling des grottes) ; clic gauche maintenu : miner
@@ -101,6 +101,11 @@ Variables du jeu :
   Options, Quitter) ; Échap ouvre la pause. Les options sont dans `settings.ron` ;
 - `VOXEL_MENU_DEMO=1` (scénario automatique : menu, un monde, retour au menu, quitter) ;
 - `VOXEL_WORLD=nom` (le monde à ouvrir dans `saves/`, « world » par défaut ; sauvegarde toutes les 30 s et à la fermeture) ;
+- `VOXEL_SAVES=dossier` (la racine des sauvegardes à la place de `saves/` : pointer vers un dossier
+  temporaire isole une séance de test des vraies sauvegardes ; ne déplace pas `settings.ron` ni
+  `mod_settings.ron`, voir `docs/plan-generation-rendu.md`) ;
+- `VOXEL_PIPELINE=1` (journalise toutes les 2 s les délais des chunks : génération, lumière, maillage,
+  envoi au GPU, en médiane, 95e centile et maximum) ;
 - `VOXEL_MUTE=1`, `VOXEL_VOLUME_EFFECTS`, `VOXEL_VOLUME_AMBIENCE` (volumes de 0 à 1) ;
 - `VOXEL_QUIT_AFTER=secondes` (quitter proprement, avec sauvegarde) ;
 - `VOXEL_STRESS=N` (N horloges au rythme maximal et N objets sur tapis ; temps dans les logs) ;
@@ -129,6 +134,14 @@ Variables du jeu :
   `VOXEL_BENCH_SIZE=640x360` change la taille, `VOXEL_BENCH_VSYNC=1` garde la VSync (comme en jeu). Sans VSync,
   le « 1 % le plus lent » mesure surtout l'attente de l'écran par le système : les saccades du jeu se voient
   dans le 99e centile du CPU, que `--compare` utilise.
+
+Cartes d'une graine sans fenêtre : `cargo xtask map` exporte en PNG l'altitude, la pente, l'humidité, la
+température, la continentalité et les biomes d'une zone (`--seed 7 --x -2048 --z -2048 --size 1024 --step 4
+--maps altitude,biomes --out dossier`, `--ppm` pour du PPM). Voir `crates/engine_voxel/examples/worldmap.rs`.
+
+Génération : `cargo test -p engine_voxel --test generation_reference` vérifie que le terrain historique (v1)
+reste identique bloc pour bloc ; `cargo bench -p engine_voxel --bench generation` mesure la génération à
+chaud et à froid (« à froid » : caches vidés).
 
 Les règles d'architecture (le moteur ne dépend pas du jeu, la simulation pas de l'affichage,
 pas de fichier de plus de 2500 lignes) : `cargo xtask check-arch`, aussi lancé par la CI.

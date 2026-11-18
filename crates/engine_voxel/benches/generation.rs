@@ -2,13 +2,16 @@
 
 use std::hint::black_box;
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use engine_voxel::{LightRegion, SEA_LEVEL, TerrainGenerator, World, mesh_greedy};
 use glam::{IVec2, IVec3};
 
 fn bench_generation(c: &mut Criterion) {
     let generator = TerrainGenerator::new(42);
     let mut group = c.benchmark_group("generation");
+    // Les cas « à chaud » ci-dessous répètent le même chunk : après la première itération ses
+    // colonnes sont dans le cache (voir `generator/column_cache.rs`). Les cas « à froid » plus bas
+    // vident les caches avant chaque mesure : ce sont eux qui représentent le streaming.
     // Quatre cas typiques : le fond (socle, lave), sous terre (grottes, minerais), à la
     // surface (y = 64 à 95, autour du niveau de la mer), dans le ciel.
     let cases = [
@@ -24,6 +27,29 @@ fn bench_generation(c: &mut Criterion) {
     group.sample_size(10);
     group.bench_function("zone 8 × 8 colonnes (384 chunks)", |b| {
         b.iter(|| generator.generate_area(black_box(IVec3::new(-40, 0, 17)), 8, 8))
+    });
+    // À froid : les caches (arbres, colonnes) sont vidés avant chaque mesure. C'est la situation
+    // du streaming quand le joueur entre dans une zone neuve : une verticale de 6 chunks, puis
+    // une zone entière.
+    group.sample_size(20);
+    group.bench_function("verticale à froid (6 chunks)", |b| {
+        b.iter_batched(
+            || generator.clear_caches(),
+            |()| {
+                for y in 0..6 {
+                    black_box(generator.generate(black_box(IVec3::new(3, y, 5))));
+                }
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.sample_size(10);
+    group.bench_function("zone 8 × 8 à froid (384 chunks)", |b| {
+        b.iter_batched(
+            || generator.clear_caches(),
+            |()| generator.generate_area(black_box(IVec3::new(-40, 0, 17)), 8, 8),
+            BatchSize::PerIteration,
+        )
     });
     // Les chunks de surface les plus chargés : une forêt dense et une jungle (arbres des
     // 9 colonnes voisines recalculés à chaque chunk, voir `generator/features.rs`).
