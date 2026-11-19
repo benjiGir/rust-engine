@@ -909,6 +909,15 @@ impl VoxelGame {
 
     fn window_event(&mut self, ctx: &mut Context, event: &WindowEvent) -> bool {
         self.ui.on_window_event(&ctx.window, event)
+        // La fenêtre perd le focus en pleine partie : le jeu se met en pause et rend la souris, comme
+        // Minecraft (on la reprend d'un clic sur « Reprendre », jamais par surprise).
+        // (Pas dans les modes automatiques : captures, banc d'essai, démo, qui tournent sans focus.)
+        let automatic = self.tour.is_some() || self.bench.is_some() || self.demo.is_some();
+        if *event == WindowEvent::Focused(false) && self.mode == Mode::Playing && !automatic {
+            self.mode = Mode::Paused(menus::PausePage::Main);
+            self.mouse_captured = false;
+            ctx.set_cursor_captured(false);
+        }
     }
 
     fn update(&mut self, ctx: &mut Context, dt: f32) {
@@ -2161,13 +2170,10 @@ impl VoxelGame {
             ctx.set_cursor_captured(true);
             return true;
         }
-        if input.key_pressed(KeyCode::Escape) {
-            if self.mouse_captured {
-                self.mouse_captured = false;
-                ctx.set_cursor_captured(false);
-            } else {
-                ctx.exit();
-            }
+        // Échap ne quitte jamais le jeu (on quitte par le menu) : elle rend seulement la souris.
+        if input.key_pressed(KeyCode::Escape) && self.mouse_captured {
+            self.mouse_captured = false;
+            ctx.set_cursor_captured(false);
         }
         false
     }

@@ -46,6 +46,8 @@ enum Scene {
     Workbench,
     Furnace,
     Chest,
+    /// L'échange avec un habitant (un fermier), de l'or et du blé dans l'inventaire.
+    Trade,
     Inspector,
     Machines,
     /// Au-dessus d'un biome (son identifiant).
@@ -141,7 +143,7 @@ const fn fluid(name: &'static str, which: FluidShot) -> Shot {
     }
 }
 
-const SHOTS: [Shot; 62] = [
+const SHOTS: [Shot; 63] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -196,6 +198,11 @@ const SHOTS: [Shot; 62] = [
         name: "8d-coffre",
         time: 0.45,
         scene: Scene::Chest,
+    },
+    Shot {
+        name: "8e-echange",
+        time: 0.45,
+        scene: Scene::Trade,
     },
     Shot {
         name: "9-inspecteur",
@@ -355,7 +362,11 @@ impl VoxelGame {
                 player::set_eye(&self.ecs, self.player, eye + self.origin().as_vec3());
                 self.ui.inventory_open = matches!(
                     shot.scene,
-                    Scene::Inventory | Scene::Workbench | Scene::Furnace | Scene::Chest
+                    Scene::Inventory
+                        | Scene::Workbench
+                        | Scene::Furnace
+                        | Scene::Chest
+                        | Scene::Trade
                 );
                 self.ui.screen = crate::ui::Screen::Inventory;
                 // Le bras n'apparaît que dans ses propres captures.
@@ -558,7 +569,7 @@ impl VoxelGame {
                     -22.0,
                 )
             }
-            Scene::Inventory | Scene::Workbench | Scene::Furnace | Scene::Chest => {
+            Scene::Inventory | Scene::Workbench | Scene::Furnace | Scene::Chest | Scene::Trade => {
                 (Vec3::new(0.5, spawn + 20.0, 0.5), 45.0, -20.0)
             }
             // À hauteur d'homme, face au paysage.
@@ -707,7 +718,7 @@ impl VoxelGame {
                 }
             }
             Scene::Machines => self.build_machines(),
-            Scene::Inventory | Scene::Workbench | Scene::Furnace | Scene::Chest => {
+            Scene::Inventory | Scene::Workbench | Scene::Furnace | Scene::Chest | Scene::Trade => {
                 self.build_screen(scene);
             }
             Scene::Underground => self.dig_pit(),
@@ -804,6 +815,40 @@ impl VoxelGame {
                 } else {
                     self.ui.screen = crate::ui::Screen::Chest(pos);
                 }
+            }
+            Scene::Trade => {
+                // Un fermier tout près, de quoi payer certaines offres et pas d'autres.
+                let registry = self
+                    .ecs
+                    .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+                    .clone();
+                let Some(kind) = registry.id("core:farmer") else {
+                    return;
+                };
+                let (x, z) = (3, 3);
+                let at = self.origin().as_vec3()
+                    + Vec3::new(
+                        x as f32 + 0.5,
+                        self.ground(x, z) as f32 + 1.0,
+                        z as f32 + 0.5,
+                    );
+                let Some(mob) = crate::mobs::spawn_mob(&mut self.ecs, kind, at) else {
+                    return;
+                };
+                let uses: Vec<u32> = self
+                    .trades
+                    .for_mob("core:farmer")
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| if i == 2 { 0 } else { t.uses })
+                    .collect();
+                self.ecs.insert(mob, crate::components::Trader { uses });
+                self.inventory
+                    .add(items.id("core:gold_ingot").unwrap(), 3, &items);
+                self.inventory
+                    .add(items.id("core:wheat").unwrap(), 45, &items);
+                self.ui.screen = crate::ui::Screen::Trade(mob);
+                self.ui.trade_selected = 4;
             }
             _ => {}
         }

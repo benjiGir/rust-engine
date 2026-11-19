@@ -39,6 +39,8 @@ pub struct GameUi {
     icons: HashMap<ItemId, TextureHandle>,
     /// La fenêtre « Diviser la pile » (Maj + clic droit), si elle est ouverte.
     pub split: Option<Split>,
+    /// L'offre choisie dans l'écran d'échange avec un habitant.
+    pub trade_selected: usize,
     /// Un message en haut de l'écran (« Point de réapparition fixé ») et son heure.
     pub toast: Option<(String, std::time::Instant)>,
     pub target_bottom: f32,
@@ -162,6 +164,7 @@ impl GameUi {
             menu_open: false,
             icons: HashMap::new(),
             split: None,
+            trade_selected: 0,
             toast: None,
             target_bottom: 12.0,
             mod_menu: None,
@@ -1066,6 +1069,10 @@ impl VoxelGame {
     }
 
     /// Les échanges d'un habitant : une ligne par échange, un bouton pour le faire.
+    /// L'échange avec un habitant, à la manière de Minecraft : à gauche la liste des offres, chacune
+    /// avec ses objets dessinés (prix, flèche, produit), grisée si l'on ne peut pas payer et marquée
+    /// si l'habitant n'en a plus ; à droite l'offre choisie en grandes cases, ce qui manque, et les
+    /// boutons d'échange.
     fn trade_panel(&mut self, ui: &mut egui::Ui, mob: Entity) {
         let Some(key) = self.mob_key(mob) else {
             // L'habitant a disparu (tué, ou trop loin) : on ferme.
@@ -1082,7 +1089,6 @@ impl VoxelGame {
                     .map(|d| d.name.clone())
             })
         };
-        ui.heading(name.unwrap_or_else(|| key.clone()));
         let trades = self.trades.for_mob(&key).to_vec();
         let uses = self
             .ecs
@@ -1090,44 +1096,228 @@ impl VoxelGame {
             .map(|t| t.uses.clone())
             .unwrap_or_default();
         let items = self.content.items.clone();
-        let label = |(item, count): (engine_voxel::ItemId, u32)| {
-            format!("{count} × {}", items.get(item).name)
-        };
-        let mut chosen = None;
-        for (i, trade) in trades.iter().enumerate() {
-            let left = uses.get(i).copied().unwrap_or(0);
-            let can = crate::trading::can_trade(&self.inventory, trade, left);
-            ui.horizontal_wrapped(|ui| {
-                ui.label(format!("{}  →  {}", label(trade.give), label(trade.get)));
-                if ui.add_enabled(can, egui::Button::new("Échanger")).clicked() {
-                    chosen = Some(i);
-                }
+        let item_name = |item: engine_voxel::ItemId| items.get(item).name.clone();
+        ui.label(
+            egui::RichText::new(name.unwrap_or_else(|| key.clone()))
+                .strong()
+                .size(18.0),
+        );
+        if trades.is_empty() {
+            ui.label("Cet habitant n'a rien à échanger.");
+            return;
+        }
+        let selected = self.ui.trade_selected.min(trades.len() - 1);
+        let slot = crate::ui_layout::slot_size(ui.ctx()).max(30.0);
+        let row_height = slot + 8.0;
+        let list_width = slot * 4.6;
+        let mut chosen = selected;
+        let mut deal = None;
+        ui.horizontal_top(|ui| {
+            // La liste des offres.
+            ui.vertical(|ui| {
+                ui.set_width(list_width);
+                ui.label(egui::RichText::new("Offres").strong());
+                egui::ScrollArea::vertical()
+                    .id_salt("trade_offers")
+                    .max_height(row_height * 5.0)
+                    .show(ui, |ui| {
+                        for (i, trade) in trades.iter().enumerate() {
+                            let left = uses.get(i).copied().unwrap_or(0);
+                            let can = crate::trading::can_trade(&self.inventory, trade, left);
+                            let (rect, response) = ui.allocate_exact_size(
+                                egui::vec2(list_width - 4.0, row_height),
+                                egui::Sense::click(),
+                            );
+                            let painter = ui.painter().clone();
+                            let fill = if i == selected {
+                                egui::Color32::from_rgb(152, 157, 140)
+                            } else if response.hovered() {
+                                egui::Color32::from_rgb(140, 145, 130)
+                            } else {
+                                egui::Color32::from_rgb(124, 129, 116)
+                            };
+                            painter.rect_filled(rect, 0, fill);
+                            if i == selected {
+                                painter.rect_stroke(
+                                    rect,
+                                    0,
+                                    egui::Stroke::new(2.0, skin::TEXT),
+                                    egui::StrokeKind::Inside,
+                                );
+                            }
+                            let cell = |x: f32| {
+                                egui::Rect::from_min_size(
+                                    egui::pos2(rect.left() + x, rect.top() + 4.0),
+                                    egui::vec2(slot, slot),
+                                )
+                            };
+                            let (give, get) = (cell(4.0), cell(slot * 2.4));
+                            skin::slot(&painter, give, false, false);
+                            skin::slot(&painter, get, false, false);
+                            self.paint_stack(
+                                &painter,
+                                give,
+                                ItemStack::new(trade.give.0, trade.give.1),
+                            );
+                            self.paint_stack(
+                                &painter,
+                                get,
+                                ItemStack::new(trade.get.0, trade.get.1),
+                            );
+                            trade_arrow(
+                                &painter,
+                                give.right() + slot * 0.2,
+                                get.left() - slot * 0.2,
+                                give.center().y,
+                                if can { skin::INK } else { skin::BORDER },
+                            );
+                            // Grisée si l'on ne peut pas payer ; une croix rouge si c'est épuisé.
+                            if !can {
+                                painter.rect_filled(rect, 0, egui::Color32::from_black_alpha(70));
+                            }
+                            if left == 0 {
+                                let at = egui::pos2(rect.right() - slot * 0.45, rect.center().y);
+                                let r = slot * 0.22;
+                                let stroke =
+                                    egui::Stroke::new(3.0, egui::Color32::from_rgb(170, 40, 30));
+                                painter.line_segment(
+                                    [at - egui::vec2(r, r), at + egui::vec2(r, r)],
+                                    stroke,
+                                );
+                                painter.line_segment(
+                                    [at + egui::vec2(-r, r), at + egui::vec2(r, -r)],
+                                    stroke,
+                                );
+                            }
+                            let response = response.on_hover_text(format!(
+                                "{} × {}  →  {} × {}{}",
+                                trade.give.1,
+                                item_name(trade.give.0),
+                                trade.get.1,
+                                item_name(trade.get.0),
+                                if left == 0 { "\nÉpuisé" } else { "" }
+                            ));
+                            if response.clicked() {
+                                chosen = i;
+                            }
+                        }
+                    });
+            });
+            // Un simple espace : un séparateur vertical prendrait toute la hauteur de la fenêtre.
+            ui.add_space(12.0);
+            // L'offre choisie.
+            ui.vertical(|ui| {
+                let trade = &trades[selected];
+                let left = uses.get(selected).copied().unwrap_or(0);
+                let have = self.inventory.count(trade.give.0);
+                let can = crate::trading::can_trade(&self.inventory, trade, left);
+                let big = slot * 1.3;
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(big * 3.6, big + 8.0), egui::Sense::hover());
+                let painter = ui.painter().clone();
+                let give = egui::Rect::from_min_size(
+                    rect.min + egui::vec2(0.0, 4.0),
+                    egui::vec2(big, big),
+                );
+                let get = egui::Rect::from_min_size(
+                    rect.min + egui::vec2(big * 2.4, 4.0),
+                    egui::vec2(big, big),
+                );
+                skin::slot(&painter, give, false, false);
+                skin::slot(&painter, get, can, false);
+                self.paint_stack(&painter, give, ItemStack::new(trade.give.0, trade.give.1));
+                self.paint_stack(&painter, get, ItemStack::new(trade.get.0, trade.get.1));
+                trade_arrow(
+                    &painter,
+                    give.right() + big * 0.25,
+                    get.left() - big * 0.25,
+                    give.center().y,
+                    if can { skin::INK } else { skin::BORDER },
+                );
+                ui.add_space(4.0);
+                ui.label(format!(
+                    "Prix : {} × {}",
+                    trade.give.1,
+                    item_name(trade.give.0)
+                ));
+                ui.label(egui::RichText::new(format!("Vous en avez {have}")).color(
+                    if have >= trade.give.1 {
+                        skin::INK
+                    } else {
+                        egui::Color32::from_rgb(150, 40, 30)
+                    },
+                ));
+                ui.label(format!(
+                    "Contre : {} × {}",
+                    trade.get.1,
+                    item_name(trade.get.0)
+                ));
                 ui.label(if left == 0 {
-                    "épuisé".to_string()
+                    egui::RichText::new("Épuisé : l'habitant n'en a plus pour l'instant.")
+                        .color(egui::Color32::from_rgb(150, 40, 30))
                 } else {
-                    format!("{left} restants")
+                    egui::RichText::new(format!(
+                        "{left} échange{} possible{}",
+                        if left > 1 { "s" } else { "" },
+                        if left > 1 { "s" } else { "" }
+                    ))
+                });
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(
+                            can,
+                            egui::Button::new(egui::RichText::new("Échanger").strong()),
+                        )
+                        .clicked()
+                    {
+                        deal = Some((selected, 1));
+                    }
+                    let most = (have / trade.give.1.max(1)).min(left);
+                    if ui
+                        .add_enabled(
+                            most > 1,
+                            egui::Button::new(format!("Tout échanger ({most})")),
+                        )
+                        .clicked()
+                    {
+                        deal = Some((selected, most));
+                    }
                 });
             });
-        }
-        if let Some(i) = chosen {
-            let left = uses.get(i).copied().unwrap_or(0);
-            if let Some(overflow) =
+        });
+        self.ui.trade_selected = chosen;
+        let Some((i, times)) = deal else {
+            return;
+        };
+        let mut done = 0;
+        for _ in 0..times {
+            let left = self
+                .ecs
+                .get::<crate::components::Trader>(mob)
+                .and_then(|t| t.uses.get(i).copied())
+                .unwrap_or(0);
+            let Some(overflow) =
                 crate::trading::execute(&mut self.inventory, &items, &trades[i], left)
-            {
-                if let Some(mut trader) = self.ecs.get_mut::<crate::components::Trader>(mob) {
-                    trader.uses[i] = left - 1;
-                }
-                if overflow > 0 {
-                    let at = crate::player::body(&self.ecs, self.player)
-                        .position
-                        .floor()
-                        .as_ivec3();
-                    self.drop_stack(at, ItemStack::new(trades[i].get.0, overflow));
-                }
-                if let Some(audio) = &mut self.audio {
-                    audio.play("core:place_hard");
-                }
+            else {
+                break;
+            };
+            if let Some(mut trader) = self.ecs.get_mut::<crate::components::Trader>(mob) {
+                trader.uses[i] = left - 1;
             }
+            if overflow > 0 {
+                let at = crate::player::body(&self.ecs, self.player)
+                    .position
+                    .floor()
+                    .as_ivec3();
+                self.drop_stack(at, ItemStack::new(trades[i].get.0, overflow));
+            }
+            done += 1;
+        }
+        if done > 0
+            && let Some(audio) = &mut self.audio
+        {
+            audio.play("core:place_hard");
         }
     }
 
@@ -1347,4 +1537,23 @@ fn compact(names: &[String]) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// La flèche d'une offre d'échange (du prix au produit), dessinée : la police n'a pas le glyphe.
+fn trade_arrow(painter: &egui::Painter, from: f32, to: f32, y: f32, color: egui::Color32) {
+    let head = ((to - from) * 0.4).min(10.0);
+    let stroke = egui::Stroke::new(3.0, color);
+    painter.line_segment(
+        [egui::pos2(from, y), egui::pos2(to - head * 0.5, y)],
+        stroke,
+    );
+    painter.add(egui::Shape::convex_polygon(
+        vec![
+            egui::pos2(to, y),
+            egui::pos2(to - head, y - head * 0.8),
+            egui::pos2(to - head, y + head * 0.8),
+        ],
+        color,
+        egui::Stroke::NONE,
+    ));
 }

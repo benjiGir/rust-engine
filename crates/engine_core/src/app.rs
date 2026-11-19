@@ -49,6 +49,11 @@ pub struct Context {
     /// attente de l'écran comprise si le rendu l'attend.
     pub frame_work: Duration,
     exit_requested: bool,
+    /// Le jeu veut la souris capturée (vue FPS). Elle ne l'est vraiment que si la fenêtre a le focus :
+    /// la capture est reprise au retour du focus, et relâchée quand il part.
+    cursor_wanted: bool,
+    /// La fenêtre a le focus clavier et souris.
+    focused: bool,
 }
 
 impl Context {
@@ -57,21 +62,41 @@ impl Context {
         self.exit_requested = true;
     }
 
-    /// Capture la souris (vue FPS) ou la libère.
-    pub fn set_cursor_captured(&self, captured: bool) {
-        if captured {
+    /// Capture la souris (vue FPS) ou la libère. Sans le focus, la demande est gardée et appliquée
+    /// au retour du focus : une capture demandée trop tôt (au lancement, fenêtre pas encore au
+    /// premier plan) échouerait et laisserait un curseur caché qui sort de la fenêtre.
+    pub fn set_cursor_captured(&mut self, captured: bool) {
+        self.cursor_wanted = captured;
+        self.apply_cursor();
+    }
+
+    /// La fenêtre a-t-elle le focus ?
+    pub fn focused(&self) -> bool {
+        self.focused
+    }
+
+    /// Applique la capture voulue, si la fenêtre a le focus ; la libère sinon.
+    fn apply_cursor(&self) {
+        if self.cursor_wanted && self.focused {
             // macOS ne gère que `Locked`, Windows préfère `Confined` : on essaie l'un puis l'autre.
             let grabbed = self
                 .window
                 .set_cursor_grab(CursorGrabMode::Locked)
                 .or_else(|_| self.window.set_cursor_grab(CursorGrabMode::Confined));
-            if let Err(err) = grabbed {
-                log::warn!("impossible de capturer la souris : {err}");
+            match grabbed {
+                // Le curseur n'est caché que s'il est vraiment retenu dans la fenêtre.
+                Ok(()) => self.window.set_cursor_visible(false),
+                Err(err) => {
+                    log::warn!("impossible de capturer la souris : {err}");
+                    self.window.set_cursor_visible(true);
+                }
             }
-        } else if let Err(err) = self.window.set_cursor_grab(CursorGrabMode::None) {
-            log::warn!("impossible de libérer la souris : {err}");
+        } else {
+            if let Err(err) = self.window.set_cursor_grab(CursorGrabMode::None) {
+                log::warn!("impossible de libérer la souris : {err}");
+            }
+            self.window.set_cursor_visible(true);
         }
-        self.window.set_cursor_visible(!captured);
     }
 }
 
@@ -151,6 +176,7 @@ impl<G: Game> App<G> {
             .with_title(&self.config.title)
             .with_inner_size(LogicalSize::new(self.config.width, self.config.height));
         let window = Arc::new(event_loop.create_window(attributes)?);
+        let window_focused = window.has_focus();
 
         let timestep = FixedTimestep::new(self.config.ticks_per_second);
         let mut ctx = Context {
@@ -160,6 +186,8 @@ impl<G: Game> App<G> {
             status: String::new(),
             frame_work: Duration::ZERO,
             exit_requested: false,
+            cursor_wanted: false,
+            focused: window_focused,
         };
         let game = G::new(&mut ctx)?;
 
@@ -196,9 +224,14 @@ impl<G: Game> ApplicationHandler for App<G> {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => game.resized(ctx, size),
-            WindowEvent::Focused(false) => {
-                ctx.input.clear();
-                ctx.set_cursor_captured(false);
+            // Le focus part (une autre application, le bureau) : plus aucune touche ni bouton tenus, la
+            // souris est rendue ; il revient : la capture voulue est reprise.
+            WindowEvent::Focused(focused) => {
+                ctx.focused = focused;
+                if !focused {
+                    ctx.input.clear();
+                }
+                ctx.apply_cursor();
             }
             WindowEvent::KeyboardInput { event, .. } if !consumed => {
                 // On ignore la répétition automatique du clavier.
@@ -221,8 +254,10 @@ impl<G: Game> ApplicationHandler for App<G> {
     }
 
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
-        // Le mouvement « brut » de la souris continue même quand le curseur est bloqué.
+        // Le mouvement « brut » de la souris continue même quand le curseur est bloqué. Il arrive aussi
+        // quand une autre application a le focus : on l'ignore alors (la vue ne tourne pas dans le dos).
         if let (Some(running), DeviceEvent::MouseMotion { delta }) = (self.running.as_mut(), event)
+            && running.ctx.focused
         {
             running.ctx.input.on_mouse_motion(delta.0, delta.1);
         }

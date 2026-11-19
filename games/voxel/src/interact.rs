@@ -264,6 +264,7 @@ impl VoxelGame {
             return false;
         }
         self.ui.screen = ui::Screen::Trade(mob);
+        self.ui.trade_selected = 0;
         self.ui.inventory_open = true;
         true
     }
