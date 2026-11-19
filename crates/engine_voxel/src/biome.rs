@@ -167,7 +167,7 @@ pub struct BiomeDef {
     /// La probabilité d'algues par colonne sous l'eau, et de nénuphars en surface.
     pub seaweed: f32,
     pub lily_pads: f32,
-    /// Un biome de la génération v3 seulement (vagues du lot 5) : les générations v1 et v2 ne le
+    /// Un biome de la génération v3 seulement (vagues du lot 5) : la génération v1 ne le
     /// choisissent jamais, leurs mondes ne changent pas.
     pub v3_only: bool,
     /// Un biome souterrain (vague 4 du lot 5) : choisi en trois dimensions dans les grottes profondes,

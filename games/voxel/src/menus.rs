@@ -53,6 +53,9 @@ pub struct SavedWorld {
     pub date: String,
     pub modified: SystemTime,
     pub seed: Option<u32>,
+    /// Pourquoi ce monde ne peut plus s'ouvrir (une génération retirée, un jeu plus récent) ;
+    /// `None` : il s'ouvre.
+    pub unplayable: Option<String>,
 }
 
 /// Les mondes du dossier `saves/`, du plus récent au plus ancien.
@@ -65,30 +68,43 @@ pub fn saved_worlds() -> Vec<SavedWorld> {
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.join("world.ron").exists())
-        .map(|path| {
-            let meta_file = path.join("world.ron");
-            let modified = std::fs::metadata(&meta_file)
-                .and_then(|m| m.modified())
-                .unwrap_or(SystemTime::UNIX_EPOCH);
-            let seed = engine_voxel::SaveStore::open(&path)
-                .ok()
-                .and_then(|store| store.load_meta().ok().flatten())
-                .map(|meta| meta.seed);
-            SavedWorld {
-                name: path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("?")
-                    .to_string(),
-                dir: path.clone(),
-                date: format_date(modified),
-                modified,
-                seed,
-            }
-        })
+        .map(|path| saved_world(&path))
         .collect();
     worlds.sort_by_key(|w| std::cmp::Reverse(w.modified));
     worlds
+}
+
+/// Ce que la liste des mondes montre du monde enregistré dans `path`.
+fn saved_world(path: &std::path::Path) -> SavedWorld {
+    let meta_file = path.join("world.ron");
+    let modified = std::fs::metadata(&meta_file)
+        .and_then(|m| m.modified())
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+    // Un `world.ron` illisible (ou d'une génération retirée) : le monde est listé, avec la raison.
+    let loaded = engine_voxel::SaveStore::open(path).and_then(|store| store.load_meta());
+    let (meta, mut unplayable) = match loaded {
+        Ok(meta) => (meta, None),
+        Err(err) => (None, Some(format!("{err:#}"))),
+    };
+    let seed = meta.as_ref().map(|meta| meta.seed);
+    if let Some(err) = meta
+        .as_ref()
+        .and_then(|meta| meta.generation_version().err())
+    {
+        unplayable = Some(format!("{err:#}"));
+    }
+    SavedWorld {
+        name: path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?")
+            .to_string(),
+        dir: path.to_path_buf(),
+        date: format_date(modified),
+        modified,
+        seed,
+        unplayable,
+    }
 }
 
 /// « 2026-11-09 12:45 » (heure UTC), sans bibliothèque de dates : on compte les jours
@@ -224,6 +240,9 @@ impl VoxelGame {
                                         .seed
                                         .map_or(String::new(), |s| format!(" — graine {s}"));
                                     ui.label(format!("{}{seed}", world.date));
+                                    if let Some(reason) = &world.unplayable {
+                                        ui.label(RichText::new(reason).color(crate::skin::RED));
+                                    }
                                 });
                                 ui.horizontal_wrapped(|ui| {
                                     if confirm.as_deref() == Some(world.name.as_str()) {
@@ -246,7 +265,9 @@ impl VoxelGame {
                                                 confirm: Some(world.name.clone()),
                                             });
                                         }
-                                        if ui.button(RichText::new("Jouer").strong()).clicked() {
+                                        if world.unplayable.is_none()
+                                            && ui.button(RichText::new("Jouer").strong()).clicked()
+                                        {
                                             self.request = Some(Request::Play(Launch {
                                                 world: Some(world.dir.clone()),
                                                 seed: None,
@@ -471,6 +492,54 @@ mod tests {
         let time = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_762_692_300);
         assert_eq!(format_date(time), "2025-11-09 12:45");
         assert_eq!(format_date(SystemTime::UNIX_EPOCH), "1970-01-01 00:00");
+    }
+
+    /// Un monde de la génération v2 (retirée) est listé avec la raison, pour ne pas proposer de le
+    /// jouer ; un monde v1 ou v3 se joue.
+    #[test]
+    fn a_retired_v2_world_is_listed_as_unplayable() {
+        let root = std::env::temp_dir().join(format!("voxel-menus-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        // Une configuration de génération réelle (celle d'un monde neuf), dont on change le numéro.
+        let blocks = engine_voxel::BlockRegistry::builtin();
+        let (dims, _) = crate::dimensions::open_versioned(
+            &blocks,
+            &[],
+            None,
+            None,
+            None,
+            engine_voxel::GenerationVersion::V3,
+        )
+        .unwrap();
+        let world = |name: &str, version: Option<u32>| {
+            let dir = root.join(name);
+            let store = engine_voxel::SaveStore::open(&dir).unwrap();
+            let meta = engine_voxel::WorldMeta {
+                format_version: engine_voxel::FORMAT_VERSION,
+                seed: 7,
+                time_of_day: 0.5,
+                player: None,
+                mods: Vec::new(),
+                inventory: Vec::new(),
+                items: None,
+                difficulty: 1,
+                dimension: String::new(),
+                arriving: false,
+                adventure: Default::default(),
+                generation: version.map(|version| engine_voxel::GenerationMeta {
+                    version,
+                    ..dims.generation.clone()
+                }),
+            };
+            store.save_meta(&meta).unwrap();
+            saved_world(&dir)
+        };
+        let v2 = world("ancien_v2", Some(2));
+        let reason = v2.unplayable.expect("un monde v2 ne se joue plus");
+        assert!(reason.contains("v2"), "{reason}");
+        assert!(world("monde_v3", Some(3)).unplayable.is_none());
+        assert!(world("monde_sans_version", None).unplayable.is_none());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

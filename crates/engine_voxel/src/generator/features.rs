@@ -104,16 +104,6 @@ fn spacing(kind: TreeKind) -> i32 {
     }
 }
 
-/// La distance (blocs) qu'un arbre de cette forme garde avec une zone réservée en génération v2 : le
-/// rayon de son feuillage.
-fn clearance_of(kind: TreeKind) -> u8 {
-    match kind {
-        TreeKind::Cactus | TreeKind::Bush | TreeKind::JungleBush => 2,
-        TreeKind::BigOak | TreeKind::Jungle => 8,
-        _ => 5,
-    }
-}
-
 /// Les emplacements d'arbres déjà calculés, par colonne de chunks.
 ///
 /// Chaque chunk a besoin des arbres des 9 colonnes autour de lui, et une colonne compte 6
@@ -130,7 +120,7 @@ pub type TreeSites = Arc<[TreeSite]>;
 const TREE_CACHE_LIMIT: usize = 8192;
 
 impl TerrainGenerator {
-    /// Vide les caches de calcul (arbres, colonnes, contextes v2) : le générateur repart à froid. Le monde
+    /// Vide les caches de calcul (arbres, colonnes, sites) : le générateur repart à froid. Le monde
     /// généré ne change pas, seulement le temps du prochain calcul. Utile aux mesures à froid et
     /// aux tests qui comparent un cache vide et un cache plein.
     pub fn clear_caches(&self) {
@@ -141,11 +131,6 @@ impl TerrainGenerator {
             .clear();
         self.site_cache.clear();
         self.column_cache.clear();
-        // La génération v2 : contextes de colonne et caches macro (hydrologie).
-        if let Some(v2) = &self.v2 {
-            v2.contexts.clear();
-            v2.world.clear_caches();
-        }
     }
 
     /// Les arbres plantés dans la colonne de chunks (cx, cz), depuis le cache si possible.
@@ -173,9 +158,6 @@ impl TerrainGenerator {
         let mut sites: Vec<TreeSite> = Vec::new();
         // Pas d'arbres dans un village : on les cherche une fois pour la colonne de chunks.
         let villages = self.village_clearings(cx, cz);
-        // Génération v2 : aucune structure n'est recouverte par un arbre (elles s'écrivent après
-        // eux) ; on garde le feuillage d'un arbre hors de l'emprise de chacune.
-        let footprints = self.v2_footprints(cx, cz);
         // La plus forte chance d'arbre, tous biomes confondus : un tirage au-dessus est rejeté
         // sans évaluer la colonne (le plus cher).
         let best = self
@@ -185,16 +167,6 @@ impl TerrainGenerator {
             .map(|(_, b)| b.tree_density * (1.0 - b.groves + b.groves * MAX_GROVE))
             .fold(0.0, f32::max)
             / CANDIDATES as f32;
-        // Génération v2 : la végétation suit l'humidité, la pente, l'altitude et les berges, avec
-        // un coefficient jusqu'à `MAX_CANOPY` (voir `canopy_factor`) ; la borne de rejet rapide
-        // s'élargit d'autant. Elle n'écarte que des candidats que le test final rejetterait aussi :
-        // la v1 ne change pas.
-        let canopy_bound = if self.v2.is_some() {
-            super::v2_context::MAX_CANOPY
-        } else {
-            1.0
-        };
-        let best = best * canopy_bound;
         for _ in 0..CANDIDATES {
             // Tous les tirages d'abord, quoi qu'il arrive : la suite reste la même pour
             // chaque emplacement, que les précédents soient retenus ou non.
@@ -212,20 +184,13 @@ impl TerrainGenerator {
             }) {
                 continue;
             }
-            if footprints
-                .iter()
-                .any(|&(sx, sz, r)| (x - sx).abs() <= r + 8 && (z - sz).abs() <= r + 8)
-            {
-                continue;
-            }
             let column = self.column(x, z);
             let biome = self.biomes.get(column.biome);
             if biome.trees.is_empty() {
                 continue;
             }
             let grove = grove_factor(self.seed, x, z, biome.groves);
-            let canopy = self.v2_canopy(x, z);
-            if accept >= biome.tree_density * grove * canopy / CANDIDATES as f32 {
+            if accept >= biome.tree_density * grove / CANDIDATES as f32 {
                 continue;
             }
             if column.height < SEA_LEVEL {
@@ -249,15 +214,6 @@ impl TerrainGenerator {
                 dx * dx + dz * dz < gap * gap
             });
             if crowded {
-                continue;
-            }
-            // Génération v2 : jamais dans l'eau d'un cours ou d'un lac, ni assez près d'une zone
-            // réservée pour que le feuillage la recouvre (distance selon la taille de l'arbre).
-            if self.v2.is_some() && self.v2_clearance(x, z) <= clearance_of(kind) {
-                continue;
-            }
-            // Ni sur une colonne à surplomb (le sol y recouvre l'entaille d'une paroi).
-            if self.v2_overhanging(x, z) {
                 continue;
             }
             // Le sol doit convenir : du sable pour le cactus, n'importe quel sol plein pour un
@@ -354,14 +310,8 @@ impl TerrainGenerator {
                 let (x, z) = (origin.x + lx as i32, origin.z + lz as i32);
                 let biome = self.biomes.get(column.biome);
                 let r = roll(self.seed, x, z, 600);
-                // Sous l'eau : la mer en v1 ; en v2 aussi l'eau d'un cours ou d'un lac, à son niveau.
-                let (wet, water_top) = match &self.v2 {
-                    None => (column.height < SEA_LEVEL, SEA_LEVEL),
-                    Some(_) => {
-                        let level = self.v2_water_top(x, z);
-                        (level > column.height, level)
-                    }
-                };
+                // Sous l'eau : la mer.
+                let (wet, water_top) = (column.height < SEA_LEVEL, SEA_LEVEL);
                 if !wet {
                     // Sur la terre : au plus une plante par colonne. Chaque plante du biome a
                     // son propre tirage, modulé par ses taches ; les plus rares passent
@@ -383,7 +333,7 @@ impl TerrainGenerator {
                                 || self.registry.def(ground).gravity
                         } else {
                             // Les biomes de la v3 fleurissent aussi sur leur propre sol (les fleurs du
-                            // désert fleuri sur le sable) ; v1 et v2 ne changent pas.
+                            // désert fleuri sur le sable) ; la v1 ne change pas.
                             b.is_soil(ground) || (biome.v3_only && ground == biome.surface)
                         };
                         let ly = (y - origin.y) as usize;

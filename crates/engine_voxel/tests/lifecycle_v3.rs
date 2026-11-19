@@ -1,4 +1,4 @@
-//! Le cycle de vie d'un monde v2 (lot 9) : création, modification, sauvegarde, réouverture, retour dans
+//! Le cycle de vie d'un monde v3 (celui des nouveaux mondes) : création, modification, sauvegarde, réouverture, retour dans
 //! une zone modifiée et chargement dans un ordre différent, avec le vrai streamer et un vrai dossier.
 
 use std::collections::HashMap;
@@ -12,10 +12,10 @@ use glam::{IVec3, Vec3};
 
 const RADIUS: i32 = 2;
 
-fn v2(seed: u32) -> TerrainGenerator {
+fn v3(seed: u32) -> TerrainGenerator {
     TerrainGenerator::new(seed)
-        .with_version(GenerationVersion::V2)
-        .expect("v2")
+        .with_version(GenerationVersion::V3)
+        .expect("v3")
 }
 
 fn streamer(generator: TerrainGenerator, store: Option<Arc<SaveStore>>) -> ChunkStreamer {
@@ -71,7 +71,7 @@ fn temp(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn a_v2_world_keeps_its_edits_across_save_and_reopen_and_the_rest_regenerates_identically() {
+fn a_v3_world_keeps_its_edits_across_save_and_reopen_and_the_rest_regenerates_identically() {
     let dir = temp("reopen");
     let here = Vec3::new(40.0, 90.0, 40.0);
     let far = Vec3::new(40.0 + 20.0 * 32.0, 90.0, 40.0);
@@ -79,7 +79,7 @@ fn a_v2_world_keeps_its_edits_across_save_and_reopen_and_the_rest_regenerates_id
 
     // Première session : on creuse, on construit, on sauvegarde, on s'éloigne.
     let store = Arc::new(SaveStore::open(&dir).unwrap());
-    let mut first = streamer(v2(2024), Some(store.clone()));
+    let mut first = streamer(v3(2024), Some(store.clone()));
     settle(&mut first, here);
     let stone = first.world().registry().id("core:stone").unwrap();
     // Une construction dans l'air, juste au-dessus du sol (jamais de la pierre déjà là).
@@ -100,7 +100,7 @@ fn a_v2_world_keeps_its_edits_across_save_and_reopen_and_the_rest_regenerates_id
 
     // Seconde session : un autre processus simulé, même dossier, même graine, même version.
     let store = Arc::new(SaveStore::open(&dir).unwrap());
-    let mut second = streamer(v2(2024), Some(store));
+    let mut second = streamer(v3(2024), Some(store));
     settle(&mut second, here);
     assert_eq!(second.world().block(dug), BlockId::AIR, "creusement perdu");
     assert_eq!(second.world().block(built), stone, "construction perdue");
@@ -111,7 +111,7 @@ fn a_v2_world_keeps_its_edits_across_save_and_reopen_and_the_rest_regenerates_id
         assert_eq!(after.get(pos), Some(blocks), "chunk {pos} différent");
     }
     // Un monde vierge de même graine donne les mêmes blocs partout sauf aux deux modifications.
-    let mut fresh = streamer(v2(2024), None);
+    let mut fresh = streamer(v3(2024), None);
     settle(&mut fresh, here);
     let reference = snapshot(&fresh);
     // Un chunk entièrement vide n'est pas gardé dans le monde : on compare l'union des positions.
@@ -145,10 +145,10 @@ fn loading_in_a_different_order_gives_the_same_chunks() {
     let a = Vec3::new(40.0, 90.0, 40.0);
     let b = Vec3::new(40.0 + 5.0 * 32.0, 90.0, 40.0 + 3.0 * 32.0);
     // Ordre A puis B, puis retour en A ; et ordre B puis A.
-    let mut one = streamer(v2(7), None);
+    let mut one = streamer(v3(7), None);
     settle(&mut one, a);
     settle(&mut one, b);
-    let mut two = streamer(v2(7), None);
+    let mut two = streamer(v3(7), None);
     settle(&mut two, b);
     settle(&mut two, a);
     settle(&mut two, b);

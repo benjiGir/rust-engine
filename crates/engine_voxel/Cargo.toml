@@ -51,6 +51,3 @@ workspace = true
 name = "fluids"
 harness = false
 
-[[bench]]
-name = "hydrology"
-harness = false

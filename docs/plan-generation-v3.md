@@ -569,11 +569,18 @@ Le tour complet passe en v3 (62 vues). Deux corrections : la vue de la toundra r
 la toundra enneigée et l'écrasait (`biome-toundra-rousse`, et un test vérifie que les noms sont uniques) ; la fosse du
 sous-sol creuse jusqu'au bas du monde (y = -127 en v3, au lieu de s'arrêter à 1).
 
-### Avant d'activer la v3 pour les mondes neufs
+### Activation (faite, avec ton accord)
 
-- **Ta partie** : la v3 n'a pas encore été jouée (`VOXEL_GENERATION=3`).
-- **Activation** (`GenerationVersion::FOR_NEW_WORLDS`) et **retrait de la v2** : seulement avec ton accord. Le retrait de la
-  v2 rend ses mondes de test illisibles (ils ne peuvent pas être convertis).
+- **Les nouveaux mondes sont en v3** (`GenerationVersion::FOR_NEW_WORLDS`). Un monde existant garde sa
+  version : ton monde v1 (`saves/world`) et les mondes sans métadonnée restent v1. `VOXEL_GENERATION=1`
+  crée encore un monde v1 (tests, comparaisons).
+- **La v2 est retirée** : géographie et drainage macro, climat, densité, surface, sous-sol et escarpements v2,
+  cartes macro et de climat v2, leurs tests et le banc d'hydrologie (environ 6 000 lignes et 80 tests). Un
+  monde v2 est refusé à l'ouverture avec une explication ; la liste des mondes l'indique en rouge et ne
+  propose plus « Jouer » (il peut être supprimé). Test : `menus::tests::a_retired_v2_world_is_listed_as_unplayable`.
+- Converti en v3 : le cycle de vie avec le vrai streamer (`tests/lifecycle_v3.rs`), le maillage binaire comparé
+  au glouton, le banc `generation v3`. L'outil de cartes prend `--generator v1|v3` (v3 par défaut) ; les
+  coupes et cartes de blocs marchent pour les deux.
 
 ### Retours de partie v3 (corrigés)
 

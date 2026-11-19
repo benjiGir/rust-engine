@@ -251,7 +251,7 @@ pub(crate) fn ramp(t: f32, colors: &[[u8; 3]]) -> [u8; 3] {
 
 pub(crate) fn altitude_color(height: i32, shade: f32) -> [u8; 3] {
     let sea = SEA_LEVEL;
-    // L'échelle des couleurs d'altitude suit la hauteur des mondes v1 et v2 (les sommets au-delà
+    // L'échelle des couleurs d'altitude suit la hauteur des mondes v1 (les sommets au-delà
     // gardent la dernière couleur).
     let top = WORLD_HEIGHT_CHUNKS * 32 - 2;
     let base = if height < sea {

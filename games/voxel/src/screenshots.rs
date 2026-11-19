@@ -261,7 +261,7 @@ const SHOTS: [Shot; 62] = [
     biome("biome-riviere", "core:river"),
     biome("biome-ocean", "core:ocean"),
     biome("biome-ocean-profond", "core:deep_ocean"),
-    // La génération v3, vague 1 (ces biomes n'existent pas dans les mondes v1 et v2).
+    // La génération v3, vague 1 (ces biomes n'existent pas dans les mondes v1).
     biome("biome-sequoias", "core:redwood_forest"),
     biome("biome-bayou", "core:bayou"),
     biome("biome-lavande", "core:lavender_field"),

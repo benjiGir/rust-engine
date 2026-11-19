@@ -10,9 +10,7 @@
 //! Le terrain lointain ne regarde donc que la **surface** : pour chaque point d'une grille
 //! régulière, la hauteur et le biome que le générateur donne déjà sans rien creuser (pas de
 //! grotte, pas d'arbre, pas de minerai). Il en fait un maillage lisse, coloré selon le biome,
-//! l'altitude et la pente, avec de l'eau : la mer, et dans un monde v2 les lacs et les cours
-//! à la hauteur exacte où le générateur les met (`surface_info`), si bien que de loin comme de près
-//! ce sont les mêmes étendues d'eau.
+//! l'altitude et la pente, avec la mer.
 //!
 //! # Les niveaux de détail
 //!
@@ -327,18 +325,13 @@ fn sample(
     } else {
         generator.column(x, z)
     };
-    // L'eau : les mondes v2 disent où coulent leurs cours et où dorment leurs lacs, à la hauteur de
-    // leur surface ; les autres n'ont que la mer.
     // Un chunk modifié (construit, creusé) prime sur ce que le générateur aurait fait.
     let edited = edits.and_then(|e| e.surface_at(x, z, column.height, generator.registry()));
     if let Some((y, _)) = edited {
         column.height = y;
     }
-    let info = generator.surface_info(x, z);
-    let water_top = match &info {
-        Some(info) => info.water,
-        None => (column.height < SEA_LEVEL).then_some(SEA_LEVEL),
-    };
+    // L'eau : la mer.
+    let water_top = (column.height < SEA_LEVEL).then_some(SEA_LEVEL);
     let biome = generator.biome(column.biome);
     let def = generator
         .registry()
@@ -353,9 +346,7 @@ fn sample(
     };
     let top = column.height as f32 + 1.0;
     // Les forêts sont plus sombres vues de loin (la canopée).
-    // Dans un monde v2, la densité d'arbres suit aussi la canopée locale (humidité, pente, lisière
-    // des arbres, berges) : la couleur lointaine lit la même.
-    let density = biome.tree_density * info.as_ref().map_or(1.0, |i| i.canopy);
+    let density = biome.tree_density;
     if edited.is_none() && density > 3.0 && column.height >= SEA_LEVEL {
         color = color.map(|c| c * 0.78);
     }
@@ -615,7 +606,7 @@ pub fn build_tile_debug(
     }
 
     // L'eau : un quad plat sur chaque cellule dont un coin est sous l'eau, à la hauteur de la
-    // surface la plus haute de ses coins (la mer, ou le lac ou le cours d'un monde v2).
+    // surface la plus haute de ses coins (la mer).
     let mut translucent: Vec<u32> = Vec::new();
     let mut top_water = WATER_TOP;
     let mut any_water = false;

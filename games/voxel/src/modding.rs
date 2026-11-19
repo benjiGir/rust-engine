@@ -471,7 +471,7 @@ pub fn ms(d: Duration) -> f64 {
 }
 
 /// Le terrain du jeu et des mods (leurs minerais, biomes et structures), généré selon `version`
-/// (celle de `world.ron` : un monde v1 reste v1, un monde de test v2 reste v2). Un fichier de mod
+/// (celle de `world.ron` : un monde v1 reste v1, un monde v3 reste v3). Un fichier de mod
 /// invalide est signalé dans les logs, et le monde se génère sans ce qu'apportent les mods.
 pub fn terrain(
     seed: u32,

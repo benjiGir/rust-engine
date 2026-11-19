@@ -28,14 +28,7 @@ impl FarTerrain {
     pub fn new(chunks: &ChunkStreamer, near_radius: i32, far_radius: i32) -> Self {
         // Peu de threads : le terrain lointain ne doit pas gêner les chunks (et il se met en veilleuse
         // pendant un gros chargement : voir `update_far`).
-        // Un monde v2 coûte environ dix fois plus par tuile (chaque tuile grossière touche des centaines
-        // de contextes de colonne) : quatre threads font tenir l'anneau en 3 à 10 s au lieu de 7 à 20 s
-        // (mesuré, `print_far_ring_fill`). L'allocation baisse quand les chunks proches chargent.
-        let threads = if chunks.generator().macro_world().is_some() {
-            4
-        } else {
-            2
-        };
+        let threads = 2;
         let streamer = FarStreamer::with_debug(
             chunks.generator_arc(),
             FarConfig {

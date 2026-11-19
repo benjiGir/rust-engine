@@ -1,5 +1,5 @@
-//! La recette des générations (lot 9 du plan v2, lot 4 du plan v3) : mêmes mesures de paysage sur
-//! plusieurs graines, pour la génération historique (v1) et la v3 par défaut (`--versions 1,2,3`),
+//! La recette des générations (lot 4 et lot 6 du plan v3) : mêmes mesures de paysage sur
+//! plusieurs graines, pour la génération historique (v1) et la v3 par défaut (`--versions 1,3`),
 //! imprimées en tableau Markdown.
 //!
 //! ```text
@@ -20,7 +20,7 @@
 //!   de plus de 3 blocs en hauteur, hors eau ;
 //! - **forêt** : part de la terre dont la colonne de chunks contient au moins 8 arbres (les vrais tirages du
 //!   générateur, `tree_sites`) ; **arbres/chunk** : leur nombre moyen par colonne de chunks de terre ;
-//! - **eau douce** (v2) : part des colonnes avec un lac ou un cours au-dessus de la mer ; **rivière** (v1) :
+//! - **eau douce** : part des colonnes de biome rivière ;
 //!   part des colonnes de biome rivière ;
 //! - **biomes** : nombre de biomes différents vus sur la terre, et entropie de leur répartition (bits).
 
@@ -49,7 +49,6 @@ struct Row {
 
 fn measure(seed: u32, version: GenerationVersion, extent: i32, step: i32) -> Row {
     let started = std::time::Instant::now();
-    let v2 = version == GenerationVersion::V2;
     let generator = TerrainGenerator::new(seed)
         .with_version(version)
         .expect("version de génération");
@@ -68,13 +67,7 @@ fn measure(seed: u32, version: GenerationVersion, extent: i32, step: i32) -> Row
             total += 1;
             height_sum += f64::from(column.height);
             let biome = generator.biome(column.biome);
-            if v2 {
-                if let Some(info) = generator.surface_info(x, z)
-                    && info.water.is_some_and(|w| w > sea + 1)
-                {
-                    fresh += 1;
-                }
-            } else if biome.kind == BiomeKind::River {
+            if biome.kind == BiomeKind::River {
                 fresh += 1;
             }
             if column.height < sea {
@@ -135,7 +128,6 @@ fn measure(seed: u32, version: GenerationVersion, extent: i32, step: i32) -> Row
         seed,
         version: match version {
             GenerationVersion::V1 => "v1",
-            GenerationVersion::V2 => "v2",
             GenerationVersion::V3 => "v3",
         },
         land: fraction(land, total),
@@ -175,7 +167,7 @@ fn main() {
             "--versions" => {
                 versions = it
                     .next()
-                    .expect("--versions 1,2,3")
+                    .expect("--versions 1,3")
                     .split(',')
                     .map(|v| {
                         GenerationVersion::from_number(v.trim().parse().expect("numéro"))

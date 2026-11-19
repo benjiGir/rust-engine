@@ -607,11 +607,11 @@ mod tests {
     }
 
     #[test]
-    fn v2_chunks_match_the_greedy_too() {
+    fn v3_chunks_match_the_greedy_too() {
         let generator = TerrainGenerator::new(42)
-            .with_version(GenerationVersion::V2)
-            .expect("v2");
-        let (chunks, _, _) = compare_region(&generator, IVec2::new(-20, 15), "v2");
+            .with_version(GenerationVersion::V3)
+            .expect("v3");
+        let (chunks, _, _) = compare_region(&generator, IVec2::new(-20, 15), "v3");
         assert!(chunks > 15);
     }
 

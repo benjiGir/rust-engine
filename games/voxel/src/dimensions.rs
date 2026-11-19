@@ -69,8 +69,8 @@ pub fn open(
     )
 }
 
-/// Comme [`open`], avec la version qu'aurait un monde neuf (`for_new_world()` : v1, sauf monde de
-/// test v2 demandé par `VOXEL_GENERATION`). Un monde enregistré garde la sienne.
+/// Comme [`open`], avec la version qu'aurait un monde neuf (`for_new_world()` : v3, ou v1 demandée par
+/// `VOXEL_GENERATION=1`). Un monde enregistré garde la sienne.
 pub fn open_versioned(
     blocks: &BlockRegistry,
     mods: &[(String, PathBuf)],
@@ -121,7 +121,8 @@ pub fn open_versioned(
 }
 
 /// La version de génération et la configuration à enregistrer. Un monde neuf prend la version
-/// des nouveaux mondes (v1, ou v2 pour un monde de test : voir `GenerationVersion::for_new_world`) et la configuration d'aujourd'hui ; un monde sans métadonnée de génération
+/// des nouveaux mondes (v3, ou v1 si `VOXEL_GENERATION=1` : voir `GenerationVersion::for_new_world`) et
+/// la configuration d'aujourd'hui ; un monde sans métadonnée de génération
 /// (d'avant ce champ) reste en génération historique v1 et adopte la configuration d'aujourd'hui
 /// comme référence ; un monde qui en a une la garde, et chaque écart avec aujourd'hui (mod retiré,
 /// modifié ou ajouté) est signalé dans les logs.
@@ -137,6 +138,7 @@ fn open_generation(
         Some(meta) => meta.generation_version()?,
         None => new_world_version,
     };
+    log::info!("génération : {version}");
     let now = GenerationMeta::describe(version, dimensions, blocks, biomes, mods);
     let Some(saved) = meta.and_then(|m| m.generation.as_ref()) else {
         if meta.is_some() {
@@ -304,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn the_generation_version_is_v1_for_new_and_old_worlds_and_the_saved_reference_is_kept() {
+    fn new_worlds_are_v3_old_ones_stay_v1_and_the_saved_reference_is_kept() {
         let blocks = registry();
         // Monde neuf : la version des nouveaux mondes et la configuration d'aujourd'hui.
         let new_version = GenerationVersion::FOR_NEW_WORLDS;
@@ -314,10 +316,13 @@ mod tests {
             GenerationVersion::FOR_NEW_WORLDS.number()
         );
         assert_eq!(new.generation.dimensions.len(), 1);
-        // Un monde d'avant le champ : génération historique, configuration d'aujourd'hui.
+        assert_eq!(new_version, GenerationVersion::V3);
+        // Un monde d'avant le champ : génération historique (v1), configuration d'aujourd'hui.
         let old = meta(OVERWORLD, false);
         let (dims, _) = open_versioned(&blocks, &[], None, Some(&old), None, new_version).unwrap();
-        assert_eq!(dims.generation, new.generation);
+        assert_eq!(dims.generation.version, GenerationVersion::V1.number());
+        assert_eq!(dims.generation.dimensions, new.generation.dimensions);
+        assert_eq!(dims.generation.data, new.generation.data);
         // Un monde qui a une référence la garde, même si elle ne correspond plus.
         let mut saved = new.generation.clone();
         saved.data[0].hash ^= 1;
@@ -334,16 +339,16 @@ mod tests {
         assert!(open_versioned(&blocks, &[], None, Some(&future), None, new_version).is_err());
     }
 
-    /// L'aiguillage par `world.ron` : un monde de test v2 est enregistré en v2 et s'y rouvre ; un
-    /// monde v1 ou sans métadonnée de génération reste v1 même quand on demande un monde de test v2.
+    /// L'aiguillage par `world.ron` : un monde neuf est enregistré en v3 et s'y rouvre ; un monde v1 ou
+    /// sans métadonnée de génération reste v1 ; un monde v2 (prototype retiré) est refusé.
     #[test]
     fn the_saved_version_decides_which_generator_a_world_opens_with() {
         let blocks = registry();
-        let v2 = GenerationVersion::V2;
-        // Un monde neuf de test : v2, et `world.ron` l'écrira.
-        let (new, _) = open_versioned(&blocks, &[], None, None, None, v2).unwrap();
-        assert_eq!(new.generation.generation_version().unwrap(), v2);
-        // Rouvert (même si la variable demande v1) : il reste v2.
+        let v3 = GenerationVersion::V3;
+        // Un monde neuf : v3, et `world.ron` l'écrira.
+        let (new, _) = open_versioned(&blocks, &[], None, None, None, v3).unwrap();
+        assert_eq!(new.generation.generation_version().unwrap(), v3);
+        // Rouvert (même si la variable demande v1) : il reste v3.
         let mut reopened = meta(OVERWORLD, false);
         reopened.generation = Some(new.generation.clone());
         let (dims, _) = open_versioned(
@@ -355,14 +360,24 @@ mod tests {
             GenerationVersion::V1,
         )
         .unwrap();
-        assert_eq!(dims.generation.generation_version().unwrap(), v2);
-        // Un monde d'avant le champ, ou enregistré en v1, reste v1 même si on demande un test v2.
+        assert_eq!(dims.generation.generation_version().unwrap(), v3);
+        // Un monde d'avant le champ, ou enregistré en v1, reste v1 même si les nouveaux sont en v3.
         let old = meta(OVERWORLD, false);
-        let (dims, _) = open_versioned(&blocks, &[], None, Some(&old), None, v2).unwrap();
+        let (dims, _) = open_versioned(&blocks, &[], None, Some(&old), None, v3).unwrap();
         assert_eq!(
             dims.generation.generation_version().unwrap(),
             GenerationVersion::V1
         );
+        // Un monde v2 : refusé, avec une explication.
+        let mut retired = meta(OVERWORLD, false);
+        retired.generation = Some(GenerationMeta {
+            version: 2,
+            ..new.generation.clone()
+        });
+        let err = open_versioned(&blocks, &[], None, Some(&retired), None, v3)
+            .err()
+            .expect("un monde v2 ne s'ouvre plus");
+        assert!(format!("{err:#}").contains("v2"), "{err:#}");
         // Les dossiers temporaires : `world.ron` écrit puis relu garde la version.
         let root = std::env::temp_dir().join(format!("voxel-genver-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -371,24 +386,13 @@ mod tests {
         saved_meta.generation = Some(new.generation.clone());
         store.save_meta(&saved_meta).unwrap();
         let loaded = store.load_meta().unwrap().unwrap();
-        assert_eq!(loaded.generation_version().unwrap(), v2);
-        let (dims, _) = open_versioned(
-            &blocks,
-            &[],
-            Some(store.clone()),
-            Some(&loaded),
-            None,
-            GenerationVersion::V1,
-        )
-        .unwrap();
-        assert_eq!(dims.generation.generation_version().unwrap(), v2);
-        // Le générateur construit pour cette version est bien v2 (blocs différents de la v1).
-        let version = dims.generation.generation_version().unwrap();
-        let generator = crate::modding::terrain(3, &blocks, &[], &dims.current, version).unwrap();
-        assert!(generator.surface_info(0, 0).is_some(), "générateur v2");
+        assert_eq!(loaded.generation_version().unwrap(), v3);
+        // Le générateur construit pour cette version est bien v3.
+        let generator = crate::modding::terrain(3, &blocks, &[], &new.current, v3).unwrap();
+        assert!(generator.v3_parameters(0, 0).is_some(), "générateur v3");
         let v1 =
-            crate::modding::terrain(3, &blocks, &[], &dims.current, GenerationVersion::V1).unwrap();
-        assert!(v1.surface_info(0, 0).is_none(), "générateur v1");
+            crate::modding::terrain(3, &blocks, &[], &new.current, GenerationVersion::V1).unwrap();
+        assert!(v1.v3_parameters(0, 0).is_none(), "générateur v1");
         let _ = std::fs::remove_dir_all(&root);
     }
 

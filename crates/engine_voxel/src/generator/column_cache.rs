@@ -114,7 +114,7 @@ impl<T> Default for Table<T> {
 }
 
 /// Le cache. Partagé entre les clones d'un générateur et entre les workers. Générique : la
-/// génération v2 s'en sert aussi (contextes de colonne, avec sa propre borne).
+/// génération v3 s'en sert aussi (contextes de colonne, avec sa propre borne).
 #[derive(Debug)]
 pub(super) struct ColumnCache<T = ColumnGrid> {
     table: Mutex<Table<T>>,

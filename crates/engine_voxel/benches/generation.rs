@@ -55,53 +55,28 @@ fn bench_generation(c: &mut Criterion) {
     });
     group.finish();
 
-    // La génération v2 (lot 4), mêmes cas à froid : `clear_caches` vide aussi les contextes de
-    // colonne et l'hydrologie macro, la mesure comprend donc la construction du relief.
-    let v2 = TerrainGenerator::new(42)
-        .with_version(GenerationVersion::V2)
-        .unwrap();
-    let mut group = c.benchmark_group("generation v2");
+    // La génération v3 (celle des nouveaux mondes), mêmes cas à froid : `clear_caches` vide les arbres
+    // et les sites, pas les contextes v3 (un générateur neuf repart de tout).
+    let v3 = || {
+        TerrainGenerator::new(42)
+            .with_version(GenerationVersion::V3)
+            .unwrap()
+    };
+    let warm = v3();
+    let mut group = c.benchmark_group("generation v3");
     group.sample_size(20);
     group.bench_function("surface (chaud)", |b| {
-        b.iter(|| v2.generate(black_box(IVec3::new(3, 2, 5))))
-    });
-    group.bench_function("verticale à froid (6 chunks)", |b| {
-        b.iter_batched(
-            || v2.clear_caches(),
-            |()| {
-                for y in 0..6 {
-                    black_box(v2.generate(black_box(IVec3::new(3, y, 5))));
-                }
-            },
-            BatchSize::SmallInput,
-        )
+        b.iter(|| warm.generate(black_box(IVec3::new(3, 2, 5))))
     });
     group.sample_size(10);
-    group.bench_function("zone 8 × 8 à froid (384 chunks)", |b| {
+    group.bench_function("verticale à froid (12 chunks)", |b| {
         b.iter_batched(
-            || v2.clear_caches(),
-            |()| v2.generate_area(black_box(IVec3::new(-40, 0, 17)), 8, 8),
-            BatchSize::PerIteration,
-        )
-    });
-    // Un massif (graine 42, vers x = -256, z = -512) : parois, escarpements et entailles de pied.
-    group.sample_size(20);
-    group.bench_function("massif : verticale à froid (6 chunks)", |b| {
-        b.iter_batched(
-            || v2.clear_caches(),
-            |()| {
-                for y in 0..6 {
-                    black_box(v2.generate(black_box(IVec3::new(-8, y, -16))));
+            v3,
+            |g| {
+                for y in -4..8 {
+                    black_box(g.generate(black_box(IVec3::new(3, y, 5))));
                 }
             },
-            BatchSize::SmallInput,
-        )
-    });
-    group.sample_size(10);
-    group.bench_function("massif : zone 8 × 8 à froid (384 chunks)", |b| {
-        b.iter_batched(
-            || v2.clear_caches(),
-            |()| v2.generate_area(black_box(IVec3::new(-12, 0, -20)), 8, 8),
             BatchSize::PerIteration,
         )
     });

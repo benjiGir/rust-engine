@@ -1,11 +1,11 @@
-//! Les cartes et les coupes issues des **blocs** d'un générateur (utile surtout pour la v2) : la
+//! Les cartes et les coupes issues des **blocs** d'un générateur (v1 et v3) : la
 //! hauteur réelle de la surface, son matériau, l'eau, les surplombs, et des coupes verticales
 //! (profil d'une ligne en x ou en z, un bloc par pixel agrandi).
 //!
 //! Contrairement à [`crate::MacroMapSamples`] (le relief macro avant tout bloc), tout vient ici de
 //! [`TerrainGenerator::generate`] : ce que le joueur verrait. La commande est
-//! `cargo xtask map --generator v2 --maps hauteur-blocs,materiau,...` et
-//! `cargo xtask map --generator v2 --section z=0 --from -256 --to 256` (voir
+//! `cargo xtask map --maps hauteur-blocs,materiau,...` et
+//! `cargo xtask map --section z=0 --from -256 --to 256` (voir
 //! `crates/engine_voxel/examples/worldmap.rs`).
 
 use glam::IVec3;

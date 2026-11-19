@@ -1488,7 +1488,7 @@ impl TerrainGenerator {
 
     /// La structure de la case (`cx`, `cz`) de la sorte `d`, si elle existe et si le terrain
     /// lui convient. Le résultat est gardé : le jeu et le terrain lointain interrogent les mêmes
-    /// cases sans cesse, et en génération v2 chaque évaluation lit plusieurs colonnes.
+    /// cases sans cesse, et en génération v3 chaque évaluation lit plusieurs colonnes.
     fn site_in_cell(&self, d: usize, cx: i32, cz: i32) -> Option<StructureSite> {
         if let Some(found) = self.site_cache.get(&(d, cx, cz)) {
             return found;
@@ -1548,8 +1548,7 @@ impl TerrainGenerator {
                         .is_some_and(|g| column.height - g.depth() >= 12)
             }
         };
-        // Génération v2 : une structure ne se pose ni dans l'eau, ni sur un lit, ni sur une berge.
-        (ok && self.v2_site_clear(x, z, def.radius)).then_some(StructureSite {
+        ok.then_some(StructureSite {
             def: d,
             kind: def.kind,
             x,

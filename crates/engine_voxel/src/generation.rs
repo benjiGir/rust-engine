@@ -53,30 +53,24 @@ const MOD_FILES: [&str; 4] = ["biomes.ron", "ores.ron", "structures.ron", "dimen
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
 pub enum GenerationVersion {
     /// La génération historique : relief par bruit, rivières au passage à zéro, grottes 3D.
-    /// Ses blocs sont figés par `tests/generation_reference.rs`.
+    /// Ses blocs sont figés par `tests/generation_reference.rs`. Les mondes d'avant la v3 la gardent.
     #[default]
     V1,
-    /// La génération v2 (lot 4 du plan) : relief macro (géographie et drainage), densité 3D,
-    /// surface selon la pente, strates régionales. **Pas encore activée pour les nouveaux mondes**
-    /// (voir [`GenerationVersion::FOR_NEW_WORLDS`]) : seul un monde de test la choisit, par
-    /// [`GenerationVersion::for_new_world`] et la variable d'environnement
-    /// [`GenerationVersion::ENV_OVERRIDE`].
-    V2,
     /// La génération v3 (`docs/plan-generation-v3.md`) : une densité 3D sur le modèle de Minecraft
-    /// moderne (paramètres climatiques, splines, bruit 3D), un monde de y = -128 à 255. Monde de test
-    /// seulement (`VOXEL_GENERATION=3`), comme v2.
+    /// moderne (paramètres climatiques, splines, bruit 3D), un monde de y = -128 à 255. Celle des
+    /// nouveaux mondes. (La v2, un prototype de relief macro, a été retirée : le numéro 2 n'est plus
+    /// accepté.)
     V3,
 }
 
 impl GenerationVersion {
     /// Ce que sélectionne un monde sans métadonnée de génération.
     pub const LEGACY: Self = Self::V1;
-    /// Ce que choisit la création d'un nouveau monde. Reste v1 tant que la recette du lot 9 n'a
-    /// pas eu lieu.
-    pub const FOR_NEW_WORLDS: Self = Self::V1;
-    /// La variable d'environnement qui crée un monde de **test** en v2 : `VOXEL_GENERATION=2`
-    /// (ou `v2`). Elle n'est lue qu'à la **création** d'un monde ; un monde existant garde la
-    /// version de son `world.ron`, quelle que soit la variable.
+    /// Ce que choisit la création d'un nouveau monde : la v3, depuis le lot 6 du plan v3.
+    pub const FOR_NEW_WORLDS: Self = Self::V3;
+    /// La variable d'environnement qui choisit la version d'un monde **créé** : `VOXEL_GENERATION=1`
+    /// (ou `v1`) pour un monde historique, `3` (ou `v3`, la valeur par défaut). Elle n'est lue qu'à
+    /// la création d'un monde ; un monde existant garde la version de son `world.ron`.
     pub const ENV_OVERRIDE: &'static str = "VOXEL_GENERATION";
 
     /// La version d'un monde que l'on crée maintenant : [`Self::FOR_NEW_WORLDS`], ou la version
@@ -91,7 +85,6 @@ impl GenerationVersion {
     pub fn for_new_world_with(requested: Option<&str>) -> Self {
         match requested.map(|v| v.trim().to_lowercase()).as_deref() {
             Some("1" | "v1") => Self::V1,
-            Some("2" | "v2") => Self::V2,
             Some("3" | "v3") => Self::V3,
             _ => Self::FOR_NEW_WORLDS,
         }
@@ -101,7 +94,6 @@ impl GenerationVersion {
     pub fn number(self) -> u32 {
         match self {
             Self::V1 => 1,
-            Self::V2 => 2,
             Self::V3 => 3,
         }
     }
@@ -111,7 +103,10 @@ impl GenerationVersion {
     pub fn from_number(number: u32) -> Result<Self> {
         match number {
             1 => Ok(Self::V1),
-            2 => Ok(Self::V2),
+            2 => bail!(
+                "ce monde a été créé avec la génération v2, un prototype retiré du jeu : il ne peut plus \
+                 s'ouvrir (créez un nouveau monde)"
+            ),
             3 => Ok(Self::V3),
             other => bail!(
                 "version de génération {other} inconnue : ce monde vient d'une version plus récente du jeu"
@@ -124,8 +119,7 @@ impl std::fmt::Display for GenerationVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::V1 => f.write_str("v1 (historique)"),
-            Self::V2 => f.write_str("v2 (relief macro, monde de test)"),
-            Self::V3 => f.write_str("v3 (densité 3D, monde de test)"),
+            Self::V3 => f.write_str("v3 (densité 3D)"),
         }
     }
 }
@@ -361,38 +355,32 @@ mod tests {
         );
         assert_eq!(GenerationVersion::V1.number(), 1);
         assert_eq!(GenerationVersion::LEGACY, GenerationVersion::V1);
-        assert_eq!(
-            GenerationVersion::from_number(2).unwrap(),
-            GenerationVersion::V2
-        );
-        assert_eq!(GenerationVersion::V2.number(), 2);
+        // La v2 a été retirée : ses mondes sont refusés, avec une explication.
+        let v2 = GenerationVersion::from_number(2).unwrap_err().to_string();
+        assert!(v2.contains("v2") && v2.contains("retiré"), "{v2}");
+        assert_eq!(GenerationVersion::V3.number(), 3);
         assert!(GenerationVersion::from_number(0).is_err());
         assert!(GenerationVersion::from_number(99).is_err());
     }
 
     #[test]
-    fn new_worlds_stay_v1_unless_a_test_world_is_requested() {
-        assert_eq!(GenerationVersion::FOR_NEW_WORLDS, GenerationVersion::V1);
+    fn new_worlds_are_v3_unless_a_historic_world_is_requested() {
+        assert_eq!(GenerationVersion::FOR_NEW_WORLDS, GenerationVersion::V3);
         assert_eq!(
             GenerationVersion::for_new_world_with(None),
-            GenerationVersion::V1
+            GenerationVersion::V3
         );
-        for v2 in ["2", "v2", " V2 "] {
-            assert_eq!(
-                GenerationVersion::for_new_world_with(Some(v2)),
-                GenerationVersion::V2
-            );
-        }
-        for v3 in ["3", "v3", " V3 "] {
-            assert_eq!(
-                GenerationVersion::for_new_world_with(Some(v3)),
-                GenerationVersion::V3
-            );
-        }
-        for v1 in ["1", "v1", "", "4", "n'importe quoi"] {
+        for v1 in ["1", "v1", " V1 "] {
             assert_eq!(
                 GenerationVersion::for_new_world_with(Some(v1)),
                 GenerationVersion::V1
+            );
+        }
+        // La v2 retirée, une valeur inconnue : la version par défaut.
+        for v3 in ["3", "v3", " V3 ", "2", "v2", "", "4", "n'importe quoi"] {
+            assert_eq!(
+                GenerationVersion::for_new_world_with(Some(v3)),
+                GenerationVersion::V3
             );
         }
     }

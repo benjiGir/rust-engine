@@ -323,35 +323,19 @@ Plan et choix : `docs/plan-stockage.md`.
 - **Observation** : `ChunkStreamer::set_pipeline_timing` (`VOXEL_PIPELINE=1` en jeu) mesure les délais
   demande → génération → lumière → maillage → envoi ; `cargo xtask map` exporte des cartes PNG.
 
-### Géographie et drainage macro, prototype v2 (fait : `generator/geography.rs`, `hydrology.rs`, `context.rs`)
+### Génération v3 : densité 3D, celle des nouveaux mondes (fait : `density_graph/`, `generator/v3.rs`, `generator/v3_rules.rs`, `assets/core/worldgen/`)
 
-- **Prototype non branché** : continents, côtes, chaînes, bassins, rivières et lacs en coordonnées monde,
-  fonctions pures de `(graine, x, z)` (`Geography`, `Hydrology`, `MacroWorld`), sans état global ni
-  frontière de chunk. Ils ne génèrent aucun bloc et `GenerationVersion::FOR_NEW_WORLDS` reste v1 ; la
-  génération v1 est inchangée (`generation_reference`).
-- **Drainage hiérarchique** : cellules de 64 blocs groupées en bassins de 512 blocs ; le graphe de
-  bassins (ordre strict sur l'altitude des nœuds, profondeur bornée à 48 arêtes) est acyclique par
-  construction, les cellules fines suivent une distance entière strictement décroissante vers la
-  sortie. Contrat de bord (`EdgeContract`) lu à l'identique par les deux voisins ; niveaux d'eau qui ne
-  remontent jamais vers l'aval. Détails, mesures et limites : `docs/plan-generation-rendu.md`.
-- **Observation** : `cargo xtask map --generator v2` (terre-mer, rivage, altitude-macro, altitude,
-  chaines, familles, bassins, drainage, lacs).
-
-### Génération v2 : relief 3D en blocs, monde de test (fait : `generator/v2*.rs`, `density.rs`, `surface.rs`, `underground.rs`, `worldmap_blocks.rs`)
-
-- `GenerationVersion::V2` matérialise la géographie et le drainage macro en blocs (contexte de colonne en
-  cache borné, densité 3D interpolée, surface selon la pente, strates régionales, cavernes et nappes liées au
-  drainage). **Pas activée pour les nouveaux mondes** (`FOR_NEW_WORLDS` = v1) : un monde de test se crée avec
-  `VOXEL_GENERATION=2` ; `WorldMeta::generation_version()` aiguille ensuite la réouverture (v2 -> v2, v1 ou
-  sans métadonnée -> v1).
-- Tests : `tests/generation_v2.rs` et `tests/support/reference_v2.rs` (empreintes figées). Observation :
-  `cargo xtask map --generator v2 --maps hauteur-blocs,materiau,eau-blocs,surplombs` et
-  `--section z=N --from A --to B` (coupes colorées par matériau). Détails : `docs/plan-generation-rendu.md`.
-- Climat, biomes et végétation (lot 5, `generator/climate.rs`, `worldmap_climate.rs`) : température et
-  humidité déduites de la géographie (altitude, mer, continentalité, ombre pluviométrique d'un vent par
-  graine), marais en zone basse humide, plage et côte rocheuse selon la pente, biome de rivière sur le réseau
-  réel, coefficient de végétation par colonne. Acyclique : le climat lit le relief, jamais l'inverse.
-  Tests : `tests/climate_v2.rs`. Cartes : `--maps biomes-v2,temperature-v2,humidite-v2,canopee,ombre-pluie`.
+- `GenerationVersion::V3` (`FOR_NEW_WORLDS`) : le terrain est une densité 3D décrite en RON
+  (`terrain_v3.ron` : paramètres climatiques, splines, bruits, grottes, volcans) et compilée en graphe
+  (`density_graph`), calculée aux coins de cellules de 4 × 8 × 4 blocs et interpolée ; un monde de y = -128
+  à 255. Biomes par cases de paramètres (`biomes_v3.ron`), règles de surface (`surface_v3.ron`), biomes
+  souterrains en 3D, nappes par régions avec berges, structures posées sur le relief v3.
+- Un monde enregistré garde sa version (`WorldMeta::generation_version()`) : v1 ou sans métadonnée -> v1,
+  v3 -> v3. `VOXEL_GENERATION=1` crée encore un monde v1. La v2 (prototype de relief macro : géographie,
+  drainage) a été retirée : ses mondes sont refusés avec une explication, et la liste des mondes le dit.
+- Tests : `tests/generation_v3.rs`, `tests/far_v3.rs`, `tests/lifecycle_v3.rs`, `tests/density_graph.rs`.
+  Observation : `cargo xtask map` (v3 par défaut, `--generator v1`), `--section z=N --from A --to B`
+  (coupes), `cargo run --release -p engine_voxel --example recette`. Détails : `docs/plan-generation-v3.md`.
 
 ### Streaming : priorités et envois régulés (fait : `streaming.rs`, `transfer.rs`, `far.rs`, `games/voxel/src/stream_upload.rs`)
 

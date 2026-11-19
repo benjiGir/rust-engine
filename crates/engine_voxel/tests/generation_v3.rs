@@ -31,7 +31,7 @@ fn block(chunks: &[Option<engine_voxel::Chunk>], lx: usize, y: i32, lz: usize) -
 }
 
 #[test]
-fn v3_is_a_test_version_numbered_3_with_the_tall_range() {
+fn v3_is_the_new_worlds_version_numbered_3_with_the_tall_range() {
     assert_eq!(GenerationVersion::V3.number(), 3);
     assert_eq!(
         GenerationVersion::from_number(3).unwrap(),
@@ -41,7 +41,7 @@ fn v3_is_a_test_version_numbered_3_with_the_tall_range() {
         GenerationVersion::for_new_world_with(Some("v3")),
         GenerationVersion::V3
     );
-    assert_eq!(GenerationVersion::FOR_NEW_WORLDS, GenerationVersion::V1);
+    assert_eq!(GenerationVersion::FOR_NEW_WORLDS, GenerationVersion::V3);
     assert_eq!(v3(1).chunk_range(), MIN_CHUNK_Y..MAX_CHUNK_Y);
     assert!(v3(1).v3_parameters(0, 0).is_some());
     assert!(TerrainGenerator::new(1).v3_parameters(0, 0).is_none());
@@ -351,7 +351,7 @@ fn surface_rules_keep_grass_off_cold_tops_steep_slopes_and_cave_walls() {
 }
 
 #[test]
-fn the_new_biomes_appear_in_v3_and_never_in_v1_or_v2() {
+fn the_new_biomes_appear_in_v3_and_never_in_v1() {
     let wave = [
         // Vague 1.
         "core:redwood_forest",
@@ -389,14 +389,8 @@ fn the_new_biomes_appear_in_v3_and_never_in_v1_or_v2() {
     for (key, found) in wave.iter().zip(&seen) {
         assert!(found, "{key} absent d'un monde v3 de 12 km de côté");
     }
-    // Les mondes v1 et v2 ne changent pas : ils ne choisissent jamais ces biomes.
-    let older = [
-        TerrainGenerator::new(42),
-        TerrainGenerator::new(42)
-            .with_version(GenerationVersion::V2)
-            .unwrap(),
-    ];
-    for g in &older {
+    // Les mondes v1 ne changent pas : ils ne choisissent jamais ces biomes.
+    for g in &[TerrainGenerator::new(42)] {
         for j in -15..15 {
             for i in -15..15 {
                 let b = g.column(i * 400, j * 400).biome;

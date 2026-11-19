@@ -64,8 +64,6 @@ mod visibility;
 mod world;
 mod worldmap;
 mod worldmap_blocks;
-mod worldmap_climate;
-mod worldmap_macro;
 
 pub use biome::{BiomeDef, BiomeId, BiomeKind, BiomeRegistry, OreDef, PlantDef, Relief};
 pub use block::BlockId;
@@ -103,18 +101,10 @@ pub use generation::{
     DataRecord, DimensionRecord, GenerationIssue, GenerationMeta, GenerationVersion, KindRecord,
 };
 pub use generator::{
-    ACCUMULATION_CAP, BASIN_FINE, BASIN_SIZE, BasinCell, BasinChain, BasinFlow, CACHE_TABLES,
-    COAST_DISTANCE_MAX, ClimateSample, Crossing, EdgeContract, FINE_SIZE, FineCell, GeoSample,
-    Geography, HydroStats, Hydrology, Lake, LakePoint, MAX_BASIN_CELLS, MAX_BASIN_HOPS,
-    MAX_FINE_PATH, MAX_OWNER_STEPS, MAX_RIVER_WIDTH, MAX_STEPS_IN_BASIN, MacroSample, MacroWorld,
-    RIVER_DEPTH, ReliefFamily, RiverPoint, STREAM_MIN_ACCUMULATION, SinkKind, VALLEY_REACH,
-    WorldClimate, fine_cell, river_width,
-};
-pub use generator::{
     Blueprint, ChestLoot, ChestLootEntry, Climate, Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL,
     MAX_CHUNK_Y, MIN_CHUNK_Y, PENDING_LOOT, SEA_LEVEL, Spot, StructureDef, StructureKind,
-    StructureSet, StructureSite, SurfaceInfo, TerrainGenerator, TreeSite, V3Parameters,
-    WORLD_HEIGHT_CHUNKS, pending_loot,
+    StructureSet, StructureSite, TerrainGenerator, TreeSite, V3Parameters, WORLD_HEIGHT_CHUNKS,
+    pending_loot,
 };
 pub use grid::{BlockAccess, GridId, GridPos, Grids};
 pub use items::{
@@ -178,5 +168,3 @@ pub use worldmap::{MapArea, MapKind, MapSamples, Raster};
 pub use worldmap_blocks::{
     BlockMapKind, BlockMapSamples, SectionAxis, SectionSpec, render_section,
 };
-pub use worldmap_climate::{ClimateMapKind, ClimateMapSamples};
-pub use worldmap_macro::{MacroMapKind, MacroMapSamples};
