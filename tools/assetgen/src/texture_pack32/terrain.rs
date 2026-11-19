@@ -269,6 +269,16 @@ fn leaves(source: &[Pixel], name: &str) -> Canvas {
 pub(super) fn draw(source: &[Pixel], name: &str) -> Option<Canvas> {
     Some(match name {
         "grass_top" => turf(),
+        "water" => {
+            let mut canvas = Canvas::transparent();
+            for y in 0..32 {
+                for x in 0..32 {
+                    let color = crate::textures::water_tone(x as usize, y as usize, 32);
+                    canvas.put(x, y, color.map(|c| (c * 255.0).round() as u8));
+                }
+            }
+            canvas
+        }
         "dirt" | "coarse_dirt" | "farmland_dry" | "farmland_wet" => earth(name),
         "grass_side" | "podzol_side" => {
             let mut c = earth("dirt");

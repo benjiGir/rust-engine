@@ -449,16 +449,24 @@ fn snow() -> Image {
     nature::mineral("snow")
 }
 
-/// L'eau : un bleu uni avec quelques vaguelettes plus claires.
+/// Fond de couleur périodique. Les vagues et les reflets sont calculés par le shader.
+pub(crate) fn water_tone(x: usize, y: usize, side: usize) -> [f32; 3] {
+    let period = side - 1;
+    let angle = |i: usize| std::f32::consts::TAU * (i % period) as f32 / period as f32;
+    let (x, y) = (angle(x), angle(y));
+    let variation = 0.012 * (x + y + 0.65 * y.sin()).sin() + 0.005 * (2.0 * x - y).cos();
+    [
+        0.274 + variation,
+        0.509 + 1.2 * variation,
+        0.626 + 0.83 * variation,
+    ]
+}
+
 fn water() -> Image {
-    let base = [0.24, 0.49, 0.62];
-    let mut image = Image::filled(base).noise(base, 0.07, 14);
-    for (start, y, length) in [(1, 2, 6), (10, 5, 5), (4, 9, 7), (13, 13, 6)] {
-        for k in 0..length {
-            image.set((start + k) % SIZE, y, [0.36, 0.62, 0.69]);
-            if k > 1 && k < length - 1 {
-                image.set((start + k) % SIZE, (y + 1) % SIZE, [0.27, 0.54, 0.65]);
-            }
+    let mut image = Image::transparent();
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            image.set(x, y, water_tone(x, y, SIZE));
         }
     }
     image
@@ -1345,6 +1353,39 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (
             core.join("jungle_sapling.png"),
             sapling([0.38, 0.3, 0.16], [0.2, 0.62, 0.15]),
+        ),
+        // Les essences de la génération v3 (vague 1) : séquoia, érable, arbres en fleurs.
+        (
+            core.join("redwood_log.png"),
+            log_side([0.42, 0.2, 0.12], 140),
+        ),
+        (
+            core.join("redwood_log_top.png"),
+            log_top([0.42, 0.2, 0.12], [0.62, 0.32, 0.2]),
+        ),
+        (
+            core.join("redwood_leaves.png"),
+            leaves([0.13, 0.3, 0.15], 141),
+        ),
+        (
+            core.join("redwood_planks.png"),
+            planks([0.58, 0.29, 0.18], 142),
+        ),
+        (
+            core.join("redwood_sapling.png"),
+            sapling([0.42, 0.2, 0.12], [0.15, 0.32, 0.16]),
+        ),
+        (
+            core.join("maple_leaves.png"),
+            leaves([0.78, 0.3, 0.09], 143),
+        ),
+        (
+            core.join("maple_sapling.png"),
+            sapling([0.3, 0.19, 0.08], [0.78, 0.3, 0.09]),
+        ),
+        (
+            core.join("blossom_leaves.png"),
+            leaves([0.95, 0.76, 0.84], 144),
         ),
         (
             core.join("tall_grass.png"),

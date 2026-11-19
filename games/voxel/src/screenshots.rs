@@ -131,7 +131,7 @@ const fn fluid(name: &'static str, which: FluidShot) -> Shot {
     }
 }
 
-const SHOTS: [Shot; 43] = [
+const SHOTS: [Shot; 49] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -251,6 +251,13 @@ const SHOTS: [Shot; 43] = [
     biome("biome-riviere", "core:river"),
     biome("biome-ocean", "core:ocean"),
     biome("biome-ocean-profond", "core:deep_ocean"),
+    // La génération v3, vague 1 (ces biomes n'existent pas dans les mondes v1 et v2).
+    biome("biome-sequoias", "core:redwood_forest"),
+    biome("biome-bayou", "core:bayou"),
+    biome("biome-lavande", "core:lavender_field"),
+    biome("biome-prairie-seche", "core:prairie"),
+    biome("biome-verger", "core:orchard"),
+    biome("biome-erables", "core:maple_woods"),
 ];
 
 /// Où en est la visite.

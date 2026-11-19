@@ -93,6 +93,8 @@ struct BiomeEntry {
     seaweed: f32,
     #[serde(default)]
     lily_pads: f32,
+    #[serde(default)]
+    v3_only: bool,
 }
 
 fn three() -> i32 {
@@ -163,6 +165,9 @@ pub struct BiomeDef {
     /// La probabilité d'algues par colonne sous l'eau, et de nénuphars en surface.
     pub seaweed: f32,
     pub lily_pads: f32,
+    /// Un biome de la génération v3 seulement (vagues du lot 5) : les générations v1 et v2 ne le
+    /// choisissent jamais, leurs mondes ne changent pas.
+    pub v3_only: bool,
 }
 
 /// Un type de filon.
@@ -322,6 +327,7 @@ impl BiomeRegistry {
                 groves: e.groves.clamp(0.0, 1.0),
                 seaweed: e.seaweed,
                 lily_pads: e.lily_pads,
+                v3_only: e.v3_only,
             };
             // Les plantes les plus rares d'abord : la végétation les tire dans cet ordre.
             def.plants.sort_by(|a, b| a.chance.total_cmp(&b.chance));

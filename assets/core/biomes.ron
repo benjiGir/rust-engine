@@ -258,4 +258,53 @@
         surface: "stone", subsurface: "stone", underwater: "gravel", rock_above: 0,
         grass_color: (0.5, 0.62, 0.42), foliage_color: (0.42, 0.55, 0.36), water_color: (0.2, 0.4, 0.75),
     ),
+    // ----- La génération v3, vague 1 (lot 5) : idées de biomes inspirées de Biomes O' Plenty, écrites ici.
+    // `v3_only` : les générations v1 et v2 ne les choisissent jamais. Leur place dans le climat est dans
+    // `worldgen/biomes_v3.ron`.
+    (
+        id: "core:redwood_forest", name: "Forêt de séquoias", kind: Land, temperature: 0.55, v3_only: true,
+        surface: "grass", subsurface: "dirt", underwater: "gravel",
+        grass_color: (0.38, 0.56, 0.3), foliage_color: (0.24, 0.42, 0.22), water_color: (0.22, 0.42, 0.72),
+        trees: [(Redwood, 0.65), (Spruce, 0.35)], tree_density: 6.0, groves: 0.5,
+        plants: [("fern", 0.12, 0.5), ("tall_grass", 0.04, 0.4), ("brown_mushroom", 0.004)],
+        ground_patches: [("podzol", 0.4), ("coarse_dirt", 0.08)],
+    ),
+    (
+        id: "core:bayou", name: "Bayou", kind: Land, temperature: 0.95, v3_only: true,
+        surface: "grass", subsurface: "dirt", underwater: "clay",
+        grass_color: (0.4, 0.5, 0.2), foliage_color: (0.35, 0.45, 0.16), water_color: (0.28, 0.36, 0.24),
+        trees: [(Cypress, 0.8), (Swamp, 0.2)], tree_density: 5.0, lily_pads: 0.14, seaweed: 0.04,
+        plants: [("tall_grass", 0.14, 0.5), ("fern", 0.04), ("brown_mushroom", 0.004)],
+        ground_patches: [("clay", 0.12), ("dirt", 0.15)],
+    ),
+    (
+        id: "core:lavender_field", name: "Champs de lavande", kind: Land, temperature: 0.75, v3_only: true,
+        surface: "grass", subsurface: "dirt", underwater: "sand",
+        grass_color: (0.5, 0.66, 0.3), foliage_color: (0.42, 0.58, 0.25), water_color: (0.25, 0.45, 0.85),
+        trees: [(Fruit, 0.4), (Oak, 0.6)], tree_density: 0.15, groves: 1.0,
+        plants: [("lavender", 0.32, 0.7), ("tall_grass", 0.06, 0.4), ("daisy", 0.01)],
+    ),
+    (
+        id: "core:prairie", name: "Prairie", kind: Land, temperature: 1.0, v3_only: true,
+        surface: "grass", subsurface: "dirt", underwater: "sand",
+        grass_color: (0.72, 0.72, 0.34), foliage_color: (0.6, 0.62, 0.3), water_color: (0.25, 0.45, 0.8),
+        trees: [(Bush, 0.7), (Oak, 0.3)], tree_density: 0.4, groves: 1.0,
+        plants: [("tall_grass", 0.34, 0.6), ("dandelion", 0.02), ("poppy", 0.006)],
+        ground_patches: [("coarse_dirt", 0.04)],
+    ),
+    (
+        id: "core:orchard", name: "Verger", kind: Land, temperature: 0.7, v3_only: true,
+        surface: "grass", subsurface: "dirt", underwater: "sand",
+        grass_color: (0.45, 0.7, 0.28), foliage_color: (0.36, 0.6, 0.2), water_color: (0.25, 0.45, 0.85),
+        trees: [(Fruit, 0.85), (Oak, 0.15)], tree_density: 3.5, groves: 0.2,
+        plants: [("tall_grass", 0.16, 0.4), ("poppy", 0.01), ("daisy", 0.01), ("dandelion", 0.01)],
+    ),
+    (
+        id: "core:maple_woods", name: "Forêt d'érables", kind: Land, temperature: 0.4, v3_only: true,
+        surface: "grass", subsurface: "dirt", underwater: "gravel",
+        grass_color: (0.45, 0.58, 0.3), foliage_color: (0.36, 0.5, 0.25), water_color: (0.22, 0.4, 0.75),
+        trees: [(Maple, 0.8), (Birch, 0.2)], tree_density: 8.0,
+        plants: [("tall_grass", 0.08, 0.4), ("fern", 0.03), ("red_mushroom", 0.003)],
+        ground_patches: [("coarse_dirt", 0.05)],
+    ),
 ]

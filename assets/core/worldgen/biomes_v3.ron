@@ -38,25 +38,33 @@
         (biome: "core:snowy_taiga", continentalness: (-0.115, 2.0), temperature: (-2.0, -0.45), humidity: (-0.1, 2.0)),
         // Froid :
         (biome: "core:steppe", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (-2.0, -0.35)),
-        (biome: "core:birch_forest", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (-0.35, 0.1)),
-        (biome: "core:taiga", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (0.1, 0.3)),
+        (biome: "core:birch_forest", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (-0.35, 0.1), offset: 0.05),
+        (biome: "core:taiga", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (0.1, 0.3), offset: 0.05),
         (biome: "core:old_taiga", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (0.3, 2.0)),
         // Tempéré :
-        (biome: "core:plains", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-2.0, -0.1)),
-        (biome: "core:flower_meadow", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.35, -0.1), pv: (-0.2, 0.2), offset: 0.02),
-        (biome: "core:forest", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.1, 0.3), pv: (-2.0, 0.1)),
+        (biome: "core:plains", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-2.0, -0.1), offset: 0.05),
+        (biome: "core:flower_meadow", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.35, -0.1), pv: (-0.2, 0.2)),
+        (biome: "core:forest", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.1, 0.3), pv: (-2.0, 0.1), offset: 0.05),
         (biome: "core:dark_forest", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.1, 0.3), pv: (0.1, 2.0)),
-        (biome: "core:mixed_forest", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (0.3, 2.0), erosion: (-2.0, 0.45)),
-        (biome: "core:swamp", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.55), humidity: (0.3, 2.0), erosion: (0.45, 2.0), pv: (-2.0, 0.0)),
+        (biome: "core:mixed_forest", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (0.3, 2.0), erosion: (-2.0, 0.45), pv: (-2.0, 0.0)),
+        (biome: "core:swamp", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (0.3, 2.0), erosion: (0.45, 2.0), pv: (-2.0, 0.0)),
         // Chaud :
         (biome: "core:savanna", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-2.0, -0.35)),
-        (biome: "core:shrubland", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-0.35, -0.1)),
+        (biome: "core:shrubland", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-0.35, -0.1), offset: 0.05),
         (biome: "core:sparse_jungle", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-0.1, 0.3)),
-        (biome: "core:jungle", continentalness: (-0.115, 2.0), temperature: (0.2, 2.0), humidity: (0.3, 2.0)),
+        (biome: "core:jungle", continentalness: (-0.115, 2.0), temperature: (0.2, 2.0), humidity: (0.3, 2.0), erosion: (-2.0, 0.45)),
         // Brûlant :
         (biome: "core:desert", continentalness: (-0.115, 2.0), temperature: (0.55, 2.0), humidity: (-2.0, -0.35), erosion: (-0.3, 2.0)),
         (biome: "core:badlands", continentalness: (-0.115, 2.0), temperature: (0.55, 2.0), humidity: (-2.0, -0.1), erosion: (-2.0, -0.3)),
         (biome: "core:shrubland", continentalness: (-0.115, 2.0), temperature: (0.55, 2.0), humidity: (-0.35, -0.1), offset: 0.01),
         (biome: "core:sparse_jungle", continentalness: (-0.115, 2.0), temperature: (0.55, 2.0), humidity: (-0.1, 0.3)),
+        // La vague 1 du lot 5 : des cases plus étroites, logées dans celles des biomes larges (qui ont un
+        // petit décalage) ; dedans, elles l'emportent.
+        (biome: "core:redwood_forest", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (0.3, 2.0), erosion: (-2.0, 0.45), pv: (0.0, 2.0)),
+        (biome: "core:bayou", continentalness: (-0.115, 2.0), temperature: (0.2, 2.0), humidity: (0.3, 2.0), erosion: (0.45, 2.0), pv: (-2.0, 0.2)),
+        (biome: "core:lavender_field", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-2.0, -0.35), pv: (0.2, 2.0)),
+        (biome: "core:prairie", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-0.35, -0.1), erosion: (0.3, 2.0)),
+        (biome: "core:orchard", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.1, 0.1), pv: (-0.4, 0.0)),
+        (biome: "core:maple_woods", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (-0.1, 0.3), pv: (0.1, 2.0)),
     ],
 )

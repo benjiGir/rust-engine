@@ -406,7 +406,7 @@ mod tests {
         let pickaxe = items.get(items.id("core:iron_pickaxe").unwrap());
         assert_eq!(pickaxe.max_stack, 1);
         assert_eq!(pickaxe.tool.unwrap().kind, ToolKind::Pickaxe);
-        assert_eq!(items.tag("planks").len(), 5);
+        assert_eq!(items.tag("planks").len(), 6);
         // Ni l'eau ni le socle ne sont des objets.
         assert!(items.of_block(blocks.id("core:water").unwrap()).is_none());
     }

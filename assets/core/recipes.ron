@@ -154,6 +154,7 @@
         (ingredients: ["birch_log"], result: ("birch_planks", 4)),
         (ingredients: ["spruce_log"], result: ("spruce_planks", 4)),
         (ingredients: ["acacia_log"], result: ("acacia_planks", 4)),
+        (ingredients: ["redwood_log"], result: ("redwood_planks", 4)),
         (ingredients: ["jungle_log"], result: ("jungle_planks", 4)),
         (ingredients: ["spores", "seeds", "dirt"], result: ("fertilizer", 2)),
         (ingredients: ["melon_slice"], result: ("melon_seeds", 1)),

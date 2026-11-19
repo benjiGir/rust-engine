@@ -794,6 +794,17 @@ impl ChunkStreamer {
                 geometry.push(c);
             }
         }
+        let optical_depth = crate::mesh::WATER_DEPTH_LIMIT;
+        if World::split(pos + IVec3::Y * optical_depth).0.y != chunk.y {
+            for dz in -1..=1 {
+                for dx in -1..=1 {
+                    let c = World::split(pos + IVec3::new(dx, optical_depth, dz)).0;
+                    if !geometry.contains(&c) {
+                        geometry.push(c);
+                    }
+                }
+            }
+        }
         if !immediate {
             self.remesh_pending.extend(geometry);
             self.remesh_pending.extend(light_changed);

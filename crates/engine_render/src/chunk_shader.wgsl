@@ -12,7 +12,7 @@ struct Camera {
     sun: vec4<f32>,
     // rgb : teinte de la lumière du ciel, w : le temps en secondes (pour le vent).
     sun_color: vec4<f32>,
-    // x : 0 dehors, 1 sous l'eau ; y : altitude de la surface au-dessus de la caméra.
+    // Immersion, altitude de la surface, couverture nuageuse et ciel dynamique actif.
     water: vec4<f32>,
 };
 
@@ -73,6 +73,7 @@ struct VertexOut {
     // Position et normale dans le repère des textures (celui de la structure, s'il y en a une).
     @location(6) tex_position: vec3<f32>,
     @location(7) tex_normal: vec3<f32>,
+    @location(8) water_depth: f32,
 };
 
 // Fait tourner un vecteur autour de l'axe vertical (même convention que `rotate_y` côté jeu).
@@ -140,6 +141,7 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
     out.tex_normal = tex_normal;
     // Interpolée entre les sommets : c'est ce qui rend la lumière « douce ».
     out.light = vertex.light.xyz;
+    out.water_depth = vertex.light.w * 4.0;
     out.texture = vertex.texture & TEXTURE_MASK;
     out.flags = vertex.texture & ~TEXTURE_MASK;
     return out;
@@ -165,20 +167,17 @@ fn face_uv(position: vec3<f32>, normal: vec3<f32>) -> vec2<f32> {
     return vec2<f32>(position.x, -position.y);
 }
 
-// La hauteur d'une houle (somme de trois ondes qui se croisent) : sert à incliner la surface
-// de l'eau, pas à la déplacer (une grande face fusionnée n'a que quatre sommets).
-fn wave_height(p: vec2<f32>, t: f32) -> f32 {
-    return sin(p.x * 1.3 + t * 1.1) * 0.5
-        + sin(p.y * 1.7 - t * 0.9 + p.x * 0.4) * 0.35
-        + sin((p.x + p.y) * 2.9 + t * 1.9) * 0.15;
-}
-
-fn wave_normal(p: vec2<f32>, t: f32) -> vec3<f32> {
-    let e = 0.05;
-    let h = wave_height(p, t);
-    let dx = (wave_height(p + vec2<f32>(e, 0.0), t) - h) / e;
-    let dz = (wave_height(p + vec2<f32>(0.0, e), t) - h) / e;
-    return normalize(vec3<f32>(-dx * 0.08, 1.0, -dz * 0.08));
+// Dérivée de la houle en espace monde. Les détails fins disparaissent en premier.
+fn wave_gradient(p: vec2<f32>, t: f32, fine: f32) -> vec2<f32> {
+    let a = vec2<f32>(0.64, 1.18);
+    let b = vec2<f32>(-1.36, 0.87);
+    let c = vec2<f32>(4.1, -2.7);
+    let d = vec2<f32>(1.5, 6.7);
+    let warp = sin(dot(p, vec2<f32>(0.20, 0.29)) + t * 0.28);
+    return 0.034 * a * cos(dot(p, a) - t * 0.94 + warp * 1.6)
+        + 0.023 * b * cos(dot(p, b) - t * 1.23)
+        + fine * (0.010 * c * cos(dot(p, c) - t * 2.56 + warp)
+            + 0.006 * d * cos(dot(p, d) - t * 3.12 - warp));
 }
 
 // Les reflets de lumière qui dansent au fond de l'eau : des lignes fines là où des ondulations
@@ -202,12 +201,91 @@ fn fall_streaks(along: f32, down: f32, t: f32) -> f32 {
         let f = fract(column);
         let h = fract(sin(id * 12.9898 + f32(layer) * 3.7) * 43758.5453);
         // Les bords du ruban s'adoucissent : pas de colonnes nettes comme une grille.
-        let ribbon = smoothstep(0.0, 0.3, f) * smoothstep(1.0, 0.7, f);
+        let ribbon = smoothstep(0.0, 0.3, f) * (1.0 - smoothstep(0.7, 1.0, f));
         let band = fract(down * (0.22 + 0.1 * h) + t * (1.4 + 1.6 * h) + h * 9.0);
-        let bright = smoothstep(0.0, 0.18, band) * smoothstep(0.75, 0.3, band);
+        let bright = smoothstep(0.0, 0.18, band) * (1.0 - smoothstep(0.3, 0.75, band));
         total += ribbon * (0.25 + 0.75 * bright) * select(1.0, 0.6, layer == 1);
     }
     return clamp(total * 0.7, 0.0, 1.0);
+}
+
+fn reflected_sky(ray: vec3<f32>, sun: vec3<f32>) -> vec3<f32> {
+    let day = smoothstep(-0.11, 0.26, sun.y);
+    let twilight = smoothstep(-0.28, -0.07, sun.y) * (1.0 - smoothstep(0.02, 0.29, sun.y));
+    let overcast = clamp(camera.water.z, 0.0, 1.0);
+    let zenith = mix(vec3<f32>(0.0015, 0.003, 0.012), vec3<f32>(0.037, 0.19, 0.46), day);
+    let gray = dot(zenith, vec3<f32>(0.2126, 0.7152, 0.0722));
+    let top = mix(zenith, gray * vec3<f32>(0.64, 0.77, 0.95), overcast * 0.87);
+    let haze = camera.fog_color_end.rgb;
+    let height = max(ray.y, 0.0);
+    let warmth = vec3<f32>(0.47, 0.14, 0.034) * pow(max(dot(ray, sun), 0.0), 4.0);
+    let color = mix(haze, top, 1.0 - exp(-height * 2.85))
+        + warmth * twilight * (1.0 - overcast) * smoothstep(0.0, 0.17, height) * exp(-height * 4.2);
+    return mix(haze, color, camera.water.w);
+}
+
+fn water_surface(in: VertexOut, albedo: vec4<f32>, light: vec3<f32>, sun: vec3<f32>) -> vec4<f32> {
+    let time = camera.sun_color.w;
+    let to_eye = camera.position_fog_start.xyz - in.world_position;
+    let distance = max(length(to_eye), 0.001);
+    let view = to_eye / distance;
+    let top = abs(in.tex_normal.y) > 0.5;
+    var normal = normalize(in.normal);
+    let slope = length(normal.xz);
+    let flow = normal.xz / max(slope, 0.001);
+    let fall = select(1.0, smoothstep(0.48, 0.80, slope), top);
+    let calm = smoothstep(28.0, 105.0, distance);
+    if top && calm < 1.0 {
+        let fine = 1.0 - smoothstep(7.0, 33.0, distance / max(abs(view.y) * 1.6, 0.33));
+        let drift = flow * smoothstep(0.012, 0.24, slope) * time * 0.48;
+        let gradient = wave_gradient(in.world_position.xz - drift, time, fine);
+        normal = normalize(normal - vec3<f32>(gradient.x, 0.0, gradient.y) * (1.0 - calm) * (1.0 - fall));
+    }
+    normal = select(-normal, normal, dot(normal, view) >= 0.0);
+    let angle = clamp(dot(view, normal), 0.0, 1.0);
+    let reflecting = 1.0 - angle;
+    let edge = reflecting * reflecting;
+    var fresnel = (0.0204 + 0.9796 * edge * edge * reflecting) * mix(0.13, 1.0, f32(top));
+    let reflection = reflect(-view, normal);
+    let sky_visible = smoothstep(0.34, 0.89, in.light.x);
+    let immersed = camera.water.x;
+    let inside = albedo.rgb * light * vec3<f32>(0.44, 0.91, 1.1);
+    let sky = mix(inside * 0.55, reflected_sky(reflection, sun), sky_visible);
+    let reflected = mix(sky, inside, immersed);
+    // Sous l'eau, la surface devient un miroir au-delà de l'angle critique.
+    fresnel = mix(fresnel, max(fresnel, 1.0 - smoothstep(0.62, 0.70, angle)), immersed * f32(top));
+
+    let depth = in.water_depth;
+    // L'angle du rayon dans l'eau suit Snell : la traversée ne devient pas infinie au ras de l'eau.
+    let path = depth * inverseSqrt(1.0 - 0.56 * (1.0 - angle * angle));
+    let absorb = 0.035 + 0.93 * (1.0 - exp(-path * (0.17 + albedo.a * 0.22)));
+    let depth_tint = mix(vec3<f32>(0.98, 1.20, 1.07), vec3<f32>(0.45, 0.78, 0.92), smoothstep(0.2, 4.0, depth));
+    let body = albedo.rgb * depth_tint * light;
+
+    let sun_day = smoothstep(-0.025, 0.12, sun.y);
+    let moon_night = smoothstep(0.13, 0.35, -sun.y) * camera.water.w;
+    let warm = exp(-20.0 * sun.y * sun.y);
+    let sun_tint = mix(vec3<f32>(1.0, 0.95, 0.81), vec3<f32>(1.0, 0.52, 0.23), warm);
+    let solar = exp2(-mix(730.0, 205.0, calm) * (1.0 - clamp(dot(reflection, sun), 0.0, 1.0)));
+    let lunar = exp2(-430.0 * (1.0 - clamp(dot(reflection, -sun), 0.0, 1.0)));
+    let open_sky = (1.0 - camera.water.z) * (1.0 - camera.water.z) * sky_visible;
+    let glint = (sun_tint * solar * sun_day * 0.82 + vec3<f32>(0.30, 0.48, 0.77) * lunar * moon_night * 0.27)
+        * open_sky * (1.0 - immersed) * (1.0 - fall);
+    let alpha = absorb * (1.0 - fresnel) + fresnel;
+    let opaque_glint = max(glint.r, max(glint.g, glint.b));
+    let surface_alpha = min(alpha + opaque_glint * (1.0 - alpha), 1.0);
+    let surface_color = (body * absorb * (1.0 - fresnel) + reflected * fresnel + glint)
+        / max(surface_alpha, 0.001);
+
+    if fall > 0.0 {
+        let across = vec2<f32>(-flow.y, flow.x);
+        let along = dot(in.world_position.xz, across);
+        let descent = select(in.world_position.y, -dot(in.world_position.xz, flow) * 1.3, top);
+        let streak = fall_streaks(along, descent, time) * (1.0 - calm);
+        let spray = mix(albedo.rgb * light, vec3<f32>(0.67, 0.83, 0.88) * light, streak * 0.68);
+        return mix(vec4<f32>(surface_color, surface_alpha), vec4<f32>(spray, 0.22 + streak * 0.26), fall);
+    }
+    return vec4<f32>(surface_color, surface_alpha);
 }
 
 @fragment
@@ -225,32 +303,19 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         uv = cell + t;
     }
     let is_water = (in.flags & FLAG_WATER) != 0u;
-    var wp = in.world_position.xz;
-    // Le courant : sur le dessus d'une eau libre, la normale est inclinée par la pente de la
-    // surface (voir le maillage) ; l'eau coule vers le bas de la pente, d'autant plus vite
-    // qu'elle est raide. Sur les côtés, elle tombe.
-    var flow_dir = vec2<f32>(0.0);
-    var current = 0.0;
-    if is_water && abs(in.tex_normal.y) > 0.5 {
-        let slope = length(in.tex_normal.xz);
-        flow_dir = in.tex_normal.xz / max(slope, 1e-4);
-        current = smoothstep(0.015, 0.16, slope);
-    }
     if is_water {
-        // La texture glisse doucement et ondule : l'eau ne reste pas figée.
-        uv += vec2<f32>(time * 0.021, time * 0.013)
-            + 0.02 * vec2<f32>(sin(wp.y * 3.1 + time * 1.3), cos(wp.x * 2.7 + time * 1.1));
-        if abs(in.tex_normal.y) > 0.5 {
-            // Les motifs partent avec le courant (1,2 bloc par seconde au plus).
-            let drift = flow_dir * current * 1.2 * time;
-            uv -= drift;
-            wp -= drift * 1.5;
-        } else {
-            // Une chute : la texture descend, vite.
-            uv.y -= time * 2.2;
-        }
+        uv *= 0.18;
     }
-    var texel = textureSample(block_textures, block_sampler, uv, in.texture);
+    let dx = dpdx(uv);
+    let dy = dpdy(uv);
+    var texel: vec4<f32>;
+    if is_water && abs(in.tex_normal.y) > 0.5 {
+        // Le dernier mip contient la couleur moyenne du pack, sans motif sur la surface.
+        let mip = i32(textureNumLevels(block_textures) - 1u);
+        texel = textureLoad(block_textures, vec2<i32>(0), in.texture, mip);
+    } else {
+        texel = textureSampleGrad(block_textures, block_sampler, uv, in.texture, dx, dy);
+    }
     // Une feuille au cœur du feuillage : ses trous deviennent un vert sombre (la couleur
     // de la feuille, assombrie), comme le fond d'un buisson dense.
     if (in.flags & FLAG_FILLED) != 0u && texel.a < 0.5 {
@@ -297,45 +362,9 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     var lit = albedo.rgb * light;
     var alpha = albedo.a;
     if is_water {
-        let to_camera = camera.position_fog_start.xyz - in.world_position;
-        let view = normalize(to_camera);
-        var n = vec3<f32>(0.0, 1.0, 0.0);
-        let tilt = in.tex_normal.xyz - vec3<f32>(0.0, 1.0, 0.0);
-        // Les vagues s'effacent avec la distance : trop petites, elles feraient du moiré.
-        let calm = smoothstep(18.0, 70.0, length(to_camera));
-        if abs(in.tex_normal.y) > 0.5 {
-            // Une pente raide est une chute : on ne l'éclaire pas comme une vague.
-            let gentle = 1.0 - smoothstep(0.4, 0.9, length(in.tex_normal.xz));
-            n = normalize(mix(wave_normal(wp, time), n, calm) + tilt * 1.5 * gentle);
-        }
-        // Le dessus vu de dessous : la même surface, retournée.
-        n = select(-n, n, view.y >= 0.0 || abs(in.tex_normal.y) < 0.5);
-        // Fresnel : de biais, l'eau reflète le ciel ; de face, on voit à travers.
-        let fresnel = pow(1.0 - clamp(abs(dot(n, view)), 0.0, 1.0), 4.0);
-        let sky_color = camera.fog_color_end.rgb;
-        lit = mix(lit, sky_color * (0.4 + 0.6 * daylight), fresnel * 0.55);
-        // Le soleil, en reflet : une tache brillante qui scintille avec les vagues.
-        let glint = pow(max(dot(reflect(-sun_direction, n), view), 0.0), 220.0)
-            * daylight * step(0.0, sun_direction.y) * (1.0 - calm);
-        lit += vec3<f32>(1.0, 0.93, 0.75) * glint * 0.5;
-        alpha = clamp(alpha + fresnel * 0.35 + glint, 0.0, 1.0);
-        // Une chute (côté d'une cascade, ou pente raide) : elle reste translucide, on y voit
-        // couler des filets plus clairs vers le bas.
-        let steep = smoothstep(0.55, 1.1, length(in.tex_normal.xz));
-        let vertical = abs(in.tex_normal.y) < 0.5;
-        if vertical || steep > 0.0 {
-            var along = in.world_position.x + in.world_position.z;
-            var down = in.world_position.y;
-            if !vertical {
-                // Sur une pente raide, « en bas » est le long du courant.
-                along = dot(in.world_position.xz, vec2<f32>(-flow_dir.y, flow_dir.x));
-                down = -dot(in.world_position.xz, flow_dir) * 1.3;
-            }
-            let strength = select(steep, 1.0, vertical);
-            let streaks = fall_streaks(along, down, time) * strength;
-            lit = mix(lit, vec3<f32>(0.88, 0.96, 1.0) * (0.45 + 0.55 * daylight), streaks * 0.55);
-            alpha = mix(alpha, 0.26 + 0.32 * streaks, strength * 0.85);
-        }
+        let surface = water_surface(in, albedo, light, sun_direction);
+        lit = surface.rgb;
+        alpha = surface.a;
     }
     if (in.flags & FLAG_FURNACE_FIRE) != 0u {
         // Même bouche 8 × 6 que furnace_front.png. Animation pixel art à 10 images/s,

@@ -1054,7 +1054,7 @@ pub(crate) mod tests {
         assert!(matches!(
             &log.tasks[0],
             Task::Item { spec: ItemSpec::Group { name, members }, count: 2, consume: false, crafted: false }
-                if name == "logs" && members.len() == 5
+                if name == "logs" && members.len() == 6
         ));
         let bench = quests.quest("core:wood/bench").unwrap();
         assert_eq!(bench.shape, Shape::Circle, "la forme par défaut");

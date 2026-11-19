@@ -449,9 +449,11 @@ impl TerrainGenerator {
                 .set_lacunarity(2.0)
                 .set_persistence(0.5)
         };
+        // Les biomes réservés à la v3 n'entrent pas dans les choix de v1 et v2 (dont les mondes ne
+        // doivent pas changer) ; la v3 a sa propre table (`biomes_v3.ron`).
         let land = biomes
             .iter()
-            .filter(|(_, b)| b.kind == BiomeKind::Land)
+            .filter(|(_, b)| b.kind == BiomeKind::Land && !b.v3_only)
             .map(|(id, _)| id)
             .collect();
         let by_kind = [
@@ -466,7 +468,7 @@ impl TerrainGenerator {
         .map(|kind| {
             let ids = biomes
                 .iter()
-                .filter(|(_, b)| b.kind == kind)
+                .filter(|(_, b)| b.kind == kind && !b.v3_only)
                 .map(|(id, _)| id)
                 .collect();
             (kind, ids)

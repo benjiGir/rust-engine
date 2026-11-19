@@ -378,3 +378,38 @@ plus de forêts (25 à 29 %), autant de rivières, 29 biomes vus.
 - Les cases de `biomes_v3.ron` ne sont pas encore extensibles par les mods (un mod qui ajoute un biome devra y ajouter sa
   case : à prévoir avec le lot 5).
 - Le terrain lointain coupe encore l'horizon des grands massifs (lot 6).
+
+## Statut du lot 5, vague 1 : six biomes inspirés de Biomes O' Plenty (à valider)
+
+Idées reprises de Biomes O' Plenty (sans son code ni ses textures) et écrites ici :
+
+| Biome | Climat (cases de `biomes_v3.ron`) | Ce qui le distingue |
+| --- | --- | --- |
+| Forêt de séquoias (`core:redwood_forest`) | tempéré, détrempé, sur les hauteurs | séquoias géants (tronc 2 × 2, 20 à 26 blocs, couronne en cône), sapins, podzol, fougères |
+| Bayou (`core:bayou`) | chaud, détrempé, plaines usées et basses | cyprès (tronc haut et fin, « genoux », lianes), eau trouble, argile, nénuphars |
+| Champs de lavande (`core:lavender_field`) | tempéré, sec, sur les hauteurs | lavande en nappes, quelques arbres en fleurs |
+| Prairie (`core:prairie`) | chaud, assez sec, plaines usées | herbe dorée haute, buissons |
+| Verger (`core:orchard`) | tempéré, moyen, creux doux | arbres fruitiers en fleurs (pommes à la récolte) |
+| Forêt d'érables (`core:maple_woods`) | froid, moyen à humide, sur les hauteurs | érables rouge orangé, bouleaux |
+
+- **Blocs** : bûche, feuilles, planches et pousse de séquoia ; feuilles et pousse d'érable ; feuilles en fleurs. Textures
+  produites par `assetgen` (pack classique, et pack 32 par agrandissement), recettes (planches), butin (pousses, bâtons,
+  pommes), étiquettes `logs`, `planks`, `leaves`.
+- **Arbres** (`trees.rs`) : `Redwood`, `Maple`, `Fruit`, `Cypress` ; les pousses de séquoia et d'érable donnent leur arbre ;
+  le terrain lointain a leurs silhouettes.
+- **Les mondes v1 et v2 ne changent pas** : ces biomes portent `v3_only` et n'entrent pas dans leurs choix (empreintes
+  gelées de v1 et v2 inchangées, et un test le vérifie sur des milliers de colonnes).
+- **Table v3** : les biomes larges (plaines, forêt, bouleaux, taïga, garrigue) ont reçu un petit décalage, pour que les
+  cases plus étroites logées dedans l'emportent ; la prairie fleurie, qui n'était jamais choisie à cause d'un décalage
+  inverse, l'est maintenant. Le marais s'arrête aux climats tempérés (le bayou prend le chaud), la jungle aux reliefs
+  non usés.
+- **Rendu** : le tableau de textures des blocs dépassait la limite par défaut de wgpu (256 couches, il en faut 258) ; le
+  renderer demande désormais la limite de la carte (2 048 sur Metal, plafonnée à 2 048).
+- **Captures** : six vues ajoutées au tour (`biome-sequoias`, `biome-bayou`, `biome-lavande`, `biome-prairie-seche`,
+  `biome-verger`, `biome-erables`).
+
+Tests : les quatre formes restent dans les bornes de la génération par chunk (rayon 8, hauteur 30) ; les pousses donnent
+le bon arbre ; les six biomes apparaissent dans un monde v3 de 12 km de côté et jamais dans un monde v1 ou v2.
+
+Limites : la prairie forme de petites zones (son climat chaud et assez sec est partagé avec la garrigue et la savane) ;
+pas encore de bloc de boue pour le bayou ; les vagues 2 à 4 (froid, chaud et volcanique, souterrain) restent à faire.

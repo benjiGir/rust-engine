@@ -66,7 +66,7 @@
         hardness: 0.2, tool: Shovel,
     ),
     (
-        id: "core:water", name: "Eau", color: (0.0613, 0.2224, 0.3499),
+        id: "core:water", name: "Eau", color: (0.06738, 0.21849, 0.33536),
         solid: false, transparent: true, selectable: false, placeable: false, alpha: 0.6,
         liquid: true, light_opacity: 2, texture: "water", fluid: "water", tint: Water,
         hardness: -1.0,
@@ -1491,5 +1491,52 @@
         states: [Facing4], placeable: false, support: Floor,
         sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
         hardness: 0.6, tool: Axe,
+    ),
+    // ----- Les essences de la génération v3, vague 1 (séquoia, érable, verger) -----
+    (
+        id: "core:redwood_log", name: "Bûche de séquoia", color: (0.36, 0.17, 0.10),
+        textures: (top: "redwood_log_top", side: "redwood_log", bottom: "redwood_log_top"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
+        hardness: 2.0, tool: Axe,
+    ),
+    (
+        id: "core:redwood_leaves", name: "Feuilles de séquoia", color: (0.10, 0.24, 0.12),
+        texture: "redwood_leaves", transparent: true, light_opacity: 1, cutout: true,
+        sway: true, behavior: "core:leaves",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.2, tool: Shears,
+    ),
+    (
+        id: "core:redwood_planks", name: "Planches de séquoia", color: (0.50, 0.24, 0.15), texture: "redwood_planks",
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
+        hardness: 2.0, tool: Axe,
+    ),
+    (
+        id: "core:redwood_sapling", name: "Pousse de séquoia", color: (0.12, 0.22, 0.10),
+        texture: "redwood_sapling", shape: Cross, cutout: true, solid: false, transparent: true,
+        light_opacity: 0, behavior: "core:sapling",
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:maple_leaves", name: "Feuilles d'érable", color: (0.62, 0.22, 0.07),
+        texture: "maple_leaves", transparent: true, light_opacity: 1, cutout: true,
+        sway: true, behavior: "core:leaves",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.2, tool: Shears,
+    ),
+    (
+        id: "core:maple_sapling", name: "Pousse d'érable", color: (0.55, 0.20, 0.08),
+        texture: "maple_sapling", shape: Cross, cutout: true, solid: false, transparent: true,
+        light_opacity: 0, behavior: "core:sapling",
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:blossom_leaves", name: "Feuilles en fleurs", color: (0.86, 0.68, 0.74),
+        texture: "blossom_leaves", transparent: true, light_opacity: 1, cutout: true,
+        sway: true, behavior: "core:leaves",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.2, tool: Shears,
     ),
 ]

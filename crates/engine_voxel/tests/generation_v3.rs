@@ -345,6 +345,53 @@ fn surface_rules_keep_grass_off_cold_tops_steep_slopes_and_cave_walls() {
 }
 
 #[test]
+fn the_first_wave_of_biomes_appears_in_v3_and_never_in_v1_or_v2() {
+    let wave = [
+        "core:redwood_forest",
+        "core:bayou",
+        "core:lavender_field",
+        "core:prairie",
+        "core:orchard",
+        "core:maple_woods",
+    ];
+    let g = v3(42);
+    let ids: Vec<_> = wave.iter().map(|k| g.biomes().id(k).unwrap()).collect();
+    let mut seen = vec![false; ids.len()];
+    for j in -60..60 {
+        for i in -60..60 {
+            // Le point de grille (terrain lointain) : les mêmes paramètres et la même table, sans
+            // contexte de colonne (bien plus rapide).
+            let b = g.column_at_grid_point(i * 25, j * 25).biome;
+            if let Some(k) = ids.iter().position(|&id| id == b) {
+                seen[k] = true;
+            }
+        }
+    }
+    for (key, found) in wave.iter().zip(&seen) {
+        assert!(found, "{key} absent d'un monde v3 de 12 km de côté");
+    }
+    // Les mondes v1 et v2 ne changent pas : ils ne choisissent jamais ces biomes.
+    let older = [
+        TerrainGenerator::new(42),
+        TerrainGenerator::new(42)
+            .with_version(GenerationVersion::V2)
+            .unwrap(),
+    ];
+    for g in &older {
+        for j in -15..15 {
+            for i in -15..15 {
+                let b = g.column(i * 400, j * 400).biome;
+                assert!(
+                    !g.biome(b).v3_only,
+                    "{} dans un monde ancien",
+                    g.biome(b).key
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn v3_blocks_do_not_depend_on_order_threads_or_caches() {
     let positions: Vec<IVec3> = (0..6)
         .map(|i| IVec3::new(i * 3 - 7, i % 5 - 1, 11 - i * 2))

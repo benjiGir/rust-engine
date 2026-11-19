@@ -66,7 +66,7 @@ use glam::{Vec2, Vec3};
 use crate::biome::{BiomeKind, BiomeRegistry};
 use crate::edited_surface::EditedSurfaces;
 use crate::generator::{FREEZING, SEA_LEVEL, STEP, TerrainGenerator};
-use crate::mesh::MeshVertex;
+use crate::mesh::{FLAG_WATER, MeshVertex, water_depth_byte};
 use crate::registry::Tint;
 use crate::transfer::TransferBudget;
 
@@ -81,7 +81,7 @@ const WATER_TOP: f32 = SEA_LEVEL as f32 + 0.875;
 /// Les tuiles fines se posent un peu sous le décor détaillé qu'elles recouvrent.
 const SINK: f32 = 1.0;
 /// Opacité de l'eau lointaine.
-const WATER_ALPHA: f32 = 0.72;
+const WATER_ALPHA: f32 = 0.60;
 
 /// Une tuile : son niveau et sa position (en tuiles de ce niveau).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -613,13 +613,15 @@ pub fn build_tile_debug(
             let [r, g, b] = at(i, j).water;
             let base = vertices.len() as u32;
             for (a, c) in [(i, j), (i, j + 1), (i + 1, j), (i + 1, j + 1)] {
-                vertices.push(MeshVertex::new(
+                let mut vertex = MeshVertex::new(
                     Vec3::new(a as f32, water_y, c as f32),
                     [0.0, 1.0, 0.0],
                     [r, g, b, WATER_ALPHA],
                     [1.0, 0.0, 1.0],
-                    0,
-                ));
+                    FLAG_WATER,
+                );
+                vertex.light[3] = water_depth_byte(surface - at(a, c).height);
+                vertices.push(vertex);
             }
             translucent.extend([base, base + 1, base + 2, base + 2, base + 1, base + 3]);
         }

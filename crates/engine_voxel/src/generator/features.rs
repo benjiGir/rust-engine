@@ -93,8 +93,9 @@ fn spacing(kind: TreeKind) -> i32 {
     match kind {
         TreeKind::Cactus | TreeKind::Bush | TreeKind::JungleBush => 2,
         TreeKind::Oak | TreeKind::Birch | TreeKind::Spruce | TreeKind::TallSpruce => 3,
-        TreeKind::Swamp | TreeKind::Acacia => 5,
-        TreeKind::BigOak | TreeKind::Jungle => 6,
+        TreeKind::Fruit | TreeKind::Cypress => 4,
+        TreeKind::Swamp | TreeKind::Acacia | TreeKind::Maple => 5,
+        TreeKind::BigOak | TreeKind::Jungle | TreeKind::Redwood => 6,
     }
 }
 

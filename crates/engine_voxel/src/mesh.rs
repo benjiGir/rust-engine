@@ -40,6 +40,8 @@ const SIZE: i32 = CHUNK_SIZE as i32;
 const LIGHT_SCALE: f32 = 60.0;
 /// La surface d'un fluide plein est un peu sous le haut du bloc (14/16).
 const FLUID_SURFACE: f32 = 0.875;
+/// Au-delà, l'eau prend sa teinte de pleine profondeur. Même unité dans le shader.
+pub(crate) const WATER_DEPTH_LIMIT: i32 = 4;
 
 /// Un sommet du maillage, compact : 24 octets au lieu de 56 en `f32`. À chaque image,
 /// le GPU relit les sommets de tous les chunks dessinés (plusieurs millions) : moins
@@ -61,7 +63,7 @@ pub struct MeshVertex {
     /// Couleur du bloc et opacité (alpha), de 0 à 255.
     pub color: [u8; 4],
     /// Lumière du ciel, lumière des blocs et occlusion ambiante, de 0 à 255 ; w :
-    /// axe de rotation (0 : X, 1 : Y, 2 : Z).
+    /// axe de rotation (0 : X, 1 : Y, 2 : Z) ou profondeur normalisée de l'eau.
     pub light: [u8; 4],
     /// Couche de la texture (0 = pas de texture) dans les 16 bits du bas, et des
     /// drapeaux au-dessus ([`FLAG_CUTOUT`], [`FLAG_SWAY`]). Les coordonnées de texture,
@@ -122,6 +124,10 @@ impl MeshVertex {
     pub fn light(&self) -> [f32; 3] {
         [0, 1, 2].map(|i| f32::from(self.light[i]) / 255.0)
     }
+}
+
+pub(crate) fn water_depth_byte(depth: f32) -> u8 {
+    ((depth / WATER_DEPTH_LIMIT as f32).clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
 /// Les pixels transparents de la texture sont jetés (`discard`) : feuilles, plantes.
@@ -273,7 +279,10 @@ impl ChunkMesh {
                 normal = tilt.normalize().to_array();
             }
         }
-        for ((position, corner), drop) in positions.into_iter().zip(corners).zip(drops) {
+        let depths = order.map(|c| look.water_depth[c]);
+        for (((position, corner), drop), depth) in
+            positions.into_iter().zip(corners).zip(drops).zip(depths)
+        {
             // La surface d'un fluide : le coin descend selon la quantité.
             let position = position - Vec3::Y * (drop as f32 / 255.0);
             self.push_vertex(
@@ -287,6 +296,7 @@ impl ChunkMesh {
                 ],
                 look.texture | look.flags,
             );
+            self.vertices.last_mut().expect("sommet ajouté").light[3] = depth;
         }
         // Un quad se coupe en deux triangles par une diagonale. Si l'éclairage varie
         // d'un coin à l'autre, le choix de la diagonale se voit : on coupe selon la
@@ -373,6 +383,8 @@ struct FaceLook {
     /// Pour un fluide : de combien chaque coin du haut descend sous le haut du bloc, en
     /// 255e de bloc (0 : rien). La surface suit la quantité de fluide.
     drops: [u8; 4],
+    /// Profondeur optique de l'eau, moyennée aux coins pour raccorder les cellules.
+    water_depth: [u8; 4],
 }
 
 /// Un chunk et ses 26 voisins : tout ce qu'il faut pour le mailler.
@@ -489,6 +501,28 @@ impl Neighbourhood {
         } else {
             sum / count
         }
+    }
+
+    fn corner_water_depth(&self, corner: IVec3) -> f32 {
+        let mut sum = 0.0;
+        for (dx, dz) in [(-1, -1), (0, -1), (-1, 0), (0, 0)] {
+            let surface = corner + IVec3::new(dx, 0, dz);
+            for depth in 0..=WATER_DEPTH_LIMIT {
+                let block = self.get(surface - IVec3::Y * depth);
+                let def = self.registry.def(block);
+                if !def.liquid || depth == WATER_DEPTH_LIMIT {
+                    // L'air au bord d'un ruisseau est à profondeur nulle. Une chute sans
+                    // fond solide à cette hauteur garde une colonne optiquement profonde.
+                    sum += if depth > 0 && !def.solid {
+                        WATER_DEPTH_LIMIT
+                    } else {
+                        depth
+                    } as f32;
+                    break;
+                }
+            }
+        }
+        sum * 0.25
     }
 
     /// La teinte (un multiplicateur de couleur) de la colonne (x, z) du chunk central.
@@ -696,6 +730,19 @@ impl Neighbourhood {
         } else {
             [0; 4]
         };
+        let flags = block_flags(def);
+        let water_depth = if flags & FLAG_WATER == 0 {
+            [0; 4]
+        } else if face.axis == 1 && face.positive {
+            let offsets = [IVec3::ZERO, u, u + v, v];
+            std::array::from_fn(|i| {
+                water_depth_byte(
+                    self.corner_water_depth(p + offsets[i]) - f32::from(drops[i]) / 255.0,
+                )
+            })
+        } else {
+            [255; 4]
+        };
         let fire = self.furnace_fire(p, def, face);
         FaceLook {
             block,
@@ -709,9 +756,9 @@ impl Neighbourhood {
                     0
                 }
                 | if self.enclosed_leaf(p) {
-                    (block_flags(def) & !FLAG_CUTOUT) | FLAG_FILLED
+                    (flags & !FLAG_CUTOUT) | FLAG_FILLED
                 } else {
-                    block_flags(def)
+                    flags
                 },
             color: [
                 rgb[0] * tint[0],
@@ -721,6 +768,7 @@ impl Neighbourhood {
             ],
             translucent: self.registry.is_translucent(block),
             corners,
+            water_depth,
         }
     }
 }
@@ -1516,6 +1564,37 @@ mod tests {
             let middle = quad.iter().map(|v| culled.world_position(v)).sum::<Vec3>() / 4.0;
             assert!((middle - (centre + Vec3::splat(0.5))).abs().max_element() <= 0.5);
         }
+    }
+
+    #[test]
+    fn water_optical_depth_is_shared_across_chunks_and_varies_with_the_bottom() {
+        let mut world = World::new();
+        let water = id("core:water");
+        for x in 28..36 {
+            for z in 4..16 {
+                let floor = if z < 10 { 30 } else { 26 };
+                world.set_block(IVec3::new(x, floor, z), stone());
+                for y in floor + 1..=31 {
+                    world.set_block(IVec3::new(x, y, z), water);
+                }
+            }
+        }
+        let boundary = |chunk| {
+            let mesh = mesh_binary(&world, chunk);
+            mesh.vertices
+                .iter()
+                .filter_map(|v| {
+                    let p = mesh.world_position(v);
+                    (v.texture & FLAG_WATER != 0 && v.normal().y > 0.9 && p.x == 32.0)
+                        .then_some((p.z as i32, v.light[3]))
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        let left = boundary(IVec3::ZERO);
+        let right = boundary(IVec3::X);
+        assert_eq!(left, right);
+        assert_eq!(left[&5], water_depth_byte(1.0 - 32.0 / 255.0));
+        assert_eq!(left[&15], water_depth_byte(4.0 - 32.0 / 255.0));
     }
 
     #[test]

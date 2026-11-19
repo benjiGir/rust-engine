@@ -238,15 +238,20 @@ les vues en jeu, dont les poses de repos, de minage et d'épée.
 
 ## L'eau
 
-L'eau libre (liquide translucide sans lumière propre : `FLAG_WATER` dans le maillage) est animée
-par le shader des chunks (`crates/engine_render/src/chunk_shader.wgsl`), sans remailler :
-- la texture glisse et ondule, une houle de trois ondes incline la surface (les grandes faces
-  fusionnées n'ont que quatre sommets : on ne déplace pas la géométrie) ;
-- le ciel se reflète de biais (Fresnel) et le soleil laisse une tache qui scintille ; les vagues
-  s'effacent avec la distance (18 à 70 blocs) pour ne pas faire de moiré ;
-- **sous l'eau** (`Renderer::underwater`, de 0 à 1, lissé) : le rouge s'éteint avant le vert, le
-  lointain devient un bleu sombre, des reflets de lumière dansent sur ce qui est près de la
-  surface, et le fond de l'écran prend la couleur de l'eau. La surface se voit par en dessous.
+Le shader des chunks anime l'eau libre dans la passe translucide. La surface prend la couleur
+moyenne de la texture du pack. Une houle en coordonnées monde et des rides plus fines animent
+sa normale. Les rides s'estompent avec la distance et aux angles rasants pour limiter le
+scintillement. Les faces latérales gardent le grain de la texture.
+
+Le maillage moyenne la profondeur des quatre colonnes qui touchent chaque coin de surface.
+L'absorption augmente sur les quatre premiers blocs de profondeur, et le fond reste visible
+sur les berges. Au loin, les tuiles évaluent cette profondeur avec la hauteur de leur terrain.
+L'eau reflète davantage la lumière quand on la regarde de biais. Le reflet prend la teinte du
+ciel dans la direction réfléchie et suit la couverture nuageuse. Le soleil et la lune dessinent
+un éclat sur la houle. Le calcul utilise le maillage et la passe translucide existants.
+
+**Sous l'eau**, le rouge s'éteint avant le vert et le lointain devient bleu sombre.
+Les caustiques dansent près de la surface et celle-ci devient un miroir aux angles rasants.
 `games/voxel/src/water_fx.rs` ajoute les effets décoratifs : gerbe de gouttes et rides au plongeon,
 sillage quand on nage à la surface, bulles sous l'eau. La physique (`PlayerBody`) freine un plongeon
 (`splash` donne la vitesse d'entrée), et un **courant** emporte les corps vers les cellules d'eau
@@ -259,8 +264,6 @@ donne un élan (`EXIT_SPEED`) qui le fait passer par-dessus. Une falaise plus ha
 **L'écoulement** : un réservoir (source) alimente un ruisseau de 7 cellules au plus, de plus en plus
 mince, au lieu d'inonder tout ce qui est plat (`fluid_sim.rs`, « portée »). En tombant, l'eau
 retrouve toute sa portée en bas. À l'écran, la normale du dessus de l'eau suit la pente de la
-surface (calculée au maillage) : le shader fait glisser la texture et les vagues vers le bas de la
-pente, d'autant plus vite qu'elle est raide. Une chute (le côté d'une cascade, une pente très raide)
-reste **translucide** : on y voit couler des filets plus clairs, des rubans verticaux de largeurs et
-de vitesses différentes dont des bandes descendent (`fall_streaks` dans le shader), comme dans les
-shaders d'eau de Minecraft, sans écume opaque.
+surface calculée au maillage. Le shader entraîne les ondulations dans le sens de la pente.
+Les parois des cascades et les pentes raides restent translucides, avec des filets plus clairs dont
+les bandes descendent à différentes vitesses (`fall_streaks` dans le shader).

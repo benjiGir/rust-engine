@@ -448,6 +448,7 @@ fn cube_look(s: &Scratch, hood: &Neighbourhood, p: IVec3, face: Face, block: Blo
         block,
         texture,
         drops: [0; 4],
+        water_depth: [0; 4],
         flags: fire
             | if def.tint == Tint::Grass && face.axis == 1 && face.positive {
                 FLAG_GROUND

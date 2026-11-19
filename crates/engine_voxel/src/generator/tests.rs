@@ -107,7 +107,8 @@ fn a_large_area_has_every_biome() {
         .collect();
     report.sort();
     eprintln!("répartition des biomes : {}", report.join(", "));
-    for (id, biome) in generator.biomes().iter() {
+    // Les biomes réservés à la v3 n'existent pas dans un monde v1.
+    for (id, biome) in generator.biomes().iter().filter(|(_, b)| !b.v3_only) {
         assert!(
             counts.get(&id).is_some_and(|&n| n > 0),
             "biome absent : {} ({report:?})",

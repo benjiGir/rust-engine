@@ -34,6 +34,14 @@ pub enum TreeKind {
     Bush,
     /// Un grand sapin des vieilles forêts : haut et étroit.
     TallSpruce,
+    /// Un séquoia géant : tronc de 2 × 2, très haut, couronne en cône dans le dernier tiers.
+    Redwood,
+    /// Un érable : tronc de chêne, large couronne rouge et orangée.
+    Maple,
+    /// Un arbre fruitier en fleurs : petit tronc, boule de fleurs roses et blanches.
+    Fruit,
+    /// Un cyprès de bayou : tronc haut et fin, petite couronne, lianes.
+    Cypress,
 }
 
 /// Ce qu'est un bloc d'arbre : il décide de ce qu'il a le droit de remplacer.
@@ -60,6 +68,11 @@ pub struct TreeBlocks {
     pub spruce: Wood,
     pub acacia: Wood,
     pub jungle: Wood,
+    /// Les essences de la génération v3 ; `None` dans un registre qui ne les a pas (un registre de
+    /// test réduit, ou un jeu d'avant la vague 1) : leurs arbres prennent alors le chêne.
+    pub redwood: Option<Wood>,
+    pub maple_leaves: Option<BlockId>,
+    pub blossom_leaves: Option<BlockId>,
     pub vine: BlockId,
     pub cactus: BlockId,
 }
@@ -83,6 +96,9 @@ impl TreeBlocks {
             spruce: wood("spruce")?,
             acacia: wood("acacia")?,
             jungle: wood("jungle")?,
+            redwood: wood("redwood").ok(),
+            maple_leaves: registry.id("core:maple_leaves"),
+            blossom_leaves: registry.id("core:blossom_leaves"),
             vine: id("core:vine")?,
             cactus: id("core:cactus")?,
         })
@@ -96,6 +112,19 @@ impl TreeBlocks {
             TreeKind::Spruce | TreeKind::TallSpruce => self.spruce,
             TreeKind::Acacia => self.acacia,
             TreeKind::Jungle | TreeKind::JungleBush => self.jungle,
+            TreeKind::Redwood => self.redwood.unwrap_or(self.spruce),
+            TreeKind::Maple => Wood {
+                log: self.oak.log,
+                leaves: self.maple_leaves.unwrap_or(self.oak.leaves),
+            },
+            TreeKind::Fruit => Wood {
+                log: self.oak.log,
+                leaves: self.blossom_leaves.unwrap_or(self.oak.leaves),
+            },
+            TreeKind::Cypress => Wood {
+                log: self.spruce.log,
+                leaves: self.oak.leaves,
+            },
             TreeKind::Cactus => Wood {
                 log: self.cactus,
                 leaves: self.cactus,
@@ -111,6 +140,8 @@ impl TreeBlocks {
             "core:spruce_sapling" => TreeKind::Spruce,
             "core:acacia_sapling" => TreeKind::Acacia,
             "core:jungle_sapling" => TreeKind::JungleBush,
+            "core:redwood_sapling" => TreeKind::Redwood,
+            "core:maple_sapling" => TreeKind::Maple,
             _ => return None,
         })
     }
@@ -187,6 +218,45 @@ pub fn grow(
                 if dx.abs() == 3 || dz.abs() == 3 {
                     let top = base + IVec3::new(dx, height - 3, dz);
                     for k in 0..rng.range(1, 4) {
+                        put(top - IVec3::Y * k, blocks.vine, Part::Leaves);
+                    }
+                }
+            }
+        }
+        TreeKind::Redwood => redwood(base, rng, wood, put),
+        TreeKind::Maple => {
+            let height = rng.range(6, 8);
+            for y in 0..height {
+                put(base + IVec3::Y * y, wood.log, Part::Log);
+            }
+            blob(base + IVec3::Y * (height - 1), 3.3, wood.leaves, put);
+            blob(base + IVec3::new(0, height + 1, 0), 2.2, wood.leaves, put);
+        }
+        TreeKind::Fruit => {
+            let height = rng.range(3, 4);
+            for y in 0..height {
+                put(base + IVec3::Y * y, wood.log, Part::Log);
+            }
+            blob(base + IVec3::Y * height, 2.4, wood.leaves, put);
+        }
+        TreeKind::Cypress => {
+            let height = rng.range(10, 14);
+            for y in 0..height {
+                put(base + IVec3::Y * y, wood.log, Part::Log);
+            }
+            // Des « genoux » : de petites racines qui sortent du sol autour du tronc.
+            for (dx, dz) in [(2, 0), (-2, 1), (1, -2)] {
+                if rng.below(2) == 0 {
+                    put(base + IVec3::new(dx, 0, dz), wood.log, Part::Log);
+                }
+            }
+            blob(base + IVec3::Y * height, 2.6, wood.leaves, put);
+            blob(base + IVec3::Y * (height - 3), 2.0, wood.leaves, put);
+            for _ in 0..6 {
+                let (dx, dz) = (rng.range(-2, 2), rng.range(-2, 2));
+                if dx.abs() == 2 || dz.abs() == 2 {
+                    let top = base + IVec3::new(dx, height - 2, dz);
+                    for k in 0..rng.range(2, 5) {
                         put(top - IVec3::Y * k, blocks.vine, Part::Leaves);
                     }
                 }
@@ -326,6 +396,36 @@ fn acacia(base: IVec3, rng: &mut Rng64, wood: Wood, put: &mut impl FnMut(IVec3, 
 }
 
 /// L'arbre géant de la jungle : un tronc de 2 × 2, une couronne large, des lianes.
+/// Le séquoia : un tronc de 2 × 2 très haut, nu sur ses deux premiers tiers, puis des couches de
+/// feuilles en cône serré.
+fn redwood(base: IVec3, rng: &mut Rng64, wood: Wood, put: &mut impl FnMut(IVec3, BlockId, Part)) {
+    let height = rng.range(20, 27);
+    for y in 0..height {
+        for (dx, dz) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            put(base + IVec3::new(dx, y, dz), wood.log, Part::Log);
+        }
+    }
+    let lowest = height * 2 / 3 - 2;
+    for y in lowest..height + 3 {
+        // Le rayon diminue vers le haut, en couches alternées pour un cône dentelé.
+        let from_top = (height + 3 - y) as f32;
+        let r = (from_top * 0.38).min(4.2) - if y % 2 == 0 { 0.0 } else { 0.8 };
+        if r < 0.6 {
+            put(base + IVec3::new(0, y, 0), wood.leaves, Part::Leaves);
+            continue;
+        }
+        let n = r.ceil() as i32;
+        for dx in -n..=n + 1 {
+            for dz in -n..=n + 1 {
+                let (cx, cz) = (dx as f32 - 0.5, dz as f32 - 0.5);
+                if cx * cx + cz * cz <= r * r {
+                    put(base + IVec3::new(dx, y, dz), wood.leaves, Part::Leaves);
+                }
+            }
+        }
+    }
+}
+
 fn jungle(
     base: IVec3,
     rng: &mut Rng64,
@@ -373,5 +473,47 @@ fn jungle(
                 put(crown + IVec3::new(dx, -3 - k, dz), vine, Part::Leaves);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Les formes de la vague 1 restent dans les bornes que la génération par chunk suppose : au plus
+    /// `MAX_RADIUS` blocs de côté et 30 de haut (voir `features.rs`).
+    #[test]
+    fn new_tree_shapes_stay_within_the_chunk_bounds() {
+        let registry = BlockRegistry::builtin();
+        let blocks = TreeBlocks::resolve(&registry).unwrap();
+        assert!(blocks.redwood.is_some() && blocks.maple_leaves.is_some());
+        for kind in [
+            TreeKind::Redwood,
+            TreeKind::Maple,
+            TreeKind::Fruit,
+            TreeKind::Cypress,
+        ] {
+            for seed in 0..40 {
+                let mut rng = Rng64::new(seed);
+                let mut count = 0;
+                grow(kind, IVec3::ZERO, &mut rng, &blocks, &mut |p, _, _| {
+                    count += 1;
+                    assert!(
+                        p.x.abs() <= MAX_RADIUS && p.z.abs() <= MAX_RADIUS,
+                        "{kind:?} : {p}"
+                    );
+                    assert!((0..=30).contains(&p.y), "{kind:?} : {p}");
+                });
+                assert!(count > 10, "{kind:?} : trop petit");
+            }
+        }
+        assert_eq!(
+            TreeBlocks::kind_of_sapling("core:redwood_sapling"),
+            Some(TreeKind::Redwood)
+        );
+        assert_eq!(
+            TreeBlocks::kind_of_sapling("core:maple_sapling"),
+            Some(TreeKind::Maple)
+        );
     }
 }

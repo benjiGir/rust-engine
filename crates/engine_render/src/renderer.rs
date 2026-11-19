@@ -277,7 +277,7 @@ struct CameraUniform {
     sun: [f32; 4],
     /// Teinte de la lumière du ciel (xyz).
     sun_color: [f32; 4],
-    /// Sous l'eau : x vaut 0 (dehors) à 1 (sous la surface), y est l'altitude de la surface.
+    /// Immersion, altitude de la surface, couverture nuageuse, ciel dynamique actif.
     water: [f32; 4],
 }
 
@@ -380,6 +380,13 @@ impl Renderer {
                 label: Some("device"),
                 // Les timestamps du GPU, s'il les a (voir `gpu_timer.rs`).
                 required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+                // Le tableau des textures de blocs a une couche par texture : la limite par défaut
+                // (256) est dépassée avec les biomes de la génération v3. On prend ce que la carte
+                // permet (2 048 sur Metal), sans aller au-delà.
+                required_limits: wgpu::Limits {
+                    max_texture_array_layers: adapter.limits().max_texture_array_layers.min(2048),
+                    ..wgpu::Limits::default()
+                },
                 ..Default::default()
             })
             .await?;
@@ -986,7 +993,12 @@ impl Renderer {
             fog_color_end: [sky.r as f32, sky.g as f32, sky.b as f32, fog.end],
             sun: self.sun.direction.extend(self.sun.daylight).to_array(),
             sun_color: self.sun.color.extend(self.time).to_array(),
-            water: [self.underwater, self.water_surface, 0.0, 0.0],
+            water: [
+                self.underwater,
+                self.water_surface,
+                self.sky.map_or(0.0, |sky| sky.overcast),
+                if self.sky.is_some() { 1.0 } else { 0.0 },
+            ],
         };
         let frustum = Frustum::from_view_proj(view_proj);
         if let Some(timer) = &mut self.gpu_timer {
