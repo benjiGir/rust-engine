@@ -42,6 +42,8 @@ enum Generator {
     V1,
     /// Le prototype macro v2 (lots 2 et 3) : géographie et drainage, sans blocs.
     V2,
+    /// La génération v3 (densité 3D) : les cartes du monde réel et les cartes de blocs.
+    V3,
 }
 
 struct Options {
@@ -106,6 +108,7 @@ fn options() -> Result<Options> {
                 options.generator = match value()?.as_str() {
                     "v1" => Generator::V1,
                     "v2" => Generator::V2,
+                    "v3" => Generator::V3,
                     other => bail!("--generator : v1 ou v2, pas « {other} »"),
                 };
             }
@@ -184,10 +187,14 @@ fn main() -> Result<()> {
         .unwrap_or_else(|| PathBuf::from(format!("target/maps/{}", options.seed)));
     std::fs::create_dir_all(&out)?;
     let area = options.area;
-    if options.generator == Generator::V2
+    if options.generator != Generator::V1
         && let Some((axis, fixed)) = options.section
     {
-        let generator = v2_generator(&options)?;
+        let generator = if options.generator == Generator::V3 {
+            TerrainGenerator::new(options.seed).with_version(GenerationVersion::V3)?
+        } else {
+            v2_generator(&options)?
+        };
         if options.to <= options.from || options.to - options.from > 4096 {
             bail!("--from < --to, sur 4096 blocs au plus");
         }
@@ -312,14 +319,39 @@ fn main() -> Result<()> {
         }
         return Ok(());
     }
+    // En v3, les cartes de blocs (`hauteur-blocs`, `materiau`, `eau-blocs`...) se demandent aussi.
+    let (block_names, map_names): (Vec<String>, Vec<String>) =
+        options.maps.iter().flatten().cloned().partition(|n| {
+            options.generator == Generator::V3 && BlockMapKind::from_name(n).is_some()
+        });
+    if !block_names.is_empty() {
+        let generator = TerrainGenerator::new(options.seed).with_version(GenerationVersion::V3)?;
+        let started = std::time::Instant::now();
+        let samples = BlockMapSamples::compute(&generator, area);
+        println!(
+            "générateur v3 (blocs) : {} ms",
+            started.elapsed().as_millis()
+        );
+        for name in &block_names {
+            let kind = BlockMapKind::from_name(name).expect("nom vérifié par la partition");
+            save(&out, kind.name(), &samples.render(kind), options.ppm)?;
+        }
+        if map_names.is_empty() {
+            return Ok(());
+        }
+    }
     let kinds: Vec<MapKind> = match &options.maps {
         None => MapKind::ALL.to_vec(),
-        Some(names) => names
+        Some(_) => map_names
             .iter()
             .map(|n| MapKind::from_name(n).with_context(|| format!("carte inconnue « {n} »")))
             .collect::<Result<_>>()?,
     };
-    let generator = TerrainGenerator::new(options.seed);
+    let generator = if options.generator == Generator::V3 {
+        TerrainGenerator::new(options.seed).with_version(GenerationVersion::V3)?
+    } else {
+        TerrainGenerator::new(options.seed)
+    };
     let samples = MapSamples::compute(&generator, area);
     for kind in &kinds {
         save(&out, kind.name(), &samples.render(*kind), options.ppm)?;

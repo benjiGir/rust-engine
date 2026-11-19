@@ -220,3 +220,42 @@ de bruits, grottes au lot 3).
 
 - Pas encore de « blend » entre anciens et nouveaux chunks (inutile tant que v3 ne remplace pas un monde existant).
 - `FlatCache` garde une table par remplissage : suffisant ici, à revoir si le profil le montre.
+
+## Statut du lot 2 : le relief v3 (à valider sur captures)
+
+### Ce qui existe
+
+- **Version v3** (`GenerationVersion::V3`, numéro 3, monde de test par `VOXEL_GENERATION=3`) : couches de -4 à 7
+  (y de -128 à 255), mer à 62. `FOR_NEW_WORLDS` reste v1.
+- **Relief en densité** (`assets/core/worldgen/terrain_v3.ron`, nos valeurs) : continentalité, érosion et crêtes pliées en
+  pics et vallées (pv), température et humidité, légèrement déformées par un bruit de décalage. Le décalage (hauteur
+  moyenne) est une spline de la continentalité, puis de l'érosion, puis des pics et vallées ; le facteur et les
+  dentelures aussi. Densité = 4 × quart-négatif((pente verticale + décalage + dentelures) × facteur) + bruit 3D ; le haut
+  du monde se vide, le bas reste plein ; le tout interpolé par cellules.
+- **Rivières en vallée** : le fond des vallées (pv = -1) est à -0,08 (y = 53), sous la mer ; l'eau ne remplit que ce qui
+  est sous y = 62. Une rivière ne peut donc pas être perchée. Les vallées coupent aussi les massifs (canyons).
+- **Contexte de colonne** (`generator/v3.rs`) : la densité aux 9 × 49 × 9 coins d'une colonne de chunks est calculée une
+  fois (cache de 512 colonnes) ; les blocs et les hauteurs de surface en sont interpolés, donc les hauteurs collent aux
+  blocs. Biome simple (océan, rivière, plage, montagne, pics selon hauteur et paramètres, sinon le climat) ; surface du
+  biome, sous-couche, pierre, pierre profonde sous 0, socle à -128, neige au froid, glace à la surface de la mer gelée ;
+  minerais, plantes et arbres existants.
+- **Outils** : `cargo xtask map --generator v3` (altitude, biomes, cartes de blocs) et `--section` pour les coupes.
+
+### Tests (`tests/generation_v3.rs`, 7)
+
+Version et plage ; hauteurs égales au bloc plein le plus haut et jamais d'eau au-dessus de la mer (trois graines) ; au
+moins 95 % des fonds de vallée de l'intérieur sous la mer, aucun au-dessus de 65 ; sous-sol plein de pierre profonde ;
+océans profonds, plaines et sommets au-delà de 162 ; mêmes blocs dans tous les ordres, sur plusieurs threads, avec un
+cache neuf ; un monde v3 chargé, éclairé et maillé par le vrai streamer, apparition sur la terre ferme.
+
+### Coût (`print_v3_cost`, release)
+
+3,9 ms par colonne de chunks en v3 (12 couches) contre 2,0 ms en v1 (6 couches) : le même ordre par chunk.
+
+### Ce qui n'est pas fait (lots suivants)
+
+- Grottes et aquifères (lot 3) : le sous-sol est plein ; pas de lacs au-dessus de la mer.
+- Règles de surface et biomes multi-paramètres (lot 4) : la neige est posée par colonne froide, en taches sur les pentes.
+- Structures (villages, ruines...) : pas encore posées en v3.
+- Terrain lointain v3 (lot 6) : une tuile lointaine ne tient qu'environ 110 blocs de dénivelé au niveau le plus fin ; les
+  massifs v3 dépassent, d'où des artefacts à l'horizon.

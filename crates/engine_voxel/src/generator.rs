@@ -210,6 +210,8 @@ pub struct TerrainGenerator {
     version: GenerationVersion,
     /// L'état de la génération v2 (relief macro, densité 3D) ; `None` en v1. Voir `v2.rs`.
     v2: Option<Arc<v2::V2State>>,
+    /// L'état de la génération v3 (densité 3D, voir `v3.rs`) ; `None` sinon.
+    v3: Option<Arc<v3::V3State>>,
     continentalness: Fbm<Perlin>,
     erosion: Fbm<Perlin>,
     temperature: Fbm<Perlin>,
@@ -325,6 +327,9 @@ impl TerrainGenerator {
         // Les contextes de la génération v2 dépendent aussi des biomes : on en repart à neuf.
         if self.v2.is_some() {
             self.v2 = self.with_version_state().ok();
+        }
+        if self.v3.is_some() {
+            self.v3 = v3::V3State::new(self.seed).ok().map(Arc::new);
         }
     }
 
@@ -471,6 +476,7 @@ impl TerrainGenerator {
         let mut generator = Self {
             seed,
             version: GenerationVersion::V1,
+            v3: None,
             v2: None,
             structures,
             structure_blocks,
@@ -509,7 +515,13 @@ impl TerrainGenerator {
     /// Les couches de chunks que cette génération remplit, de bas en haut : en dehors, il n'y a que
     /// de l'air (au-dessus) ou du vide (en dessous), et le streamer ne les demande pas.
     pub fn chunk_range(&self) -> std::ops::Range<i32> {
-        self.chunk_range.clone().unwrap_or(0..WORLD_HEIGHT_CHUNKS)
+        if let Some(range) = &self.chunk_range {
+            return range.clone();
+        }
+        if self.v3.is_some() && matches!(self.world, crate::dimension::WorldKind::Terrain { .. }) {
+            return MIN_CHUNK_Y..MAX_CHUNK_Y;
+        }
+        0..WORLD_HEIGHT_CHUNKS
     }
 
     /// Impose une plage de couches (bornée au stockage, `MIN_CHUNK_Y..MAX_CHUNK_Y`). Sert aux tests du
@@ -616,6 +628,9 @@ impl TerrainGenerator {
         if self.v2.is_some() {
             return self.column_v2(x, z);
         }
+        if self.v3.is_some() {
+            return self.column_v3(x, z);
+        }
         let fields = self.fields_at(x, z, |gx, gz| self.fields(gx, gz));
         self.interpret(fields)
     }
@@ -629,6 +644,9 @@ impl TerrainGenerator {
         }
         if self.v2.is_some() {
             return (self.column_v2(x, z), Climate::default());
+        }
+        if self.v3.is_some() {
+            return (self.column_v3(x, z), Climate::default());
         }
         let f = self.fields_at(x, z, |gx, gz| self.fields(gx, gz));
         let climate = Climate {
@@ -651,6 +669,9 @@ impl TerrainGenerator {
         }
         if self.v2.is_some() {
             return self.column_v2(gx * STEP, gz * STEP);
+        }
+        if self.v3.is_some() {
+            return self.column_v3(gx * STEP, gz * STEP);
         }
         self.interpret(self.fields(gx, gz))
     }
@@ -914,6 +935,9 @@ impl TerrainGenerator {
         if self.v2.is_some() && matches!(self.world, crate::dimension::WorldKind::Terrain { .. }) {
             return self.v2_context(chunk_pos.x, chunk_pos.z).columns.clone();
         }
+        if self.v3.is_some() && matches!(self.world, crate::dimension::WorldKind::Terrain { .. }) {
+            return self.v3_column(chunk_pos.x, chunk_pos.z).columns.clone();
+        }
         Box::new(self.column_grid(chunk_pos.x, chunk_pos.z).columns)
     }
 
@@ -980,6 +1004,9 @@ impl TerrainGenerator {
         if self.v2.is_some() && matches!(self.world, crate::dimension::WorldKind::Terrain { .. }) {
             return self.v2_context(chunk_pos.x, chunk_pos.z).biomes.clone();
         }
+        if self.v3.is_some() && matches!(self.world, crate::dimension::WorldKind::Terrain { .. }) {
+            return self.v3_column(chunk_pos.x, chunk_pos.z).biomes.clone();
+        }
         self.column_grid(chunk_pos.x, chunk_pos.z).biomes.clone()
     }
 
@@ -991,6 +1018,9 @@ impl TerrainGenerator {
         }
         if self.v2.is_some() {
             return self.generate_v2(chunk_pos);
+        }
+        if self.v3.is_some() {
+            return self.generate_v3(chunk_pos);
         }
         if !self.chunk_range().contains(&chunk_pos.y) {
             return None;
@@ -1390,6 +1420,8 @@ mod tests;
 mod underground;
 mod v2;
 mod v2_context;
+mod v3;
+pub use v3::V3Parameters;
 
 pub use climate::{ClimateSample, WorldClimate};
 use column_cache::{ColumnCache, ColumnGrid, ColumnKey};

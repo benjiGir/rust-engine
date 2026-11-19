@@ -62,6 +62,10 @@ pub enum GenerationVersion {
     /// [`GenerationVersion::for_new_world`] et la variable d'environnement
     /// [`GenerationVersion::ENV_OVERRIDE`].
     V2,
+    /// La génération v3 (`docs/plan-generation-v3.md`) : une densité 3D sur le modèle de Minecraft
+    /// moderne (paramètres climatiques, splines, bruit 3D), un monde de y = -128 à 255. Monde de test
+    /// seulement (`VOXEL_GENERATION=3`), comme v2.
+    V3,
 }
 
 impl GenerationVersion {
@@ -88,6 +92,7 @@ impl GenerationVersion {
         match requested.map(|v| v.trim().to_lowercase()).as_deref() {
             Some("1" | "v1") => Self::V1,
             Some("2" | "v2") => Self::V2,
+            Some("3" | "v3") => Self::V3,
             _ => Self::FOR_NEW_WORLDS,
         }
     }
@@ -97,6 +102,7 @@ impl GenerationVersion {
         match self {
             Self::V1 => 1,
             Self::V2 => 2,
+            Self::V3 => 3,
         }
     }
 
@@ -106,6 +112,7 @@ impl GenerationVersion {
         match number {
             1 => Ok(Self::V1),
             2 => Ok(Self::V2),
+            3 => Ok(Self::V3),
             other => bail!(
                 "version de génération {other} inconnue : ce monde vient d'une version plus récente du jeu"
             ),
@@ -118,6 +125,7 @@ impl std::fmt::Display for GenerationVersion {
         match self {
             Self::V1 => f.write_str("v1 (historique)"),
             Self::V2 => f.write_str("v2 (relief macro, monde de test)"),
+            Self::V3 => f.write_str("v3 (densité 3D, monde de test)"),
         }
     }
 }
@@ -375,7 +383,13 @@ mod tests {
                 GenerationVersion::V2
             );
         }
-        for v1 in ["1", "v1", "", "3", "n'importe quoi"] {
+        for v3 in ["3", "v3", " V3 "] {
+            assert_eq!(
+                GenerationVersion::for_new_world_with(Some(v3)),
+                GenerationVersion::V3
+            );
+        }
+        for v1 in ["1", "v1", "", "4", "n'importe quoi"] {
             assert_eq!(
                 GenerationVersion::for_new_world_with(Some(v1)),
                 GenerationVersion::V1

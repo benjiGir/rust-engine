@@ -281,8 +281,12 @@ impl TerrainGenerator {
     pub fn with_version(mut self, version: GenerationVersion) -> Result<Self> {
         self.version = version;
         self.v2 = match version {
-            GenerationVersion::V1 => None,
             GenerationVersion::V2 => Some(self.with_version_state()?),
+            GenerationVersion::V1 | GenerationVersion::V3 => None,
+        };
+        self.v3 = match version {
+            GenerationVersion::V3 => Some(Arc::new(super::v3::V3State::new(self.seed)?)),
+            GenerationVersion::V1 | GenerationVersion::V2 => None,
         };
         // Les arbres et les colonnes dépendent de la version : on repart de caches neufs.
         self.tree_cache = Arc::default();

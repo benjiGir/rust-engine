@@ -214,6 +214,16 @@ impl DensityGraph {
         eval.eval(id, x, y, z)
     }
 
+    /// Les valeurs exactes en plusieurs positions, dans l'ordre : les caches (`FlatCache`, `Cache2d`...)
+    /// servent d'une position à l'autre, contrairement à des appels séparés à [`Self::sample`].
+    pub fn sample_many(&self, id: NodeId, positions: impl IntoIterator<Item = IVec3>) -> Vec<f64> {
+        let mut eval = Eval::new(self, None);
+        positions
+            .into_iter()
+            .map(|p| eval.eval(id, p.x, p.y, p.z))
+            .collect()
+    }
+
     /// Remplit `out` (32³ valeurs, dans l'ordre de `Chunk::index` : x + 32 z + 1024 y) avec la
     /// fonction `id` sur le chunk dont le coin minimal est `origin` (en blocs).
     pub fn fill_chunk(&self, id: NodeId, origin: IVec3, out: &mut [f64]) {

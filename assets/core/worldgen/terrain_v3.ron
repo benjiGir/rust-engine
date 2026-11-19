@@ -1,0 +1,129 @@
+// Le relief de la génération v3 (lot 2 de docs/plan-generation-v3.md) : une densité 3D, positive
+// dans la matière, négative dans le vide, sur le modèle de Minecraft moderne. Les valeurs sont les
+// nôtres (réglées sur captures), pas celles de Mojang.
+//
+// Unités : la densité « depth » vaut 0 à y = 64 et perd 1 tous les 128 blocs vers le haut. Un
+// décalage (offset) de +0,5 pose donc la surface vers y = 128 ; -0,25 vers y = 32. La mer est à 62.
+//
+// Paramètres (de -1 à 1 environ) :
+// - continentalness : océans (bas) -> côtes -> intérieur des terres (haut) ;
+// - erosion : bas = montagnes escarpées, haut = plaines usées ;
+// - ridges, plié en pv (« peaks and valleys ») : -1 au fond des vallées (où coulent les rivières, au
+//   niveau de la mer), +1 sur les crêtes ;
+// - temperature, humidity : le climat, pour les biomes.
+(
+    noises: {
+        "continentalness": (first_octave: -11, amplitudes: [1.0, 1.0, 1.5, 1.5, 1.0, 0.25, 0.1]),
+        "erosion": (first_octave: -10, amplitudes: [1.0, 1.0, 0.0, 1.0, 1.0]),
+        "ridges": (first_octave: -10, amplitudes: [1.0, 2.0, 1.0, 0.5, 0.0, 0.0]),
+        "temperature": (first_octave: -11, amplitudes: [1.5, 0.0, 1.0, 0.0, 0.0, 0.0]),
+        "humidity": (first_octave: -10, amplitudes: [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]),
+        // Une déformation légère des paramètres : des côtes et des vallées moins régulières.
+        "shift": (first_octave: -5, amplitudes: [1.0, 1.0, 1.0, 0.0]),
+        // Les dentelures des sommets.
+        "jagged": (first_octave: -5, amplitudes: [1.0, 1.0, 1.0, 1.0, 1.0]),
+        // Le bruit 3D : bosses, surplombs et falaises là où le relief le permet.
+        "base_3d": (first_octave: -7, amplitudes: [1.0, 1.0, 1.0, 1.0]),
+    },
+    functions: {
+        "shift_x": FlatCache(Cache2d(Mul(Noise(noise: "shift", xz_scale: 1.0, y_scale: 0.0), Constant(16.0)))),
+        "shift_z": FlatCache(Cache2d(Mul(Noise(noise: "shift", xz_scale: 1.0, y_scale: 0.0), Constant(-16.0)))),
+        "continents": FlatCache(ShiftedNoise(noise: "continentalness", xz_scale: 1.0, y_scale: 0.0,
+            shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z"))),
+        "erosion": FlatCache(ShiftedNoise(noise: "erosion", xz_scale: 1.0, y_scale: 0.0,
+            shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z"))),
+        "ridges": FlatCache(ShiftedNoise(noise: "ridges", xz_scale: 1.0, y_scale: 0.0,
+            shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z"))),
+        // pv = 1 - |3 |ridges| - 2| : -1 quand ridges passe par 0 (vallées), +1 à |ridges| = 2/3.
+        "pv": FlatCache(Add(Constant(1.0), Mul(Constant(-1.0),
+            Abs(Add(Mul(Abs(Ref("ridges")), Constant(3.0)), Constant(-2.0)))))),
+        "temperature": FlatCache(ShiftedNoise(noise: "temperature", xz_scale: 1.0, y_scale: 0.0,
+            shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z"))),
+        "humidity": FlatCache(ShiftedNoise(noise: "humidity", xz_scale: 1.0, y_scale: 0.0,
+            shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z"))),
+
+        // Le décalage : la hauteur moyenne du sol, selon la continentalité, puis (dans les terres)
+        // l'érosion et les pics et vallées. Le fond des vallées est toujours sous le niveau de la mer
+        // (-0,08 : y = 53) : une rivière ne peut pas être perchée.
+        "offset": FlatCache(Spline((coordinate: Ref("continents"), points: [
+            (location: -1.1, value: -0.30),
+            (location: -0.55, value: -0.26),
+            (location: -0.30, value: -0.16, derivative: 0.4),
+            (location: -0.18, value: -0.04, derivative: 0.4),
+            (location: -0.11, value: (coordinate: Ref("erosion"), points: [
+                (location: -0.8, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: 0.0, value: 0.10), (location: 1.0, value: 0.30)])),
+                (location: 0.0, value: 0.00),
+                (location: 0.6, value: -0.01),
+            ])),
+            (location: 0.03, value: (coordinate: Ref("erosion"), points: [
+                (location: -0.7, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.6, value: 0.18, derivative: 0.6),
+                    (location: 0.2, value: 0.62, derivative: 0.5), (location: 1.0, value: 1.05)])),
+                (location: -0.3, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.5, value: 0.12, derivative: 0.4),
+                    (location: 0.3, value: 0.38, derivative: 0.3), (location: 1.0, value: 0.55)])),
+                (location: 0.0, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.4, value: 0.05, derivative: 0.15),
+                    (location: 1.0, value: 0.26)])),
+                (location: 0.35, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.5, value: 0.03), (location: 1.0, value: 0.12)])),
+                (location: 0.7, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: 0.0, value: 0.015), (location: 1.0, value: 0.05)])),
+            ])),
+            (location: 0.6, value: (coordinate: Ref("erosion"), points: [
+                (location: -0.7, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.6, value: 0.22, derivative: 0.6),
+                    (location: 0.2, value: 0.70, derivative: 0.5), (location: 1.0, value: 1.20)])),
+                (location: -0.3, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.5, value: 0.16, derivative: 0.4),
+                    (location: 0.3, value: 0.45, derivative: 0.3), (location: 1.0, value: 0.65)])),
+                (location: 0.0, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.4, value: 0.08, derivative: 0.15),
+                    (location: 1.0, value: 0.30)])),
+                (location: 0.35, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.5, value: 0.05), (location: 1.0, value: 0.16)])),
+                (location: 0.7, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: 0.0, value: 0.02), (location: 1.0, value: 0.06)])),
+            ])),
+        ]))),
+
+        // Le facteur : grand, le relief suit le décalage de près (plaines nettes) ; petit, le bruit 3D
+        // prend plus de place (escarpements, surplombs).
+        "factor": FlatCache(Spline((coordinate: Ref("continents"), points: [
+            (location: -0.2, value: 4.0),
+            (location: 0.0, value: (coordinate: Ref("erosion"), points: [
+                (location: -0.7, value: 2.8),
+                (location: -0.3, value: 3.6),
+                (location: 0.0, value: 5.0),
+                (location: 0.4, value: 6.5),
+                (location: 0.8, value: 7.0),
+            ])),
+        ]))),
+
+        // Les dentelures : seulement sur les crêtes des massifs.
+        "jaggedness": FlatCache(Spline((coordinate: Ref("continents"), points: [
+            (location: -0.1, value: 0.0),
+            (location: 0.05, value: (coordinate: Ref("erosion"), points: [
+                (location: -0.7, value: (coordinate: Ref("pv"), points: [
+                    (location: 0.2, value: 0.0), (location: 0.6, value: 0.35), (location: 1.0, value: 0.63)])),
+                (location: -0.3, value: (coordinate: Ref("pv"), points: [
+                    (location: 0.5, value: 0.0), (location: 1.0, value: 0.25)])),
+                (location: -0.1, value: 0.0),
+            ])),
+        ]))),
+
+        "depth": Add(YClampedGradient(from_y: -128, to_y: 256, from_value: 1.5, to_value: -1.5), Ref("offset")),
+        "jagged": Mul(Ref("jaggedness"), HalfNegative(Noise(noise: "jagged", xz_scale: 1.0, y_scale: 0.0))),
+        "sloped": Add(
+            Mul(Constant(4.0), QuarterNegative(Mul(Add(Ref("depth"), Ref("jagged")), Ref("factor")))),
+            Mul(Noise(noise: "base_3d", xz_scale: 1.0, y_scale: 0.5), Constant(0.35)),
+        ),
+        // Le haut du monde se vide, le bas reste plein.
+        "slides": Min(
+            Max(Ref("sloped"), YClampedGradient(from_y: -128, to_y: -112, from_value: 2.0, to_value: -4.0)),
+            YClampedGradient(from_y: 232, to_y: 256, from_value: 4.0, to_value: -2.0),
+        ),
+        "final": Interpolated(Ref("slides")),
+    },
+)
