@@ -38,6 +38,9 @@ pub struct World {
     biomes: Option<Arc<BiomeRegistry>>,
     /// Les fluides (pour la nage : viscosité, densité), s'ils sont connus.
     fluids: Option<Arc<FluidRegistry>>,
+    /// Les couches de chunks du monde (voir `TerrainGenerator::chunk_range`) : sous la plus basse,
+    /// le vide noir ; au-dessus de la plus haute, le plein ciel.
+    vertical: std::ops::Range<i32>,
 }
 
 impl Default for World {
@@ -58,11 +61,32 @@ impl World {
             registry,
             biomes: None,
             fluids: None,
+            vertical: 0..crate::generator::WORLD_HEIGHT_CHUNKS,
         }
     }
 
     pub fn registry(&self) -> &Arc<BlockRegistry> {
         &self.registry
+    }
+
+    /// Les couches de chunks du monde, de bas en haut.
+    pub fn vertical(&self) -> std::ops::Range<i32> {
+        self.vertical.clone()
+    }
+
+    /// Change les couches du monde (le streamer y met celles de son générateur). Bornées au stockage.
+    pub fn set_vertical(&mut self, vertical: std::ops::Range<i32>) {
+        let start = vertical.start.max(crate::generator::MIN_CHUNK_Y);
+        let end = vertical
+            .end
+            .min(crate::generator::MAX_CHUNK_Y)
+            .max(start + 1);
+        self.vertical = start..end;
+    }
+
+    /// Le plus bas y du monde (inclus) et le plus haut (exclu), en blocs.
+    pub fn block_y_range(&self) -> std::ops::Range<i32> {
+        self.vertical.start * SIZE..self.vertical.end * SIZE
     }
 
     pub fn biomes(&self) -> Option<&Arc<BiomeRegistry>> {
@@ -97,7 +121,7 @@ impl World {
     ///
     /// Un chunk absent est de l'air en plein ciel (15, 0) ; sous le monde, tout est noir.
     pub fn light(&self, pos: IVec3) -> (u8, u8) {
-        if pos.y < 0 {
+        if pos.y < self.vertical.start * SIZE {
             return (0, 0);
         }
         let (chunk, [x, y, z]) = Self::split(pos);

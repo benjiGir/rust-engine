@@ -13,10 +13,10 @@ use rayon::prelude::*;
 
 use crate::block::BlockId;
 use crate::chunk::CHUNK_SIZE;
-use crate::generator::{SEA_LEVEL, TerrainGenerator, WORLD_HEIGHT_CHUNKS};
+use crate::generator::{SEA_LEVEL, TerrainGenerator};
 use crate::worldmap::{MapArea, Raster, altitude_color};
 
-/// Les six chunks (de bas en haut) d'une colonne de chunks.
+/// Les chunks (de bas en haut, sur `TerrainGenerator::chunk_range`) d'une colonne de chunks.
 type ColumnChunks = Vec<Option<crate::chunk::Chunk>>;
 
 /// Ce que montre une carte de blocs.
@@ -104,12 +104,14 @@ impl<'a> BlockMapSamples<'a> {
         let generated: Vec<((i32, i32), ColumnChunks)> = wanted
             .par_iter()
             .map(|&(cx, cz)| {
-                let chunks = (0..WORLD_HEIGHT_CHUNKS)
+                let chunks = generator
+                    .chunk_range()
                     .map(|cy| generator.generate(IVec3::new(cx, cy, cz)))
                     .collect();
                 ((cx, cz), chunks)
             })
             .collect();
+        let (bottom, top) = (generator.chunk_range().start, generator.chunk_range().end);
         let by_column: std::collections::HashMap<(i32, i32), &ColumnChunks> =
             generated.iter().map(|(k, v)| (*k, v)).collect();
         let registry = generator.registry();
@@ -124,9 +126,9 @@ impl<'a> BlockMapSamples<'a> {
                 let chunks = by_column[&(x.div_euclid(size), z.div_euclid(size))];
                 let (lx, lz) = (x.rem_euclid(size) as usize, z.rem_euclid(size) as usize);
                 let block_at = |y: i32| -> BlockId {
-                    chunks[(y / size) as usize]
+                    chunks[(y.div_euclid(size) - bottom) as usize]
                         .as_ref()
-                        .map_or(BlockId::AIR, |c| c.get(lx, (y % size) as usize, lz))
+                        .map_or(BlockId::AIR, |c| c.get(lx, y.rem_euclid(size) as usize, lz))
                 };
                 let mut pixel = Pixel {
                     ground: -1,
@@ -135,7 +137,7 @@ impl<'a> BlockMapSamples<'a> {
                     canopy: false,
                     hollow: 0,
                 };
-                for y in (0..WORLD_HEIGHT_CHUNKS * size).rev() {
+                for y in (bottom * size..top * size).rev() {
                     let block = block_at(y);
                     if block.is_air() {
                         continue;
@@ -322,9 +324,10 @@ pub fn render_section(generator: &TerrainGenerator, spec: &SectionSpec) -> Raste
     } = *spec;
     let size = CHUNK_SIZE as i32;
     let registry = generator.registry();
+    let (bottom, top) = (generator.chunk_range().start, generator.chunk_range().end);
     let (y_min, y_max) = (
-        y_min.clamp(0, WORLD_HEIGHT_CHUNKS * size),
-        y_max.clamp(1, WORLD_HEIGHT_CHUNKS * size),
+        y_min.clamp(bottom * size, top * size - 1),
+        y_max.clamp(bottom * size + 1, top * size),
     );
     // Les colonnes de chunks traversées.
     let along: Vec<i32> = (from.div_euclid(size)..=(to - 1).div_euclid(size)).collect();
@@ -338,7 +341,8 @@ pub fn render_section(generator: &TerrainGenerator, spec: &SectionSpec) -> Raste
             };
             (
                 c,
-                (0..WORLD_HEIGHT_CHUNKS)
+                generator
+                    .chunk_range()
                     .map(|cy| generator.generate(IVec3::new(cx, cy, cz)))
                     .collect(),
             )
@@ -361,14 +365,14 @@ pub fn render_section(generator: &TerrainGenerator, spec: &SectionSpec) -> Raste
         let lfix = fixed.rem_euclid(size) as usize;
         for row in 0..rows as i32 {
             let y = y_max - 1 - row;
-            let block = column[(y / size) as usize]
+            let block = column[(y.div_euclid(size) - bottom) as usize]
                 .as_ref()
                 .map_or(BlockId::AIR, |c| {
                     let (lx, lz) = match axis {
                         SectionAxis::X => (local, lfix),
                         SectionAxis::Z => (lfix, local),
                     };
-                    c.get(lx, (y % size) as usize, lz)
+                    c.get(lx, y.rem_euclid(size) as usize, lz)
                 });
             let def = registry.def(block);
             let mut px: [u8; 3] = if block.is_air() {

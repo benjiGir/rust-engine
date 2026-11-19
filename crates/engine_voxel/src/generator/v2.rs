@@ -41,8 +41,7 @@ use super::column_cache::{ColumnCache, ColumnKey};
 use super::density;
 use super::surface::SurfaceRule;
 use super::{
-    Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL, MacroWorld, SEA_LEVEL, TerrainGenerator,
-    WORLD_HEIGHT_CHUNKS, hash3,
+    Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL, MacroWorld, SEA_LEVEL, TerrainGenerator, hash3,
 };
 use crate::biome::{BiomeId, BiomeKind};
 use crate::block::BlockId;
@@ -494,7 +493,7 @@ impl TerrainGenerator {
 
     /// Le générateur de blocs v2 : un chunk. `None` s'il ne contient que de l'air.
     pub(super) fn generate_v2(&self, chunk_pos: IVec3) -> Option<Chunk> {
-        if !(0..WORLD_HEIGHT_CHUNKS).contains(&chunk_pos.y) {
+        if !self.chunk_range().contains(&chunk_pos.y) {
             return None;
         }
         let origin = World::chunk_origin(chunk_pos);

@@ -251,7 +251,11 @@ fn fill(s: &mut Scratch, hood: &Neighbourhood) {
                     }
                     None => {
                         // Un chunk absent est de l'air en plein ciel ; sous le monde, il fait noir.
-                        let light = if hood.position.y + oy < 0 { 0 } else { 0xF0 };
+                        let light = if hood.position.y + oy < hood.bottom {
+                            0
+                        } else {
+                            0xF0
+                        };
                         s.blocks[dst..dst + count].fill(BlockId::AIR);
                         s.light[dst..dst + count].fill(light);
                     }

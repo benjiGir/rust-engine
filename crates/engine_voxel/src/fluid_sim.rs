@@ -234,9 +234,7 @@ impl FluidSim {
     }
 
     fn cell(&self, s: &ChunkStreamer, pos: IVec3) -> Cell {
-        if !(0..crate::generator::WORLD_HEIGHT_CHUNKS * 32).contains(&pos.y)
-            || !s.is_generated(World::split(pos).0)
-        {
+        if !s.world().block_y_range().contains(&pos.y) || !s.is_generated(World::split(pos).0) {
             return Cell::Solid;
         }
         let block = s.world().block(pos);

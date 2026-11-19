@@ -535,7 +535,7 @@ impl Machines {
             let size = CHUNK_SIZE as u64;
             for cx in center.x - radius..=center.x + radius {
                 for cz in center.z - radius..=center.z + radius {
-                    for cy in 0..crate::generator::WORLD_HEIGHT_CHUNKS {
+                    for cy in streamer.world().vertical() {
                         let pos = IVec3::new(cx, cy, cz);
                         let Some(chunk) = streamer.world().chunk(pos) else {
                             continue;

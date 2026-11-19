@@ -73,7 +73,7 @@ use glam::{IVec2, IVec3, Vec2, Vec3};
 
 use crate::block::BlockId;
 use crate::chunk::{BlockEntity, Chunk};
-use crate::generator::{TerrainGenerator, WORLD_HEIGHT_CHUNKS};
+use crate::generator::TerrainGenerator;
 use crate::light::{ColumnLight, LightRegion, apply_column_light, update_light};
 use crate::mesh::{ChunkMesh, Mesher, Neighbourhood};
 use crate::pipeline_timing::{PipelineReport, PipelineTimings};
@@ -111,6 +111,12 @@ pub struct StreamingConfig {
     /// colonne de devant plus de `√(1 + view_bias)` fois plus loin, donc rien n'est affamé. Les
     /// colonnes à moins de 3 chunks (le sol sous les pieds, les collisions) n'ont jamais de biais.
     pub view_bias: f32,
+    /// Les chunks **sombres** (aucune lumière du ciel : roche et grottes fermées) ne sont maillés qu'à
+    /// moins de ce nombre de couches sous celle du joueur ; ils le sont quand il descend. Tout ce qui
+    /// voit le ciel (surface, montagnes, entrées de grottes, fonds peu profonds) est toujours maillé.
+    /// Les blocs, eux, restent chargés en entier : la lumière d'une colonne les demande tous.
+    /// `None` : tout mailler.
+    pub mesh_depth: Option<i32>,
 }
 
 impl Default for StreamingConfig {
@@ -127,6 +133,7 @@ impl Default for StreamingConfig {
             leaf_culling: true,
             column_order: true,
             view_bias: 0.6,
+            mesh_depth: Some(3),
         }
     }
 }
@@ -195,7 +202,7 @@ enum MeshState {
 /// Où en est une colonne de chunks.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct ColumnInfo {
-    /// Combien de ses chunks sont générés (sur `WORLD_HEIGHT_CHUNKS`).
+    /// Combien de ses chunks sont générés (sur les couches du monde, `World::vertical`).
     generated: u8,
     light: LightState,
 }
@@ -248,6 +255,10 @@ pub struct ChunkStreamer {
     mesh_candidates: HashSet<IVec3>,
     /// Le chunk du joueur lors du dernier tri.
     centre: Option<IVec3>,
+    /// Les chunks chargés sans aucune lumière du ciel (voir [`StreamingConfig::mesh_depth`]).
+    dark: HashSet<IVec3>,
+    /// La couche du joueur au dernier rafraîchissement.
+    centre_layer: Option<i32>,
     next_ticket: u32,
     in_flight: usize,
     /// Compteurs de [`StreamStats::jobs_done`] et [`StreamStats::jobs_discarded`].
@@ -320,6 +331,7 @@ impl ChunkStreamer {
                 let mut world = World::with_registry(generator.registry().clone());
                 world.set_biomes(generator.biomes().clone());
                 world.set_fluids(std::sync::Arc::new(crate::fluids::FluidRegistry::builtin()));
+                world.set_vertical(generator.chunk_range());
                 world
             },
             generator: Arc::new(generator),
@@ -329,6 +341,8 @@ impl ChunkStreamer {
             light_candidates: HashSet::default(),
             mesh_candidates: HashSet::default(),
             centre: None,
+            dark: HashSet::default(),
+            centre_layer: None,
             next_ticket: 0,
             in_flight: 0,
             jobs_done: 0,
@@ -522,7 +536,7 @@ impl ChunkStreamer {
     /// où il n'y a que de l'air). Le joueur ne doit pas bouger tant que son chunk n'est
     /// pas prêt, sinon il tomberait à travers un sol pas encore chargé.
     pub fn is_generated(&self, chunk: IVec3) -> bool {
-        !(0..WORLD_HEIGHT_CHUNKS).contains(&chunk.y)
+        !self.world.vertical().contains(&chunk.y)
             || matches!(self.slots.get(&chunk), Some(Slot::Generated(_)))
     }
 
@@ -1078,6 +1092,19 @@ impl ChunkStreamer {
 
         // 1. Déchargement. `retain` garde les éléments pour lesquels la closure renvoie `true`.
         let mut unloaded = Vec::new();
+        // Le joueur a changé de couche : les chunks sombres qui entrent dans la tranche maillée
+        // (voir `mesh_depth`) deviennent candidats.
+        if self.centre_layer != Some(centre.y) {
+            self.centre_layer = Some(centre.y);
+            let fresh: Vec<IVec3> = self
+                .dark
+                .iter()
+                .copied()
+                .filter(|p| self.slots.get(p) == Some(&Slot::Generated(MeshState::Missing)))
+                .filter(|p| self.in_vertical_view(*p, centre))
+                .collect();
+            self.mesh_candidates.extend(fresh);
+        }
         self.slots.retain(|&pos, _| {
             let keep = horizontal_distance_sq(pos, centre) <= unload_radius * unload_radius;
             if !keep {
@@ -1087,6 +1114,8 @@ impl ChunkStreamer {
         });
         self.columns
             .retain(|&c, _| (c - flat).length_squared() <= unload_radius * unload_radius);
+        self.dark
+            .retain(|&p| horizontal_distance_sq(p, centre) <= unload_radius * unload_radius);
         self.light_candidates
             .retain(|&c| (c - flat).length_squared() <= unload_radius * unload_radius);
         // Les maillages en attente des chunks déchargés ne servent plus : un seul passage
@@ -1127,12 +1156,13 @@ impl ChunkStreamer {
 
         // 2. Nouvelle file de chargement, triée du plus proche au plus lointain.
         let mut wanted = Vec::new();
+        let vertical = self.world.vertical();
         for dx in -load_radius..=load_radius {
             for dz in -load_radius..=load_radius {
                 if dx * dx + dz * dz > load_radius * load_radius {
                     continue;
                 }
-                for y in 0..WORLD_HEIGHT_CHUNKS {
+                for y in vertical.clone() {
                     let pos = IVec3::new(centre.x + dx, y, centre.z + dz);
                     if !self.slots.contains_key(&pos) {
                         wanted.push(pos);
@@ -1218,11 +1248,21 @@ impl ChunkStreamer {
                         continue; // Résultat périmé (un bloc a changé à côté).
                     }
                     info.light = LightState::Done;
+                    // Les chunks sans lumière du ciel : leur maillage peut attendre le joueur.
+                    let bottom = self.world.vertical().start;
+                    for (i, data) in light.iter().enumerate() {
+                        let pos = IVec3::new(column.x, bottom + i as i32, column.y);
+                        if data.as_ref().is_some_and(|d| d.iter().all(|v| v >> 4 == 0)) {
+                            self.dark.insert(pos);
+                        } else {
+                            self.dark.remove(&pos);
+                        }
+                    }
                     apply_column_light(&mut self.world, column, light);
                     // Ses chunks et ceux des colonnes voisines attendaient peut-être cette lumière.
                     for dx in -1..=1 {
                         for dz in -1..=1 {
-                            for y in 0..WORLD_HEIGHT_CHUNKS {
+                            for y in self.world.vertical() {
                                 self.mesh_candidates.insert(IVec3::new(
                                     column.x + dx,
                                     y,
@@ -1279,9 +1319,10 @@ impl ChunkStreamer {
         }
         self.slots.insert(pos, Slot::Generated(MeshState::Missing));
         let column = IVec2::new(pos.x, pos.z);
+        let layers = self.world.vertical().len();
         let info = self.columns.entry(column).or_default();
         info.generated += 1;
-        if info.generated as i32 == WORLD_HEIGHT_CHUNKS {
+        if info.generated as usize == layers {
             // Colonne complète : elle et ses voisines peuvent peut-être être éclairées.
             for dx in -1..=1 {
                 for dz in -1..=1 {
@@ -1358,7 +1399,7 @@ impl ChunkStreamer {
                 (-1..=1).all(|dz| {
                     self.columns
                         .get(&IVec2::new(column.x + dx, column.y + dz))
-                        .is_some_and(|c| c.generated as i32 == WORLD_HEIGHT_CHUNKS)
+                        .is_some_and(|c| c.generated as usize == self.world.vertical().len())
                 })
             })
     }
@@ -1371,7 +1412,16 @@ impl ChunkStreamer {
         let view = self.config.view_radius;
         self.slots.get(&pos) == Some(&Slot::Generated(MeshState::Missing))
             && horizontal_distance_sq(pos, centre) <= view * view
+            && self.in_vertical_view(pos, centre)
             && self.surroundings_lit(pos)
+    }
+
+    /// Un chunk sombre loin sous le joueur attend qu'il descende (voir `mesh_depth`).
+    fn in_vertical_view(&self, pos: IVec3, centre: IVec3) -> bool {
+        match self.config.mesh_depth {
+            Some(depth) => pos.y >= centre.y - depth || !self.dark.contains(&pos),
+            None => true,
+        }
     }
 
     fn surroundings_lit(&self, pos: IVec3) -> bool {
@@ -1585,7 +1635,10 @@ pub(crate) mod tests {
             .flat_map(|x| (-r..=r).map(move |z| x * x + z * z))
             .filter(|&d| d <= r * r)
             .count();
-        assert_eq!(s.stats().loaded, columns * WORLD_HEIGHT_CHUNKS as usize);
+        assert_eq!(
+            s.stats().loaded,
+            columns * crate::WORLD_HEIGHT_CHUNKS as usize
+        );
 
         // Tout chunk non vide dans le rayon de vue a reçu un maillage, et seulement eux.
         let meshes = meshed(&events);

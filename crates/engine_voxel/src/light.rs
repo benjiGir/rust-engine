@@ -26,13 +26,11 @@ use glam::{IVec2, IVec3};
 
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk, DEFAULT_LIGHT, VOLUME};
-use crate::generator::WORLD_HEIGHT_CHUNKS;
 use crate::registry::BlockRegistry;
 use crate::world::World;
 
 pub const MAX_LIGHT: u8 = 15;
 const SIZE: i32 = CHUNK_SIZE as i32;
-const HEIGHT: i32 = WORLD_HEIGHT_CHUNKS * SIZE;
 /// La lumière ne porte pas à plus de 15 blocs : pour calculer exactement une colonne,
 /// il suffit de regarder 15 blocs autour d'elle.
 const MARGIN: i32 = MAX_LIGHT as i32;
@@ -70,17 +68,20 @@ pub type ColumnLight = Vec<Option<Box<[u8]>>>;
 /// de la colonne et des 8 colonnes autour (des `Arc`, donc en lecture seule et sans copie).
 pub struct LightRegion {
     column: IVec2,
-    /// 3 × 3 colonnes de `WORLD_HEIGHT_CHUNKS` chunks. `None` : chunk d'air.
+    /// Les couches de chunks du monde (voir `World::vertical`), de bas en haut.
+    vertical: std::ops::Range<i32>,
+    /// 3 × 3 colonnes de chunks sur ces couches. `None` : chunk d'air.
     chunks: Vec<Option<Arc<Chunk>>>,
     registry: Arc<BlockRegistry>,
 }
 
 impl LightRegion {
     pub fn from_world(world: &World, column: IVec2) -> Self {
-        let mut chunks = Vec::with_capacity(9 * WORLD_HEIGHT_CHUNKS as usize);
+        let vertical = world.vertical();
+        let mut chunks = Vec::with_capacity(9 * vertical.len());
         for dz in -1..=1 {
             for dx in -1..=1 {
-                for y in 0..WORLD_HEIGHT_CHUNKS {
+                for y in vertical.clone() {
                     let pos = IVec3::new(column.x + dx, y, column.y + dz);
                     chunks.push(world.chunk_arc(pos));
                 }
@@ -88,6 +89,7 @@ impl LightRegion {
         }
         Self {
             column,
+            vertical,
             chunks,
             registry: world.registry().clone(),
         }
@@ -99,7 +101,8 @@ impl LightRegion {
 
     /// Calcule la lumière de la colonne centrale. Pensé pour un thread de fond.
     pub fn compute(&self) -> ColumnLight {
-        let cells = (WIDTH * WIDTH * HEIGHT) as usize;
+        let height = self.height();
+        let cells = (WIDTH * WIDTH * height) as usize;
         // Une table « numéro de bloc → opacité / émission » : plus rapide que d'interroger
         // le registre pour chacune des ~600 000 cellules de la zone.
         let opacity_of: Vec<u8> = self.registry.iter().map(|(_, d)| d.light_opacity).collect();
@@ -122,13 +125,14 @@ impl LightRegion {
             }
         });
 
-        let sky = sky_light(&opacity);
+        let sky = sky_light(&opacity, height);
         let mut sky_values = sky.values;
-        bfs(&mut sky_values, &opacity, sky.seeds, true);
-        bfs(&mut block, &opacity, block_queue, false);
+        bfs(&mut sky_values, &opacity, sky.seeds, true, height);
+        bfs(&mut block, &opacity, block_queue, false, height);
 
-        // On ne garde que la colonne centrale, découpée en chunks.
-        (0..WORLD_HEIGHT_CHUNKS)
+        // On ne garde que la colonne centrale, découpée en chunks (indices locaux : 0 est la
+        // couche la plus basse du monde).
+        (0..self.vertical.len() as i32)
             .map(|cy| {
                 let mut light = vec![DEFAULT_LIGHT; VOLUME].into_boxed_slice();
                 let mut uniform = true;
@@ -147,17 +151,22 @@ impl LightRegion {
             .collect()
     }
 
+    /// La hauteur de la zone de calcul, en blocs.
+    fn height(&self) -> i32 {
+        self.vertical.len() as i32 * SIZE
+    }
+
     /// Appelle `f(cellule, bloc)` pour chaque bloc non vide de la zone.
     fn fill(&self, mut f: impl FnMut(usize, BlockId)) {
         let origin = IVec3::new(
             self.column.x * SIZE - MARGIN,
-            0,
+            self.vertical.start * SIZE,
             self.column.y * SIZE - MARGIN,
         );
         let mut k = 0;
         for dz in -1..=1 {
             for dx in -1..=1 {
-                for cy in 0..WORLD_HEIGHT_CHUNKS {
+                for cy in self.vertical.clone() {
                     let chunk = &self.chunks[k];
                     k += 1;
                     let Some(chunk) = chunk else { continue };
@@ -210,14 +219,14 @@ struct SkyStart {
 /// Le ciel « direct » : on descend chaque colonne depuis le haut du monde tant que
 /// l'air laisse passer le 15. Seules les cellules au bord de cette zone éclairée
 /// servent de départ au BFS : les autres sont entourées de 15 et n'ont rien à propager.
-fn sky_light(opacity: &[u8]) -> SkyStart {
+fn sky_light(opacity: &[u8], height: i32) -> SkyStart {
     let mut values = vec![0u8; opacity.len()];
     let mut seeds = VecDeque::new();
     // Pour chaque colonne (x, z) : le plus bas y encore en plein ciel.
-    let mut bottom = vec![HEIGHT; (WIDTH * WIDTH) as usize];
+    let mut bottom = vec![height; (WIDTH * WIDTH) as usize];
     for z in 0..WIDTH {
         for x in 0..WIDTH {
-            let mut y = HEIGHT - 1;
+            let mut y = height - 1;
             while y >= 0 {
                 let i = cell(x, y, z);
                 let level = propagated(MAX_LIGHT, opacity[i], true);
@@ -247,7 +256,7 @@ fn sky_light(opacity: &[u8]) -> SkyStart {
                     highest_neighbour = highest_neighbour.max(bottom[(nx + nz * WIDTH) as usize]);
                 }
             }
-            for y in own..highest_neighbour.min(HEIGHT) {
+            for y in own..highest_neighbour.min(height) {
                 seeds.push_back(cell(x, y, z) as u32);
             }
         }
@@ -256,7 +265,7 @@ fn sky_light(opacity: &[u8]) -> SkyStart {
 }
 
 /// Le parcours en largeur sur la zone de calcul.
-fn bfs(values: &mut [u8], opacity: &[u8], mut queue: VecDeque<u32>, sky: bool) {
+fn bfs(values: &mut [u8], opacity: &[u8], mut queue: VecDeque<u32>, sky: bool, height: i32) {
     while let Some(i) = queue.pop_front() {
         let i = i as usize;
         let level = values[i];
@@ -266,7 +275,7 @@ fn bfs(values: &mut [u8], opacity: &[u8], mut queue: VecDeque<u32>, sky: bool) {
         let p = coords(i);
         for (offset, down) in DIRECTIONS {
             let n = p + offset;
-            if n.x < 0 || n.z < 0 || n.y < 0 || n.x >= WIDTH || n.z >= WIDTH || n.y >= HEIGHT {
+            if n.x < 0 || n.z < 0 || n.y < 0 || n.x >= WIDTH || n.z >= WIDTH || n.y >= height {
                 continue;
             }
             let j = cell(n.x, n.y, n.z);
@@ -320,13 +329,13 @@ struct LightEditor<'a, F> {
 impl<F: Fn(IVec3) -> bool> LightEditor<'_, F> {
     /// On peut modifier la lumière à cette position.
     fn editable(&self, pos: IVec3) -> bool {
-        (0..HEIGHT).contains(&pos.y) && (self.is_lit)(World::split(pos).0)
+        self.world.block_y_range().contains(&pos.y) && (self.is_lit)(World::split(pos).0)
     }
 
     /// Le niveau à `pos`, ou `None` si la position est hors de la zone connue.
     /// Au-dessus du monde, le ciel vaut 15 : c'est une source qu'on lit sans l'écrire.
     fn get(&self, pos: IVec3, channel: Channel) -> Option<u8> {
-        if pos.y >= HEIGHT {
+        if pos.y >= self.world.block_y_range().end {
             return Some(if channel == Channel::Sky {
                 MAX_LIGHT
             } else {
@@ -448,8 +457,9 @@ impl<F: Fn(IVec3) -> bool> LightEditor<'_, F> {
 
 /// Applique le résultat de [`LightRegion::compute`] aux chunks d'une colonne.
 pub fn apply_column_light(world: &mut World, column: IVec2, light: ColumnLight) {
+    let bottom = world.vertical().start;
     for (cy, data) in light.into_iter().enumerate() {
-        let pos = IVec3::new(column.x, cy as i32, column.y);
+        let pos = IVec3::new(column.x, bottom + cy as i32, column.y);
         match data {
             // Une lumière non uniforme : on la range, quitte à créer un chunk d'air.
             Some(data) => world.chunk_mut(pos).set_light_data(data),
@@ -590,7 +600,7 @@ mod tests {
 
         let mut fresh = world.clone();
         light_all(&mut fresh, &[IVec2::new(2, 2)]);
-        for y in 0..HEIGHT {
+        for y in 0..crate::generator::WORLD_HEIGHT_CHUNKS * SIZE {
             for z in 64..96 {
                 for x in 64..96 {
                     let p = IVec3::new(x, y, z);

@@ -351,7 +351,7 @@ impl SaveStore {
         let Ok(region) = self.region(Self::region_of(IVec3::new(cx, 0, cz))) else {
             return Vec::new();
         };
-        (0..crate::generator::WORLD_HEIGHT_CHUNKS)
+        (crate::generator::MIN_CHUNK_Y..crate::generator::MAX_CHUNK_Y)
             .filter(|&cy| region.contains_key(&IVec3::new(cx, cy, cz)))
             .collect()
     }

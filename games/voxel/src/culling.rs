@@ -3,7 +3,7 @@
 //! maillages au renderer. F6 ou `VOXEL_CAVE_CULLING=0` l'éteignent, pour comparer.
 
 use engine_render::{Aabb, Frustum, MeshId};
-use engine_voxel::{CHUNK_SIZE, VisibilityGraph, WORLD_HEIGHT_CHUNKS};
+use engine_voxel::{CHUNK_SIZE, VisibilityGraph};
 use glam::{IVec3, Vec3};
 
 use crate::VoxelGame;
@@ -43,12 +43,13 @@ impl VoxelGame {
             frustum.intersects(&Aabb::new(min, min + Vec3::splat(size)))
         };
         let radius = self.streamer().config().view_radius + 1;
+        let vertical = self.streamer().world().vertical();
         let culling = &mut self.culling;
         culling.chunks.clear();
         culling.graph.visible(
             self.camera.position,
             radius,
-            0..WORLD_HEIGHT_CHUNKS,
+            vertical,
             in_view,
             &mut culling.chunks,
         );

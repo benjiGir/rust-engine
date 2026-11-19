@@ -111,8 +111,9 @@ pub use generator::{
 };
 pub use generator::{
     Blueprint, ChestLoot, ChestLootEntry, Climate, Column, DEEPSTONE_LEVEL, FREEZING, LAVA_LEVEL,
-    PENDING_LOOT, SEA_LEVEL, Spot, StructureDef, StructureKind, StructureSet, StructureSite,
-    SurfaceInfo, TerrainGenerator, TreeSite, WORLD_HEIGHT_CHUNKS, pending_loot,
+    MAX_CHUNK_Y, MIN_CHUNK_Y, PENDING_LOOT, SEA_LEVEL, Spot, StructureDef, StructureKind,
+    StructureSet, StructureSite, SurfaceInfo, TerrainGenerator, TreeSite, WORLD_HEIGHT_CHUNKS,
+    pending_loot,
 };
 pub use grid::{BlockAccess, GridId, GridPos, Grids};
 pub use items::{

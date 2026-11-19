@@ -34,7 +34,7 @@ use glam::IVec3;
 
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
-use crate::generator::WORLD_HEIGHT_CHUNKS;
+use crate::generator::{MAX_CHUNK_Y, MIN_CHUNK_Y};
 use crate::registry::{BlockDef, BlockRegistry, Shape, Tint};
 use crate::save::SaveStore;
 
@@ -201,7 +201,7 @@ impl EditedSurfaces {
         let (lx, lz) = (x.rem_euclid(size) as usize, z.rem_euclid(size) as usize);
         let generated_chunk = generated_top.div_euclid(size);
         let surfaces = self.surfaces.read().unwrap_or_else(|e| e.into_inner());
-        for cy in (0..WORLD_HEIGHT_CHUNKS).rev() {
+        for cy in (MIN_CHUNK_Y..MAX_CHUNK_Y).rev() {
             match surfaces.get(&IVec3::new(cx, cy, cz)) {
                 // Non modifié : au niveau du sol généré ou dessous, c'est le générateur ; au-dessus,
                 // du vide (ou de l'arbre, que le lointain ignore).

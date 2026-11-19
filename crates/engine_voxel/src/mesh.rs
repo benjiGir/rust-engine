@@ -399,6 +399,8 @@ pub struct Neighbourhood {
     water_tint: Vec<[f32; 3]>,
     /// Retirer les faces de feuilles enfouies (voir [`Neighbourhood::visible_face`]).
     leaf_culling: bool,
+    /// La plus basse couche de chunks du monde : en dessous, un chunk absent est le vide noir.
+    bottom: i32,
 }
 
 impl Neighbourhood {
@@ -430,6 +432,7 @@ impl Neighbourhood {
             foliage_tint,
             water_tint,
             leaf_culling: true,
+            bottom: world.vertical().start,
         })
     }
 
@@ -519,7 +522,7 @@ impl Neighbourhood {
                 )
             }
             // Un chunk absent est de l'air en plein ciel ; sous le monde, il fait noir.
-            None if self.position.y + offset.y < 0 => (BlockId::AIR, 0, 0),
+            None if self.position.y + offset.y < self.bottom => (BlockId::AIR, 0, 0),
             None => (BlockId::AIR, 15, 0),
         }
     }

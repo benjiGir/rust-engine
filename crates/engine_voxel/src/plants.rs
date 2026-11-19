@@ -246,8 +246,7 @@ impl Sapling {
             let world = streamer.world();
             parts.iter().all(|&(p, _, part)| {
                 let (chunk, _) = World::split(p);
-                if world.chunk(chunk).is_none() && p.y < crate::generator::WORLD_HEIGHT_CHUNKS * 32
-                {
+                if world.chunk(chunk).is_none() && world.block_y_range().contains(&p.y) {
                     return false; // Pas chargé : on attendra.
                 }
                 let existing = world.block(p);

@@ -444,7 +444,10 @@ pub fn land(streamer: &mut ChunkStreamer, grid: &SubGrid) -> Result<Vec<IVec3>, 
     let cells = landing_cells(grid);
     for &(_, target) in &cells {
         if !streamer.is_generated(World::split(target).0)
-            || !(0..crate::WORLD_HEIGHT_CHUNKS).contains(&World::split(target).0.y)
+            || !streamer
+                .world()
+                .vertical()
+                .contains(&World::split(target).0.y)
         {
             return Err(AssemblyError::NotLoaded);
         }

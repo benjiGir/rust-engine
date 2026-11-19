@@ -48,6 +48,11 @@ use crate::world::World;
 
 /// Hauteur utile du monde, en chunks : les blocs vont de y = 0 à y = 32 × 6 - 1.
 pub const WORLD_HEIGHT_CHUNKS: i32 = 6;
+/// Les bornes de stockage du monde, en couches de chunks (`MIN_CHUNK_Y..MAX_CHUNK_Y`) : y de -128 à 255.
+/// Chaque génération n'en occupe qu'une partie (voir [`TerrainGenerator::chunk_range`]) : les mondes
+/// v1 et v2 restent de 0 à 191 (`WORLD_HEIGHT_CHUNKS` couches).
+pub const MIN_CHUNK_Y: i32 = -4;
+pub const MAX_CHUNK_Y: i32 = 8;
 const MAX_HEIGHT: i32 = WORLD_HEIGHT_CHUNKS * CHUNK_SIZE as i32 - 2;
 /// Niveau de la mer : les creux du terrain sous cette altitude se remplissent d'eau.
 pub const SEA_LEVEL: i32 = 62;
@@ -243,6 +248,8 @@ pub struct TerrainGenerator {
     site_cache: Arc<structures::SiteCache>,
     /// Les colonnes déjà calculées, partagées de la même façon (voir `column_cache.rs`).
     column_cache: Arc<ColumnCache>,
+    /// Une plage de couches imposée (voir [`TerrainGenerator::with_chunk_range`]), sinon celle de la version.
+    chunk_range: Option<std::ops::Range<i32>>,
     /// Ce qui distingue la dimension de ce générateur dans les clés du cache des colonnes.
     dimension_tag: u64,
     /// Villages, ruines, donjons, mines (phase O9) ; `None` si un bloc manque.
@@ -363,7 +370,7 @@ impl TerrainGenerator {
         match &self.world {
             WorldKind::Terrain { .. } => return None,
             WorldKind::Flat { layers, .. } => {
-                if !(0..WORLD_HEIGHT_CHUNKS).contains(&chunk_pos.y) {
+                if !self.chunk_range().contains(&chunk_pos.y) {
                     return Some(None);
                 }
                 let mut bottom = 0;
@@ -490,12 +497,29 @@ impl TerrainGenerator {
             tree_cache: Arc::default(),
             site_cache: Arc::default(),
             column_cache: Arc::default(),
+            chunk_range: None,
             dimension_tag: 0,
             world,
             registry,
         };
         generator.dimension_tag = generator.compute_dimension_tag();
         Ok(generator)
+    }
+
+    /// Les couches de chunks que cette génération remplit, de bas en haut : en dehors, il n'y a que
+    /// de l'air (au-dessus) ou du vide (en dessous), et le streamer ne les demande pas.
+    pub fn chunk_range(&self) -> std::ops::Range<i32> {
+        self.chunk_range.clone().unwrap_or(0..WORLD_HEIGHT_CHUNKS)
+    }
+
+    /// Impose une plage de couches (bornée au stockage, `MIN_CHUNK_Y..MAX_CHUNK_Y`). Sert aux tests du
+    /// monde haut : la génération v1 n'étant pas définie sous 0, elle y met de la pierre creusée d'une salle fermée
+    /// par chunk. La v3 aura la sienne.
+    pub fn with_chunk_range(mut self, range: std::ops::Range<i32>) -> Self {
+        let start = range.start.max(MIN_CHUNK_Y);
+        let end = range.end.min(MAX_CHUNK_Y).max(start + 1);
+        self.chunk_range = Some(start..end);
+        self
     }
 
     pub fn registry(&self) -> &Arc<BlockRegistry> {
@@ -797,6 +821,23 @@ impl TerrainGenerator {
             .unwrap_or_default()
     }
 
+    /// Un chunk de pierre avec une salle fermée au centre (voir [`Self::with_chunk_range`]).
+    fn deep_test_chunk(&self) -> Chunk {
+        let mut chunk = Chunk::new();
+        let size = CHUNK_SIZE;
+        for y in 0..size {
+            for z in 0..size {
+                for x in 0..size {
+                    let hall = (8..24).contains(&x) && (8..24).contains(&z) && (8..20).contains(&y);
+                    if !hall {
+                        chunk.set(x, y, z, self.blocks.stone);
+                    }
+                }
+            }
+        }
+        chunk
+    }
+
     /// Le bloc d'une colonne à l'altitude `y`, sans les grottes ni les minerais.
     fn layer(&self, x: i32, y: i32, z: i32, column: Column) -> BlockId {
         let b = self.blocks;
@@ -951,8 +992,13 @@ impl TerrainGenerator {
         if self.v2.is_some() {
             return self.generate_v2(chunk_pos);
         }
-        if !(0..WORLD_HEIGHT_CHUNKS).contains(&chunk_pos.y) {
+        if !self.chunk_range().contains(&chunk_pos.y) {
             return None;
+        }
+        // Une plage imposée sous 0 (tests du monde haut) : la génération v1 n'y est pas définie ; on y
+        // met de la pierre creusée d'une salle fermée par chunk.
+        if chunk_pos.y < 0 {
+            return Some(self.deep_test_chunk());
         }
         let origin = World::chunk_origin(chunk_pos);
         let size = CHUNK_SIZE as i32;
@@ -1085,7 +1131,7 @@ impl TerrainGenerator {
         world.set_biomes(self.biomes.clone());
         for x in 0..chunks_x {
             for z in 0..chunks_z {
-                for y in 0..WORLD_HEIGHT_CHUNKS {
+                for y in self.chunk_range() {
                     let pos = IVec3::new(from.x + x, y, from.z + z);
                     if let Some(chunk) = self.generate(pos) {
                         world.insert(pos, chunk.into());
