@@ -16,8 +16,12 @@
         "continentalness": (first_octave: -11, amplitudes: [1.0, 1.0, 1.5, 1.5, 1.0, 0.25, 0.1]),
         "erosion": (first_octave: -10, amplitudes: [1.0, 1.0, 0.0, 1.0, 1.0]),
         "ridges": (first_octave: -10, amplitudes: [1.0, 2.0, 1.0, 0.5, 0.0, 0.0]),
-        "temperature": (first_octave: -11, amplitudes: [1.5, 0.0, 1.0, 0.0, 0.0, 0.0]),
-        "humidity": (first_octave: -10, amplitudes: [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]),
+        "temperature": (first_octave: -11, amplitudes: [1.5, 0.0, 0.4]),
+        "humidity": (first_octave: -10, amplitudes: [1.0, 0.4]),
+        // La variété : quelle variante d'un climat (forêt claire ou sombre, verger, érables...). À large
+        // échelle et indépendante du relief, pour des biomes en grandes plaques et non en bandes le long
+        // des crêtes.
+        "variety": (first_octave: -10, amplitudes: [1.0, 0.6]),
         // Une déformation légère des paramètres : des côtes et des vallées moins régulières.
         "shift": (first_octave: -5, amplitudes: [1.0, 1.0, 1.0, 0.0]),
         // Les dentelures des sommets.
@@ -58,6 +62,8 @@
         "temperature": FlatCache(ShiftedNoise(noise: "temperature", xz_scale: 1.0, y_scale: 0.0,
             shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z"))),
         "humidity": FlatCache(ShiftedNoise(noise: "humidity", xz_scale: 1.0, y_scale: 0.0,
+            shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z"))),
+        "variety": FlatCache(ShiftedNoise(noise: "variety", xz_scale: 1.0, y_scale: 0.0,
             shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z"))),
 
         // Le décalage : la hauteur moyenne du sol, selon la continentalité, puis (dans les terres)

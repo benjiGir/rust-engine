@@ -2,7 +2,7 @@
 //! (`assets/core/worldgen/biomes_v3.ron`) et les **règles de surface** (`surface_v3.ron`).
 //!
 //! - [`BiomeTable`] : chaque biome occupe une case dans l'espace (température, humidité,
-//!   continentalité, érosion, pics et vallées) ; une colonne prend le biome le plus proche (distance
+//!   continentalité, érosion, pics et vallées, variété) ; une colonne prend le biome le plus proche (distance
 //!   nulle dans la case, carré de l'écart dehors, plus un petit décalage propre au biome). C'est le
 //!   choix « multi-bruits » de Minecraft moderne, avec nos cases.
 //! - [`SurfaceRules`] : une liste ordonnée de règles (conditions, matériau) ; pour un bloc du sol du
@@ -35,6 +35,8 @@ struct BiomeEntry {
     erosion: (f64, f64),
     #[serde(default = "any")]
     pv: (f64, f64),
+    #[serde(default = "any")]
+    variety: (f64, f64),
     #[serde(default)]
     offset: f64,
 }
@@ -46,16 +48,18 @@ struct BiomeFile {
 
 /// Les paramètres d'une colonne, dans l'ordre de la table.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub(super) struct Climate5 {
+pub(super) struct Climate6 {
     pub temperature: f64,
     pub humidity: f64,
     pub continentalness: f64,
     pub erosion: f64,
     pub pv: f64,
+    /// La variante d'un climat, à large échelle et indépendante du relief.
+    pub variety: f64,
 }
 
-/// Une case de la table : le biome, ses plages (dans l'ordre de [`Climate5`]) et son décalage.
-type Cell = (BiomeId, [(f64, f64); 5], f64);
+/// Une case de la table : le biome, ses plages (dans l'ordre de [`Climate6`]) et son décalage.
+type Cell = (BiomeId, [(f64, f64); 6], f64);
 
 /// Le choix des biomes par paramètres.
 #[derive(Debug, Clone)]
@@ -81,6 +85,7 @@ impl BiomeTable {
                     e.continentalness,
                     e.erosion,
                     e.pv,
+                    e.variety,
                 ],
                 e.offset,
             ));
@@ -92,15 +97,16 @@ impl BiomeTable {
     }
 
     /// Le biome le plus proche des paramètres.
-    pub(super) fn pick(&self, p: Climate5) -> BiomeId {
+    pub(super) fn pick(&self, p: Climate6) -> BiomeId {
         let values = [
             p.temperature,
             p.humidity,
             p.continentalness,
             p.erosion,
             p.pv,
+            p.variety,
         ];
-        let distance = |ranges: &[(f64, f64); 5], offset: f64| {
+        let distance = |ranges: &[(f64, f64); 6], offset: f64| {
             let mut d = offset * offset;
             for (v, (lo, hi)) in values.iter().zip(ranges) {
                 let gap = if v < lo {
@@ -345,9 +351,9 @@ mod tests {
         )
         .unwrap();
         let at = |t: f64| {
-            table.pick(Climate5 {
+            table.pick(Climate6 {
                 temperature: t,
-                ..Climate5::default()
+                ..Climate6::default()
             })
         };
         assert_eq!(

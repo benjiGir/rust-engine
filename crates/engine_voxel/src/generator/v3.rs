@@ -16,7 +16,7 @@ use anyhow::{Context as _, Result};
 use glam::IVec3;
 
 use super::column_cache::{ColumnCache, ColumnKey};
-use super::v3_rules::{BiomeTable, Climate5, Material, SurfaceRules, SurfaceSpot};
+use super::v3_rules::{BiomeTable, Climate6, Material, SurfaceRules, SurfaceSpot};
 use super::{CHUNK_SIZE, Chunk, Column, FREEZING, SEA_LEVEL, TerrainGenerator, World, hash3};
 use crate::BlockId;
 use crate::biome::{BiomeId, BiomeRegistry};
@@ -49,6 +49,7 @@ pub(super) struct V3State {
     pv: NodeId,
     temperature: NodeId,
     humidity: NodeId,
+    variety: NodeId,
     water_table: NodeId,
     /// La déformation des frontières de régions de nappe (les mêmes bruits que le relief).
     shift_x: NodeId,
@@ -100,6 +101,7 @@ impl V3State {
             pv: id("pv")?,
             temperature: id("temperature")?,
             humidity: id("humidity")?,
+            variety: id("variety")?,
             water_table: id("water_table")?,
             shift_x: id("shift_x")?,
             shift_z: id("shift_z")?,
@@ -131,6 +133,7 @@ impl V3State {
             pv: at(self.pv),
             temperature: at(self.temperature),
             humidity: at(self.humidity),
+            variety: at(self.variety),
         }
     }
 }
@@ -144,6 +147,22 @@ pub struct V3Parameters {
     pub pv: f64,
     pub temperature: f64,
     pub humidity: f64,
+    /// La variante d'un climat (forêt claire ou sombre, verger...), indépendante du relief.
+    pub variety: f64,
+}
+
+impl V3Parameters {
+    /// Les paramètres de la table des biomes.
+    fn climate(self) -> Climate6 {
+        Climate6 {
+            temperature: self.temperature,
+            humidity: self.humidity,
+            continentalness: self.continentalness,
+            erosion: self.erosion,
+            pv: self.pv,
+            variety: self.variety,
+        }
+    }
 }
 
 /// Ce qu'on sait d'une colonne de chunks : la densité à ses coins, ses hauteurs, ses biomes.
@@ -267,13 +286,15 @@ impl TerrainGenerator {
             sea: vec![true; CHUNK_SIZE * CHUNK_SIZE],
         };
         // Les paramètres climatiques sur la grille de 4 blocs (ils ne varient guère plus vite).
-        let climate: Vec<(f64, f64, f64, f64, f64, f64)> = {
+        // Les paramètres et la hauteur des volcans, par point de la grille.
+        let climate: Vec<(V3Parameters, f64)> = {
             let ids = [
                 state.continents,
                 state.erosion,
                 state.pv,
                 state.temperature,
                 state.humidity,
+                state.variety,
                 state.volcano,
             ];
             let grid = |id| {
@@ -289,12 +310,15 @@ impl TerrainGenerator {
             (0..CX * CX)
                 .map(|i| {
                     (
-                        values[0][i],
-                        values[1][i],
-                        values[2][i],
-                        values[3][i],
-                        values[4][i],
-                        values[5][i],
+                        V3Parameters {
+                            continentalness: values[0][i],
+                            erosion: values[1][i],
+                            pv: values[2][i],
+                            temperature: values[3][i],
+                            humidity: values[4][i],
+                            variety: values[5][i],
+                        },
+                        values[6][i],
                     )
                 })
                 .collect()
@@ -368,7 +392,7 @@ impl TerrainGenerator {
             for lx in 0..SIZE {
                 let height = ctx.top(lx, lz, highest);
                 max_y = max_y.max(height);
-                let (c, e, pv, t, h, volcano) =
+                let (params, volcano) =
                     climate[(lx / CELL_WIDTH) as usize + CX * (lz / CELL_WIDTH) as usize];
                 // La berge : de la roche dans le vide des grottes, du niveau de la colonne jusqu'à la
                 // berge (le niveau de la nappe haute voisine, moins la pente) ; la première colonne au
@@ -402,7 +426,7 @@ impl TerrainGenerator {
                 let b = corner(ci, ck + 1) + tx * (corner(ci + 1, ck + 1) - corner(ci, ck + 1));
                 ctx.sea[lx as usize + lz as usize * CHUNK_SIZE] =
                     a + tz * (b - a) < 0.3 || height >= SEA_LEVEL - 3;
-                let biome = self.v3_biome_with_volcano(c, e, pv, t, h, volcano);
+                let biome = self.v3_biome_with_volcano(params, volcano);
                 // Il fait plus froid en altitude : la neige descend des sommets.
                 // Même règle que `plants::is_cold` (la neige que posent les ticks aléatoires) : sinon la
                 // génération et le jeu se contrediraient et l'herbe changerait sans fin.
@@ -411,7 +435,7 @@ impl TerrainGenerator {
                     height,
                     biome,
                     temperature: self.biomes.get(biome).temperature - altitude * 0.012,
-                    climate_temperature: t as f32,
+                    climate_temperature: params.temperature as f32,
                 };
                 ctx.biomes[lx as usize + lz as usize * CHUNK_SIZE] = biome.0;
             }
@@ -541,30 +565,12 @@ impl TerrainGenerator {
     }
 
     /// Le biome d'une colonne, les volcans compris : au-dessus de 12 blocs de cône, c'est le volcan.
-    fn v3_biome_with_volcano(
-        &self,
-        c: f64,
-        e: f64,
-        pv: f64,
-        t: f64,
-        h: f64,
-        volcano: f64,
-    ) -> BiomeId {
+    fn v3_biome_with_volcano(&self, p: V3Parameters, volcano: f64) -> BiomeId {
         match self.v3_state().volcano_biome {
             Some(id) if volcano > 12.0 => id,
-            _ => self.v3_biome(c, e, pv, t, h),
+            // Le biome le plus proche des paramètres dans `biomes_v3.ron`.
+            _ => self.v3_state().biome_table.pick(p.climate()),
         }
-    }
-
-    /// Le biome d'une colonne : le plus proche de ses paramètres dans `biomes_v3.ron`.
-    fn v3_biome(&self, c: f64, e: f64, pv: f64, t: f64, h: f64) -> BiomeId {
-        self.v3_state().biome_table.pick(Climate5 {
-            temperature: t,
-            humidity: h,
-            continentalness: c,
-            erosion: e,
-            pv,
-        })
     }
 
     /// La colonne (x, z) de la génération v3.
@@ -581,14 +587,7 @@ impl TerrainGenerator {
         let state = self.v3_state();
         let height = self.v3_surface_estimate(x, z);
         let p = state.parameters(x, z);
-        let biome = self.v3_biome_with_volcano(
-            p.continentalness,
-            p.erosion,
-            p.pv,
-            p.temperature,
-            p.humidity,
-            state.graph.sample(state.volcano, x, 0, z),
-        );
+        let biome = self.v3_biome_with_volcano(p, state.graph.sample(state.volcano, x, 0, z));
         // Même règle que `plants::is_cold` (la neige que posent les ticks aléatoires) : sinon la
         // génération et le jeu se contrediraient et l'herbe changerait sans fin.
         let altitude = (height - (SEA_LEVEL + 40)).max(0) as f32;

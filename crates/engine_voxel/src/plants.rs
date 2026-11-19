@@ -237,7 +237,14 @@ impl Sapling {
         };
         let mut parts: Vec<(IVec3, BlockId, Part)> = Vec::new();
         let mut rng = Rng64::new(ctx.random());
-        trees::grow(kind, at.pos, &mut rng, &self.blocks, &mut |p, b, part| {
+        // Dans un monde v3 (le seul qui descend sous 0), une pousse donne un grand arbre, comme ceux
+        // de la génération.
+        let tall = ctx.grids.world().borrow().world().block_y_range().start < 0;
+        let blocks = TreeBlocks {
+            tall,
+            ..self.blocks
+        };
+        trees::grow(kind, at.pos, &mut rng, &blocks, &mut |p, b, part| {
             parts.push((p, b, part))
         });
         // La place : le tronc ne doit rencontrer que de l'air, des plantes ou des feuilles.

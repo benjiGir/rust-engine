@@ -1420,6 +1420,10 @@ impl TerrainGenerator {
             )?)),
             GenerationVersion::V1 => None,
         };
+        // Les grands arbres : à l'échelle du relief v3 ; la v1 garde les siens.
+        if let Some(blocks) = &mut self.tree_blocks {
+            blocks.tall = version == GenerationVersion::V3;
+        }
         // Les arbres et les colonnes dépendent de la version : on repart de caches neufs.
         self.tree_cache = Arc::default();
         self.site_cache = Arc::default();

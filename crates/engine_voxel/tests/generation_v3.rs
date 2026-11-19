@@ -452,29 +452,32 @@ fn volcano_craters_hold_a_flat_lava_lake_and_spring_pools_hold_their_water() {
     // Le cratère d'un volcan : les colonnes de chunks qu'il touche.
     let sites = g.volcano_sites((-4000, -4000), (4000, 4000));
     assert!(sites.len() >= 2, "trop peu de volcans : {sites:?}");
-    let (vx, vz) = sites[0];
-    let mut chunks = std::collections::HashMap::new();
-    for cz in (vz - 12).div_euclid(32)..=(vz + 12).div_euclid(32) {
-        for cx in (vx - 12).div_euclid(32)..=(vx + 12).div_euclid(32) {
-            chunks.insert((cx, cz), column_chunks(&g, cx, cz));
+    // Chaque cratère tient un lac plat ; sa taille dépend du bord (un cône sur une pente a un bord bas
+    // d'un côté), mais au moins l'un des premiers est bien rempli.
+    let mut biggest = 0;
+    for &(vx, vz) in sites.iter().take(3) {
+        let mut chunks = std::collections::HashMap::new();
+        for cz in (vz - 12).div_euclid(32)..=(vz + 12).div_euclid(32) {
+            for cx in (vx - 12).div_euclid(32)..=(vx + 12).div_euclid(32) {
+                chunks.insert((cx, cz), column_chunks(&g, cx, cz));
+            }
         }
+        let tops = assert_contained(&chunks, lava, "de la lave");
+        let levels: std::collections::BTreeSet<i32> = tops.values().copied().collect();
+        assert!(
+            levels.len() <= 1,
+            "un lac de lave qui n'est pas plat en ({vx}, {vz}) : {levels:?}"
+        );
+        biggest = biggest.max(tops.len());
+        assert_eq!(
+            g.biome(g.column(vx, vz).biome).key,
+            "core:volcano",
+            "le cône porte le biome du volcan"
+        );
     }
-    let tops = assert_contained(&chunks, lava, "de la lave");
     assert!(
-        tops.len() > 30,
-        "un cratère presque vide : {} colonnes de lave",
-        tops.len()
-    );
-    let levels: std::collections::BTreeSet<i32> = tops.values().copied().collect();
-    assert_eq!(
-        levels.len(),
-        1,
-        "un lac de lave qui n'est pas plat : {levels:?}"
-    );
-    assert_eq!(
-        g.biome(g.column(vx, vz).biome).key,
-        "core:volcano",
-        "le cône porte le biome du volcan"
+        biggest > 30,
+        "des cratères presque vides : {biggest} colonnes de lave au plus"
     );
 
     // Les bassins d'une source chaude.

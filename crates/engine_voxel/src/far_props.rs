@@ -116,6 +116,16 @@ pub(crate) fn props_for_tile(
                     let Some((radius, height, color)) = crown(site.kind) else {
                         continue;
                     };
+                    // Les grands arbres de la v3 (sauf les géants, déjà à leur taille).
+                    let (radius, height) = if generator.version() == crate::GenerationVersion::V3
+                        && !matches!(
+                            site.kind,
+                            TreeKind::Jungle | TreeKind::Redwood | TreeKind::Olive
+                        ) {
+                        (radius * 1.15, height * 1.25)
+                    } else {
+                        (radius, height)
+                    };
                     let (x, z) = (site.base.x as f32 + 0.5, site.base.z as f32 + 0.5);
                     if !inside(x, z) || edited(site.base.x, site.base.z, site.base.y - 1) {
                         continue;

@@ -85,6 +85,9 @@ pub struct TreeBlocks {
     /// La vague 3 : les feuilles d'olivier.
     pub olive_leaves: Option<BlockId>,
     pub vine: BlockId,
+    /// Les grands arbres de la génération v3 : les essences courantes (chêne, bouleau, épicéa, sapin,
+    /// érable...) poussent plus haut et plus large, à l'échelle de son relief. Faux en v1.
+    pub tall: bool,
     pub cactus: BlockId,
 }
 
@@ -115,6 +118,7 @@ impl TreeBlocks {
                 .id("core:cobblestone")
                 .zip(registry.id("core:mossy_cobblestone")),
             olive_leaves: registry.id("core:olive_leaves"),
+            tall: false,
             vine: id("core:vine")?,
             cactus: id("core:cactus")?,
         })
@@ -226,25 +230,40 @@ pub fn grow(
     put: &mut impl FnMut(IVec3, BlockId, Part),
 ) {
     let wood = blocks.wood(kind);
+    let tall = blocks.tall;
+    // La hauteur d'une essence : `(bas, haut)` en v1, `(bas2, haut2)` pour les grands arbres v3.
+    let pick = |rng: &mut Rng64, small: (i32, i32), large: (i32, i32)| {
+        let (low, high) = if tall { large } else { small };
+        rng.range(low, high)
+    };
     match kind {
-        TreeKind::Oak => round_tree(base, rng.range(4, 6), 2, wood, put),
-        TreeKind::Birch => round_tree(base, rng.range(5, 7), 2, wood, put),
-        TreeKind::BigOak => big_oak(base, rng, wood, put),
-        TreeKind::Spruce => spruce(base, rng.range(7, 12), rng, wood, put),
-        TreeKind::TallSpruce => spruce(base, rng.range(15, 21), rng, wood, put),
+        TreeKind::Oak => {
+            let height = pick(rng, (4, 6), (5, 8));
+            round_tree(base, height, if height >= 7 { 3 } else { 2 }, wood, put)
+        }
+        TreeKind::Birch => round_tree(base, pick(rng, (5, 7), (6, 9)), 2, wood, put),
+        TreeKind::BigOak => big_oak(base, rng, tall, wood, put),
+        TreeKind::Spruce => {
+            let height = pick(rng, (7, 12), (9, 15));
+            spruce(base, height, rng, wood, put)
+        }
+        TreeKind::TallSpruce => {
+            let height = pick(rng, (15, 21), (18, 24));
+            spruce(base, height, rng, wood, put)
+        }
         TreeKind::Bush => {
             put(base, wood.log, Part::Log);
             let r = 1.4 + rng.below(3) as f32 * 0.3;
             blob(base + IVec3::Y, r, wood.leaves, put);
         }
-        TreeKind::Acacia => acacia(base, rng, wood, put),
+        TreeKind::Acacia => acacia(base, rng, tall, wood, put),
         TreeKind::Jungle => jungle(base, rng, wood, blocks.vine, put),
         TreeKind::JungleBush => {
             put(base, wood.log, Part::Log);
             blob(base + IVec3::Y, 2.2, wood.leaves, put);
         }
         TreeKind::Swamp => {
-            let height = rng.range(5, 6);
+            let height = pick(rng, (5, 6), (6, 8));
             round_tree(base, height, 3, wood, put);
             // Des lianes pendent du bord des feuilles.
             for _ in 0..8 {
@@ -259,22 +278,33 @@ pub fn grow(
         }
         TreeKind::Redwood => redwood(base, rng, wood, put),
         TreeKind::Maple => {
-            let height = rng.range(6, 8);
+            let height = pick(rng, (6, 8), (8, 10));
+            let crown = if tall { 3.9 } else { 3.3 };
             for y in 0..height {
                 put(base + IVec3::Y * y, wood.log, Part::Log);
             }
-            blob(base + IVec3::Y * (height - 1), 3.3, wood.leaves, put);
-            blob(base + IVec3::new(0, height + 1, 0), 2.2, wood.leaves, put);
+            blob(base + IVec3::Y * (height - 1), crown, wood.leaves, put);
+            blob(
+                base + IVec3::new(0, height + 1, 0),
+                crown - 1.1,
+                wood.leaves,
+                put,
+            );
         }
         TreeKind::Fruit => {
-            let height = rng.range(3, 4);
+            let height = pick(rng, (3, 4), (4, 5));
             for y in 0..height {
                 put(base + IVec3::Y * y, wood.log, Part::Log);
             }
-            blob(base + IVec3::Y * height, 2.4, wood.leaves, put);
+            blob(
+                base + IVec3::Y * height,
+                if tall { 2.9 } else { 2.4 },
+                wood.leaves,
+                put,
+            );
         }
         TreeKind::Cypress => {
-            let height = rng.range(10, 14);
+            let height = pick(rng, (10, 14), (12, 16));
             for y in 0..height {
                 put(base + IVec3::Y * y, wood.log, Part::Log);
             }
@@ -296,7 +326,7 @@ pub fn grow(
                 }
             }
         }
-        TreeKind::Fir => fir(base, rng, wood, put),
+        TreeKind::Fir => fir(base, rng, tall, wood, put),
         TreeKind::Olive => olive(base, rng, wood, put),
         TreeKind::Boulder => {
             if blocks.boulder.is_some() {
@@ -356,12 +386,27 @@ fn blob(center: IVec3, r: f32, leaves: BlockId, put: &mut impl FnMut(IVec3, Bloc
     }
 }
 
-fn big_oak(base: IVec3, rng: &mut Rng64, wood: Wood, put: &mut impl FnMut(IVec3, BlockId, Part)) {
-    let height = rng.range(8, 12);
+fn big_oak(
+    base: IVec3,
+    rng: &mut Rng64,
+    tall: bool,
+    wood: Wood,
+    put: &mut impl FnMut(IVec3, BlockId, Part),
+) {
+    let height = if tall {
+        rng.range(10, 14)
+    } else {
+        rng.range(8, 12)
+    };
     for y in 0..height {
         put(base + IVec3::Y * y, wood.log, Part::Log);
     }
-    blob(base + IVec3::Y * height, 3.2, wood.leaves, put);
+    blob(
+        base + IVec3::Y * height,
+        if tall { 3.7 } else { 3.2 },
+        wood.leaves,
+        put,
+    );
     // Trois ou quatre branches qui finissent chacune par une boule de feuilles.
     for _ in 0..rng.range(3, 4) {
         let start = rng.range(height / 2, height - 2);
@@ -415,8 +460,18 @@ fn spruce(
 
 /// Le sapin des forêts froides : plus haut et plus serré que l'épicéa, des étages courts dont le rayon
 /// grandit lentement vers le bas (au plus 2), une flèche au sommet.
-fn fir(base: IVec3, rng: &mut Rng64, wood: Wood, put: &mut impl FnMut(IVec3, BlockId, Part)) {
-    let height = rng.range(11, 17);
+fn fir(
+    base: IVec3,
+    rng: &mut Rng64,
+    tall: bool,
+    wood: Wood,
+    put: &mut impl FnMut(IVec3, BlockId, Part),
+) {
+    let height = if tall {
+        rng.range(13, 19)
+    } else {
+        rng.range(11, 17)
+    };
     for y in 0..height {
         put(base + IVec3::Y * y, wood.log, Part::Log);
     }
@@ -503,8 +558,18 @@ fn boulder(base: IVec3, rng: &mut Rng64, wood: Wood, put: &mut impl FnMut(IVec3,
 }
 
 /// L'acacia : un tronc qui se tord, et une couronne plate.
-fn acacia(base: IVec3, rng: &mut Rng64, wood: Wood, put: &mut impl FnMut(IVec3, BlockId, Part)) {
-    let height = rng.range(5, 7);
+fn acacia(
+    base: IVec3,
+    rng: &mut Rng64,
+    tall: bool,
+    wood: Wood,
+    put: &mut impl FnMut(IVec3, BlockId, Part),
+) {
+    let height = if tall {
+        rng.range(6, 9)
+    } else {
+        rng.range(5, 7)
+    };
     let (dx, dz) = [(1, 0), (-1, 0), (0, 1), (0, -1)][rng.below(4) as usize];
     let bend = height - 2;
     let mut top = base;
@@ -655,6 +720,52 @@ mod tests {
             TreeBlocks::kind_of_sapling("core:olive_sapling"),
             Some(TreeKind::Olive)
         );
+    }
+
+    /// Les grands arbres de la v3 : plus hauts que ceux de la v1 (en moyenne), et toujours dans les
+    /// bornes de la génération par chunk.
+    #[test]
+    fn tall_trees_are_taller_and_stay_within_the_chunk_bounds() {
+        let registry = BlockRegistry::builtin();
+        let small = TreeBlocks::resolve(&registry).unwrap();
+        let tall = TreeBlocks {
+            tall: true,
+            ..small
+        };
+        let top = |blocks: &TreeBlocks, kind: TreeKind, seed: u64| {
+            let mut rng = Rng64::new(seed);
+            let mut highest = 0;
+            grow(kind, IVec3::ZERO, &mut rng, blocks, &mut |p, _, _| {
+                assert!(
+                    p.x.abs() <= MAX_RADIUS && p.z.abs() <= MAX_RADIUS,
+                    "{kind:?} : {p}"
+                );
+                // Les lianes du chêne des marais pendent sous sa base (comme en v1).
+                assert!((-3..=30).contains(&p.y), "{kind:?} : {p}");
+                highest = highest.max(p.y);
+            });
+            highest
+        };
+        for kind in [
+            TreeKind::Oak,
+            TreeKind::Birch,
+            TreeKind::BigOak,
+            TreeKind::Spruce,
+            TreeKind::TallSpruce,
+            TreeKind::Acacia,
+            TreeKind::Swamp,
+            TreeKind::Maple,
+            TreeKind::Fruit,
+            TreeKind::Cypress,
+            TreeKind::Fir,
+        ] {
+            let (mut a, mut b) = (0, 0);
+            for seed in 0..60 {
+                a += top(&small, kind, seed);
+                b += top(&tall, kind, seed);
+            }
+            assert!(b > a, "{kind:?} : {b} contre {a}");
+        }
     }
 
     /// Le rocher : petit, à demi enfoncé (une couche sous la base au plus), de moellons et de moellons

@@ -609,3 +609,21 @@ Vus en jeu sur la graine 1404532460 (vers x = -700, z = -1320), puis sur des cou
   sur la graine 42 ; aucune eau de grotte à moins de 10 blocs sous le sol de sa colonne ; sous le plancher des premiers
   donjons, au plus 10 % de vide.
 - **Coût** : 12,2 ms par colonne de chunks (9,5 avant ces corrections) : la seconde garde de la croûte et les berges.
+
+### Retours de partie : biomes et arbres (corrigés)
+
+- **Des biomes mélangés en bandes et en taches** : les variantes d'un climat (forêt claire ou sombre, verger,
+  érables, séquoias, lavande, sapinière, prairie, maquis, toundra, landes, sources chaudes...) étaient choisies par
+  « pics et vallées » ou par l'érosion, deux paramètres du relief qui changent à chaque pli de terrain : les biomes
+  suivaient les crêtes en bandes. Un sixième paramètre, la **variété** (bruit à grande échelle, indépendant du
+  relief : `variety` de `terrain_v3.ron`), choisit maintenant ces variantes ; le relief ne sert plus qu'à ce qui en
+  dépend (rivières, sommets, massifs, collines, marais et bayous des creux). La température et l'humidité perdent leur
+  octave moyenne (des zones de climat moins entrelacées). Mesure sur la carte de la graine 1404532460 (640 × 640
+  points de 6 blocs) : les petites taches (moins de 400 points) baissent d'un tiers. Tous les biomes restent présents
+  (le plus rare, les alpages, à 0,09 % des terres).
+- **Des arbres un peu petits** : à l'échelle du relief v3, les essences courantes poussent plus grand
+  (`TreeBlocks::tall`) : chêne 5 à 8 blocs (couronne de rayon 3 dès 7), bouleau 6 à 9, épicéa 9 à 15, grand
+  épicéa 18 à 24, sapin 13 à 19, érable 8 à 10, acacia 6 à 9, arbre fruitier 4 à 5, chêne des marais 6 à 8, cyprès
+  12 à 16, grand chêne 10 à 14. Les géants (jungle, séquoia) ne changent pas, ni les mondes v1 (empreintes
+  inchangées). Une pousse plantée dans un monde v3 donne aussi un grand arbre ; les silhouettes lointaines suivent.
+  Test : chaque essence est plus haute en moyenne, toujours dans les bornes de la génération par chunk.
