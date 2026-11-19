@@ -16,15 +16,18 @@ use anyhow::{Context as _, Result};
 use glam::IVec3;
 
 use super::column_cache::{ColumnCache, ColumnKey};
-use super::{
-    BiomeKind, CHUNK_SIZE, Chunk, Column, FREEZING, SEA_LEVEL, TerrainGenerator, World, hash3,
-};
-use crate::biome::BiomeId;
+use super::v3_rules::{BiomeTable, Climate5, Material, SurfaceRules, SurfaceSpot};
+use super::{CHUNK_SIZE, Chunk, Column, FREEZING, SEA_LEVEL, TerrainGenerator, World, hash3};
+use crate::biome::{BiomeId, BiomeRegistry};
 use crate::density_graph::{CELL_HEIGHT, CELL_WIDTH, DensityGraph, NodeId};
 use crate::generator::{MAX_CHUNK_Y, MIN_CHUNK_Y};
+use crate::registry::BlockRegistry;
 
 /// Le relief v3, embarqué dans le binaire (comme les autres données de génération du jeu de base).
 const TERRAIN: &str = include_str!("../../../../assets/core/worldgen/terrain_v3.ron");
+/// Les biomes par paramètres et les règles de surface (lot 4).
+const BIOMES: &str = include_str!("../../../../assets/core/worldgen/biomes_v3.ron");
+const SURFACE: &str = include_str!("../../../../assets/core/worldgen/surface_v3.ron");
 
 const SIZE: i32 = CHUNK_SIZE as i32;
 /// Le bas et le haut du monde v3, en blocs.
@@ -48,6 +51,8 @@ pub(super) struct V3State {
     water_table: NodeId,
     offset: NodeId,
     sloped: NodeId,
+    biome_table: BiomeTable,
+    surface: SurfaceRules,
     contexts: ColumnCache<V3Column>,
 }
 
@@ -60,7 +65,7 @@ impl std::fmt::Debug for V3State {
 }
 
 impl V3State {
-    pub(super) fn new(seed: u32) -> Result<Self> {
+    pub(super) fn new(seed: u32, blocks: &BlockRegistry, biomes: &BiomeRegistry) -> Result<Self> {
         let graph = DensityGraph::parse(TERRAIN, u64::from(seed)).context("relief v3")?;
         let id = |name: &str| {
             graph
@@ -78,6 +83,8 @@ impl V3State {
             offset: id("offset")?,
             sloped: id("sloped")?,
             graph,
+            biome_table: BiomeTable::parse(BIOMES, biomes)?,
+            surface: SurfaceRules::parse(SURFACE, u64::from(seed), blocks, biomes)?,
             contexts: ColumnCache::with_limit(CONTEXT_LIMIT),
         })
     }
@@ -118,6 +125,8 @@ pub(super) struct V3Column {
     /// La nappe de chaque colonne (x + 32 z) : son niveau (le vide souterrain plus bas est noyé) et le
     /// haut du barrage de roche qui sépare deux régions de niveaux différents (`i32::MIN` : aucun).
     water_table: Vec<(i32, i32)>,
+    /// Les colonnes sur une pente raide (x + 32 z) : plus de 3 blocs de dénivelé sur 2.
+    steep: Vec<bool>,
 }
 
 impl V3Column {
@@ -211,6 +220,7 @@ impl TerrainGenerator {
             columns: Box::new([[Column::default(); CHUNK_SIZE]; CHUNK_SIZE]),
             biomes: vec![0; CHUNK_SIZE * CHUNK_SIZE],
             water_table: vec![(i32::MIN, i32::MIN); CHUNK_SIZE * CHUNK_SIZE],
+            steep: vec![false; CHUNK_SIZE * CHUNK_SIZE],
         };
         // Les paramètres climatiques sur la grille de 4 blocs (ils ne varient guère plus vite).
         let climate: Vec<(f64, f64, f64, f64, f64)> = {
@@ -253,7 +263,7 @@ impl TerrainGenerator {
                     climate[(lx / CELL_WIDTH) as usize + CX * (lz / CELL_WIDTH) as usize];
                 let table = self.v3_water_table(&mut regions, x0 + lx, z0 + lz);
                 ctx.water_table[lx as usize + lz as usize * CHUNK_SIZE] = table;
-                let biome = self.v3_biome(height, c, e, pv, t, h);
+                let biome = self.v3_biome(c, e, pv, t, h);
                 // Il fait plus froid en altitude : la neige descend des sommets.
                 // Même règle que `plants::is_cold` (la neige que posent les ticks aléatoires) : sinon la
                 // génération et le jeu se contrediraient et l'herbe changerait sans fin.
@@ -268,35 +278,30 @@ impl TerrainGenerator {
             }
         }
         ctx.max_y = max_y;
+        // La pente : l'écart de hauteur entre les deux voisins de chaque axe (vers l'intérieur au bord
+        // de la colonne de chunks).
+        let height = |lx: i32, lz: i32| ctx.columns[lx as usize][lz as usize].height;
+        for lz in 0..SIZE {
+            for lx in 0..SIZE {
+                let (x0, x1) = ((lx - 1).max(0), (lx + 1).min(SIZE - 1));
+                let (z0, z1) = ((lz - 1).max(0), (lz + 1).min(SIZE - 1));
+                let dx = (height(x1, lz) - height(x0, lz)).abs() * 2 / (x1 - x0);
+                let dz = (height(lx, z1) - height(lx, z0)).abs() * 2 / (z1 - z0);
+                ctx.steep[lx as usize + lz as usize * CHUNK_SIZE] = dx.max(dz) > 3;
+            }
+        }
         ctx
     }
 
-    /// Le biome d'une colonne (lot 2 : simple ; le lot 4 le choisira par paramètres multiples).
-    fn v3_biome(&self, height: i32, c: f64, e: f64, pv: f64, t: f64, h: f64) -> BiomeId {
-        let kind = if height < SEA_LEVEL - 18 {
-            BiomeKind::DeepOcean
-        } else if height < SEA_LEVEL - 1 && c < -0.11 {
-            BiomeKind::Ocean
-        } else if height <= SEA_LEVEL && pv < -0.85 && c >= -0.11 {
-            BiomeKind::River
-        } else if height <= SEA_LEVEL + 2 && c < -0.05 {
-            BiomeKind::Beach
-        } else if height > SEA_LEVEL + 110 {
-            BiomeKind::Peaks
-        } else if height > SEA_LEVEL + 50 && e < -0.3 {
-            BiomeKind::Mountains
-        } else {
-            BiomeKind::Land
-        };
-        let candidates = match kind {
-            BiomeKind::Land => &self.land,
-            other => self
-                .by_kind
-                .iter()
-                .find(|(k, _)| *k == other)
-                .map_or(&self.land, |(_, ids)| ids),
-        };
-        self.nearest(candidates, t, h, 0.0)
+    /// Le biome d'une colonne : le plus proche de ses paramètres dans `biomes_v3.ron`.
+    fn v3_biome(&self, c: f64, e: f64, pv: f64, t: f64, h: f64) -> BiomeId {
+        self.v3_state().biome_table.pick(Climate5 {
+            temperature: t,
+            humidity: h,
+            continentalness: c,
+            erosion: e,
+            pv,
+        })
     }
 
     /// La colonne (x, z) de la génération v3.
@@ -332,7 +337,6 @@ impl TerrainGenerator {
         }
         let p = state.parameters(x, z);
         let biome = self.v3_biome(
-            height,
             p.continentalness,
             p.erosion,
             p.pv,
@@ -372,6 +376,7 @@ impl TerrainGenerator {
 
     fn fill_v3(&self, chunk: &mut Chunk, origin: IVec3, ctx: &V3Column) {
         let b = self.blocks;
+        let state = self.v3_state();
         for lz in 0..SIZE {
             for lx in 0..SIZE {
                 let (x, z) = (origin.x + lx, origin.z + lz);
@@ -379,6 +384,7 @@ impl TerrainGenerator {
                 let biome = self.biomes.get(column.biome);
                 let frozen = column.temperature < FREEZING;
                 let (table, dam) = ctx.water_table[lx as usize + lz as usize * CHUNK_SIZE];
+                let steep = ctx.steep[lx as usize + lz as usize * CHUNK_SIZE];
                 // Combien de blocs pleins d'affilée au-dessus (jusqu'à l'air ou l'eau) : la surface,
                 // puis la sous-couche, puis la roche. On part du haut du chunk.
                 let mut solid_above = {
@@ -404,34 +410,46 @@ impl TerrainGenerator {
                         // Les matériaux de surface ne vont qu'au sol du dessus, plein sans interruption
                         // depuis le haut de la colonne : le plancher et le plafond d'une grotte restent
                         // en roche (de l'herbe dans le noir redeviendrait de la terre, bloc après bloc,
-                        // et ferait remailler sans fin).
+                        // et ferait remailler sans fin). Les règles viennent de `surface_v3.ron`.
                         let near_top = column.height - y == depth;
-                        Some(if y < 0 {
-                            // La pierre profonde, avec une frontière irrégulière vers 0.
-                            let jitter = (hash3(self.seed, x, y, z, 2) % 8) as i32;
-                            if y < -4 + jitter {
-                                b.deepstone
-                            } else {
-                                b.stone
-                            }
-                        } else if !near_top {
-                            b.stone
-                        } else if depth == 0 {
-                            if y < SEA_LEVEL {
-                                biome.underwater
-                            } else if frozen && biome.kind != BiomeKind::Beach {
-                                b.snow
-                            } else {
-                                biome.surface
-                            }
-                        } else if depth <= biome.subsurface_depth {
-                            if y < SEA_LEVEL - 1 {
-                                biome.underwater
-                            } else {
-                                biome.subsurface
-                            }
+                        let rule = if near_top && y >= 0 {
+                            // Même règle que `plants::is_cold` : la neige ne bougera pas.
+                            let altitude = (y - (SEA_LEVEL + 40)).max(0) as f32;
+                            state.surface.material(&SurfaceSpot {
+                                x,
+                                y,
+                                z,
+                                depth,
+                                subsurface_depth: biome.subsurface_depth,
+                                biome: column.biome,
+                                underwater: column.height < SEA_LEVEL,
+                                cold: biome.temperature - altitude * 0.012 < FREEZING,
+                                steep,
+                            })
                         } else {
-                            b.stone
+                            None
+                        };
+                        Some(match rule {
+                            Some(Material::Block(block)) => block,
+                            Some(Material::BiomeSurface) => {
+                                self.surface_patch(biome, x, z).unwrap_or(biome.surface)
+                            }
+                            Some(Material::BiomeSubsurface) => biome.subsurface,
+                            Some(Material::BiomeUnderwater) => biome.underwater,
+                            Some(Material::Band) if !biome.bands.is_empty() => {
+                                self.band(biome, x, y, z)
+                            }
+                            Some(Material::Band) => biome.subsurface,
+                            None if y < 0 => {
+                                // La pierre profonde, avec une frontière irrégulière vers 0.
+                                let jitter = (hash3(self.seed, x, y, z, 2) % 8) as i32;
+                                if y < -4 + jitter {
+                                    b.deepstone
+                                } else {
+                                    b.stone
+                                }
+                            }
+                            None => b.stone,
                         })
                     } else if y < column.height {
                         // Sous la surface : une grotte, dont l'eau (ou la lave) vient de l'aquifère.

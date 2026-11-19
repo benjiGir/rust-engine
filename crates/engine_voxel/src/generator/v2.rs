@@ -285,7 +285,11 @@ impl TerrainGenerator {
             GenerationVersion::V1 | GenerationVersion::V3 => None,
         };
         self.v3 = match version {
-            GenerationVersion::V3 => Some(Arc::new(super::v3::V3State::new(self.seed)?)),
+            GenerationVersion::V3 => Some(Arc::new(super::v3::V3State::new(
+                self.seed,
+                &self.registry,
+                &self.biomes,
+            )?)),
             GenerationVersion::V1 | GenerationVersion::V2 => None,
         };
         // Les arbres et les colonnes dépendent de la version : on repart de caches neufs.

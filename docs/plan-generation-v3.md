@@ -313,3 +313,68 @@ lointain proche de la vraie surface.
 - Les grottes n'ont pas encore de décor (biomes de grotte, stalactites, végétation) : lot 4 et vague 4 du lot 5.
 - Les barrages sont des parois droites ; l'eau ne coule pas à la génération (elle est figée jusqu'à une modification).
 - Pas de ravins.
+
+## Statut du lot 4 : biomes par paramètres et règles de surface (à valider)
+
+### Ce qui change
+
+- **Biomes par paramètres** (`assets/core/worldgen/biomes_v3.ron`, `generator/v3_rules.rs`) : chaque biome occupe une
+  case dans l'espace (température, humidité, continentalité, érosion, pics et vallées) ; une colonne prend le biome le
+  plus proche (distance nulle dedans, carré de l'écart dehors, petit décalage pour départager). Mers selon la
+  continentalité et la température, plages étroites, rivières au fond des vallées de l'intérieur, pics et massifs selon
+  l'érosion et les crêtes, terres selon le climat (glacial, froid, tempéré, chaud, brûlant × sec à détrempé). Les 32 biomes
+  du jeu ont une case (un test le vérifie) ; un biome inconnu (mod retiré) est ignoré.
+- **Règles de surface** (`assets/core/worldgen/surface_v3.ron`) : une liste ordonnée (conditions → matériau) appliquée au
+  sol du dessus ; conditions de profondeur, sous-couche, biome, sous la mer, gel, pente raide, hauteur, bruit, négation ;
+  matériaux bloc, surface du biome (avec ses taches de sol), sous-couche, fond sous l'eau, strates. Les versants raides
+  sont en roche avec des plaques de gravier, la neige tient au gel (même règle que les ticks aléatoires), les pics
+  enneigés et rocheux ont leur couverture, les badlands leurs strates.
+- **Pente** : par colonne, l'écart de hauteur entre les voisins (plus de 3 blocs sur 2 : raide).
+- **Outil de recette** : `--versions 1,2,3` (v1 et v3 par défaut).
+
+### Tests
+
+`v3_rules.rs` (3) : les tables du jeu ne nomment que des biomes et blocs connus, chaque biome a une case ; la case la
+plus proche gagne et le décalage départage ; la première règle qui tient donne le matériau. `generation_v3.rs` (2) : les
+fonds de vallée de l'intérieur sont des rivières, les mers profondes des océans, les crêtes des massifs des pics ; jamais
+d'herbe là où il gèle ni sous le sol du dessus (planchers et plafonds de grottes).
+
+### Paysage, v1 contre v3 (outil `recette`, neuf graines, 20 000 × 20 000 blocs, un point tous les 200)
+
+| graine | gén. | terre | océan prof. | montagne | falaise | marches 1 bloc | constructible | forêt | arbres/chunk | eau douce | biomes | entropie | h moy. | s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 7 | v1 | 61.9 % | 9.4 % | 9.3 % | 0.5 % | 28.5 % | 52.7 % | 21.0 % | 3.8 | 3.4 % | 27 | 4.62 | 70 | 1 |
+| 7 | v3 | 55.6 % | 10.9 % | 6.8 % | 0.7 % | 26.9 % | 38.4 % | 26.9 % | 4.8 | 3.6 % | 29 | 4.11 | 67 | 123 |
+| 42 | v1 | 62.7 % | 8.8 % | 10.8 % | 0.6 % | 29.9 % | 51.8 % | 20.4 % | 3.7 | 3.7 % | 27 | 4.63 | 72 | 1 |
+| 42 | v3 | 56.8 % | 8.3 % | 5.4 % | 0.7 % | 26.9 % | 39.5 % | 25.1 % | 4.5 | 3.9 % | 29 | 4.12 | 67 | 124 |
+| 1337 | v1 | 61.6 % | 9.8 % | 12.1 % | 0.5 % | 29.8 % | 50.0 % | 18.3 % | 3.4 | 3.3 % | 27 | 4.59 | 72 | 1 |
+| 1337 | v3 | 56.1 % | 9.2 % | 5.8 % | 0.8 % | 26.6 % | 39.2 % | 25.7 % | 4.5 | 3.7 % | 29 | 4.11 | 66 | 122 |
+| 20260 | v1 | 62.7 % | 8.9 % | 10.4 % | 0.7 % | 29.2 % | 51.8 % | 20.1 % | 3.7 | 3.7 % | 27 | 4.63 | 71 | 1 |
+| 20260 | v3 | 56.5 % | 11.2 % | 6.4 % | 0.7 % | 26.7 % | 38.9 % | 26.3 % | 4.7 | 3.9 % | 29 | 4.15 | 66 | 124 |
+| 987654321 | v1 | 62.1 % | 8.2 % | 10.5 % | 0.5 % | 28.7 % | 53.5 % | 20.6 % | 3.7 | 4.2 % | 27 | 4.58 | 71 | 1 |
+| 987654321 | v3 | 58.0 % | 10.1 % | 6.8 % | 0.8 % | 27.5 % | 38.5 % | 28.5 % | 4.9 | 3.9 % | 29 | 4.10 | 68 | 126 |
+| 0 | v1 | 62.3 % | 9.2 % | 11.4 % | 0.4 % | 29.6 % | 51.2 % | 19.9 % | 3.7 | 3.7 % | 27 | 4.61 | 71 | 1 |
+| 0 | v3 | 58.3 % | 8.6 % | 7.2 % | 0.7 % | 27.4 % | 37.5 % | 24.6 % | 4.5 | 4.5 % | 29 | 4.21 | 68 | 127 |
+| 1 | v1 | 61.7 % | 8.5 % | 10.9 % | 0.6 % | 30.2 % | 50.4 % | 19.4 % | 3.5 | 3.7 % | 27 | 4.61 | 71 | 1 |
+| 1 | v3 | 60.3 % | 8.3 % | 7.5 % | 0.9 % | 28.8 % | 36.2 % | 25.2 % | 4.6 | 4.2 % | 29 | 4.16 | 69 | 128 |
+| 123456 | v1 | 62.6 % | 8.7 % | 10.0 % | 0.6 % | 28.6 % | 53.0 % | 19.8 % | 3.6 | 3.7 % | 27 | 4.61 | 71 | 1 |
+| 123456 | v3 | 56.0 % | 9.9 % | 5.6 % | 0.9 % | 27.5 % | 39.0 % | 27.2 % | 4.7 | 3.9 % | 29 | 4.13 | 66 | 125 |
+| 4294967295 | v1 | 61.7 % | 8.3 % | 10.6 % | 0.8 % | 28.8 % | 52.4 % | 22.6 % | 4.0 | 3.5 % | 27 | 4.58 | 71 | 1 |
+| 4294967295 | v3 | 58.1 % | 8.3 % | 7.1 % | 1.0 % | 26.9 % | 38.4 % | 26.5 % | 4.7 | 4.4 % | 29 | 4.13 | 68 | 127 |
+
+v3 est **stable d'une graine à l'autre**. Par rapport à v1 : un peu moins de terre (56 à 60 % contre 62 %), moins de
+« montagne » au sens de l'outil (plus de 60 blocs au-dessus de la mer : 5 à 8 % contre 9 à 12 %, mais des sommets bien plus
+hauts), plus de falaises (0,7 à 1,0 % contre 0,4 à 0,8 %), moins de terrain plat constructible (36 à 40 % contre 50 à 53 %),
+plus de forêts (25 à 29 %), autant de rivières, 29 biomes vus.
+
+### Coût
+
+7,9 ms par colonne de 12 couches (le bruit des plaques de gravier compris).
+
+### Limites
+
+- Les biomes restent par colonne (x, z) : pas encore de biome de grotte (un chunk ne garde qu'un biome par colonne) ; le
+  choix par la profondeur viendra avec la vague 4 du lot 5.
+- Les cases de `biomes_v3.ron` ne sont pas encore extensibles par les mods (un mod qui ajoute un biome devra y ajouter sa
+  case : à prévoir avec le lot 5).
+- Le terrain lointain coupe encore l'horizon des grands massifs (lot 6).

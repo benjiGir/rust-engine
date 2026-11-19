@@ -1,0 +1,46 @@
+// Les règles de surface de la génération v3 (lot 4 de docs/plan-generation-v3.md) : pour chaque bloc
+// plein du sol du dessus (la colonne, depuis son sommet, sans interruption), la première règle dont
+// toutes les conditions tiennent donne le matériau. Plus bas (ou sous une grotte), c'est la roche.
+//
+// Conditions :
+// - Depth(max) : au plus `max` blocs sous le sommet (0 : le bloc du dessus) ;
+// - Subsurface : dans l'épaisseur de sous-couche du biome ;
+// - Biomes([...]) : le biome de la colonne en fait partie ;
+// - Underwater : le sommet de la colonne est sous la mer ;
+// - Cold : il gèle à cette hauteur (la même règle que les ticks aléatoires : la neige ne bougera pas) ;
+// - Steep : la pente dépasse une marche de 3 blocs sur 2 (falaise, versant raide) ;
+// - AboveY(y), BelowY(y) ;
+// - Noise(noise, min, max) : un bruit du fichier, lu en (x, z), dans [min, max) ;
+// - Not(condition).
+// Matériaux : Block("clé"), BiomeSurface (avec ses taches de sol), BiomeSubsurface, BiomeUnderwater,
+// Band (les strates colorées du biome, s'il en a).
+(
+    noises: {
+        // Des plaques de gravier et de roche sur les versants, pour casser l'uniformité.
+        "scree": (first_octave: -5, amplitudes: [1.0, 1.0, 0.5]),
+    },
+    rules: [
+        // Sous la mer : le fond du biome (sable, gravier...).
+        (when: [Underwater, Subsurface], then: BiomeUnderwater),
+
+        // Les versants raides : de la roche nue (de la neige au-dessus si elle tient), du gravier par
+        // plaques.
+        (when: [Steep, Depth(max: 0), Cold, Not(Noise(noise: "scree", min: 0.35, max: 9.0))], then: Block("core:snow")),
+        (when: [Steep, Depth(max: 2), Noise(noise: "scree", min: 0.45, max: 9.0)], then: Block("core:gravel")),
+        (when: [Steep, Depth(max: 3)], then: Block("core:stone")),
+
+        // Les sommets : neige épaisse sur les pics enneigés, roche sur les pics secs.
+        (when: [Biomes(["core:snowy_peaks"]), Depth(max: 2)], then: Block("core:snow")),
+        (when: [Biomes(["core:stony_peaks"]), Depth(max: 3)], then: Block("core:stone")),
+
+        // Le froid pose la neige sur le dessus (sauf sur le sable).
+        (when: [Depth(max: 0), Cold, Not(Biomes(["core:beach", "core:desert", "core:badlands"]))], then: Block("core:snow")),
+
+        // Les strates colorées (badlands) sous le dessus.
+        (when: [Biomes(["core:badlands"]), Depth(max: 1)], then: BiomeSurface),
+        (when: [Biomes(["core:badlands"]), Subsurface], then: Band),
+
+        (when: [Depth(max: 0)], then: BiomeSurface),
+        (when: [Subsurface], then: BiomeSubsurface),
+    ],
+)

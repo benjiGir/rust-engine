@@ -329,7 +329,9 @@ impl TerrainGenerator {
             self.v2 = self.with_version_state().ok();
         }
         if self.v3.is_some() {
-            self.v3 = v3::V3State::new(self.seed).ok().map(Arc::new);
+            self.v3 = v3::V3State::new(self.seed, &self.registry, &self.biomes)
+                .ok()
+                .map(Arc::new);
         }
     }
 
@@ -1422,6 +1424,7 @@ mod underground;
 mod v2;
 mod v2_context;
 mod v3;
+mod v3_rules;
 pub use v3::V3Parameters;
 
 pub use climate::{ClimateSample, WorldClimate};

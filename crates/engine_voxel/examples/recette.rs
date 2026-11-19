@@ -1,5 +1,6 @@
-//! La recette de la génération v2 (lot 9) : mêmes mesures de paysage sur plusieurs graines, pour la
-//! génération historique (v1) et la v2, imprimées en tableau Markdown.
+//! La recette des générations (lot 9 du plan v2, lot 4 du plan v3) : mêmes mesures de paysage sur
+//! plusieurs graines, pour la génération historique (v1) et la v3 par défaut (`--versions 1,2,3`),
+//! imprimées en tableau Markdown.
 //!
 //! ```text
 //! cargo run --release -p engine_voxel --example recette
@@ -46,15 +47,12 @@ struct Row {
     seconds: f64,
 }
 
-fn measure(seed: u32, v2: bool, extent: i32, step: i32) -> Row {
+fn measure(seed: u32, version: GenerationVersion, extent: i32, step: i32) -> Row {
     let started = std::time::Instant::now();
-    let generator = if v2 {
-        TerrainGenerator::new(seed)
-            .with_version(GenerationVersion::V2)
-            .expect("v2")
-    } else {
-        TerrainGenerator::new(seed)
-    };
+    let v2 = version == GenerationVersion::V2;
+    let generator = TerrainGenerator::new(seed)
+        .with_version(version)
+        .expect("version de génération");
     let generator = Arc::new(generator);
     let sea = SEA_LEVEL;
     let (mut total, mut land, mut deep, mut mountain, mut cliff, mut buildable) =
@@ -135,7 +133,11 @@ fn measure(seed: u32, v2: bool, extent: i32, step: i32) -> Row {
         .sum();
     Row {
         seed,
-        version: if v2 { "v2" } else { "v1" },
+        version: match version {
+            GenerationVersion::V1 => "v1",
+            GenerationVersion::V2 => "v2",
+            GenerationVersion::V3 => "v3",
+        },
         land: fraction(land, total),
         deep: fraction(deep, total),
         mountain: fraction(mountain, land),
@@ -155,6 +157,7 @@ fn measure(seed: u32, v2: bool, extent: i32, step: i32) -> Row {
 fn main() {
     let mut seeds: Vec<u32> = vec![7, 42, 1337, 20260, 987_654_321, 0, 1, 123_456, u32::MAX];
     let (mut extent, mut step) = (4000, 40);
+    let mut versions = vec![GenerationVersion::V1, GenerationVersion::V3];
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut it = args.iter();
     while let Some(arg) = it.next() {
@@ -169,14 +172,25 @@ fn main() {
             }
             "--extent" => extent = it.next().expect("--extent N").parse().expect("entier"),
             "--step" => step = it.next().expect("--step N").parse().expect("entier"),
+            "--versions" => {
+                versions = it
+                    .next()
+                    .expect("--versions 1,2,3")
+                    .split(',')
+                    .map(|v| {
+                        GenerationVersion::from_number(v.trim().parse().expect("numéro"))
+                            .expect("version")
+                    })
+                    .collect();
+            }
             other => panic!("option inconnue : {other}"),
         }
     }
     let rows: Vec<Row> = std::thread::scope(|scope| {
         let handles: Vec<_> = seeds
             .iter()
-            .flat_map(|&seed| [(seed, false), (seed, true)])
-            .map(|(seed, v2)| scope.spawn(move || measure(seed, v2, extent, step)))
+            .flat_map(|&seed| versions.iter().map(move |&v| (seed, v)))
+            .map(|(seed, v)| scope.spawn(move || measure(seed, v, extent, step)))
             .collect();
         handles
             .into_iter()

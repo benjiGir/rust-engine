@@ -284,6 +284,67 @@ fn the_far_terrain_estimate_follows_the_real_surface() {
 }
 
 #[test]
+fn biomes_follow_the_parameters() {
+    use engine_voxel::BiomeKind;
+    let g = v3(42);
+    let (mut rivers, mut oceans, mut peaks) = ((0, 0), (0, 0), (0, 0));
+    for j in -50..50 {
+        for i in -50..50 {
+            let (x, z) = (i * 61, j * 67);
+            let p = g.v3_parameters(x, z).unwrap();
+            let kind = g.biome(g.column(x, z).biome).kind;
+            if p.pv < -0.95 && p.continentalness > 0.05 && p.erosion > -0.4 {
+                rivers.0 += 1;
+                rivers.1 += usize::from(kind == BiomeKind::River);
+            }
+            if p.continentalness < -0.5 {
+                oceans.0 += 1;
+                oceans.1 += usize::from(matches!(kind, BiomeKind::Ocean | BiomeKind::DeepOcean));
+            }
+            if p.pv > 0.75 && p.erosion < -0.6 && p.continentalness > 0.1 {
+                peaks.0 += 1;
+                peaks.1 += usize::from(kind == BiomeKind::Peaks);
+            }
+        }
+    }
+    for (name, (seen, right)) in [("rivières", rivers), ("mers", oceans), ("pics", peaks)] {
+        assert!(seen > 5, "{name} : trop peu de points ({seen})");
+        assert_eq!(right, seen, "{name} : {right} bons sur {seen}");
+    }
+}
+
+#[test]
+fn surface_rules_keep_grass_off_cold_tops_steep_slopes_and_cave_walls() {
+    let g = v3(42);
+    let registry = g.registry().clone();
+    let grass = registry.id("core:grass").unwrap();
+    for (cx, cz) in [(30, -20), (-12, 40), (70, -70), (5, 5)] {
+        let chunks = column_chunks(&g, cx, cz);
+        for lz in 0..32 {
+            for lx in 0..32 {
+                let (x, z) = (cx * 32 + lx as i32, cz * 32 + lz as i32);
+                let column = g.column(x, z);
+                let top = column.height;
+                let biome = g.biome(column.biome);
+                let altitude = (top - (SEA_LEVEL + 40)).max(0) as f32;
+                let cold = biome.temperature - altitude * 0.012 < engine_voxel::FREEZING;
+                if block(&chunks, lx, top, lz) == grass {
+                    assert!(!cold, "({x}, {z}) : de l'herbe là où il gèle (à {top})");
+                }
+                // Sous le sol du dessus (plancher ou plafond de grotte), jamais d'herbe.
+                for y in MIN_CHUNK_Y * 32..top - 6 {
+                    assert_ne!(
+                        block(&chunks, lx, y, lz),
+                        grass,
+                        "({x}, {y}, {z}) : herbe sous terre"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn v3_blocks_do_not_depend_on_order_threads_or_caches() {
     let positions: Vec<IVec3> = (0..6)
         .map(|i| IVec3::new(i * 3 - 7, i % 5 - 1, 11 - i * 2))
