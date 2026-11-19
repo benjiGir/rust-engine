@@ -1539,4 +1539,30 @@
         sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
         hardness: 0.2, tool: Shears,
     ),
+    // ----- La génération v3, vague 2 (froid et altitude) : sapins, bruyère, blocs erratiques -----
+    (
+        id: "core:fir_leaves", name: "Aiguilles de sapin", color: (0.12, 0.26, 0.24),
+        texture: "fir_leaves", transparent: true, light_opacity: 1, cutout: true,
+        sway: true, behavior: "core:leaves",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.2, tool: Shears,
+    ),
+    (
+        id: "core:fir_sapling", name: "Pousse de sapin", color: (0.12, 0.26, 0.24),
+        texture: "fir_sapling", shape: Cross, cutout: true, solid: false, transparent: true,
+        light_opacity: 0, behavior: "core:sapling",
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:heather", name: "Bruyère", color: (0.48, 0.26, 0.42), texture: "heather", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:mossy_cobblestone", name: "Moellons moussus", color: (0.16, 0.22, 0.17), texture: "mossy_cobblestone",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 1.5, tool: Pickaxe, tier: 1,
+    ),
 ]

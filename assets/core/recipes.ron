@@ -156,6 +156,7 @@
         (ingredients: ["acacia_log"], result: ("acacia_planks", 4)),
         (ingredients: ["redwood_log"], result: ("redwood_planks", 4)),
         (ingredients: ["jungle_log"], result: ("jungle_planks", 4)),
+        (ingredients: ["cobblestone", "vine"], result: ("mossy_cobblestone", 1)),
         (ingredients: ["spores", "seeds", "dirt"], result: ("fertilizer", 2)),
         (ingredients: ["melon_slice"], result: ("melon_seeds", 1)),
         (ingredients: ["cinnabar_dust"], result: ("wire", 3)),

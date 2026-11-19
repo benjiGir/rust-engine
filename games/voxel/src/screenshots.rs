@@ -131,7 +131,7 @@ const fn fluid(name: &'static str, which: FluidShot) -> Shot {
     }
 }
 
-const SHOTS: [Shot; 49] = [
+const SHOTS: [Shot; 54] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -258,6 +258,11 @@ const SHOTS: [Shot; 49] = [
     biome("biome-prairie-seche", "core:prairie"),
     biome("biome-verger", "core:orchard"),
     biome("biome-erables", "core:maple_woods"),
+    biome("biome-toundra", "core:tundra"),
+    biome("biome-sapiniere", "core:snowy_fir_forest"),
+    biome("biome-hautes-terres", "core:highland"),
+    biome("biome-landes", "core:moor"),
+    biome("biome-escarpements", "core:crag"),
 ];
 
 /// Où en est la visite.

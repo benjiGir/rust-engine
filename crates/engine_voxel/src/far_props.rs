@@ -84,7 +84,10 @@ fn crown(kind: TreeKind) -> Option<(f32, f32, [f32; 3])> {
         TreeKind::Maple => (3.0, 9.0, [0.62, 0.22, 0.07]),
         TreeKind::Fruit => (2.2, 5.5, [0.86, 0.68, 0.74]),
         TreeKind::Cypress => (2.4, 14.0, [0.16, 0.30, 0.12]),
-        TreeKind::Cactus | TreeKind::Bush | TreeKind::JungleBush => return None,
+        TreeKind::Fir => (1.8, 15.0, [0.07, 0.18, 0.16]),
+        TreeKind::Cactus | TreeKind::Bush | TreeKind::JungleBush | TreeKind::Boulder => {
+            return None;
+        }
     })
 }
 

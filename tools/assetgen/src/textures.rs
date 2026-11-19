@@ -1180,6 +1180,46 @@ fn cobblestone() -> Image {
     image
 }
 
+/// Les moellons gagnés par la mousse : des plaques vertes, par groupes, sur les pierres et les joints.
+fn mossy_cobblestone() -> Image {
+    let mut image = cobblestone();
+    let moss = [0.3, 0.46, 0.2];
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let patch = texel_hash(x / 3, y / 3, 146) % 5 < 2;
+            let edge = texel_hash(x, y, 147) % 3;
+            if patch && edge != 0
+                || (!patch && edge == 0 && texel_hash(x / 2, y / 2, 148).is_multiple_of(7))
+            {
+                let shade = 0.88 + (texel_hash(x, y, 149) % 4) as f32 * 0.06;
+                image.set(x, y, scale(moss, shade));
+            }
+        }
+    }
+    image
+}
+
+/// La bruyère : une touffe basse de tiges brunes et vertes, couverte de petites fleurs mauves.
+fn heather() -> Image {
+    let stem = [0.32, 0.36, 0.2];
+    let bloom = [0.66, 0.36, 0.62];
+    let mut image = Image::transparent();
+    for (i, x) in [1, 3, 4, 6, 8, 9, 11, 13, 14].into_iter().enumerate() {
+        let top = 7 + (texel_hash(i, 0, 150) % 4) as i32;
+        let lean = (texel_hash(i, 1, 150) % 3) as i32 - 1;
+        for y in top..16 {
+            let dx = if y < top + 3 { lean } else { 0 };
+            image.plot(x + dx, y, stem);
+        }
+        for k in 0..3 {
+            let shade = 0.85 + (texel_hash(i, k, 151) % 4) as f32 * 0.08;
+            let dx = lean + if k == 1 { 1 } else { 0 };
+            image.plot(x + dx, top - 1 + k as i32, scale(bloom, shade));
+        }
+    }
+    image
+}
+
 /// La roche volcanique : très sombre, avec des bulles et quelques reflets rougeâtres.
 fn volcanic_rock() -> Image {
     let base = [0.17, 0.15, 0.16];
@@ -1387,6 +1427,12 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
             core.join("blossom_leaves.png"),
             leaves([0.95, 0.76, 0.84], 144),
         ),
+        // La vague 2 : sapin aux aiguilles bleutées.
+        (core.join("fir_leaves.png"), leaves([0.16, 0.34, 0.32], 145)),
+        (
+            core.join("fir_sapling.png"),
+            sapling([0.3, 0.22, 0.14], [0.16, 0.36, 0.33]),
+        ),
         (
             core.join("tall_grass.png"),
             tall_grass([0.4, 0.66, 0.26], 104),
@@ -1413,6 +1459,7 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
             core.join("lavender.png"),
             flower([0.65, 0.42, 0.88], [0.8, 0.6, 0.95]),
         ),
+        (core.join("heather.png"), heather()),
         (
             core.join("red_mushroom.png"),
             mushroom([0.8, 0.12, 0.1], true),
@@ -1493,6 +1540,7 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("farmland_dry.png"), farmland(false)),
         (core.join("farmland_wet.png"), farmland(true)),
         (core.join("cobblestone.png"), cobblestone()),
+        (core.join("mossy_cobblestone.png"), mossy_cobblestone()),
         (core.join("volcanic_rock.png"), volcanic_rock()),
         (core.join("workbench_top.png"), workbench_top()),
         (core.join("workbench_side.png"), workbench_side()),

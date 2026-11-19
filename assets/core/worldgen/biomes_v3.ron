@@ -28,19 +28,19 @@
         // Les sommets et les massifs.
         (biome: "core:snowy_peaks", continentalness: (-0.115, 2.0), erosion: (-2.0, -0.45), pv: (0.6, 2.0), temperature: (-2.0, 0.25)),
         (biome: "core:stony_peaks", continentalness: (-0.115, 2.0), erosion: (-2.0, -0.45), pv: (0.6, 2.0), temperature: (0.25, 2.0)),
-        (biome: "core:mountains", continentalness: (-0.115, 2.0), erosion: (-2.0, -0.3), pv: (0.15, 0.6), humidity: (-2.0, 0.1)),
+        (biome: "core:mountains", continentalness: (-0.115, 2.0), erosion: (-2.0, -0.3), pv: (0.15, 0.6), humidity: (-2.0, 0.1), offset: 0.05),
         (biome: "core:wooded_mountains", continentalness: (-0.115, 2.0), erosion: (-2.0, -0.3), pv: (0.15, 0.6), humidity: (0.1, 2.0)),
         (biome: "core:alpine_meadow", continentalness: (-0.115, 2.0), erosion: (-0.6, -0.2), pv: (0.15, 0.7), temperature: (-0.15, 0.55), humidity: (-0.35, 0.2), offset: 0.05),
         (biome: "core:wooded_hills", continentalness: (-0.115, 2.0), erosion: (-0.3, 0.05), pv: (0.2, 0.7), temperature: (-0.45, 0.55), humidity: (-0.1, 2.0)),
 
         // Les terres, selon le climat. Glacial :
         (biome: "core:snowy_tundra", continentalness: (-0.115, 2.0), temperature: (-2.0, -0.45), humidity: (-2.0, -0.1)),
-        (biome: "core:snowy_taiga", continentalness: (-0.115, 2.0), temperature: (-2.0, -0.45), humidity: (-0.1, 2.0)),
+        (biome: "core:snowy_taiga", continentalness: (-0.115, 2.0), temperature: (-2.0, -0.45), humidity: (-0.1, 2.0), offset: 0.03),
         // Froid :
         (biome: "core:steppe", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (-2.0, -0.35)),
         (biome: "core:birch_forest", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (-0.35, 0.1), offset: 0.05),
         (biome: "core:taiga", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (0.1, 0.3), offset: 0.05),
-        (biome: "core:old_taiga", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (0.3, 2.0)),
+        (biome: "core:old_taiga", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (0.3, 2.0), offset: 0.05),
         // Tempéré :
         (biome: "core:plains", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-2.0, -0.1), offset: 0.05),
         (biome: "core:flower_meadow", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.35, -0.1), pv: (-0.2, 0.2)),
@@ -66,5 +66,14 @@
         (biome: "core:prairie", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-0.35, -0.1), erosion: (0.3, 2.0)),
         (biome: "core:orchard", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.1, 0.1), pv: (-0.4, 0.0)),
         (biome: "core:maple_woods", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (-0.1, 0.3), pv: (0.1, 2.0)),
+        // La vague 2 (froid et altitude), logée de même : la toundra dans le froid sec des plaines usées,
+        // la sapinière sur les hauteurs du glacial humide, les hautes terres sur les collines sèches de
+        // l'intérieur, les landes dans le froid détrempé des plaines, les escarpements dans les massifs
+        // secs et froids.
+        (biome: "core:tundra", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.25), humidity: (-0.35, 0.0), erosion: (0.1, 2.0)),
+        (biome: "core:snowy_fir_forest", continentalness: (-0.115, 2.0), temperature: (-2.0, -0.45), humidity: (0.1, 2.0), pv: (0.1, 2.0)),
+        (biome: "core:highland", continentalness: (0.0, 2.0), erosion: (-0.35, 0.15), pv: (0.05, 0.7), temperature: (-0.35, 0.2), humidity: (-0.4, -0.05)),
+        (biome: "core:moor", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.1), humidity: (0.25, 2.0), erosion: (0.2, 2.0), pv: (-2.0, 0.3)),
+        (biome: "core:crag", continentalness: (-0.115, 2.0), erosion: (-2.0, -0.25), pv: (0.2, 0.75), temperature: (-0.45, 0.05), humidity: (-2.0, 0.0)),
     ],
 )

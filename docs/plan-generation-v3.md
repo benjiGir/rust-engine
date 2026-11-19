@@ -413,3 +413,30 @@ le bon arbre ; les six biomes apparaissent dans un monde v3 de 12 km de côté e
 
 Limites : la prairie forme de petites zones (son climat chaud et assez sec est partagé avec la garrigue et la savane) ;
 pas encore de bloc de boue pour le bayou ; les vagues 2 à 4 (froid, chaud et volcanique, souterrain) restent à faire.
+
+## Statut du lot 5, vague 2 : froid et altitude (à valider)
+
+| Biome | Climat (cases de `biomes_v3.ron`) | Ce qui le distingue |
+| --- | --- | --- |
+| Toundra (`core:tundra`) | froid, sec à moyen, plaines usées | herbe rousse, terre grossière et podzol, buissons bas, rochers, un peu de bruyère ; la neige ne tient qu'en altitude |
+| Sapinière enneigée (`core:snowy_fir_forest`) | glacial, humide, sur les hauteurs | sapins serrés aux aiguilles bleutées, sol enneigé |
+| Hautes terres (`core:highland`) | froid à tempéré, sec, collines de l'intérieur | herbe haute, rochers épars, bruyère, rares épicéas |
+| Landes (`core:moor`) | froid, détrempé, plaines usées et basses | tapis de bruyère, podzol, rochers, eau sombre, fonds d'argile |
+| Escarpements (`core:crag`) | froid, sec, massifs escarpés | roche nue avec plaques de gravier, de moellons moussus et d'herbe, rochers, épicéas et sapins ; la neige ne tient qu'au-dessus de 180 environ (ils sont entre 145 et 190, au pied des pics) |
+
+- **Blocs** : aiguilles et pousse de sapin, bruyère, moellons moussus (textures `assetgen` dans les deux packs, butin des
+  aiguilles, étiquettes `leaves` et `stones`, recette sans forme moellons + liane → moellons moussus).
+- **Arbres** (`trees.rs`) : `Fir` (tronc d'épicéa, 11 à 17 blocs, étages courts, flèche) que donne la pousse de sapin, et
+  `Boulder`, un rocher de moellons à demi enfoncé, moussu par endroits, posé par le même tirage que les arbres (il accepte
+  la roche et la terre, pas le sable ni le gravier). Le terrain lointain a la silhouette du sapin, pas celle des rochers.
+- **Table v3** : les montagnes, la taïga enneigée et la vieille taïga reçoivent un petit décalage pour laisser gagner les
+  nouvelles cases. Part de la terre (5 graines, `print_v3_biome_shares`) : toundra 2,4 %, hautes terres 2,1 %, sapinière
+  1,2 %, landes 0,9 %, escarpements 0,5 % (les massifs eux-mêmes sont rares : les escarpements y prennent la place des
+  montagnes sèches).
+- **Captures** : `biome-toundra`, `biome-sapiniere`, `biome-hautes-terres`, `biome-landes`, `biome-escarpements`.
+
+Tests : le sapin reste dans les bornes de la génération par chunk et sort de sa pousse ; le rocher est petit, à demi
+enfoncé, sans mousse sous terre ; les onze biomes des vagues 1 et 2 apparaissent dans un monde v3 et jamais en v1 ou v2.
+
+Limites : pas de relief propre aux escarpements (ce sont des biomes de surface sur le relief commun : pas d'aiguilles
+rocheuses comme dans Biomes O' Plenty) ; la neige ne se pose pas sur les feuilles.

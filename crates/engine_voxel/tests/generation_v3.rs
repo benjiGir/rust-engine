@@ -345,14 +345,21 @@ fn surface_rules_keep_grass_off_cold_tops_steep_slopes_and_cave_walls() {
 }
 
 #[test]
-fn the_first_wave_of_biomes_appears_in_v3_and_never_in_v1_or_v2() {
+fn the_new_biomes_appear_in_v3_and_never_in_v1_or_v2() {
     let wave = [
+        // Vague 1.
         "core:redwood_forest",
         "core:bayou",
         "core:lavender_field",
         "core:prairie",
         "core:orchard",
         "core:maple_woods",
+        // Vague 2.
+        "core:tundra",
+        "core:snowy_fir_forest",
+        "core:highland",
+        "core:moor",
+        "core:crag",
     ];
     let g = v3(42);
     let ids: Vec<_> = wave.iter().map(|k| g.biomes().id(k).unwrap()).collect();
@@ -467,5 +474,32 @@ fn print_v3_cost() {
             "{name} : 36 colonnes en {elapsed:.0} ms ({:.2} ms par colonne, {chunks} chunks non vides)",
             elapsed / 36.0
         );
+    }
+}
+
+/// La part de terre de chaque biome v3, sur plusieurs graines (points de grille du terrain lointain).
+/// `cargo test -p engine_voxel --test generation_v3 print_v3_biome_shares --release -- --ignored --nocapture`
+#[test]
+#[ignore = "mesure"]
+fn print_v3_biome_shares() {
+    let mut counts = std::collections::BTreeMap::<String, u64>::new();
+    let mut land = 0u64;
+    for seed in [1, 42, 2024, 7, 99] {
+        let g = v3(seed);
+        for j in -80..80 {
+            for i in -80..80 {
+                let c = g.column_at_grid_point(i * 24, j * 24);
+                if c.height < SEA_LEVEL {
+                    continue;
+                }
+                land += 1;
+                *counts.entry(g.biome(c.biome).key.clone()).or_default() += 1;
+            }
+        }
+    }
+    let mut rows: Vec<_> = counts.into_iter().collect();
+    rows.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    for (key, n) in rows {
+        println!("{key:28} {:5.2} %", n as f64 * 100.0 / land as f64);
     }
 }

@@ -42,6 +42,10 @@ pub enum TreeKind {
     Fruit,
     /// Un cyprès de bayou : tronc haut et fin, petite couronne, lianes.
     Cypress,
+    /// Un sapin des forêts froides : tronc de sapin, cône étroit et serré d'aiguilles bleutées.
+    Fir,
+    /// Un bloc erratique : un rocher de moellons, moussus par endroits, à demi enfoncé.
+    Boulder,
 }
 
 /// Ce qu'est un bloc d'arbre : il décide de ce qu'il a le droit de remplacer.
@@ -73,6 +77,9 @@ pub struct TreeBlocks {
     pub redwood: Option<Wood>,
     pub maple_leaves: Option<BlockId>,
     pub blossom_leaves: Option<BlockId>,
+    /// La vague 2 : les aiguilles de sapin et les rochers (moellons, moellons moussus).
+    pub fir_leaves: Option<BlockId>,
+    pub boulder: Option<(BlockId, BlockId)>,
     pub vine: BlockId,
     pub cactus: BlockId,
 }
@@ -99,6 +106,10 @@ impl TreeBlocks {
             redwood: wood("redwood").ok(),
             maple_leaves: registry.id("core:maple_leaves"),
             blossom_leaves: registry.id("core:blossom_leaves"),
+            fir_leaves: registry.id("core:fir_leaves"),
+            boulder: registry
+                .id("core:cobblestone")
+                .zip(registry.id("core:mossy_cobblestone")),
             vine: id("core:vine")?,
             cactus: id("core:cactus")?,
         })
@@ -125,6 +136,18 @@ impl TreeBlocks {
                 log: self.spruce.log,
                 leaves: self.oak.leaves,
             },
+            TreeKind::Fir => Wood {
+                log: self.spruce.log,
+                leaves: self.fir_leaves.unwrap_or(self.spruce.leaves),
+            },
+            // La « bûche » du rocher : des moellons (le moussu est choisi bloc par bloc).
+            TreeKind::Boulder => {
+                let (stone, mossy) = self.boulder.unwrap_or((self.cactus, self.cactus));
+                Wood {
+                    log: stone,
+                    leaves: mossy,
+                }
+            }
             TreeKind::Cactus => Wood {
                 log: self.cactus,
                 leaves: self.cactus,
@@ -142,6 +165,7 @@ impl TreeBlocks {
             "core:jungle_sapling" => TreeKind::JungleBush,
             "core:redwood_sapling" => TreeKind::Redwood,
             "core:maple_sapling" => TreeKind::Maple,
+            "core:fir_sapling" => TreeKind::Fir,
             _ => return None,
         })
     }
@@ -262,6 +286,12 @@ pub fn grow(
                 }
             }
         }
+        TreeKind::Fir => fir(base, rng, wood, put),
+        TreeKind::Boulder => {
+            if blocks.boulder.is_some() {
+                boulder(base, rng, wood, put);
+            }
+        }
         TreeKind::Cactus => {
             for k in 0..rng.range(1, 3) {
                 put(base + IVec3::Y * k, blocks.cactus, Part::Log);
@@ -366,6 +396,53 @@ fn spruce(
             for dz in -r..=r {
                 if dx * dx + dz * dz <= r * r + 1 && (dx, dz) != (0, 0) {
                     put(base + IVec3::new(dx, y, dz), wood.leaves, Part::Leaves);
+                }
+            }
+        }
+    }
+}
+
+/// Le sapin des forêts froides : plus haut et plus serré que l'épicéa, des étages courts dont le rayon
+/// grandit lentement vers le bas (au plus 2), une flèche au sommet.
+fn fir(base: IVec3, rng: &mut Rng64, wood: Wood, put: &mut impl FnMut(IVec3, BlockId, Part)) {
+    let height = rng.range(11, 17);
+    for y in 0..height {
+        put(base + IVec3::Y * y, wood.log, Part::Log);
+    }
+    for k in 0..3 {
+        put(base + IVec3::Y * (height + k), wood.leaves, Part::Leaves);
+    }
+    let lowest = rng.range(2, 4);
+    for (i, y) in (lowest..height).rev().enumerate() {
+        // Des étages de trois couches : large, moyenne, étroite ; le large s'élargit vers le bas.
+        let step = i as i32 % 3;
+        let tier = (i as i32 / 3 + 1).min(2);
+        let r = (tier - step / 2).max(1);
+        for dx in -r..=r {
+            for dz in -r..=r {
+                let corner = dx.abs() == r && dz.abs() == r;
+                if (dx, dz) != (0, 0) && !(corner && (r == 1 || step != 0)) {
+                    put(base + IVec3::new(dx, y, dz), wood.leaves, Part::Leaves);
+                }
+            }
+        }
+    }
+}
+
+/// Un bloc erratique : une boule de moellons écrasée, centrée un peu sous le sol (seule la partie hors
+/// du sol est posée, le tronc ne remplaçant que l'air et les plantes), moussue par endroits.
+fn boulder(base: IVec3, rng: &mut Rng64, wood: Wood, put: &mut impl FnMut(IVec3, BlockId, Part)) {
+    let r = 1.8 + rng.below(4) as f32 * 0.4;
+    let center = base - IVec3::Y;
+    let n = r.ceil() as i32;
+    for dy in 0..=n {
+        for dx in -n..=n {
+            for dz in -n..=n {
+                let d = (dx * dx + dz * dz) as f32 + (dy * dy) as f32 * 1.4;
+                if d <= r * r {
+                    let mossy = dy > 0 && rng.below(3) == 0;
+                    let block = if mossy { wood.leaves } else { wood.log };
+                    put(center + IVec3::new(dx, dy, dz), block, Part::Log);
                 }
             }
         }
@@ -492,6 +569,7 @@ mod tests {
             TreeKind::Maple,
             TreeKind::Fruit,
             TreeKind::Cypress,
+            TreeKind::Fir,
         ] {
             for seed in 0..40 {
                 let mut rng = Rng64::new(seed);
@@ -515,5 +593,41 @@ mod tests {
             TreeBlocks::kind_of_sapling("core:maple_sapling"),
             Some(TreeKind::Maple)
         );
+        assert_eq!(
+            TreeBlocks::kind_of_sapling("core:fir_sapling"),
+            Some(TreeKind::Fir)
+        );
+    }
+
+    /// Le rocher : petit, à demi enfoncé (une couche sous la base au plus), de moellons et de moellons
+    /// moussus, jamais de mousse dans la partie enterrée.
+    #[test]
+    fn boulders_are_small_half_buried_cobblestone_mounds() {
+        let registry = BlockRegistry::builtin();
+        let blocks = TreeBlocks::resolve(&registry).unwrap();
+        let (stone, mossy) = blocks.boulder.expect("les moellons sont dans le registre");
+        let mut mossy_seen = false;
+        for seed in 0..40 {
+            let mut rng = Rng64::new(seed);
+            let mut above = 0;
+            grow(
+                TreeKind::Boulder,
+                IVec3::ZERO,
+                &mut rng,
+                &blocks,
+                &mut |p, block, part| {
+                    assert_eq!(part, Part::Log);
+                    assert!(
+                        p.x.abs() <= 3 && p.z.abs() <= 3 && (-1..=2).contains(&p.y),
+                        "{p}"
+                    );
+                    assert!(block == stone || (block == mossy && p.y >= 0), "{p}");
+                    mossy_seen |= block == mossy;
+                    above += usize::from(p.y >= 0);
+                },
+            );
+            assert!(above >= 3, "rocher trop petit : {above}");
+        }
+        assert!(mossy_seen);
     }
 }

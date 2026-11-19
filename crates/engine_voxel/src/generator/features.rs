@@ -92,7 +92,12 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 fn spacing(kind: TreeKind) -> i32 {
     match kind {
         TreeKind::Cactus | TreeKind::Bush | TreeKind::JungleBush => 2,
-        TreeKind::Oak | TreeKind::Birch | TreeKind::Spruce | TreeKind::TallSpruce => 3,
+        TreeKind::Oak
+        | TreeKind::Birch
+        | TreeKind::Spruce
+        | TreeKind::TallSpruce
+        | TreeKind::Fir
+        | TreeKind::Boulder => 3,
         TreeKind::Fruit | TreeKind::Cypress => 4,
         TreeKind::Swamp | TreeKind::Acacia | TreeKind::Maple => 5,
         TreeKind::BigOak | TreeKind::Jungle | TreeKind::Redwood => 6,
@@ -255,13 +260,18 @@ impl TerrainGenerator {
             if self.v2_overhanging(x, z) {
                 continue;
             }
-            // Le sol doit convenir : du sable pour le cactus, de la terre ou de l'herbe
-            // (éventuellement enneigée) pour les autres.
+            // Le sol doit convenir : du sable pour le cactus, n'importe quel sol plein pour un
+            // rocher, de la terre ou de l'herbe (éventuellement enneigée) pour les autres.
             let ground = self.ground_block(x, z, column);
-            let ok = if kind == TreeKind::Cactus {
-                ground == self.blocks.sand || ground == self.plant_blocks.red_sand
-            } else {
-                self.plant_blocks.is_soil(ground) || ground == self.blocks.snow
+            let ok = match kind {
+                TreeKind::Cactus => {
+                    ground == self.blocks.sand || ground == self.plant_blocks.red_sand
+                }
+                TreeKind::Boulder => {
+                    let def = self.registry.def(ground);
+                    def.solid && def.shape == Shape::Cube && !def.gravity
+                }
+                _ => self.plant_blocks.is_soil(ground) || ground == self.blocks.snow,
             };
             if ok {
                 sites.push(TreeSite {

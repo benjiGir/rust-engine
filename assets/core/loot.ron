@@ -29,6 +29,7 @@
     "redwood_leaves": [(item: "redwood_leaves", count: (1, 1), tool: Shears), (item: "redwood_sapling", count: (1, 1), chance: 0.05, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
     "maple_leaves": [(item: "maple_leaves", count: (1, 1), tool: Shears), (item: "maple_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
     "blossom_leaves": [(item: "blossom_leaves", count: (1, 1), tool: Shears), (item: "oak_sapling", count: (1, 1), chance: 0.05, without: Shears), (item: "apple", count: (1, 1), chance: 0.12, without: Shears)],
+    "fir_leaves": [(item: "fir_leaves", count: (1, 1), tool: Shears), (item: "fir_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
     "jungle_leaves": [(item: "jungle_leaves", count: (1, 1), tool: Shears), (item: "jungle_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
     "tall_grass": [(item: "tall_grass", count: (1, 1), tool: Shears), (item: "seeds", count: (1, 1), chance: 0.125, without: Shears)],
     "fern": [(item: "fern", count: (1, 1), tool: Shears), (item: "seeds", count: (1, 1), chance: 0.125, without: Shears)],

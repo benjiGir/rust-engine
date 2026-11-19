@@ -220,9 +220,9 @@
     tags: {
         "wools": ["wool", "wool_light_gray", "wool_gray", "wool_black", "wool_brown", "wool_red", "wool_orange", "wool_yellow", "wool_lime", "wool_green", "wool_cyan", "wool_light_blue", "wool_blue", "wool_purple", "wool_magenta", "wool_pink"],
         "planks": ["oak_planks", "birch_planks", "spruce_planks", "acacia_planks", "jungle_planks", "redwood_planks"],
-        "leaves": ["oak_leaves", "birch_leaves", "spruce_leaves", "acacia_leaves", "jungle_leaves", "redwood_leaves", "maple_leaves", "blossom_leaves"],
+        "leaves": ["oak_leaves", "birch_leaves", "spruce_leaves", "acacia_leaves", "jungle_leaves", "redwood_leaves", "maple_leaves", "blossom_leaves", "fir_leaves"],
         "logs": ["oak_log", "birch_log", "spruce_log", "acacia_log", "jungle_log", "redwood_log"],
-        "stones": ["cobblestone", "deepstone"],
+        "stones": ["cobblestone", "deepstone", "mossy_cobblestone"],
         "coals": ["coal", "charcoal"],
     },
 )
