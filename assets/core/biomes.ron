@@ -386,5 +386,21 @@
         trees: [(Cactus, 0.7), (Bush, 0.3)], tree_density: 1.2, groves: 0.4,
         plants: [("marigold", 0.14, 0.7), ("poppy", 0.03, 0.6), ("tall_grass", 0.04, 0.5), ("dead_bush", 0.02)],
         ground_patches: [("coarse_dirt", 0.06), ("red_sand", 0.06)],
+    ),    // ----- La vague 4 (sous terre) : choisis en trois dimensions dans les grottes profondes (voir
+    // « cave_amount » et « cave_kind » dans worldgen/terrain_v3.ron), sans case dans biomes_v3.ron.
+    (
+        id: "core:crystal_cavern", name: "Gouffre cristallin", kind: Land, temperature: 0.6, v3_only: true, underground: true,
+        surface: "stone", subsurface: "stone", underwater: "gravel",
+        grass_color: (0.5, 0.42, 0.62), foliage_color: (0.44, 0.36, 0.58), water_color: (0.36, 0.3, 0.7),
+    ),
+    (
+        id: "core:glowing_grotto", name: "Grotte luminescente", kind: Land, temperature: 0.7, v3_only: true, underground: true,
+        surface: "stone", subsurface: "stone", underwater: "gravel",
+        grass_color: (0.3, 0.7, 0.6), foliage_color: (0.24, 0.62, 0.52), water_color: (0.2, 0.6, 0.62),
+    ),
+    (
+        id: "core:fungal_cave", name: "Grotte fongique", kind: Land, temperature: 0.7, v3_only: true, underground: true,
+        surface: "stone", subsurface: "stone", underwater: "gravel",
+        grass_color: (0.5, 0.42, 0.48), foliage_color: (0.44, 0.36, 0.42), water_color: (0.3, 0.32, 0.42),
     ),
 ]

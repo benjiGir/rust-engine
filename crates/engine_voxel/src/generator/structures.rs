@@ -1310,6 +1310,21 @@ impl Builder<'_> {
         if surface - y < 8 {
             return;
         }
+        // En v3, plus bas s'il le faut : dans la roche pleine, pas dans une grande salle de grotte.
+        let corners: Vec<(i32, i32)> = [-4, 0, 4]
+            .iter()
+            .flat_map(|&dx| [-4, 0, 4].map(|dz| (x + dx, z + dz)))
+            .collect();
+        let y = self.world.buried_floor((x, z), &corners, y, 5);
+        if self.world.encases_buried_structures() {
+            let stone = self.id("core:stone");
+            let top = (y + 6).min(surface - 4);
+            self.fill(
+                IVec3::new(x - 6, y - 3, z - 6),
+                IVec3::new(x + 6, top, z + 6),
+                stone,
+            );
+        }
         let (cobble, gravel, stone) = (
             self.id("core:cobblestone"),
             self.id("core:gravel"),

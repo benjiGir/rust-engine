@@ -400,6 +400,55 @@ impl Builder<'_> {
         let layout = layout(def, &mut self.rng);
         let y0 = floor_y(def, &layout, sx, sz, |x, z| self.height(x, z));
         let center = |n: &Node| (sx + n.grid.0 * def.cell, sz + n.grid.1 * def.cell);
+        // En v3, le plancher descend jusqu'à de la roche pleine sur toute l'emprise (salles et
+        // couloirs) : les grandes salles des grottes ne doivent pas le traverser.
+        let y0 = {
+            let mut points = Vec::new();
+            for node in &layout.nodes {
+                let (cx, cz) = center(node);
+                let t = &def.rooms[node.room].1;
+                let (hw, hd) = (t.w / 2 + 1, t.d / 2 + 1);
+                for (dx, dz) in [(0, 0), (-hw, -hd), (hw, -hd), (-hw, hd), (hw, hd)] {
+                    points.push((cx + dx, cz + dz));
+                }
+            }
+            for (parent, child) in layout.edges() {
+                let (a, b) = (center(&layout.nodes[parent]), center(&layout.nodes[child]));
+                let steps = (b.0 - a.0).abs().max((b.1 - a.1).abs());
+                let (dx, dz) = ((b.0 - a.0).signum(), (b.1 - a.1).signum());
+                for s in (0..=steps).step_by(4) {
+                    points.push((a.0 + dx * s, a.1 + dz * s));
+                }
+            }
+            let height = def.rooms.iter().map(|(_, t, _)| t.h).max().unwrap_or(6);
+            self.world.buried_floor((sx, sz), &points, y0, height)
+        };
+        // En v3, une gaine de roche autour des salles et des couloirs : une grotte qui traverse le donjon
+        // est comblée autour de lui (il ne flotte jamais dans le vide). Tout le reste l'écrase ensuite.
+        if self.world.encases_buried_structures() {
+            let stone = self.b.get("core:stone");
+            for node in &layout.nodes {
+                let (cx, cz) = center(node);
+                let t = &def.rooms[node.room].1;
+                let (hw, hd) = (t.w / 2 + 3, t.d / 2 + 3);
+                let top = (y0 + t.h + 2).min(self.height(cx, cz) - 4);
+                self.fill(
+                    IVec3::new(cx - hw, y0 - 3, cz - hd),
+                    IVec3::new(cx + hw, top, cz + hd),
+                    stone,
+                );
+            }
+            for (parent, child) in layout.edges() {
+                let (a, b) = (center(&layout.nodes[parent]), center(&layout.nodes[child]));
+                let r = HALF_WIDTH + 3;
+                let top = (y0 + 7).min(self.height(a.0, a.1).min(self.height(b.0, b.1)) - 4);
+                self.fill(
+                    IVec3::new(a.0.min(b.0) - r, y0 - 3, a.1.min(b.1) - r),
+                    IVec3::new(a.0.max(b.0) + r, top, a.1.max(b.1) + r),
+                    stone,
+                );
+            }
+        }
         // La demi-longueur d'une salle sur un axe (pas de rotation : le plan est tel qu'écrit).
         let half = |n: &Node, axis_x: bool| {
             let t = &def.rooms[n.room].1;

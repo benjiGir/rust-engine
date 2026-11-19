@@ -624,6 +624,13 @@ impl TerrainGenerator {
         )
     }
 
+    /// Le biome au bloc (x, y, z) : celui d'une grotte souterraine (génération v3) s'il y en a un,
+    /// sinon celui de la colonne.
+    pub fn biome_at(&self, x: i32, y: i32, z: i32) -> BiomeId {
+        self.v3_cave_biome(x, y, z)
+            .unwrap_or_else(|| self.column(x, z).biome)
+    }
+
     /// Hauteur et biome d'une colonne.
     pub fn column(&self, x: i32, z: i32) -> Column {
         if let Some(column) = self.constant_column(x, z) {

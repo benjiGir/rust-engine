@@ -260,7 +260,7 @@ pub(super) fn draw(name: &str) -> Option<Canvas> {
             }
         }
         c
-    } else if name.ends_with("_block") && !name.contains("coal") {
+    } else if name.ends_with("_block") && !name.contains("coal") && !name.contains("crystal") {
         let base = if name.contains("copper") {
             COPPER
         } else if name.contains("gold") {

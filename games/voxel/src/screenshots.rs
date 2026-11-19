@@ -50,6 +50,8 @@ enum Scene {
     Machines,
     /// Au-dessus d'un biome (son identifiant).
     Biome(&'static str),
+    /// Dans une grotte d'un biome souterrain (génération v3).
+    CaveBiome(&'static str),
     /// Une fosse creusée jusqu'au socle : les couches, les minerais, les grottes.
     Underground,
     /// Le bras à la première personne : en marchant les mains vides, en minant à la
@@ -115,6 +117,14 @@ const fn biome(name: &'static str, key: &'static str) -> Shot {
     }
 }
 
+const fn cave_biome(name: &'static str, key: &'static str) -> Shot {
+    Shot {
+        name,
+        time: 0.42,
+        scene: Scene::CaveBiome(key),
+    }
+}
+
 const fn menu(name: &'static str, which: MenuShot) -> Shot {
     Shot {
         name,
@@ -131,7 +141,7 @@ const fn fluid(name: &'static str, which: FluidShot) -> Shot {
     }
 }
 
-const SHOTS: [Shot; 59] = [
+const SHOTS: [Shot; 62] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -258,7 +268,7 @@ const SHOTS: [Shot; 59] = [
     biome("biome-prairie-seche", "core:prairie"),
     biome("biome-verger", "core:orchard"),
     biome("biome-erables", "core:maple_woods"),
-    biome("biome-toundra", "core:tundra"),
+    biome("biome-toundra-rousse", "core:tundra"),
     biome("biome-sapiniere", "core:snowy_fir_forest"),
     biome("biome-hautes-terres", "core:highland"),
     biome("biome-landes", "core:moor"),
@@ -268,6 +278,9 @@ const SHOTS: [Shot; 59] = [
     biome("biome-sources-chaudes", "core:hot_springs"),
     biome("biome-maquis", "core:maquis"),
     biome("biome-desert-fleuri", "core:flowering_desert"),
+    cave_biome("biome-gouffre-cristallin", "core:crystal_cavern"),
+    cave_biome("biome-grotte-luminescente", "core:glowing_grotto"),
+    cave_biome("biome-grotte-fongique", "core:fungal_cave"),
 ];
 
 /// Où en est la visite.
@@ -603,6 +616,13 @@ impl VoxelGame {
                     -24.0,
                 )
             }
+            Scene::CaveBiome(key) => {
+                let spot = self.find_cave_biome(key).unwrap_or_else(|| {
+                    log::warn!("biome souterrain {key} introuvable");
+                    self.cave_floor()
+                });
+                (spot.as_vec3() + Vec3::new(0.5, 1.6, 0.5), 45.0, -8.0)
+            }
             Scene::Underground => {
                 // Au-dessus du bord sud de la fosse, regardant vers le nord (-z) et vers le bas :
                 // la paroi d'en face, du sol jusqu'au socle.
@@ -702,6 +722,7 @@ impl VoxelGame {
             | Scene::Lake
             | Scene::Inspector
             | Scene::Biome(_)
+            | Scene::CaveBiome(_)
             | Scene::Menu(_) => {}
         }
     }
@@ -1066,10 +1087,12 @@ impl VoxelGame {
             .max()
             .unwrap_or(SEA_LEVEL);
         let mut streamer = self.streamer_mut();
+        // Jusqu'au socle : le bas du monde (y = 0 en v1, -128 en v3), le socle lui-même gardé.
+        let bottom = streamer.world().block_y_range().start + 1;
         let mut dug = 0;
         for dx in 0..PIT.0 {
             for dz in 0..PIT.1 {
-                for y in (1..=top).rev() {
+                for y in (bottom..=top).rev() {
                     // `set_block_quiet` : le maillage est refait une fois, à la fin.
                     dug += streamer
                         .set_block_quiet(IVec3::new(o.x + x0 + dx, y, o.z + z0 + dz), BlockId::AIR)
@@ -1083,6 +1106,64 @@ impl VoxelGame {
     /// Le sol de la salle souterraine : 20 blocs sous la surface du point (0, 0).
     fn cave_floor(&self) -> IVec3 {
         IVec3::new(0, (self.ground(0, 0) - 20).max(SEA_LEVEL - 30), 0)
+    }
+
+    /// Un point d'une grotte du biome souterrain `key` (en coordonnées de scène) : de l'air sur un sol,
+    /// avec de la place au-dessus et autour, pour voir la salle.
+    fn find_cave_biome(&self, key: &str) -> Option<IVec3> {
+        let o = self.origin();
+        let streamer = self.streamer();
+        let generator = streamer.generator();
+        let id = generator.biomes().id(key)?;
+        let open = |chunk: &engine_voxel::Chunk, x: i32, y: i32, z: i32| {
+            (0..32).contains(&x)
+                && (0..32).contains(&y)
+                && (0..32).contains(&z)
+                && chunk.get(x as usize, y as usize, z as usize).is_air()
+        };
+        for ring in 0..24 {
+            let r = ring * 64;
+            let points: Vec<(i32, i32)> = if r == 0 {
+                vec![(0, 0)]
+            } else {
+                (-r..=r)
+                    .step_by(64)
+                    .flat_map(|d| [(d, -r), (d, r), (-r, d), (r, d)])
+                    .collect()
+            };
+            for (dx, dz) in points {
+                for y in [-90, -60, -30, 0, 20] {
+                    let (x, z) = (o.x + dx, o.z + dz);
+                    if generator.biome_at(x, y, z) != id {
+                        continue;
+                    }
+                    let chunk_pos = IVec3::new(x, y, z).div_euclid(IVec3::splat(32));
+                    let Some(chunk) = generator.generate(chunk_pos) else {
+                        continue;
+                    };
+                    let base = chunk_pos * 32;
+                    // L'air le plus dégagé du chunk : un sol dessous, 4 blocs libres au-dessus, et de
+                    // l'air à 3 blocs dans les quatre directions.
+                    let spot = (2..26).find_map(|ly| {
+                        (3..29).find_map(|lz| {
+                            (3..29).find_map(|lx| {
+                                let ok = !open(&chunk, lx, ly - 1, lz)
+                                    && (0..4).all(|k| open(&chunk, lx, ly + k, lz))
+                                    && [(3, 0), (-3, 0), (0, 3), (0, -3)]
+                                        .iter()
+                                        .all(|&(ax, az)| open(&chunk, lx + ax, ly + 1, lz + az));
+                                let p = base + IVec3::new(lx, ly, lz);
+                                (ok && generator.biome_at(p.x, p.y, p.z) == id).then_some(p)
+                            })
+                        })
+                    });
+                    if let Some(p) = spot {
+                        return Some(p - o);
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Un point d'eau profond près du départ, en tournant en spirale.
@@ -1120,4 +1201,18 @@ pub(crate) fn save_png(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Res
 
 fn tour_index(tour: &Option<Tour>) -> usize {
     tour.as_ref().map_or(usize::MAX, |t| t.index)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SHOTS;
+
+    /// Deux vues du même nom s'écraseraient : la seconde remplacerait la première sans bruit.
+    #[test]
+    fn shot_names_are_unique() {
+        let mut names = std::collections::BTreeSet::new();
+        for shot in &SHOTS {
+            assert!(names.insert(shot.name), "deux vues nommées {}", shot.name);
+        }
+    }
 }

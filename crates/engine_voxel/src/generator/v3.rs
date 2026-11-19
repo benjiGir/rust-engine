@@ -18,6 +18,7 @@ use glam::IVec3;
 use super::column_cache::{ColumnCache, ColumnKey};
 use super::v3_rules::{BiomeTable, Climate5, Material, SurfaceRules, SurfaceSpot};
 use super::{CHUNK_SIZE, Chunk, Column, FREEZING, SEA_LEVEL, TerrainGenerator, World, hash3};
+use crate::BlockId;
 use crate::biome::{BiomeId, BiomeRegistry};
 use crate::density_graph::{CELL_HEIGHT, CELL_WIDTH, DensityGraph, NodeId};
 use crate::generator::{MAX_CHUNK_Y, MIN_CHUNK_Y};
@@ -49,6 +50,14 @@ pub(super) struct V3State {
     temperature: NodeId,
     humidity: NodeId,
     water_table: NodeId,
+    /// La déformation des frontières de régions de nappe (les mêmes bruits que le relief).
+    shift_x: NodeId,
+    shift_z: NodeId,
+    /// Les niveaux des régions de nappe déjà calculés (centre et niveau) : une région sert à neuf
+    /// colonnes de chunks, et son niveau lit la surface en plusieurs points.
+    regions: std::sync::Mutex<std::collections::HashMap<(i32, i32), RegionLevel>>,
+    /// Les planchers des structures enterrées déjà choisis (par site).
+    floors: std::sync::Mutex<std::collections::HashMap<(i32, i32), i32>>,
     offset: NodeId,
     sloped: NodeId,
     /// La hauteur des volcans (en blocs, par carrés de 4) et leur champ de cônes (centres, cratères).
@@ -58,6 +67,11 @@ pub(super) struct V3State {
     /// Le biome des cônes, et celui des sources chaudes (`None` dans un registre qui ne les a pas).
     volcano_biome: Option<BiomeId>,
     springs_biome: Option<BiomeId>,
+    /// Les biomes souterrains : où il y en a, lequel, et leurs blocs (`None` dans un registre qui ne
+    /// les a pas).
+    cave_amount: NodeId,
+    cave_kind: NodeId,
+    caves: Option<CaveBiomes>,
     biome_table: BiomeTable,
     surface: SurfaceRules,
     contexts: ColumnCache<V3Column>,
@@ -87,12 +101,19 @@ impl V3State {
             temperature: id("temperature")?,
             humidity: id("humidity")?,
             water_table: id("water_table")?,
+            shift_x: id("shift_x")?,
+            shift_z: id("shift_z")?,
+            regions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            floors: std::sync::Mutex::new(std::collections::HashMap::new()),
             offset: id("offset")?,
             sloped: id("sloped")?,
             volcano: id("volcano")?,
             volcano_cones: id("volcano_cones")?,
             springs: id("springs")?,
             volcano_biome: biomes.id("core:volcano"),
+            cave_amount: id("cave_amount")?,
+            cave_kind: id("cave_kind")?,
+            caves: CaveBiomes::resolve(blocks, biomes),
             springs_biome: biomes.id("core:hot_springs"),
             graph,
             biome_table: BiomeTable::parse(BIOMES, biomes)?,
@@ -134,15 +155,19 @@ pub(super) struct V3Column {
     pub(super) columns: Box<[[Column; CHUNK_SIZE]; CHUNK_SIZE]>,
     /// Les biomes (x + 32 z), comme `Chunk::set_biomes` les attend.
     pub(super) biomes: Vec<u8>,
-    /// La nappe de chaque colonne (x + 32 z) : son niveau (le vide souterrain plus bas est noyé) et le
-    /// haut du barrage de roche qui sépare deux régions de niveaux différents (`i32::MIN` : aucun).
-    water_table: Vec<(i32, i32)>,
+    /// La nappe de chaque colonne (x + 32 z) : son niveau (le vide souterrain plus bas est noyé), et le
+    /// barrage de roche qui sépare deux régions de niveaux différents, du niveau le plus bas au plus haut
+    /// (`(i32::MIN, i32::MIN)` : aucun).
+    water_table: Vec<(i32, (i32, i32))>,
     /// Les colonnes sur une pente raide (x + 32 z) : plus de 3 blocs de dénivelé sur 2.
     steep: Vec<bool>,
     /// Le haut de la lave d'un cratère, ou de l'eau d'un bassin de source chaude, au-dessus du sol de
     /// la colonne (x + 32 z) ; `i32::MIN` : rien.
     lava: Vec<i32>,
     pool: Vec<i32>,
+    /// La mer peut remplir la colonne (x + 32 z) au-dessus de son sol : le relief sans grottes y est
+    /// sous l'eau, ou le sol est à peine sous la mer.
+    sea: Vec<bool>,
 }
 
 impl V3Column {
@@ -235,10 +260,11 @@ impl TerrainGenerator {
             max_y: BOTTOM - 1,
             columns: Box::new([[Column::default(); CHUNK_SIZE]; CHUNK_SIZE]),
             biomes: vec![0; CHUNK_SIZE * CHUNK_SIZE],
-            water_table: vec![(i32::MIN, i32::MIN); CHUNK_SIZE * CHUNK_SIZE],
+            water_table: vec![(i32::MIN, (i32::MIN, i32::MIN)); CHUNK_SIZE * CHUNK_SIZE],
             steep: vec![false; CHUNK_SIZE * CHUNK_SIZE],
             lava: vec![i32::MIN; CHUNK_SIZE * CHUNK_SIZE],
             pool: vec![i32::MIN; CHUNK_SIZE * CHUNK_SIZE],
+            sea: vec![true; CHUNK_SIZE * CHUNK_SIZE],
         };
         // Les paramètres climatiques sur la grille de 4 blocs (ils ne varient guère plus vite).
         let climate: Vec<(f64, f64, f64, f64, f64, f64)> = {
@@ -274,15 +300,108 @@ impl TerrainGenerator {
                 .collect()
         };
         let mut max_y = BOTTOM - 1;
-        let mut regions = std::collections::HashMap::new();
+        // La nappe de chaque colonne et de ses voisines (une marge de `BANK_REACH` blocs) : la région la
+        // plus proche du point déformé (des frontières sinueuses, pas des plans droits).
+        const M: i32 = BANK_REACH;
+        const W: i32 = SIZE + 2 * M;
+        let mut known = std::collections::HashMap::new();
+        let levels: Vec<i32> = {
+            let positions = || {
+                (-M..SIZE + M).flat_map(move |lz| {
+                    (-M..SIZE + M).map(move |lx| IVec3::new(x0 + lx, 0, z0 + lz))
+                })
+            };
+            let sx = state.graph.sample_many(state.shift_x, positions());
+            let sz = state.graph.sample_many(state.shift_z, positions());
+            positions()
+                .zip(sx.into_iter().zip(sz))
+                .map(|(p, (wx, wz))| {
+                    self.v3_water_table(&mut known, f64::from(p.x) + wx, f64::from(p.z) + wz)
+                })
+                .collect()
+        };
+        let level_at = |lx: i32, lz: i32| levels[((lx + M) + (lz + M) * W) as usize];
+        // Les berges : du côté bas d'une frontière entre deux nappes, de la roche monte jusqu'au niveau de
+        // la nappe haute sur la première colonne (l'eau ne touche jamais l'air), puis descend de
+        // `BANK_SLOPE` blocs par bloc (une distance de chanfrein en deux passes). Une région sèche compte
+        // comme une nappe au haut de la lave.
+        let floor_of = |level: i32| level.max(LAVA_TOP);
+        let mut bank: Vec<i32> = levels.iter().map(|&l| floor_of(l)).collect();
+        let (orth, diag) = (BANK_SLOPE, BANK_SLOPE * 3 / 2);
+        let idx = |x: i32, z: i32| (x + z * W) as usize;
+        for z in 0..W {
+            for x in 0..W {
+                let mut v = bank[idx(x, z)];
+                for (dx, dz, cost) in [(-1, 0, orth), (0, -1, orth), (-1, -1, diag), (1, -1, diag)]
+                {
+                    let (nx, nz) = (x + dx, z + dz);
+                    if (0..W).contains(&nx) && (0..W).contains(&nz) {
+                        v = v.max(bank[idx(nx, nz)] - cost);
+                    }
+                }
+                bank[idx(x, z)] = v;
+            }
+        }
+        for z in (0..W).rev() {
+            for x in (0..W).rev() {
+                let mut v = bank[idx(x, z)];
+                for (dx, dz, cost) in [(1, 0, orth), (0, 1, orth), (1, 1, diag), (-1, 1, diag)] {
+                    let (nx, nz) = (x + dx, z + dz);
+                    if (0..W).contains(&nx) && (0..W).contains(&nz) {
+                        v = v.max(bank[idx(nx, nz)] - cost);
+                    }
+                }
+                bank[idx(x, z)] = v;
+            }
+        }
+        let bank_at = |lx: i32, lz: i32| bank[idx(lx + M, lz + M)];
+        // Le haut de la mer libre : la mer ne remplit une colonne que si le relief sans grottes y est sous
+        // l'eau (une grotte ou un puits ouverts sous le niveau de la mer restent secs).
+        let sea_open: Vec<f64> = state.graph.sample_many(
+            state.sloped,
+            (0..CX as i32).flat_map(move |k| {
+                (0..CX as i32)
+                    .map(move |i| IVec3::new(x0 + i * CELL_WIDTH, SEA_LEVEL, z0 + k * CELL_WIDTH))
+            }),
+        );
         for lz in 0..SIZE {
             for lx in 0..SIZE {
                 let height = ctx.top(lx, lz, highest);
                 max_y = max_y.max(height);
                 let (c, e, pv, t, h, volcano) =
                     climate[(lx / CELL_WIDTH) as usize + CX * (lz / CELL_WIDTH) as usize];
-                let table = self.v3_water_table(&mut regions, x0 + lx, z0 + lz);
-                ctx.water_table[lx as usize + lz as usize * CHUNK_SIZE] = table;
+                // La berge : de la roche dans le vide des grottes, du niveau de la colonne jusqu'à la
+                // berge (le niveau de la nappe haute voisine, moins la pente) ; la première colonne au
+                // contact d'une nappe plus haute va jusqu'à son niveau.
+                let own = level_at(lx, lz);
+                let mut neighbour = i32::MIN;
+                for dz in -1..=1 {
+                    for dx in -1..=1 {
+                        neighbour = neighbour.max(level_at(lx + dx, lz + dz));
+                    }
+                }
+                let top = if neighbour > own {
+                    neighbour
+                } else {
+                    bank_at(lx, lz)
+                };
+                let dam = if top > floor_of(own) {
+                    (floor_of(own), top)
+                } else {
+                    (i32::MIN, i32::MIN)
+                };
+                ctx.water_table[lx as usize + lz as usize * CHUNK_SIZE] = (own, dam);
+                // La mer libre : le relief sans grottes au niveau de la mer, interpolé entre les coins.
+                let (tx, tz) = (
+                    f64::from(lx % CELL_WIDTH) / f64::from(CELL_WIDTH),
+                    f64::from(lz % CELL_WIDTH) / f64::from(CELL_WIDTH),
+                );
+                let (ci, ck) = ((lx / CELL_WIDTH) as usize, (lz / CELL_WIDTH) as usize);
+                let corner = |i: usize, k: usize| sea_open[i + CX * k];
+                let a = corner(ci, ck) + tx * (corner(ci + 1, ck) - corner(ci, ck));
+                let b = corner(ci, ck + 1) + tx * (corner(ci + 1, ck + 1) - corner(ci, ck + 1));
+                ctx.sea[lx as usize + lz as usize * CHUNK_SIZE] =
+                    a + tz * (b - a) < 0.3 || height >= SEA_LEVEL - 3;
                 let biome = self.v3_biome_with_volcano(c, e, pv, t, h, volcano);
                 // Il fait plus froid en altitude : la neige descend des sommets.
                 // Même règle que `plants::is_cold` (la neige que posent les ticks aléatoires) : sinon la
@@ -488,16 +607,24 @@ impl TerrainGenerator {
         }
         let origin = World::chunk_origin(chunk_pos);
         let ctx = self.v3_column(chunk_pos.x, chunk_pos.z);
-        // Les arbres dépassent la surface d'une trentaine de blocs.
-        if origin.y > ctx.max_y.max(SEA_LEVEL) + 32 {
+        // Les structures qui touchent ce chunk (villages, ruines, donjons : les mêmes que la v1, posées
+        // sur les hauteurs v3) ; un toit peut dépasser du terrain.
+        let plans = self.structure_plans(chunk_pos);
+        // Les arbres dépassent la surface d'une trentaine de blocs, les toits d'une quarantaine.
+        let above = if plans.is_empty() { 32 } else { 40 };
+        if origin.y > ctx.max_y.max(SEA_LEVEL) + above {
             return None;
         }
         let mut chunk = Chunk::new();
         chunk.set_biomes(ctx.biomes.clone());
         self.fill_v3(&mut chunk, origin, &ctx);
         self.place_ores(&mut chunk, chunk_pos, &ctx.columns);
+        if let Some(grid) = self.v3_cave_grid(origin) {
+            self.v3_cave_decor(&mut chunk, origin, &ctx, &grid);
+        }
         self.place_plants(&mut chunk, chunk_pos, &ctx.columns);
         self.place_trees(&mut chunk, chunk_pos);
+        self.place_structures(&mut chunk, chunk_pos, &plans);
         (!chunk.is_empty()).then_some(chunk)
     }
 
@@ -510,10 +637,12 @@ impl TerrainGenerator {
                 let column = ctx.columns[lx as usize][lz as usize];
                 let biome = self.biomes.get(column.biome);
                 let frozen = column.temperature < FREEZING;
-                let (table, dam) = ctx.water_table[lx as usize + lz as usize * CHUNK_SIZE];
+                let (table, (dam_low, dam_high)) =
+                    ctx.water_table[lx as usize + lz as usize * CHUNK_SIZE];
                 let steep = ctx.steep[lx as usize + lz as usize * CHUNK_SIZE];
                 let lava = ctx.lava[lx as usize + lz as usize * CHUNK_SIZE];
                 let pool = ctx.pool[lx as usize + lz as usize * CHUNK_SIZE];
+                let sea = ctx.sea[lx as usize + lz as usize * CHUNK_SIZE];
                 // Le bassin d'une source chaude remplace le haut du sol par de l'eau.
                 let solid_at =
                     |y: i32| ctx.density(lx, y, lz) > 0.0 && !(y > column.height && y <= pool);
@@ -588,7 +717,7 @@ impl TerrainGenerator {
                         if y < LAVA_TOP {
                             solid_above = 0;
                             Some(b.lava)
-                        } else if y < dam {
+                        } else if y >= dam_low && y < dam_high {
                             // Le barrage entre deux nappes : de la roche.
                             solid_above += 1;
                             Some(b.stone)
@@ -608,7 +737,7 @@ impl TerrainGenerator {
                         Some(b.water)
                     } else {
                         solid_above = 0;
-                        (y <= SEA_LEVEL).then_some(if y == SEA_LEVEL && frozen {
+                        (y <= SEA_LEVEL && sea).then_some(if y == SEA_LEVEL && frozen {
                             b.ice
                         } else {
                             b.water
@@ -622,20 +751,48 @@ impl TerrainGenerator {
         }
     }
 
-    /// Le niveau d'une région de nappe : la nappe au centre de la région, toujours une vingtaine de
-    /// blocs sous la surface approchée ; `i32::MIN` si la région est sèche.
-    fn v3_region_level(&self, region: (i32, i32)) -> (i32, i32, i32) {
+    /// Le niveau d'une région de nappe : la nappe au centre de la région, toujours au moins `TABLE_DEPTH`
+    /// blocs sous le sol **le plus bas** de la région et de ses abords (la surface approchée sur une
+    /// grille, plus la vraie surface en neuf points) : une vallée, un ravin ou l'ouverture d'une grotte
+    /// ne voient jamais l'eau monter jusqu'à eux. `i32::MIN` si la région est sèche.
+    fn v3_region_level(&self, region: (i32, i32)) -> RegionLevel {
+        let state = self.v3_state();
+        if let Some(&known) = state
+            .regions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&region)
+        {
+            return known;
+        }
         let h = |salt: u64| hash3(self.seed, region.0, 0, region.1, salt);
         let center = (
             region.0 * REGION + 16 + (h(80) % (REGION as u64 - 32)) as i32,
             region.1 * REGION + 16 + (h(81) % (REGION as u64 - 32)) as i32,
         );
-        let state = self.v3_state();
         let table = state.graph.sample(state.water_table, center.0, 0, center.1);
-        let ground = self.v3_preliminary_surface(center.0, center.1);
-        let level = (table.round() as i32).min(ground - 20);
+        let (x0, z0) = (region.0 * REGION - 24, region.1 * REGION - 24);
+        let span = REGION + 48;
+        let mut ground = i32::MAX;
+        for j in 0..=6 {
+            for i in 0..=6 {
+                let (x, z) = (x0 + i * span / 6, z0 + j * span / 6);
+                ground = ground.min(self.v3_preliminary_surface(x, z));
+                if i % 3 == 0 && j % 3 == 0 {
+                    ground = ground
+                        .min(self.v3_surface_estimate(x.div_euclid(4) * 4, z.div_euclid(4) * 4));
+                }
+            }
+        }
+        let level = (table.round() as i32).min(ground - TABLE_DEPTH);
         let level = if level < BOTTOM + 30 { i32::MIN } else { level };
-        (center.0, center.1, level)
+        let result = (center.0, center.1, level);
+        let mut cache = state.regions.lock().unwrap_or_else(|e| e.into_inner());
+        if cache.len() > 4096 {
+            cache.clear();
+        }
+        cache.insert(region, result);
+        result
     }
 
     /// La surface sans le bruit 3D : là où la pente verticale et le décalage s'annulent.
@@ -644,37 +801,89 @@ impl TerrainGenerator {
         64 + (128.0 * state.graph.sample(state.offset, x, 0, z)).round() as i32
     }
 
-    /// La nappe de la colonne (x, z) : le niveau de la région la plus proche, et le haut d'un barrage
-    /// si la colonne est à la frontière de deux régions de niveaux différents.
+    /// Le niveau de nappe au point (x, z) déformé : celui de la région la plus proche (les barrages sont
+    /// calculés par la colonne, en comparant ses voisines).
     fn v3_water_table(
         &self,
-        regions: &mut std::collections::HashMap<(i32, i32), (i32, i32, i32)>,
-        x: i32,
-        z: i32,
-    ) -> (i32, i32) {
-        let home = (x.div_euclid(REGION), z.div_euclid(REGION));
-        let (mut first, mut second) = ((f32::MAX, i32::MIN), (f32::MAX, i32::MIN));
+        known: &mut std::collections::HashMap<(i32, i32), RegionLevel>,
+        x: f64,
+        z: f64,
+    ) -> i32 {
+        let home = ((x as i32).div_euclid(REGION), (z as i32).div_euclid(REGION));
+        let mut best = (f64::MAX, i32::MIN);
         for dz in -1..=1 {
             for dx in -1..=1 {
                 let key = (home.0 + dx, home.1 + dz);
-                let (cx, cz, level) = *regions
+                let (cx, cz, level) = *known
                     .entry(key)
                     .or_insert_with(|| self.v3_region_level(key));
-                let d = (((cx - x) * (cx - x) + (cz - z) * (cz - z)) as f32).sqrt();
-                if d < first.0 {
-                    second = first;
-                    first = (d, level);
-                } else if d < second.0 {
-                    second = (d, level);
+                let d = (f64::from(cx) - x).powi(2) + (f64::from(cz) - z).powi(2);
+                if d < best.0 {
+                    best = (d, level);
                 }
             }
         }
-        let dam = if first.1 != second.1 && second.0 - first.0 < DAM_WIDTH {
-            first.1.max(second.1)
-        } else {
-            i32::MIN
+        best.1
+    }
+
+    /// Le plancher d'une structure enterrée (donjon) du site `site` : en v3, les grandes salles des
+    /// grottes traverseraient une structure posée à profondeur fixe et la laisseraient flotter dans le
+    /// vide. Depuis `floor` (le plancher voulu), on descend de 3 en 3 et l'on garde la hauteur où le moins
+    /// de points de l'emprise (`points`, sous le plancher, à mi-hauteur et au-dessus du plafond de
+    /// `height` blocs) tombent dans le vide ; la première sans aucun vide l'emporte. Le reste du vide est
+    /// comblé par la structure elle-même (voir `encase`). Hors de la v3, le plancher voulu.
+    pub(super) fn buried_floor(
+        &self,
+        site: (i32, i32),
+        points: &[(i32, i32)],
+        floor: i32,
+        height: i32,
+    ) -> i32 {
+        let Some(state) = self.v3.as_ref() else {
+            return floor;
         };
-        (first.1, dam)
+        if let Some(&y) = state
+            .floors
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&site)
+        {
+            return y;
+        }
+        let voids = |y: i32| {
+            let positions = points.iter().flat_map(|&(x, z)| {
+                [y - 2, y + height / 2, y + height + 1].map(|py| IVec3::new(x, py, z))
+            });
+            state
+                .graph
+                .sample_many(state.final_density, positions)
+                .iter()
+                .filter(|&&d| d <= 0.0)
+                .count()
+        };
+        let mut best = (usize::MAX, floor);
+        for y in ((LAVA_TOP + 6)..=floor).rev().step_by(3) {
+            let n = voids(y);
+            if n < best.0 {
+                best = (n, y);
+            }
+            if n == 0 {
+                break;
+            }
+        }
+        let chosen = best.1;
+        let mut cache = state.floors.lock().unwrap_or_else(|e| e.into_inner());
+        if cache.len() > 4096 {
+            cache.clear();
+        }
+        cache.insert(site, chosen);
+        chosen
+    }
+
+    /// Les structures enterrées de la v3 s'entourent de roche (le vide d'une grotte qui les traverse
+    /// est comblé autour d'elles) ; pas en v1, dont les mondes ne changent pas.
+    pub(super) fn encases_buried_structures(&self) -> bool {
+        self.v3.is_some()
     }
 
     /// Les centres des volcans de la génération v3 dont le carré touche le rectangle `[min, max]`
@@ -691,9 +900,294 @@ impl TerrainGenerator {
     }
 }
 
+/// Les biomes souterrains n'existent que sous ce niveau, et à plus de `CAVE_DEPTH` blocs sous la surface.
+const CAVE_TOP: i32 = 30;
+const CAVE_DEPTH: i32 = 16;
+/// Au-dessus de ce seuil de « cave_amount », une grotte est dans un biome souterrain.
+const CAVE_AMOUNT: f64 = 0.3;
+
+/// Les biomes souterrains et leurs blocs.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct CaveBiomes {
+    crystal: BiomeId,
+    glowing: BiomeId,
+    fungal: BiomeId,
+    stone: BlockId,
+    deepstone: BlockId,
+    crystal_block: BlockId,
+    crystal_cluster: BlockId,
+    calcite: BlockId,
+    glow_moss: BlockId,
+    glowcap: BlockId,
+    mycelium: BlockId,
+    stem: BlockId,
+    cap: BlockId,
+    red_mushroom: BlockId,
+    brown_mushroom: BlockId,
+}
+
+impl CaveBiomes {
+    fn resolve(blocks: &BlockRegistry, biomes: &BiomeRegistry) -> Option<Self> {
+        let b = |key: &str| blocks.id(key);
+        Some(Self {
+            crystal: biomes.id("core:crystal_cavern")?,
+            glowing: biomes.id("core:glowing_grotto")?,
+            fungal: biomes.id("core:fungal_cave")?,
+            stone: b("core:stone")?,
+            deepstone: b("core:deepstone")?,
+            crystal_block: b("core:crystal_block")?,
+            crystal_cluster: b("core:crystal_cluster")?,
+            calcite: b("core:calcite")?,
+            glow_moss: b("core:glow_moss")?,
+            glowcap: b("core:glowcap")?,
+            mycelium: b("core:mycelium")?,
+            stem: b("core:mushroom_stem")?,
+            cap: b("core:mushroom_cap")?,
+            red_mushroom: b("core:red_mushroom")?,
+            brown_mushroom: b("core:brown_mushroom")?,
+        })
+    }
+
+    /// Le biome souterrain de ces valeurs de « cave_amount » et « cave_kind ».
+    fn pick(&self, amount: f64, kind: f64) -> Option<BiomeId> {
+        (amount >= CAVE_AMOUNT).then_some(if kind < -0.2 {
+            self.crystal
+        } else if kind > 0.25 {
+            self.fungal
+        } else {
+            self.glowing
+        })
+    }
+}
+
+/// « cave_amount » et « cave_kind » sur un chunk, lus tous les 8 blocs et interpolés.
+pub(super) struct CaveGrid {
+    values: Vec<(f64, f64)>,
+}
+
+impl CaveGrid {
+    const STEP: i32 = 8;
+    const N: usize = (SIZE / Self::STEP) as usize + 1;
+
+    fn at(&self, lx: i32, ly: i32, lz: i32) -> (f64, f64) {
+        let s = Self::STEP;
+        let (cx, cy, cz) = ((lx / s) as usize, (ly / s) as usize, (lz / s) as usize);
+        let (tx, ty, tz) = (
+            f64::from(lx % s) / f64::from(s),
+            f64::from(ly % s) / f64::from(s),
+            f64::from(lz % s) / f64::from(s),
+        );
+        let n = Self::N;
+        let v = |x: usize, y: usize, z: usize| self.values[x + n * (z + n * y)];
+        let lerp =
+            |t: f64, a: (f64, f64), b: (f64, f64)| (a.0 + t * (b.0 - a.0), a.1 + t * (b.1 - a.1));
+        let x00 = lerp(tx, v(cx, cy, cz), v(cx + 1, cy, cz));
+        let x10 = lerp(tx, v(cx, cy + 1, cz), v(cx + 1, cy + 1, cz));
+        let x01 = lerp(tx, v(cx, cy, cz + 1), v(cx + 1, cy, cz + 1));
+        let x11 = lerp(tx, v(cx, cy + 1, cz + 1), v(cx + 1, cy + 1, cz + 1));
+        lerp(tz, lerp(ty, x00, x10), lerp(ty, x01, x11))
+    }
+}
+
+impl TerrainGenerator {
+    /// La grille des biomes souterrains du chunk d'origine `origin`, s'il peut en avoir un.
+    fn v3_cave_grid(&self, origin: IVec3) -> Option<CaveGrid> {
+        let state = self.v3_state();
+        state.caves?;
+        if origin.y >= CAVE_TOP {
+            return None;
+        }
+        let n = CaveGrid::N as i32;
+        let positions: Vec<IVec3> = (0..n)
+            .flat_map(|j| {
+                (0..n).flat_map(move |k| {
+                    (0..n).map(move |i| origin + IVec3::new(i, j, k) * CaveGrid::STEP)
+                })
+            })
+            .collect();
+        let amount = state
+            .graph
+            .sample_many(state.cave_amount, positions.iter().copied());
+        if amount.iter().all(|&a| a < CAVE_AMOUNT) {
+            return None;
+        }
+        let kind = state.graph.sample_many(state.cave_kind, positions);
+        Some(CaveGrid {
+            values: amount.into_iter().zip(kind).collect(),
+        })
+    }
+
+    /// Le biome souterrain au bloc (x, y, z) de la génération v3, s'il y en a un (le même choix que
+    /// la génération des blocs).
+    pub fn v3_cave_biome(&self, x: i32, y: i32, z: i32) -> Option<BiomeId> {
+        let caves = self.v3.as_ref()?.caves?;
+        let origin = World::chunk_origin(IVec3::new(x, y, z).div_euclid(IVec3::splat(SIZE)));
+        if y >= CAVE_TOP {
+            return None;
+        }
+        // La grille d'abord (peu chère), la colonne (un contexte de colonne de chunks) ensuite.
+        let grid = self.v3_cave_grid(origin)?;
+        let (amount, kind) = grid.at(x - origin.x, y - origin.y, z - origin.z);
+        let biome = caves.pick(amount, kind)?;
+        (y < self.column_v3(x, z).height - CAVE_DEPTH).then_some(biome)
+    }
+
+    /// Décore les grottes des biomes souterrains du chunk : sols, plafonds et parois de roche à l'air
+    /// libre, plantes et champignons géants. Le chunk porte aussi le biome (lu au milieu du chunk).
+    fn v3_cave_decor(&self, chunk: &mut Chunk, origin: IVec3, ctx: &V3Column, grid: &CaveGrid) {
+        let Some(c) = self.v3_state().caves else {
+            return;
+        };
+        let size = SIZE as usize;
+        let air = |chunk: &Chunk, x: i32, y: i32, z: i32| {
+            (0..SIZE).contains(&x)
+                && (0..SIZE).contains(&y)
+                && (0..SIZE).contains(&z)
+                && chunk.get(x as usize, y as usize, z as usize).is_air()
+        };
+        let mut biomes = ctx.biomes.clone();
+        for lz in 0..SIZE {
+            for lx in 0..SIZE {
+                let column = ctx.columns[lx as usize][lz as usize];
+                let (amount, kind) = grid.at(lx, SIZE / 2, lz);
+                if origin.y + SIZE / 2 < column.height - CAVE_DEPTH
+                    && let Some(id) = c.pick(amount, kind)
+                {
+                    biomes[lx as usize + lz as usize * size] = id.0;
+                }
+                for ly in 0..SIZE {
+                    let (x, y, z) = (origin.x + lx, origin.y + ly, origin.z + lz);
+                    if y >= CAVE_TOP || y >= column.height - CAVE_DEPTH {
+                        break;
+                    }
+                    let here = chunk.get(lx as usize, ly as usize, lz as usize);
+                    if here != c.stone && here != c.deepstone {
+                        continue;
+                    }
+                    let (amount, kind) = grid.at(lx, ly, lz);
+                    let Some(biome) = c.pick(amount, kind) else {
+                        continue;
+                    };
+                    let up = air(chunk, lx, ly + 1, lz);
+                    let down = air(chunk, lx, ly - 1, lz);
+                    let side = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                        .iter()
+                        .any(|&(dx, dz)| air(chunk, lx + dx, ly, lz + dz));
+                    if !(up || down || side) {
+                        continue;
+                    }
+                    let roll = |salt: u64| (hash3(self.seed, x, y, z, salt) % 1000) as f32 / 1000.0;
+                    let mut set = |dy: i32, block: BlockId| {
+                        chunk.set(lx as usize, (ly + dy) as usize, lz as usize, block);
+                    };
+                    if biome == c.crystal {
+                        if up {
+                            if roll(700) < 0.08 {
+                                set(0, c.crystal_block);
+                            }
+                            if roll(701) < 0.12 {
+                                set(1, c.crystal_cluster);
+                            }
+                        } else if down {
+                            if roll(700) < 0.1 {
+                                set(0, c.crystal_block);
+                            } else if roll(701) < 0.16 {
+                                set(-1, c.crystal_cluster);
+                            }
+                        } else if hash3(
+                            self.seed,
+                            x.div_euclid(3),
+                            y.div_euclid(3),
+                            z.div_euclid(3),
+                            702,
+                        )
+                        .is_multiple_of(7)
+                        {
+                            set(0, c.calcite);
+                        } else if roll(700) < 0.05 {
+                            set(0, c.crystal_block);
+                        }
+                    } else if biome == c.glowing {
+                        let moss = if up {
+                            0.75
+                        } else if down {
+                            0.35
+                        } else {
+                            0.25
+                        };
+                        if roll(710) < moss {
+                            set(0, c.glow_moss);
+                        }
+                        if up && roll(711) < 0.1 {
+                            set(1, c.glowcap);
+                        }
+                    } else if up {
+                        // La grotte fongique : un tapis de mycélium, des champignons, quelques géants.
+                        if roll(720) < 0.85 {
+                            set(0, c.mycelium);
+                        }
+                        let r = roll(721);
+                        if r < 0.03 {
+                            self.v3_giant_mushroom(chunk, lx, ly + 1, lz, &c);
+                        } else if r < 0.1 {
+                            set(
+                                1,
+                                if r < 0.05 {
+                                    c.red_mushroom
+                                } else {
+                                    c.brown_mushroom
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        chunk.set_biomes(biomes);
+    }
+
+    /// Un champignon géant posé en (lx, ly, lz) du chunk : un pied de 4 à 6 blocs, un chapeau plat de
+    /// rayon 2 surmonté d'une couche de rayon 1. Seulement s'il tient dans le chunk et dans le vide.
+    fn v3_giant_mushroom(&self, chunk: &mut Chunk, lx: i32, ly: i32, lz: i32, c: &CaveBiomes) {
+        let height = 4 + (hash3(self.seed, lx, ly, lz, 722) % 3) as i32;
+        let mut blocks = Vec::new();
+        for k in 0..height {
+            blocks.push((IVec3::new(lx, ly + k, lz), c.stem));
+        }
+        for (dy, r) in [(height, 2i32), (height + 1, 1)] {
+            for dz in -r..=r {
+                for dx in -r..=r {
+                    if r == 2 && dx.abs() == 2 && dz.abs() == 2 {
+                        continue;
+                    }
+                    blocks.push((IVec3::new(lx + dx, ly + dy, lz + dz), c.cap));
+                }
+            }
+        }
+        let fits = blocks.iter().all(|(p, _)| {
+            p.cmpge(IVec3::ZERO).all()
+                && p.cmplt(IVec3::splat(SIZE)).all()
+                && chunk.get(p.x as usize, p.y as usize, p.z as usize).is_air()
+        });
+        if fits {
+            for (p, block) in blocks {
+                chunk.set(p.x as usize, p.y as usize, p.z as usize, block);
+            }
+        }
+    }
+}
+
 /// Sous ce niveau, le vide souterrain est de la lave (le fond du monde).
 const LAVA_TOP: i32 = BOTTOM + 20;
 /// La taille d'une région de nappe (en blocs) : le niveau d'eau y est plat.
 const REGION: i32 = 96;
-/// L'épaisseur d'un barrage entre deux régions de nappe (écart de distance aux deux centres).
-const DAM_WIDTH: f32 = 3.0;
+/// Le centre d'une région de nappe (x, z) et son niveau (`i32::MIN` : sèche).
+type RegionLevel = (i32, i32, i32);
+
+/// La portée des berges entre deux nappes (en blocs) et leur pente (blocs de descente par bloc) : une
+/// berge descend jusqu'à 48 blocs sous la nappe haute ; plus loin, le bas d'une très haute retenue reste
+/// un mur.
+const BANK_REACH: i32 = 24;
+const BANK_SLOPE: i32 = 2;
+/// La nappe d'une région reste au moins à cette profondeur sous le sol le plus bas de la région.
+const TABLE_DEPTH: i32 = 24;

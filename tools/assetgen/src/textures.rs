@@ -1208,6 +1208,113 @@ fn ash() -> Image {
         .speckles([0.15, 0.15, 0.16], 0.1, 155)
 }
 
+/// Le bloc de cristal : des facettes violettes, claires sur les arêtes, sombres au cœur.
+fn crystal_block() -> Image {
+    let base = [0.5, 0.3, 0.76];
+    let mut image = Image::filled(base);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            // Des bandes en diagonale (les faces des cristaux) et quelques éclats.
+            let band = ((x + y) / 4 + (x + SIZE - y) / 5) % 3;
+            let shade = [0.82, 1.0, 1.18][band];
+            let spark = texel_hash(x, y, 160).is_multiple_of(19);
+            let color = if spark {
+                [0.86, 0.74, 1.0]
+            } else {
+                scale(base, shade)
+            };
+            image.set(x, y, color);
+        }
+    }
+    image
+}
+
+/// Un amas de cristaux : trois pointes qui sortent de la roche.
+fn crystal_cluster() -> Image {
+    let mut image = Image::transparent();
+    let light = [0.82, 0.66, 1.0];
+    let dark = [0.48, 0.28, 0.74];
+    for (x0, height, lean) in [(3i32, 9i32, -1i32), (7, 13, 0), (11, 8, 1)] {
+        for k in 0..height {
+            let x = x0 + lean * k / 4;
+            let y = 15 - k;
+            let width = if k > height - 3 { 1 } else { 2 };
+            for dx in 0..width {
+                image.plot(x + dx, y, if dx == 0 { light } else { dark });
+            }
+        }
+    }
+    image
+}
+
+/// La calcite : un blanc crème, des veines grises.
+fn calcite() -> Image {
+    let base = [0.86, 0.85, 0.82];
+    let mut image = Image::filled(base).noise(base, 0.06, 161);
+    for x in 0..SIZE {
+        let y = (x * 3 / 5 + 4 + (texel_hash(x, 0, 162) % 2) as usize) % SIZE;
+        image.set(x, y, [0.62, 0.62, 0.62]);
+    }
+    image
+}
+
+/// La mousse luminescente : un tapis vert sombre piqué de points turquoise.
+fn glow_moss() -> Image {
+    let base = [0.14, 0.36, 0.28];
+    Image::filled(base)
+        .noise(base, 0.18, 163)
+        .speckles([0.4, 0.95, 0.82], 0.12, 164)
+}
+
+/// Le dessus du mycélium : un feutre gris violacé, des filaments clairs.
+fn mycelium_top() -> Image {
+    let base = [0.42, 0.36, 0.42];
+    Image::filled(base)
+        .noise(base, 0.12, 165)
+        .speckles([0.62, 0.56, 0.6], 0.1, 166)
+}
+
+/// Le côté du mycélium : de la roche sous un liseré de feutre (il pousse sur la pierre des grottes).
+fn mycelium_side() -> Image {
+    let mut image = nature::mineral("stone");
+    let top = mycelium_top();
+    for x in 0..SIZE {
+        let depth = 2 + (texel_hash(x, 0, 167) % 3) as usize;
+        for y in 0..depth {
+            image.pixels[x + y * SIZE] = top.pixels[x + y * SIZE];
+        }
+    }
+    image
+}
+
+/// Le pied d'un champignon géant : des fibres crème verticales.
+fn mushroom_stem() -> Image {
+    let base = [0.86, 0.82, 0.74];
+    let mut image = Image::filled(base);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let fiber = 0.9 + (texel_hash(x, 0, 168) % 4) as f32 * 0.05;
+            let grain = (texel_hash(x, y, 169) % 5) as f32 * 0.01;
+            image.set(x, y, scale(base, fiber + grain));
+        }
+    }
+    image
+}
+
+/// Le chapeau d'un champignon géant : rouge brun, taché de crème.
+fn mushroom_cap() -> Image {
+    let base = [0.64, 0.2, 0.16];
+    let mut image = Image::filled(base).noise(base, 0.1, 170);
+    for (cx, cy) in [(3usize, 4usize), (11, 3), (7, 10), (13, 12), (2, 13)] {
+        for dy in 0..2 {
+            for dx in 0..2 {
+                image.set((cx + dx) % SIZE, (cy + dy) % SIZE, [0.92, 0.88, 0.8]);
+            }
+        }
+    }
+    image
+}
+
 /// La bruyère : une touffe basse de tiges brunes et vertes, couverte de petites fleurs mauves.
 fn heather() -> Image {
     let stem = [0.32, 0.36, 0.2];
@@ -1564,6 +1671,16 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("cobblestone.png"), cobblestone()),
         (core.join("mossy_cobblestone.png"), mossy_cobblestone()),
         (core.join("ash.png"), ash()),
+        // La vague 4 : les grottes.
+        (core.join("crystal_block.png"), crystal_block()),
+        (core.join("crystal_cluster.png"), crystal_cluster()),
+        (core.join("calcite.png"), calcite()),
+        (core.join("glow_moss.png"), glow_moss()),
+        (core.join("glowcap.png"), mushroom([0.35, 0.82, 0.95], true)),
+        (core.join("mycelium_top.png"), mycelium_top()),
+        (core.join("mycelium_side.png"), mycelium_side()),
+        (core.join("mushroom_stem.png"), mushroom_stem()),
+        (core.join("mushroom_cap.png"), mushroom_cap()),
         (core.join("volcanic_rock.png"), volcanic_rock()),
         (core.join("workbench_top.png"), workbench_top()),
         (core.join("workbench_side.png"), workbench_side()),

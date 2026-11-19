@@ -502,11 +502,34 @@ pub fn build_tile_debug(
             max_h = max_h.max(h);
         }
     }
-    let scale = step as f32;
-    // Les jupes descendent de 4 cellules sous le point le plus bas.
+    // L'écart entre deux échantillons (en blocs).
+    let spacing = step as f32;
+    // Les arbres et les bâtiments, et l'eau : ils comptent dans la hauteur à loger.
+    let props = crate::far_props::props_for_tile(generator, tile, edits);
+    let mut top = max_h;
+    for prop in &props {
+        top = top.max(prop.top());
+    }
+    for sample in &samples {
+        if let Some(level) = sample.water_top {
+            top = top.max(level as f32 + 0.875);
+        }
+    }
+    // Les sommets tiennent de -8 à 56 unités locales (voir `MeshVertex`). L'unité est l'écart des
+    // échantillons ; quand le relief de la tuile ne tient pas (plus de 110 blocs de dénivelé au niveau
+    // le plus fin, courant dans les massifs v3), l'unité double (sur les trois axes : la tuile garde
+    // ses proportions, seules les coordonnées locales changent) jusqu'à ce qu'il tienne.
+    let mut unit = 1.0f32;
+    while (top - min_h) / (spacing * unit) + 4.0 > 54.0 && unit < 16.0 {
+        unit *= 2.0;
+    }
+    let scale = spacing * unit;
+    // Les jupes descendent de 4 unités sous le point le plus bas.
     let skirt = 4.0 * scale;
     let origin_y = (min_h - skirt).floor();
     let local_y = |y: f32| ((y - origin_y) / scale).min(55.0);
+    // La position locale d'un point de la grille.
+    let grid_xz = |i: i32| i as f32 / unit;
 
     let mut vertices: Vec<MeshVertex> =
         Vec::with_capacity(((CELLS + 1) * (CELLS + 1)) as usize + 4 * (CELLS as usize + 1) * 2);
@@ -514,15 +537,15 @@ pub fn build_tile_debug(
     // Le sol : une grille de (CELLS + 1)² sommets, normale par différences centrées.
     for j in 0..=CELLS {
         for i in 0..=CELLS {
-            let dx = (height(i + 1, j) - height(i - 1, j)) / (2.0 * scale);
-            let dz = (height(i, j + 1) - height(i, j - 1)) / (2.0 * scale);
+            let dx = (height(i + 1, j) - height(i - 1, j)) / (2.0 * spacing);
+            let dz = (height(i, j + 1) - height(i, j - 1)) / (2.0 * spacing);
             let normal = Vec3::new(-dx, 1.0, -dz).normalize();
             // Une pente forte devient de la roche.
             let steep = ((0.75 - normal.y) / 0.25).clamp(0.0, 1.0);
             let color = lerp(at(i, j).color, stone, steep * 0.7);
             let color = debug.tint(tile.level, at(i, j).edited, color);
             vertices.push(MeshVertex::new(
-                Vec3::new(i as f32, local_y(height(i, j)), j as f32),
+                Vec3::new(grid_xz(i), local_y(height(i, j)), grid_xz(j)),
                 normal.to_array(),
                 [color[0], color[1], color[2], 1.0],
                 [1.0, 0.0, 1.0],
@@ -578,7 +601,7 @@ pub fn build_tile_debug(
         let local = |x: f32, y: f32, z: f32| {
             Vec3::new((x - ox) / scale, local_y(y).max(-7.0), (z - oz) / scale)
         };
-        for prop in crate::far_props::props_for_tile(generator, tile, edits) {
+        for prop in props {
             max_h = max_h.max(prop.top());
             crate::far_props::write_prop(
                 &prop,
@@ -614,7 +637,7 @@ pub fn build_tile_debug(
             let base = vertices.len() as u32;
             for (a, c) in [(i, j), (i, j + 1), (i + 1, j), (i + 1, j + 1)] {
                 let mut vertex = MeshVertex::new(
-                    Vec3::new(a as f32, water_y, c as f32),
+                    Vec3::new(grid_xz(a), water_y, grid_xz(c)),
                     [0.0, 1.0, 0.0],
                     [r, g, b, WATER_ALPHA],
                     [1.0, 0.0, 1.0],

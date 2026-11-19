@@ -1400,12 +1400,13 @@ impl VoxelGame {
         let health = player::health(&self.ecs, self.player);
         let streamer = self.streamer();
         let generator = streamer.generator();
+        // Le biome là où l'on est : celui d'une grotte souterraine, sinon celui de la colonne.
         let biome = generator
-            .biome(
-                generator
-                    .column(feet.x.floor() as i32, feet.z.floor() as i32)
-                    .biome,
-            )
+            .biome(generator.biome_at(
+                feet.x.floor() as i32,
+                feet.y.floor() as i32,
+                feet.z.floor() as i32,
+            ))
             .name
             .clone();
         let target = match self.target {

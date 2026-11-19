@@ -433,7 +433,7 @@ pas encore de bloc de boue pour le bayou ; les vagues 2 à 4 (froid, chaud et vo
   nouvelles cases. Part de la terre (5 graines, `print_v3_biome_shares`) : toundra 2,4 %, hautes terres 2,1 %, sapinière
   1,2 %, landes 0,9 %, escarpements 0,5 % (les massifs eux-mêmes sont rares : les escarpements y prennent la place des
   montagnes sèches).
-- **Captures** : `biome-toundra`, `biome-sapiniere`, `biome-hautes-terres`, `biome-landes`, `biome-escarpements`.
+- **Captures** : `biome-toundra-rousse`, `biome-sapiniere`, `biome-hautes-terres`, `biome-landes`, `biome-escarpements`.
 
 Tests : le sapin reste dans les bornes de la génération par chunk et sort de sa pousse ; le rocher est petit, à demi
 enfoncé, sans mousse sous terre ; les onze biomes des vagues 1 et 2 apparaissent dans un monde v3 et jamais en v1 ou v2.
@@ -480,3 +480,125 @@ apparaissent en v3 et jamais en v1 ou v2.
 
 Limites : les bassins ne fument pas ; les volcans n'ont ni coulées ni cheminée sous le cratère ; le désert proprement
 dit et les alpages restent rares (0,1 % chacun).
+
+## Statut du lot 5, vague 4 : sous terre (à valider)
+
+| Biome | Ce qui le distingue |
+| --- | --- |
+| Gouffre cristallin (`core:crystal_cavern`) | salles plus grandes, blocs et amas de cristaux violets lumineux au sol et au plafond, veines de calcite |
+| Grotte luminescente (`core:glowing_grotto`) | mousse luminescente au sol, aux parois et au plafond, lumicoiffes turquoise |
+| Grotte fongique (`core:fungal_cave`) | tapis de mycélium, amanites et bolets, champignons géants (pied et chapeau faiblement lumineux) |
+
+- **Choix en trois dimensions** : deux bruits 3D de `terrain_v3.ron`, `cave_amount` (un biome souterrain au-dessus de
+  0,3) et `cave_kind` (sous -0,2 le gouffre, au-dessus de 0,25 la grotte fongique, entre les deux la grotte
+  luminescente), lus tous les 8 blocs sur le chunk et interpolés. Seulement sous y = 30 et à plus de 16 blocs sous la
+  surface. Ces biomes portent `underground` et n'ont pas de case dans `biomes_v3.ron`.
+- **Le gouffre creuse** : dans son domaine, la densité des grandes salles baisse (`chasm`), sous y = 30 en fondu.
+- **Décor** : après le remplissage et les minerais, chaque bloc de roche au contact de l'air d'une grotte du biome
+  (sol, plafond, paroi) peut changer ; les plantes et les champignons géants ne posent que dans l'air et dans le chunk.
+- **Le biome se voit** : un chunk profond porte le biome souterrain de ses colonnes (lu au milieu du chunk) ;
+  `TerrainGenerator::biome_at(x, y, z)` donne le biome au bloc (grotte d'abord), et l'API de contrôle le rapporte.
+- **Blocs** : bloc et amas de cristaux, calcite, mousse luminescente, lumicoiffe, mycélium, pied et chapeau de
+  champignon (textures `assetgen`, butin). Le pack 32 ne dessine plus le bloc de cristal comme un bloc de métal riveté.
+- **Part** : 14 % des points sous y = 30 sont dans un biome souterrain (gouffre 3,7 %, grotte fongique 3,4 %, grotte
+  luminescente 7,1 % ; `print_v3_cave_biome_shares`).
+- **Coût** : 9,5 ms par colonne de chunks contre 8,7 avant la vague (`print_v3_cost`).
+- **Captures** : `biome-gouffre-cristallin`, `biome-grotte-luminescente`, `biome-grotte-fongique`, prises dans une salle
+  dégagée du biome.
+
+Tests : chaque biome souterrain se trouve et décore sa grotte ; il n'existe pas à la surface ; aucun décor de grotte
+au-dessus de y = 30.
+
+Limites : les champignons géants sont rares sous les plafonds bas (ils doivent tenir dans leur chunk) ; pas de musique
+ni d'ambiance propres aux grottes ; le décor ne voit pas l'air des chunks voisins (une paroi au bord d'un chunk reste
+nue).
+
+## Statut du lot 6 : lointain, recette et activation (mesures faites, activation en attente)
+
+### Terrain lointain
+
+- La surface lointaine v3 est déjà lue sur la seule verticale de chaque point de grille (`column_far_v3`, lot 3), volcans
+  compris (ils sont dans la densité) et biome du cône.
+- **Grands massifs** : les sommets d'une tuile tiennent de -8 à 56 unités locales (`MeshVertex`) ; l'unité valait l'écart
+  des échantillons, soit 110 blocs de dénivelé au niveau le plus fin, et tout ce qui dépassait était écrasé à plat
+  (l'horizon coupé des massifs). L'unité double maintenant (jusqu'à 16 fois) quand le relief de la tuile, arbres et eau
+  compris, ne tient pas ; sur les trois axes, la tuile garde ses proportions. Test (`tests/far_v3.rs`) : une tuile fine
+  de plus de 130 blocs de dénivelé le garde à 1,5 bloc près, et sa grille reste en place (sans la correction : 102
+  blocs sur 151).
+
+### Recette (`examples/recette`, 6 graines, 4 000 × 4 000 blocs tous les 40)
+
+| | v1 | v3 |
+| --- | --- | --- |
+| Terre | 61 à 70 % | 51 à 67 % |
+| Océan profond | 3 à 12 % | 2 à 16 % |
+| Montagne (plus de 60 blocs au-dessus de la mer) | 3 à 10 % | 4 à 12 % |
+| Falaise | 0,4 à 0,7 % | 0,4 à 1,3 % |
+| Constructible | 54 à 63 % | 31 à 43 % |
+| Forêt | 14 à 34 % | 15 à 24 % |
+| Eau douce | 3 à 5 % | 5 à 7 % |
+| Biomes vus | 24 à 27 | 38 à 45 |
+| Entropie des biomes | 4,1 à 4,3 bits | 4,2 à 5,0 bits |
+
+La v3 a plus de relief (moins de terrain plat constructible) et bien plus de biomes ; la mesure d'une graine v3 prend
+environ 70 s (une colonne v3 calcule toute sa colonne de chunks), contre 1 s en v1.
+
+### Banc (CPU médian, CPU p99, images à 1 %, chargement par trajet)
+
+| | v1 | v3 |
+| --- | --- | --- |
+| Rayon 8 | 0,5 à 1,3 ms ; p99 2,0 à 2,7 ; 44 à 55 i/s ; 0,6 à 2,0 s | 0,4 à 0,5 ms ; p99 1,0 à 2,4 ; 45 à 62 i/s ; 1,1 à 1,6 s |
+| Rayon 16 | 0,6 à 1,5 ms ; p99 2,6 à 3,0 ; 45 à 58 i/s ; 1,8 à 4,0 s | 0,5 à 0,9 ms ; p99 1,3 à 4,5 ; 45 à 63 i/s ; 4,3 à 12 s |
+| Rayon 32 | 1,1 à 3,0 ms ; p99 2,8 à 4,8 ; 45 à 49 i/s ; 8 à 18 s | 0,6 à 2,1 ms ; p99 1,9 à 9,8 ; 51 à 56 i/s ; 16 à 27 s |
+
+La v3 dessine moins de chunks (les couches sombres ne sont maillées que près du joueur) et garde de meilleures images à
+1 % ; son chargement est 1,5 à 2,5 fois plus long (la génération d'une colonne de 12 couches coûte 9,5 ms contre 2,5) et
+son p99 monte au rayon 32. Un premier passage au rayon 8 avait montré un à-coup (9,5 images à 1 % à l'arrêt) : non
+reproduit, c'était le démarrage à froid.
+
+### Structures
+
+Les sites de structures (villages, ruines, donjons) étaient calculés en v3 (quêtes, cartes, maisons du terrain
+lointain) sans que leurs blocs soient posés : des structures fantômes. La génération v3 pose maintenant les mêmes
+structures que la v1, sur les hauteurs v3 (`structure_plans`, `place_structures`) ; test : les premiers sites autour de
+l'origine ont leur plan, et ses blocs sont dans les chunks. Coût inchangé sur l'échantillon (9,5 ms par colonne).
+
+### Captures
+
+Le tour complet passe en v3 (62 vues). Deux corrections : la vue de la toundra rousse portait le même nom que celle de
+la toundra enneigée et l'écrasait (`biome-toundra-rousse`, et un test vérifie que les noms sont uniques) ; la fosse du
+sous-sol creuse jusqu'au bas du monde (y = -127 en v3, au lieu de s'arrêter à 1).
+
+### Avant d'activer la v3 pour les mondes neufs
+
+- **Ta partie** : la v3 n'a pas encore été jouée (`VOXEL_GENERATION=3`).
+- **Activation** (`GenerationVersion::FOR_NEW_WORLDS`) et **retrait de la v2** : seulement avec ton accord. Le retrait de la
+  v2 rend ses mondes de test illisibles (ils ne peuvent pas être convertis).
+
+### Retours de partie v3 (corrigés)
+
+Vus en jeu sur la graine 1404532460 (vers x = -700, z = -1320), puis sur des coupes au même endroit.
+
+- **L'eau au niveau de l'ouverture des gouffres** : deux causes.
+  - La mer remplissait toute colonne dont le sol était sous 62 : un puits d'entrée ou une grande salle ouverte sous le
+    niveau de la mer se remplissait en colonne d'eau, du fond jusqu'à 62. La mer ne remplit plus que les colonnes où
+    le relief sans grottes (`sloped` à y = 62, lu aux coins des cellules) est sous l'eau, ou dont le sol est à peine
+    sous la mer (3 blocs).
+  - La croûte qui protège la surface suivait la densité du relief : sous les plaines plates, elle ne faisait que 2 ou
+    3 blocs, et une grande salle crevait le fond d'une rivière. Une seconde garde impose maintenant 15 blocs sous la
+    surface approchée (`guard` de `terrain_v3.ron`).
+  - Le niveau d'une région de nappe reste aussi 24 blocs sous le sol le plus bas de la région et de ses abords (7 × 7
+    points de surface approchée, 9 de vraie surface), calculé une fois par région.
+- **Les grands murs carrés des grottes** : les barrages entre deux régions de nappe étaient des plans droits qui
+  remplissaient tout le vide des grottes. Les frontières sont déformées (bruits de déformation du relief, ± 16 blocs),
+  et le barrage devient une **berge** : du côté bas, de la roche monte jusqu'au niveau de la nappe haute sur la
+  première colonne, puis descend de 2 blocs par bloc (distance de chanfrein sur une marge de 24 blocs). Calculée par
+  colonne à partir des voisines, elle ne peut plus avoir de trou.
+- **Des donjons dans le vide** : posés à profondeur fixe, ils traversaient les grandes salles v3 (la crypte du mod
+  « donjons » compris). En v3, le plancher descend à la hauteur où l'emprise (salles et couloirs) touche le moins de
+  vide, et une gaine de roche est posée autour des salles et des couloirs avant de les construire : une grotte qui
+  traverse le donjon est comblée autour de lui. L'escalier rejoint toujours la surface. La v1 ne change pas.
+- **Tests** : aucun liquide ouvert sur le côté (eau ou lave à côté de l'air) sur la graine et le lieu de la partie et
+  sur la graine 42 ; aucune eau de grotte à moins de 10 blocs sous le sol de sa colonne ; sous le plancher des premiers
+  donjons, au plus 10 % de vide.
+- **Coût** : 12,2 ms par colonne de chunks (9,5 avant ces corrections) : la seconde garde de la croûte et les berges.

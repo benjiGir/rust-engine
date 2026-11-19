@@ -603,3 +603,253 @@ fn print_v3_biome_shares() {
         println!("{key:28} {:5.2} %", n as f64 * 100.0 / land as f64);
     }
 }
+
+#[test]
+fn underground_biomes_decorate_deep_caves_only() {
+    let g = v3(42);
+    let registry = g.registry().clone();
+    let id = |k: &str| registry.id(k).unwrap();
+    let cases = [
+        (
+            "core:crystal_cavern",
+            vec![
+                id("core:crystal_block"),
+                id("core:crystal_cluster"),
+                id("core:calcite"),
+            ],
+        ),
+        (
+            "core:glowing_grotto",
+            vec![id("core:glow_moss"), id("core:glowcap")],
+        ),
+        (
+            "core:fungal_cave",
+            vec![id("core:mycelium"), id("core:mushroom_stem")],
+        ),
+    ];
+    let all: Vec<BlockId> = cases.iter().flat_map(|(_, b)| b.clone()).collect();
+    for (key, blocks) in &cases {
+        let biome = g.biomes().id(key).unwrap();
+        // Un point de ce biome, cherché sur une grille.
+        let spot = (-30..30)
+            .flat_map(|j| (-30..30).map(move |i| (i * 48, j * 48)))
+            .flat_map(|(x, z)| [-100, -60, -20, 10].map(move |y| IVec3::new(x, y, z)))
+            .find(|p| g.biome_at(p.x, p.y, p.z) == biome)
+            .unwrap_or_else(|| panic!("{key} introuvable"));
+        let chunk_pos = spot.div_euclid(IVec3::splat(32));
+        // Sa grotte est décorée dans le chunk ou ses voisins (le point peut être dans la roche).
+        let found = (-1..=1)
+            .flat_map(|dy| (-1..=1).map(move |dx| chunk_pos + IVec3::new(dx, dy, 0)))
+            .filter_map(|p| g.generate(p))
+            .any(|chunk| {
+                (0..32 * 32 * 32)
+                    .any(|i| blocks.contains(&chunk.get(i % 32, i / 1024, i / 32 % 32)))
+            });
+        assert!(found, "{key} : aucune décoration autour de {spot}");
+        // Le biome n'existe pas près de la surface.
+        let column = g.column(spot.x, spot.z);
+        assert_eq!(
+            g.biome_at(spot.x, column.height - 3, spot.z),
+            column.biome,
+            "{key} : un biome souterrain à la surface"
+        );
+    }
+    // Aucune décoration de grotte au-dessus de y = 30.
+    for (cx, cz) in [(0, 0), (12, -7)] {
+        for cy in 1..8 {
+            if let Some(chunk) = g.generate(IVec3::new(cx, cy, cz)) {
+                assert!(
+                    !(0..32 * 32 * 32).any(|i| all.contains(&chunk.get(
+                        i % 32,
+                        i / 1024,
+                        i / 32 % 32
+                    ))),
+                    "décoration de grotte dans le chunk ({cx}, {cy}, {cz})"
+                );
+            }
+        }
+    }
+}
+
+/// La part des grottes profondes (sous y = 30) dans chaque biome souterrain.
+/// `cargo test -p engine_voxel --test generation_v3 print_v3_cave_biome_shares --release -- --ignored --nocapture`
+#[test]
+#[ignore = "mesure"]
+fn print_v3_cave_biome_shares() {
+    let g = v3(42);
+    let mut counts = std::collections::BTreeMap::<String, u64>::new();
+    for j in -20..20 {
+        for i in -20..20 {
+            for y in (-120..30).step_by(10) {
+                let b = g.biome_at(i * 40, y, j * 40);
+                *counts.entry(g.biome(b).key.clone()).or_default() += 1;
+            }
+        }
+    }
+    let total: u64 = counts.values().sum();
+    for (k, n) in counts
+        .iter()
+        .filter(|(k, _)| k.contains("cave") || k.contains("grotto"))
+    {
+        println!("{k:24} {:5.2} %", *n as f64 * 100.0 / total as f64);
+    }
+}
+
+#[test]
+fn structures_are_built_in_v3_where_their_sites_are() {
+    let g = v3(42);
+    assert!(g.has_structures());
+    let sites = g.structure_sites_near(0, 0, 2500);
+    assert!(!sites.is_empty(), "aucune structure près de l'origine");
+    // Chaque site a son plan, et son centre est bâti : des blocs posés là où le terrain v3 n'en met pas.
+    for site in sites.iter().take(3) {
+        let plan = g.blueprint(site).expect("un plan pour chaque site");
+        let blocks = plan.blocks();
+        assert!(!blocks.is_empty(), "{:?} : plan vide", site.kind);
+        let (bx, by, bz) = {
+            let (p, _) = blocks[blocks.len() / 2];
+            (p.x, p.y, p.z)
+        };
+        let chunk = g
+            .generate(IVec3::new(bx, by, bz).div_euclid(IVec3::splat(32)))
+            .expect("le chunk du plan existe");
+        let found = blocks
+            .iter()
+            .filter(|(p, _)| {
+                p.div_euclid(IVec3::splat(32))
+                    == IVec3::new(bx, by, bz).div_euclid(IVec3::splat(32))
+            })
+            .filter(|(p, b)| {
+                let l = p.rem_euclid(IVec3::splat(32));
+                chunk.get(l.x as usize, l.y as usize, l.z as usize) == *b
+            })
+            .count();
+        assert!(
+            found > 0,
+            "{:?} en ({}, {}) : rien de posé",
+            site.kind,
+            site.x,
+            site.z
+        );
+    }
+}
+
+#[test]
+fn cave_water_stays_well_below_the_ground_of_its_column() {
+    // La nappe reste sous le sol le plus bas de sa région : jamais au ras d'une ouverture.
+    let g = v3(42);
+    let water = g.registry().id("core:water").unwrap();
+    let mut closest = i32::MAX;
+    for (cx, cz) in [
+        (30, -20),
+        (-12, 40),
+        (5, 5),
+        (70, -70),
+        (-55, -9),
+        (12, 33),
+        (-80, 15),
+    ] {
+        let chunks = column_chunks(&g, cx, cz);
+        for lz in 0..32 {
+            for lx in 0..32 {
+                let h = g.column(cx * 32 + lx as i32, cz * 32 + lz as i32).height;
+                for y in MIN_CHUNK_Y * 32..h {
+                    if block(&chunks, lx, y, lz) == water {
+                        closest = closest.min(h - y);
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        closest >= 10,
+        "de l'eau de grotte à {closest} blocs sous le sol"
+    );
+}
+
+#[test]
+fn v3_dungeons_rest_on_rock_not_in_cave_voids() {
+    use engine_voxel::StructureKind;
+    let g = v3(42);
+    let mut checked = 0;
+    for site in g
+        .structure_sites_near(0, 0, 4000)
+        .into_iter()
+        .filter(|s| matches!(s.kind, StructureKind::Dungeon | StructureKind::Graph))
+        .take(4)
+    {
+        let plan = g.blueprint(&site).unwrap();
+        let blocks = plan.blocks();
+        let Some(bottom) = blocks.iter().map(|(p, _)| p.y).min() else {
+            continue;
+        };
+        // Sous le plancher de la structure : de la roche, pas le vide d'une grotte.
+        let mut chunks = std::collections::HashMap::new();
+        let (mut under, mut open) = (0, 0);
+        for (p, _) in blocks.iter().filter(|(p, _)| p.y == bottom).step_by(5) {
+            let below = *p - IVec3::Y;
+            let key = below.div_euclid(IVec3::splat(32));
+            let chunk = chunks.entry(key).or_insert_with(|| g.generate(key));
+            let l = below.rem_euclid(IVec3::splat(32));
+            let b = chunk.as_ref().map_or(BlockId::AIR, |c| {
+                c.get(l.x as usize, l.y as usize, l.z as usize)
+            });
+            under += 1;
+            open += usize::from(b.is_air() || b == g.registry().id("core:water").unwrap());
+        }
+        assert!(
+            open * 10 <= under,
+            "{:?} en ({}, {}) : {open} blocs vides sous {under} du plancher",
+            site.kind,
+            site.x,
+            site.z
+        );
+        checked += 1;
+    }
+    assert!(checked > 0, "aucun donjon près de l'origine");
+}
+
+#[test]
+fn liquids_never_stand_against_air_on_their_sides() {
+    // Ni colonne d'eau de mer dans un puits ou une grotte ouverte, ni nappe sans barrage : de l'eau
+    // (ou de la lave) à côté de l'air coulerait. La graine et le lieu d'une partie où on l'a vu.
+    for (seed, chunks) in [
+        (
+            1404532460u32,
+            vec![(-22, -42), (-21, -41), (-23, -41), (-20, -42)],
+        ),
+        (42, vec![(30, -20), (-12, 40), (5, 5)]),
+    ] {
+        let g = v3(seed);
+        let registry = g.registry().clone();
+        let liquids = [
+            registry.id("core:water").unwrap(),
+            registry.id("core:lava").unwrap(),
+        ];
+        let mut bad = Vec::new();
+        for (cx, cz) in chunks {
+            let column = column_chunks(&g, cx, cz);
+            for lz in 1..31 {
+                for lx in 1..31 {
+                    for y in MIN_CHUNK_Y * 32 + 1..MAX_CHUNK_Y * 32 {
+                        if !liquids.contains(&block(&column, lx, y, lz)) {
+                            continue;
+                        }
+                        for (dx, dz) in [(1i32, 0i32), (-1, 0), (0, 1), (0, -1)] {
+                            let (nx, nz) = ((lx as i32 + dx) as usize, (lz as i32 + dz) as usize);
+                            if block(&column, nx, y, nz).is_air() {
+                                bad.push((cx * 32 + lx as i32, y, cz * 32 + lz as i32));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            bad.is_empty(),
+            "graine {seed} : {} liquides ouverts sur le côté, dont {:?}",
+            bad.len(),
+            &bad[..bad.len().min(5)]
+        );
+    }
+}

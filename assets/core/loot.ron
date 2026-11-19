@@ -31,6 +31,8 @@
     "blossom_leaves": [(item: "blossom_leaves", count: (1, 1), tool: Shears), (item: "oak_sapling", count: (1, 1), chance: 0.05, without: Shears), (item: "apple", count: (1, 1), chance: 0.12, without: Shears)],
     "fir_leaves": [(item: "fir_leaves", count: (1, 1), tool: Shears), (item: "fir_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
     "olive_leaves": [(item: "olive_leaves", count: (1, 1), tool: Shears), (item: "olive_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
+    "mycelium": [(item: "cobblestone", count: (1, 1))],
+    "mushroom_cap": [(item: "red_mushroom", count: (0, 2))],
     "jungle_leaves": [(item: "jungle_leaves", count: (1, 1), tool: Shears), (item: "jungle_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
     "tall_grass": [(item: "tall_grass", count: (1, 1), tool: Shears), (item: "seeds", count: (1, 1), chance: 0.125, without: Shears)],
     "fern": [(item: "fern", count: (1, 1), tool: Shears), (item: "seeds", count: (1, 1), chance: 0.125, without: Shears)],

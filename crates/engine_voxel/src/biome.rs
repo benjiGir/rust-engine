@@ -95,6 +95,8 @@ struct BiomeEntry {
     lily_pads: f32,
     #[serde(default)]
     v3_only: bool,
+    #[serde(default)]
+    underground: bool,
 }
 
 fn three() -> i32 {
@@ -168,6 +170,9 @@ pub struct BiomeDef {
     /// Un biome de la génération v3 seulement (vagues du lot 5) : les générations v1 et v2 ne le
     /// choisissent jamais, leurs mondes ne changent pas.
     pub v3_only: bool,
+    /// Un biome souterrain (vague 4 du lot 5) : choisi en trois dimensions dans les grottes profondes,
+    /// jamais pour une colonne de surface.
+    pub underground: bool,
 }
 
 /// Un type de filon.
@@ -328,6 +333,7 @@ impl BiomeRegistry {
                 seaweed: e.seaweed,
                 lily_pads: e.lily_pads,
                 v3_only: e.v3_only,
+                underground: e.underground,
             };
             // Les plantes les plus rares d'abord : la végétation les tire dans cet ordre.
             def.plants.sort_by(|a, b| a.chance.total_cmp(&b.chance));

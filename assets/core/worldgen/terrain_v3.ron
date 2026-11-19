@@ -39,6 +39,9 @@
         "water_table": (first_octave: -9, amplitudes: [1.0, 1.0, 0.5]),
         // Les bassins des sources chaudes (lot 5, vague 3).
         "springs": (first_octave: -5, amplitudes: [1.0, 0.5]),
+        // Les biomes souterrains (lot 5, vague 4) : où il y en a, et lequel.
+        "cave_biome_amount": (first_octave: -7, amplitudes: [1.0, 0.5]),
+        "cave_biome_kind": (first_octave: -8, amplitudes: [1.0, 0.5]),
     },
     functions: {
         "shift_x": FlatCache(Cache2d(Mul(Noise(noise: "shift", xz_scale: 1.0, y_scale: 0.0), Constant(16.0)))),
@@ -172,10 +175,28 @@
         ),
         // Le niveau de la nappe, en blocs : de -110 (régions sèches) à -5 environ.
         "water_table": FlatCache(Add(Constant(-60.0), Mul(Noise(noise: "water_table", xz_scale: 1.0, y_scale: 0.0), Constant(55.0)))),
-        "caves": Min(Ref("cheese"), Min(Ref("spaghetti"), Ref("noodle"))),
+        // Les biomes souterrains : un biome là où « cave_amount » dépasse 0,3, sous y = 30 ; « cave_kind »
+        // choisit (sous -0,2 le gouffre cristallin, au-dessus de 0,25 la grotte fongique, entre les deux la
+        // grotte luminescente). Les gouffres cristallins creusent de plus grandes salles.
+        "cave_amount": Noise(noise: "cave_biome_amount", xz_scale: 1.0, y_scale: 1.0),
+        "cave_kind": Noise(noise: "cave_biome_kind", xz_scale: 1.0, y_scale: 0.7),
+        "chasm": Mul(
+            YClampedGradient(from_y: 0, to_y: 30, from_value: 1.0, to_value: 0.0),
+            RangeChoice(
+                input: Ref("cave_kind"), min_inclusive: -10.0, max_exclusive: -0.2,
+                when_in_range: Mul(Max(Constant(0.0), Add(Ref("cave_amount"), Constant(-0.3))), Constant(-1.2)),
+                when_out_of_range: Constant(0.0),
+            ),
+        ),
+        "caves": Min(Add(Ref("cheese"), Ref("chasm")), Min(Ref("spaghetti"), Ref("noodle"))),
         // Une croûte protège la surface (et le fond des mers) : pas de grotte à moins d'une dizaine
         // de blocs du sol, sauf aux entrées.
-        "guard": Add(Constant(1.2), Mul(Ref("sloped"), Constant(-1.0))),
+        // Deux gardes : la densité du relief (épaisse sous les pentes), et la profondeur sous la surface
+        // approchée (15 blocs au moins, même sous les plaines plates où la densité monte vite).
+        "guard": Max(
+            Add(Constant(1.2), Mul(Ref("sloped"), Constant(-1.0))),
+            Mul(Add(Constant(0.12), Mul(Ref("depth"), Constant(-1.0))), Constant(20.0)),
+        ),
         // Pas d'entrée sous la mer, sur les côtes basses ni au fond des vallées (l'eau s'y engouffrerait).
         "low_ground": FlatCache(Max(Constant(0.0), Mul(Add(Ref("offset"), Constant(-0.03)), Constant(-60.0)))),
         "entrances": Max(
