@@ -355,7 +355,7 @@ fn grass_side() -> Image {
 }
 
 fn stone() -> Image {
-    nature::mineral("stone")
+    nature::stone()
 }
 
 const PODZOL: [f32; 3] = [0.47, 0.31, 0.17];
@@ -1715,6 +1715,10 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (root.join("mods/example/textures/ruby.png"), ruby()),
     ];
     let mut textures = textures;
+    textures.extend(crate::doors::TEXTURES.into_iter().map(|name| {
+        let pixels = crate::doors::draw(name, SIZE).unwrap().try_into().unwrap();
+        (core.join(format!("{name}.png")), Image { pixels })
+    }));
     textures.extend(workstations::mod_textures(root));
     textures.extend(mod_assets::generate(root));
     textures.push((

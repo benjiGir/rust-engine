@@ -85,7 +85,7 @@ pub fn settle(streamer: &mut ChunkStreamer, changed: IVec3) -> Settled {
         }
         let def = registry.def(block);
         if def.support != Support::None && !is_supported(streamer, &registry, pos, def.support) {
-            let partner = crate::bed::partner(&registry, pos, block)
+            let partner = crate::paired_block::partner(&registry, pos, block)
                 .filter(|&(p, b)| streamer.world().block(p) == b);
             if streamer.set_block(pos, BlockId::AIR) {
                 result.broken.push((pos, block));

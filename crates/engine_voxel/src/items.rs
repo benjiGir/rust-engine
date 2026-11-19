@@ -252,6 +252,8 @@ impl ItemRegistry {
         for (id, def) in blocks.iter() {
             let item = if crate::bed::is_part(blocks, id) {
                 registry.id(crate::bed::ITEM)
+            } else if let Some(key) = crate::door::item_key(blocks, id) {
+                registry.id(key)
             } else {
                 def.base.and_then(|b| registry.by_block.get(&b).copied())
             };

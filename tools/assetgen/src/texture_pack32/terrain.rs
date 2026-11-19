@@ -137,6 +137,36 @@ pub(super) fn rock(name: &str) -> Canvas {
     c
 }
 
+fn stone() -> Canvas {
+    let slate = [127, 131, 135];
+    let quartz = [163, 158, 146];
+    let mut canvas = Canvas::new(slate);
+    for y in 0..32 {
+        for x in 0..32 {
+            let u = (x % 31) as f32 / 31.0;
+            let v = (y % 31) as f32 / 31.0;
+            // Les plans fins se plient et s'interrompent dans les grains de la roche.
+            let layers = noise(u, v, 6, 1907);
+            let relief = noise(u + v, v * 2.0, 7, 1919);
+            let pores = noise(u, v, 19, 1931);
+            let phase = (5.0 * v - 2.0 * u + (layers - 0.5) * 0.70).rem_euclid(1.0);
+            let bevel = if relief > 0.49 && phase < 0.24 {
+                if phase < 0.11 { 0.80 } else { 1.11 }
+            } else {
+                1.0
+            };
+            let shade_factor =
+                (0.88 + layers * 0.22 + relief * 0.14 + (pores - 0.5) * 0.12) * bevel;
+            let mut color = shade(slate, shade_factor);
+            if pores > 0.69 && relief < 0.56 {
+                color = mix(color, quartz, (pores - 0.69) * 1.7);
+            }
+            canvas.put(x, y, color);
+        }
+    }
+    canvas
+}
+
 fn ore(name: &str) -> Canvas {
     let mut c = rock("stone");
     let metal = match name {
@@ -305,7 +335,8 @@ pub(super) fn draw(source: &[Pixel], name: &str) -> Option<Canvas> {
             c.periodic(true);
             c
         }
-        "stone" | "cobblestone" | "bedrock" | "deepstone" | "volcanic_rock" | "sandstone"
+        "stone" => stone(),
+        "cobblestone" | "bedrock" | "deepstone" | "volcanic_rock" | "sandstone"
         | "sandstone_top" | "crypt_brick" => rock(name),
         "sand" | "red_sand" | "snow" | "ice" | "gravel" | "clay" | "terracotta"
         | "terracotta_dark" | "terracotta_pale" => granular(name),

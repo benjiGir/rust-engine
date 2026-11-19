@@ -7,7 +7,7 @@ use glam::Vec3;
 pub const ICON_SIZE: usize = 32;
 
 pub fn block_icon(blocks: &BlockRegistry, block: BlockId, textures: &[Vec<u8>]) -> Vec<u8> {
-    if let Some(parts) = engine_voxel::bed::display_parts(blocks, block) {
+    if let Some(parts) = engine_voxel::paired_block::display_parts(blocks, block) {
         let parts = parts.map(|(id, offset)| (blocks.def(id), offset));
         render(&parts, textures, 12.5)
     } else {
@@ -25,7 +25,10 @@ fn render(parts: &[(&BlockDef, Vec3)], textures: &[Vec<u8>], scale: f32) -> Vec<
             } else {
                 &def.boxes
             };
-            boxes.iter().map(move |b| (def, offset, b))
+            boxes
+                .iter()
+                .enumerate()
+                .map(move |(i, b)| (def, offset, b, def.glazing == Some(i)))
         })
         .collect();
     let direction = Vec3::new(-1.0, -0.82, -1.0).normalize();
@@ -37,7 +40,7 @@ fn render(parts: &[(&BlockDef, Vec3)], textures: &[Vec<u8>], scale: f32) -> Vec<
                 + right * ((x as f32 + 0.5 - 16.0) / scale)
                 + up * ((16.0 - y as f32 - 0.5) / scale);
             let mut nearest = f32::INFINITY;
-            for &(def, offset, b) in &boxes {
+            for &(def, offset, b, glaze) in &boxes {
                 let origin = origin - offset;
                 let a = (b.min - origin) / direction;
                 let z = (b.max - origin) / direction;
@@ -61,7 +64,7 @@ fn render(parts: &[(&BlockDef, Vec3)], textures: &[Vec<u8>], scale: f32) -> Vec<
                     _ => ([p.x, 1.0 - p.y], 1, 0.65),
                 };
                 let texture = def.face_textures[face] as usize;
-                let texel = texture
+                let mut texel = texture
                     .checked_sub(1)
                     .and_then(|i| textures.get(i))
                     .map(|image| {
@@ -80,6 +83,9 @@ fn render(parts: &[(&BlockDef, Vec3)], textures: &[Vec<u8>], scale: f32) -> Vec<
                         let color = def.color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
                         [color[0], color[1], color[2], 255]
                     });
+                if glaze {
+                    texel = [157, 205, 215, 122];
+                }
                 if def.cutout && texel[3] < 128 {
                     continue;
                 }

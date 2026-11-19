@@ -297,6 +297,9 @@ impl Hand {
                 let (offset, pitch, yaw, roll, scale) = match block.key.as_str() {
                     "core:torch" => (Vec3::Y * 0.08, 0.0, 0.10, -0.22, 0.38),
                     engine_voxel::bed::ITEM => (Vec3::Y * 0.08, 0.21, -0.92, 0.0, 0.24),
+                    _ if engine_voxel::door::is_door(block) => {
+                        (Vec3::Y * 0.08, 0.06, 0.30, -0.12, 0.23)
+                    }
                     _ if block.connections.is_some() => (Vec3::ZERO, 0.0, 0.7, 0.0, 0.36),
                     _ if block.boxes.is_empty() && block.shape == engine_voxel::Shape::Cube => {
                         (Vec3::ZERO, 0.0, 0.7, 0.0, 0.20)

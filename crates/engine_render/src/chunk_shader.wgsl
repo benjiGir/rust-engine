@@ -59,6 +59,7 @@ const FLAG_GROUND: u32 = 2097152u;
 const FLAG_WATER: u32 = 4194304u;   // 1 << 22 : eau libre, animée
 const TURN_SHIFT: u32 = 23u;        // 2 bits : quarts de tour de la texture (les rails)
 const FLAG_MODEL_UV: u32 = 1u << 25u;
+const FLAG_DOOR_OPEN: u32 = 1u << 26u;
 const TEXTURE_MASK: u32 = 65535u;
 
 struct VertexOut {
@@ -104,6 +105,9 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
         for (var i = 0u; i < turns; i++) {
             tex_position = vec3<f32>(tex_position.z, tex_position.y, -tex_position.x);
             tex_normal = vec3<f32>(tex_normal.z, tex_normal.y, -tex_normal.x);
+        }
+        if (vertex.texture & FLAG_DOOR_OPEN) != 0u {
+            tex_position.z += 3.0 / 16.0;
         }
     }
     var normal = vertex.normal.xyz;

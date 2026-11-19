@@ -68,7 +68,8 @@ impl<F: Fn(BlockId) -> bool> Walker<'_, F> {
     fn body_free(&self, p: IVec3) -> bool {
         (0..self.rules.height).all(|h| {
             let block = self.world.block(p + IVec3::Y * h);
-            !self.world.registry().is_solid(block) && !(self.rules.danger)(block)
+            let def = self.world.registry().def(block);
+            (!def.solid || crate::door::is_open(def)) && !(self.rules.danger)(block)
         })
     }
 

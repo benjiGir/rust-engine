@@ -8,6 +8,8 @@
 // - result : (objet, quantité).
 (
     shaped: [
+        (pattern: ["pp", "pp", "pp"], key: {"p": "#planks"}, result: ("wooden_door", 1)),
+        (pattern: ["ii", "ic", "ii"], key: {"i": "iron_ingot", "c": "copper_ingot"}, result: ("iron_door", 1)),
         (pattern: ["#", "#"], key: {"#": "#planks"}, result: ("stick", 4)),
         (pattern: ["##", "##"], key: {"#": "#planks"}, result: ("workbench", 1)),
         (pattern: ["###", "# #", "###"], key: {"#": "#stones"}, result: ("furnace", 1)),
@@ -148,6 +150,8 @@
         (pattern: ["#i#", "# #", "###"], key: {"#": "iron_ingot", "i": "sapphire"}, result: ("storage_controller", 1)),
     ],
     shapeless: [
+        (ingredients: ["wooden_door", "glass"], result: ("wooden_glass_door", 1)),
+        (ingredients: ["iron_door", "glass"], result: ("iron_glass_door", 1)),
         // Le Guide du voyageur : une planche et un bâton, dès les premières minutes.
         (ingredients: ["#planks", "stick"], result: ("guide", 1)),
         (ingredients: ["oak_log"], result: ("oak_planks", 4)),

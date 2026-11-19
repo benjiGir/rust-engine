@@ -120,6 +120,13 @@ automatiquement une orientation à l’autre identifiant.
 | `Facing6` | les quatre ci-dessus, `up`, `down` | idem, et vers le haut ou le bas si le joueur regarde fort dessus |
 | `Half` | `bottom` (la forme écrite), `top` | en haut si on vise le dessous d'un bloc, ou la moitié haute d'une face |
 | `Axis` | `y` (la forme écrite), `x`, `z` | l'axe de la face visée |
+| `DoorOpen` | `false` (fermé), `true` (ouvert) | fermé |
+
+`[DoorOpen, Facing4]` pivote les boîtes de trois seizièmes d'épaisseur autour du montant
+nord-ouest avant de les orienter. La forme fermée doit rester entre `z = 0` et `z = 3`.
+Le lien entre deux moitiés et l'ouverture au clic sont gérés par le jeu pour les portes de base.
+`glazing` désigne l'indice d'une boîte vitrée, compté depuis zéro. Cette boîte reste
+sélectionnable et participe à la collision du modèle. Son rendu est translucide.
 
 Poser et casser : seule la base est dans la barre de blocs et l'inventaire ; la variante est
 choisie à la pose, et une variante cassée lâche l'objet (et le butin) de sa base. Un mod qui a

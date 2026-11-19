@@ -32,7 +32,18 @@ Le bord végétal latéral se raccorde horizontalement, sans contour sombre syst
 La pierre, le sable, la neige, la glace, les écorces striées et les feuillages
 emploient aussi un grain périodique dans `textures/nature.rs`. Les cinq essences
 partagent la construction des cernes et des fibres, avec leurs couleurs propres.
+La pierre de base a un gris ardoise avec de petites inclusions minérales. Le pack
+32 × 32 dessine des feuillets interrompus et des pores plus fins. La
+[planche de la pierre](visual/20-pierre.png) montre quatre blocs de large dans chaque
+pack, avec le 16 × 16 en haut et le 32 × 32 en bas, avant à gauche et après à droite.
 Les minerais forment de petites veines fragmentées dans la pierre bleutée.
+
+Les portes de bois ont des planches huilées et des ferrures cuivrées. Les portes de fer
+ont des panneaux brossés et des rivets. Chaque matériau existe en panneau plein et en
+version vitrée. Le haut de la version vitrée encadre un carreau translucide. Le battant
+prend deux cases et tourne sur un montant. Les textures sont dessinées dans les deux packs.
+La [planche des portes](visual/21-portes.png) montre les quatre modèles fermés
+en 16 × 16 en haut et en 32 × 32 en bas.
 
 ## Objets lâchés
 

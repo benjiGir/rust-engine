@@ -150,6 +150,8 @@ pub const FLAG_WATER: u32 = 1 << 22;
 pub const FLAG_TURN_SHIFT: u32 = 23;
 /// Les deux bits de rotation s'appliquent au repère 3D du modèle, avant projection des UV.
 pub const FLAG_MODEL_UV: u32 = 1 << 25;
+/// Correction de la largeur du montant dans les UV d'un battant ouvert.
+pub const FLAG_DOOR_OPEN: u32 = 1 << 26;
 /// Les bits de la couche de texture dans [`MeshVertex::texture`].
 pub const TEXTURE_MASK: u32 = 0xFFFF;
 
@@ -879,7 +881,14 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                 let sway_top = flags & FLAG_SWAY;
                 if def.shape == Shape::Model {
                     let mut flags = block_flags(def);
-                    if crate::bed::is_part(&hood.registry, block) {
+                    if crate::door::is_door(def) {
+                        let open = u32::from(def.state_values[0]);
+                        let turns = (u32::from(def.state_values[1]) + open) % 4;
+                        flags |= FLAG_MODEL_UV | (turns << FLAG_TURN_SHIFT);
+                        if open != 0 {
+                            flags |= FLAG_DOOR_OPEN;
+                        }
+                    } else if crate::bed::is_part(&hood.registry, block) {
                         flags |=
                             FLAG_MODEL_UV | (u32::from(def.state_values[0]) << FLAG_TURN_SHIFT);
                     }
@@ -1017,7 +1026,8 @@ fn model_boxes(
         (s.rails.as_slice(), s.windows.as_slice())
     });
     for (box_index, b) in solid.iter().chain(windows).enumerate() {
-        let glass = box_index >= solid.len();
+        let pane = def.glazing == Some(box_index);
+        let glass = pane || box_index >= solid.len();
         let rotation = def.rotation.as_ref().filter(|r| {
             shell.is_none() && {
                 box_index < def.boxes.len() && (r.boxes.is_empty() || r.boxes.contains(&box_index))
@@ -1064,7 +1074,9 @@ fn model_boxes(
                 mesh.push_vertex(
                     base + corner,
                     normal,
-                    if glass {
+                    if pane {
+                        crate::door::GLAZING_COLOR
+                    } else if glass {
                         [0.35, 0.5, 0.46, 0.14]
                     } else {
                         color

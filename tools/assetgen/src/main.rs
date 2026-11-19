@@ -7,6 +7,7 @@
 //! pour les modifier.
 
 mod creature_skins;
+mod doors;
 mod fauna_items;
 mod magic_items;
 mod sounds;

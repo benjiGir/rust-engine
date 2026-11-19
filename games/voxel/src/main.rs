@@ -107,6 +107,7 @@ mod mobs;
 mod mod_menu;
 mod modding;
 mod navigation;
+mod paired_play;
 mod persistence;
 mod player;
 mod player_api;
@@ -908,7 +909,6 @@ impl VoxelGame {
     }
 
     fn window_event(&mut self, ctx: &mut Context, event: &WindowEvent) -> bool {
-        self.ui.on_window_event(&ctx.window, event)
         // La fenêtre perd le focus en pleine partie : le jeu se met en pause et rend la souris, comme
         // Minecraft (on la reprend d'un clic sur « Reprendre », jamais par surprise).
         // (Pas dans les modes automatiques : captures, banc d'essai, démo, qui tournent sans focus.)
@@ -918,6 +918,7 @@ impl VoxelGame {
             self.mouse_captured = false;
             ctx.set_cursor_captured(false);
         }
+        self.ui.on_window_event(&ctx.window, event)
     }
 
     fn update(&mut self, ctx: &mut Context, dt: f32) {
@@ -1109,8 +1110,8 @@ impl VoxelGame {
             }
             // Rien à frapper ni à casser : le bras donne un coup dans le vide, tant que le bouton est tenu.
             self.air_swing = mining && self.mining.is_none();
-            // Un clic droit : un lit, un conteneur, sinon poser.
-            let bed = self.target.map(|hit| hit.block_pos);
+            // Un clic droit : une porte, un lit, un conteneur, sinon poser.
+            let block_pos = self.target.map(|hit| hit.block_pos);
             if ctx.input.mouse_pressed(MouseButton::Right)
                 && !self.use_cart()
                 && !self.use_ship()
@@ -1118,7 +1119,7 @@ impl VoxelGame {
                     || ctx.input.key_held(KeyCode::ShiftRight))
                     && self.place_conduit_first())
                 && !self.use_assembler()
-                && !bed.is_some_and(|pos| self.use_bed(pos))
+                && !block_pos.is_some_and(|pos| self.use_door(pos) || self.use_bed(pos))
                 && !self.open_container()
                 && !self.use_machine()
                 && !self.trade_with_villager()
@@ -1648,24 +1649,23 @@ impl VoxelGame {
         // Un bloc à états (escalier, dalle, tuyau...) se pose selon le regard et la face visée.
         let forward = self.camera.forward();
         let hit_y = (self.camera.position + forward * hit.distance).y - hit.block_pos.y as f32;
-        let block = self
-            .registry
-            .placement_variant(block, forward, hit.normal, hit_y);
         let pos = hit.block_pos + hit.normal;
-        if self.registry.def(block).key == engine_voxel::bed::ITEM {
-            if hit.normal == IVec3::ZERO {
-                return None;
-            }
-            self.place_bed(pos, forward)?;
+        if hit.normal == IVec3::ZERO {
+            return None;
+        }
+        if let Some(parts) = self.paired_placement(pos, block, forward) {
+            self.place_pair(parts)?;
             self.inventory.consume_selected();
             self.hand.punch();
             return Some(pos);
         }
-        // Normale nulle : le rayon part de l'intérieur d'un bloc, pas de face où poser.
+        let block = self
+            .registry
+            .placement_variant(block, forward, hit.normal, hit_y);
         // On peut poser dans l'air ou à la place d'un liquide (l'eau).
         let target = self.streamer().world().block(pos);
         let replaceable = target.is_air() || self.registry.def(target).liquid;
-        if hit.normal == IVec3::ZERO || !replaceable {
+        if !replaceable {
             return None;
         }
         if player::body(&self.ecs, self.player).overlaps_block(pos) || self.mob_overlaps(pos) {
@@ -1777,6 +1777,10 @@ impl VoxelGame {
 
     /// Une créature occupe-t-elle ce bloc ?
     fn mob_overlaps(&self, pos: IVec3) -> bool {
+        self.any_mob_body(|body| body.overlaps_block(pos))
+    }
+
+    fn any_mob_body(&self, predicate: impl Fn(&engine_voxel::PlayerBody) -> bool) -> bool {
         let mut overlap = false;
         self.ecs
             .query::<(&Transform, &Collider, &components::Mob)>()
@@ -1786,14 +1790,14 @@ impl VoxelGame {
                     collider.width,
                     collider.height,
                 );
-                overlap |= body.overlaps_block(pos);
+                overlap |= predicate(&body);
             });
         overlap
     }
 
     fn edit(&mut self, pos: IVec3, block: BlockId) -> bool {
         let old = self.streamer().world().block(pos);
-        let partner = engine_voxel::bed::partner(&self.registry, pos, old)
+        let partner = engine_voxel::paired_block::partner(&self.registry, pos, old)
             .filter(|&(p, expected)| old != block && self.streamer().world().block(p) == expected);
         // Un bloc à inventaire (coffre, four, machine de mod) lâche son contenu quand il change.
         let contents = if old != block {
@@ -1832,7 +1836,8 @@ impl VoxelGame {
             let harvest = self.registry.def(broken).tier == 0;
             self.drop_loot(p, broken, None, harvest);
             self.notify_edit(p);
-            if let Some((other, _)) = engine_voxel::bed::partner(&self.registry, p, broken) {
+            if let Some((other, _)) = engine_voxel::paired_block::partner(&self.registry, p, broken)
+            {
                 self.notify_edit(other);
             }
         }

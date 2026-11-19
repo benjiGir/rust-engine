@@ -173,7 +173,7 @@ impl BlockAccess for SubGrid {
         if old == block {
             return true;
         }
-        let other = crate::bed::partner(self.world.registry(), pos, old)
+        let other = crate::paired_block::partner(self.world.registry(), pos, old)
             .filter(|&(p, expected)| self.world.block(p) == expected);
         self.world.set_block(pos, block);
         // Un bloc remplacé perd son état actif, comme dans le monde.
@@ -348,7 +348,7 @@ pub fn extract(
 ) -> Result<GridId, AssemblyError> {
     let cells = connected_structure(streamer, seed, is_natural)?;
     if cells.iter().any(|&p| {
-        crate::bed::partner(streamer.world().registry(), p, streamer.world().block(p))
+        crate::paired_block::partner(streamer.world().registry(), p, streamer.world().block(p))
             .is_some_and(|(other, _)| !streamer.is_generated(World::split(other).0))
     }) {
         return Err(AssemblyError::NotLoaded);
@@ -459,7 +459,7 @@ pub fn land(streamer: &mut ChunkStreamer, grid: &SubGrid) -> Result<Vec<IVec3>, 
     let k = quarter_turns(grid.yaw);
     let mut placed = Vec::with_capacity(cells.len());
     for (local, target) in cells {
-        let block = crate::bed::turned(&registry, grid.block(local), k);
+        let block = crate::paired_block::turned(&registry, grid.block(local), k);
         if !streamer.set_block_quiet(target, block) {
             return Err(AssemblyError::NotLoaded);
         }

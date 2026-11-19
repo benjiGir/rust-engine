@@ -789,6 +789,42 @@ mod tests {
     }
 
     #[test]
+    fn wooden_and_iron_doors_can_be_crafted_and_glazed() {
+        let (_, items, recipes) = data();
+        let p = Some(id(&items, "core:birch_planks"));
+        let i = Some(id(&items, "core:iron_ingot"));
+        let c = Some(id(&items, "core:copper_ingot"));
+        let g = Some(id(&items, "core:glass"));
+        for (plain, glazed, grid) in [
+            (
+                "core:wooden_door",
+                "core:wooden_glass_door",
+                [p, p, None, p, p, None, p, p, None],
+            ),
+            (
+                "core:iron_door",
+                "core:iron_glass_door",
+                [i, i, None, i, c, None, i, i, None],
+            ),
+        ] {
+            let door = id(&items, plain);
+            assert_eq!(recipes.find(&grid, 3).unwrap().result(), (door, 1));
+            assert_eq!(
+                recipes
+                    .find(&[g, None, Some(door), None], 2)
+                    .unwrap()
+                    .result(),
+                (id(&items, glazed), 1),
+            );
+        }
+        let gate = [i, i, None, i, i, None, i, i, None];
+        assert_eq!(
+            recipes.find(&gate, 3).unwrap().result().0,
+            id(&items, "core:gate")
+        );
+    }
+
+    #[test]
     fn shapeless_recipes_ignore_position() {
         let (_, items, recipes) = data();
         let log = Some(id(&items, "core:spruce_log"));

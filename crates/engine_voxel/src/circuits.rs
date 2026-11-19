@@ -390,6 +390,7 @@ impl Piston {
             && !def.liquid
             && block != self.head
             && !crate::bed::is_part(registry, block)
+            && !crate::door::is_door(def)
             && ctx.block_entity(at).is_none()
     }
 

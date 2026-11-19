@@ -117,27 +117,6 @@ impl VoxelGame {
         true
     }
 
-    pub(crate) fn place_bed(&mut self, foot: IVec3, look: Vec3) -> Option<()> {
-        let parts = bed::placement(&self.registry, foot, look)?;
-        let body = player::body(&self.ecs, self.player);
-        if parts
-            .iter()
-            .any(|&(pos, _)| body.overlaps_block(pos) || self.mob_overlaps(pos))
-        {
-            return None;
-        }
-        let start = Instant::now();
-        let placed = self.streamer_mut().place_bed(foot, look)?;
-        self.frame_stats.record_edit(start.elapsed());
-        self.target = None;
-        let (pos, block) = placed[0];
-        crate::events::send(&self.ecs, crate::BlockPlaced { pos, block });
-        for (pos, _) in placed {
-            self.after_edit(pos);
-        }
-        Some(())
-    }
-
     /// Une créature hostile à moins de [`MONSTER_RADIUS`] blocs ?
     fn monster_nearby(&self, center: Vec3) -> bool {
         let registry = self

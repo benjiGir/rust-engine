@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result, bail, ensure};
 use glam::{IVec3, Vec3};
 use serde::Deserialize;
 
@@ -98,6 +98,8 @@ pub struct BlockDef {
     /// collision et la sélection. Vide pour un cube plein. Avec `connections`, ce sont
     /// les boîtes du segment d'inventaire ; `World::block_boxes` donne la forme en place.
     pub boxes: Vec<BlockBox>,
+    /// Indice de la boîte vitrée, incluse dans la collision du bloc.
+    pub glazing: Option<usize>,
     /// Géométries calculées depuis les voisins ; aucune variante enregistrée.
     pub connections: Option<Arc<crate::connections::ConnectedShape>>,
     /// Les états du bloc (orientation, moitié...), dans l'ordre déclaré. Chaque combinaison
@@ -265,6 +267,8 @@ pub enum StateKind {
     Half,
     /// Le grand axe : Y (debout), X ou Z (couché). Posé, il suit la face visée.
     Axis,
+    /// Pivote autour du montant nord-ouest. Les boîtes fermées ont une profondeur de 3/16.
+    DoorOpen,
 }
 
 /// Le sens d'un conduit à sens unique : la direction de son état d'orientation (`north` : -Z,
@@ -294,6 +298,7 @@ impl StateKind {
             Self::Facing4 | Self::Facing6 => "facing",
             Self::Half => "half",
             Self::Axis => "axis",
+            Self::DoorOpen => "open",
         }
     }
 
@@ -303,6 +308,7 @@ impl StateKind {
             Self::Facing6 => &["north", "east", "south", "west", "up", "down"],
             Self::Half => &["bottom", "top"],
             Self::Axis => &["y", "x", "z"],
+            Self::DoorOpen => &["false", "true"],
         }
     }
 
@@ -317,6 +323,7 @@ impl StateKind {
             (Self::Half, 1) => Vec3::new(c.x, -c.y, c.z),
             (Self::Axis, 1) => Vec3::new(c.y, c.x, c.z),
             (Self::Axis, 2) => Vec3::new(c.x, c.z, c.y),
+            (Self::DoorOpen, 1) => Vec3::new(-c.z - 13.0 / 16.0, c.y, c.x),
             _ => c,
         }
     }
@@ -461,6 +468,8 @@ struct BlockFileEntry {
     #[serde(default)]
     boxes: Vec<BoxEntry>,
     #[serde(default)]
+    glazing: Option<usize>,
+    #[serde(default)]
     connections: Option<crate::connections::ConnectionSize>,
     /// Les états : une variante du bloc par combinaison (voir [`StateKind`]).
     #[serde(default)]
@@ -553,6 +562,7 @@ impl BlockRegistry {
             gravity: false,
             xp: (0, 0),
             boxes: Vec::new(),
+            glazing: None,
             connections: None,
             states: Vec::new(),
             conduit: None,
@@ -777,6 +787,22 @@ impl BlockRegistry {
             } else {
                 parse_boxes(&entry, origin)?
             };
+            ensure!(
+                entry.glazing.is_none_or(|i| i < boxes.len()
+                    && connections.is_none()
+                    && entry.rail.is_none()),
+                "{origin} : « {} » : glazing doit désigner une boîte du modèle",
+                entry.id,
+            );
+            if entry.states.contains(&StateKind::DoorOpen) {
+                ensure!(
+                    entry.states == [StateKind::DoorOpen, StateKind::Facing4]
+                        && entry.rotation.is_none()
+                        && boxes.iter().all(|b| b.max.z <= 3.0 / 16.0),
+                    "{origin} : « {} » : DoorOpen exige [DoorOpen, Facing4] et des boîtes sur les 3 premiers seizièmes de Z",
+                    entry.id,
+                );
+            }
             if let Some(rotation) = &entry.rotation
                 && (boxes.is_empty()
                     || !rotation.speed.is_finite()
@@ -841,6 +867,7 @@ impl BlockRegistry {
                 gravity: entry.gravity,
                 xp: entry.xp,
                 boxes: boxes.clone(),
+                glazing: entry.glazing,
                 connections,
                 states: entry.states.clone(),
                 conduit: entry.conduit,
@@ -936,6 +963,9 @@ impl BlockRegistry {
                 .collect();
             def.flow = flow_of(&states, &values, template.directed);
             def.state_values = values;
+            if crate::door::is_open(&def) {
+                def.light_opacity = 0;
+            }
             if let Some(rotation) = &mut def.rotation {
                 let axis = states.iter().zip(&def.state_values).fold(
                     rotation.axis.vector(),
@@ -1043,6 +1073,7 @@ impl BlockRegistry {
                         0
                     }
                 }
+                StateKind::DoorOpen => 0,
             })
             .collect();
         self.variant(block, &values)
@@ -1348,8 +1379,8 @@ pub(crate) mod tests {
         assert!(!registry.is_solid(BlockId::AIR) && registry.is_transparent(BlockId::AIR));
         assert_eq!(
             registry.placeable().count(),
-            151,
-            "sans l'air, l'eau, la lave, le socle, l'inconnu, la lampe allumée et les états actifs"
+            155,
+            "quatre portes constructibles, les moitiés hautes et états ouverts restent internes ; huit minerais v3"
         );
         let water = registry.id("core:water").unwrap();
         assert!(registry.def(water).liquid && registry.is_translucent(water));

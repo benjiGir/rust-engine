@@ -149,6 +149,7 @@ impl HandInstance {
             * glam::Mat4::from_translation(Vec3::from_array(part.center))
             * glam::Mat4::from_scale(Vec3::from_array(part.size));
         Self {
+            color: [part.color[0], part.color[1], part.color[2], part.opacity],
             textures: part.textures,
             cutout: part.cutout,
             uv_min: part.uv_min,
@@ -339,11 +340,13 @@ pub struct Renderer {
     translucent_cubes: wgpu::RenderPipeline,
     opaque_instances: u32,
     hand_pipeline: wgpu::RenderPipeline,
+    translucent_hand: wgpu::RenderPipeline,
     hand_buffer: wgpu::Buffer,
     hand_uniform: wgpu::Buffer,
     hand_bind_group: wgpu::BindGroup,
     hand_capacity: usize,
     hand_count: u32,
+    opaque_hand_count: u32,
     /// La lumière (ciel, blocs) à la position du joueur, pour éclairer le bras.
     hand_light: [f32; 2],
     /// Le champ de vision du bras, en degrés : fixe, pour que le bras garde sa forme
@@ -571,14 +574,25 @@ impl Renderer {
                 ],
             }),
         ];
+        let hand_shader = device.create_shader_module(wgpu::include_wgsl!("hand.wgsl"));
+        let hand_groups = [Some(&camera_layout), Some(&texture_layout)];
         let hand_pipeline = create_pipeline(
             &device,
-            &[Some(&camera_layout), Some(&texture_layout)],
+            &hand_groups,
             format,
-            &device.create_shader_module(wgpu::include_wgsl!("hand.wgsl")),
+            &hand_shader,
             &hand_layouts,
             "hand",
             false,
+        );
+        let translucent_hand = create_pipeline(
+            &device,
+            &hand_groups,
+            format,
+            &hand_shader,
+            &hand_layouts,
+            "translucent hand",
+            true,
         );
         let hand_capacity = 512;
         let hand_buffer = create_hand_buffer(&device, hand_capacity);
@@ -626,11 +640,13 @@ impl Renderer {
             translucent_cubes,
             opaque_instances: 0,
             hand_pipeline,
+            translucent_hand,
             hand_buffer,
             hand_uniform,
             hand_bind_group,
             hand_capacity,
             hand_count: 0,
+            opaque_hand_count: 0,
             hand_light: [1.0, 0.0],
             hand_fov: 70.0,
             clear_color: wgpu::Color {
@@ -738,8 +754,20 @@ impl Renderer {
             self.hand_capacity = parts.len().next_power_of_two();
             self.hand_buffer = create_hand_buffer(&self.device, self.hand_capacity);
         }
-        self.queue
-            .write_buffer(&self.hand_buffer, 0, bytemuck::cast_slice(parts));
+        self.opaque_hand_count = parts.iter().filter(|p| p.color[3] == 1.0).count() as u32;
+        if self.opaque_hand_count as usize == parts.len() {
+            self.queue
+                .write_buffer(&self.hand_buffer, 0, bytemuck::cast_slice(parts));
+        } else {
+            let ordered: Vec<_> = parts
+                .iter()
+                .filter(|p| p.color[3] == 1.0)
+                .chain(parts.iter().filter(|p| p.color[3] < 1.0))
+                .copied()
+                .collect();
+            self.queue
+                .write_buffer(&self.hand_buffer, 0, bytemuck::cast_slice(&ordered));
+        }
         self.hand_count = parts.len() as u32;
         self.hand_light = light;
     }
@@ -1243,7 +1271,15 @@ impl Renderer {
             pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             pass.set_vertex_buffer(1, self.hand_buffer.slice(..));
             pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            pass.draw_indexed(0..self.index_count, 0, 0..self.hand_count);
+            pass.draw_indexed(0..self.index_count, 0, 0..self.opaque_hand_count);
+            if self.opaque_hand_count < self.hand_count {
+                pass.set_pipeline(&self.translucent_hand);
+                pass.draw_indexed(
+                    0..self.index_count,
+                    0,
+                    self.opaque_hand_count..self.hand_count,
+                );
+            }
         }
 
         // L'interface egui, dans sa propre passe, par-dessus tout (sans profondeur).

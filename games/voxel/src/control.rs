@@ -819,9 +819,14 @@ impl VoxelGame {
                 if engine_voxel::bed::is_part(&self.registry, block) {
                     bail!("place : utiliser core:bed pour poser le lit entier");
                 }
-                if self.registry.def(block).key == engine_voxel::bed::ITEM {
-                    self.place_bed(pos, self.camera.forward())
-                        .context("place : le lit exige deux cases libres avec un sol")?;
+                if engine_voxel::door::is_door(self.registry.def(block))
+                    && !self.registry.def(block).placeable
+                {
+                    bail!("place : utiliser l'objet de porte pour poser les deux moitiés");
+                }
+                if let Some(parts) = self.paired_placement(pos, block, self.camera.forward()) {
+                    self.place_pair(parts)
+                        .context("place : deux cases libres avec un support sont nécessaires")?;
                 } else if !self.edit(pos, block) {
                     bail!("place : {} est hors du monde chargé", ivec3(pos));
                 }
@@ -1138,6 +1143,9 @@ impl VoxelGame {
                     return Ok(ok());
                 }
                 let hit = self.aimed()?;
+                if self.use_door(hit.block_pos) {
+                    return Ok(ok());
+                }
                 if self.use_bed(hit.block_pos) {
                     return Ok(self.state_json());
                 }

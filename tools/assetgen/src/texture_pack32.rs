@@ -114,6 +114,7 @@ fn refine(source: &[Pixel], name: &str, item: bool) -> Vec<Pixel> {
     } else {
         crate::creature_skins::draw(name, 32)
             .map(draw::Canvas)
+            .or_else(|| crate::doors::draw(name, 32).map(draw::Canvas))
             .or_else(|| terrain::draw(source, name))
             .or_else(|| wood::draw(name))
             .or_else(|| fixtures::draw(name))

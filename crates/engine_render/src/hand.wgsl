@@ -91,5 +91,5 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // Un relief simple : une lumière qui vient d'en haut à gauche, dans la vue.
     let facing = max(dot(in.normal, normalize(vec3<f32>(-0.4, 0.8, 0.45))), 0.0);
     let lit = albedo.rgb * (max(sky, torch) + 0.04) * (0.55 + 0.45 * facing);
-    return vec4<f32>(lit, 1.0);
+    return vec4<f32>(lit, albedo.a);
 }

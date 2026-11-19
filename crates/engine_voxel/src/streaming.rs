@@ -684,20 +684,40 @@ impl ChunkStreamer {
 
     /// Pose les deux moitiés ensemble, même si elles sont dans des chunks différents.
     pub fn place_bed(&mut self, foot: IVec3, look: Vec3) -> Option<[(IVec3, BlockId); 2]> {
+        let parts = crate::bed::placement(self.world.registry(), foot, look)?;
+        self.place_pair(parts).then_some(parts)
+    }
+
+    pub fn place_pair(&mut self, parts: [(IVec3, BlockId); 2]) -> bool {
         let registry = self.world.registry();
-        let parts = crate::bed::placement(registry, foot, look)?;
+        if crate::paired_block::partner(registry, parts[0].0, parts[0].1) != Some(parts[1]) {
+            return false;
+        }
         if parts.iter().any(|&(pos, block)| {
             let old = self.world.block(pos);
             !self.can_edit_cell(pos)
                 || !(old.is_air() || registry.def(old).liquid)
                 || !crate::is_supported(self, registry, pos, registry.def(block).support)
         }) {
-            return None;
+            return false;
         }
         for (pos, block) in parts {
             self.change_cell(pos, block, true);
         }
-        Some(parts)
+        true
+    }
+
+    pub fn toggle_door(&mut self, pos: IVec3) -> bool {
+        let Some(parts) = crate::door::toggled(&self.world, pos) else {
+            return false;
+        };
+        if parts.iter().any(|&(p, _)| !self.can_edit_cell(p)) {
+            return false;
+        }
+        for (p, block) in parts {
+            self.change_cell(p, block, true);
+        }
+        true
     }
 
     fn can_edit_cell(&self, pos: IVec3) -> bool {
@@ -715,7 +735,9 @@ impl ChunkStreamer {
         if old == block {
             return true;
         }
-        if let Some((other, expected)) = crate::bed::partner(self.world.registry(), pos, old) {
+        if let Some((other, expected)) =
+            crate::paired_block::partner(self.world.registry(), pos, old)
+        {
             // Attendre le chunk voisin évite de laisser une moitié dans une sauvegarde.
             if !self.can_edit_cell(other) {
                 return false;
@@ -1786,6 +1808,60 @@ pub(crate) mod tests {
             })
             .collect();
         assert_eq!(positions, [IVec3::new(0, 1, 0), IVec3::new(1, 1, 0)]);
+    }
+
+    #[test]
+    fn doors_place_toggle_and_break_as_a_pair_across_a_vertical_chunk_border() {
+        let mut s = streamer();
+        let bottom = IVec3::new(5, 127, 5);
+        let top = bottom + IVec3::Y;
+        let registry = s.world().registry().clone();
+        let rock = registry.id("core:cobblestone").unwrap();
+        let door = registry.id("core:wooden_glass_door").unwrap();
+        let parts = crate::door::placement(&registry, door, bottom, Vec3::Z).unwrap();
+        s.slots
+            .insert(World::split(bottom).0, Slot::Generated(MeshState::Missing));
+        s.set_block_quiet(bottom - IVec3::Y, rock);
+        assert!(!s.place_pair(parts));
+        assert!(s.world.block(bottom).is_air());
+        s.slots
+            .insert(World::split(top).0, Slot::Generated(MeshState::Missing));
+        s.set_block_quiet(top, rock);
+        assert!(!s.place_pair(parts));
+        assert!(s.world.block(bottom).is_air());
+        s.set_block_quiet(top, BlockId::AIR);
+        assert!(s.place_pair(parts));
+
+        let origin = top.as_vec3() + Vec3::new(0.5, 0.5, -1.0);
+        assert_eq!(
+            crate::raycast(s.world(), origin, Vec3::Z, 2.0)
+                .unwrap()
+                .block_pos,
+            top
+        );
+        let mesh = crate::mesh_binary(s.world(), World::split(top).0);
+        assert!(!mesh.indices.is_empty() && !mesh.translucent_indices.is_empty());
+        assert!(s.toggle_door(top));
+        for (p, _) in parts {
+            assert!(crate::door::is_open(registry.def(s.world.block(p))));
+            assert_eq!(registry.light_opacity(s.world.block(p)), 0);
+        }
+        assert!(crate::raycast(s.world(), origin, Vec3::Z, 2.0).is_none());
+        assert!(s.toggle_door(bottom));
+        assert_eq!(parts.map(|(p, _)| s.world.block(p)), parts.map(|(_, b)| b));
+        let items = crate::ItemRegistry::builtin(&registry).unwrap();
+        assert_eq!(
+            items.of_block(s.world.block(top)),
+            items.id("core:wooden_glass_door")
+        );
+        assert!(s.set_block(top, BlockId::AIR));
+        assert!(s.world.block(bottom).is_air() && s.world.block(top).is_air());
+        assert!(s.place_pair(parts));
+        let floor = bottom - IVec3::Y;
+        assert!(s.set_block(floor, BlockId::AIR));
+        let settled = crate::settle(&mut s, floor);
+        assert_eq!(settled.broken, vec![parts[0]]);
+        assert!(s.world.block(bottom).is_air() && s.world.block(top).is_air());
     }
 
     #[test]

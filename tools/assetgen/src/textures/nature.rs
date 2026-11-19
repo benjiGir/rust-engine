@@ -1,6 +1,33 @@
 //! Matières périodiques, cernes et fibres sans cadre systématique au bord des blocs.
 use super::{Image, SIZE, STONE, periodic_noise, scale, seamless_ground, texel_hash};
 
+pub(super) fn stone() -> Image {
+    let base = [0.51, 0.52, 0.53];
+    let mut image = Image::filled(base);
+    let period = SIZE - 1;
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let u = (x % period) as f32 / period as f32;
+            let v = (y % period) as f32 / period as f32;
+            // Deux grains, dont l'un suit les plans obliques de la roche.
+            let grain = periodic_noise(u * 7.0, v * 7.0, 7, 1831);
+            let layer = periodic_noise((u + v) * 5.0, v * 10.0, 5, 1832);
+            let mineral = periodic_noise(u * 11.0, v * 11.0, 11, 1833);
+            let shade = 0.99 + (grain - 0.5) * 0.19 + (layer - 0.5) * 0.16;
+            let mut color = scale(base, shade);
+            if mineral > 0.68 && layer > 0.47 {
+                color[0] += 0.044;
+                color[1] += 0.036;
+                color[2] += 0.018;
+            } else if mineral < 0.30 && layer < 0.55 {
+                color = scale(color, 0.88);
+            }
+            image.set(x, y, color);
+        }
+    }
+    image
+}
+
 pub(super) fn mineral(kind: &str) -> Image {
     let (base, seed, contrast) = match kind {
         "stone" => ([0.48, 0.53, 0.54], 608, 0.13),
