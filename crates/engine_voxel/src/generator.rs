@@ -671,7 +671,8 @@ impl TerrainGenerator {
             return self.column_v2(gx * STEP, gz * STEP);
         }
         if self.v3.is_some() {
-            return self.column_v3(gx * STEP, gz * STEP);
+            // Le terrain lointain : une recherche sur la seule verticale, sans contexte de colonne.
+            return self.column_far_v3(gx * STEP, gz * STEP);
         }
         self.interpret(self.fields(gx, gz))
     }

@@ -694,6 +694,10 @@ impl<'a> Eval<'a> {
                     Binary::Mul if a == 0.0 => 0.0,
                     Binary::Mul => a * self.eval(*b, x, y, z),
                     Binary::Add => a + self.eval(*b, x, y, z),
+                    // Les bornes de l'autre côté suffisent parfois : au-dessus du sol, la densité est
+                    // déjà plus basse que toute grotte, inutile de calculer les grottes.
+                    Binary::Min if a <= graph.bounds[*b as usize].0 => a,
+                    Binary::Max if a >= graph.bounds[*b as usize].1 => a,
                     Binary::Min => a.min(self.eval(*b, x, y, z)),
                     Binary::Max => a.max(self.eval(*b, x, y, z)),
                 }

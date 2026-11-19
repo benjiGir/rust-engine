@@ -259,3 +259,57 @@ cache neuf ; un monde v3 chargé, éclairé et maillé par le vrai streamer, app
 - Structures (villages, ruines...) : pas encore posées en v3.
 - Terrain lointain v3 (lot 6) : une tuile lointaine ne tient qu'environ 110 blocs de dénivelé au niveau le plus fin ; les
   massifs v3 dépassent, d'où des artefacts à l'horizon.
+
+## Statut du lot 3 : grottes et aquifères (à valider sur coupes)
+
+### Grottes (dans la densité, `terrain_v3.ron`)
+
+- **Salles** (« fromage ») : un bruit 3D aplati verticalement, rangé en étages par un bruit de couche ; **tunnels**
+  (« spaghetti ») : là où deux bruits sont tous deux proches de zéro, d'épaisseur variable ; **réseaux fins**
+  (« nouilles ») : le même principe, plus fin, seulement par endroits.
+- **Croûte** : pas de grotte à moins d'une dizaine de blocs du sol (la densité du relief sert de garde), sauf aux
+  **entrées** : des tunnels peuvent alors déboucher, mais jamais sous la mer, sur les côtes basses ni au fond des vallées
+  (l'eau s'y engouffrerait). Sous un fond de mer, la croûte tient toujours.
+- Environ 8 à 13 % du sous-sol est creusé (mesuré sur plusieurs colonnes), plus que la v1 qui n'avait pas de monde sous 0.
+
+### Nappes et lave (dans `generator/v3.rs`)
+
+Les aquifères à cellules 3D, à la Minecraft, ont été essayés et écartés : leurs barrières laissaient des éclats de roche
+suspendus et de l'eau en cuvettes au milieu des grandes salles. À la place :
+
+- **Régions de nappe** de 96 × 96 blocs : un niveau d'eau plat par région (un bruit lu au centre de la région, toujours une
+  vingtaine de blocs sous la surface, ou région sèche). Tout le vide souterrain sous ce niveau est noyé : la surface
+  d'un lac souterrain est plate, et l'eau ne repose jamais sur du vide.
+- **Barrages** : à la frontière de deux régions de niveaux différents, une paroi de roche de 3 blocs retient l'eau.
+- **Lave** : le vide des 20 derniers blocs au-dessus du socle (y < -108).
+- La mer ne remplit que ce qui est à l'air libre sous y = 62 ; les grottes ne sont jamais noyées par elle.
+
+### Corrections trouvées en route
+
+- **Matériaux de surface** : ils ne vont plus qu'au sol du dessus, plein sans interruption depuis le haut de la colonne.
+  Avant, l'herbe posée sur les plafonds et planchers de grottes proches de la surface redevenait de la terre dans le noir
+  sous les ticks aléatoires, et le monde se remaillait sans fin (chargement de 69 s au lieu de 8).
+- **Froid** : la température d'une colonne suit la même règle que `plants::is_cold` (la neige des ticks aléatoires) ;
+  sinon la génération et le jeu se contredisaient sur les montagnes.
+- **Terrain lointain** : `column_at_grid_point` cherche la surface sur la seule verticale (49 points, sans grottes) au lieu
+  de construire un contexte de colonne complet (et d'évincer ceux dont les chunks ont besoin). Test : 90 % des points à
+  3 blocs près de la vraie hauteur, aucun à plus de 24.
+- **Moteur de densité** : `Min` et `Max` s'arrêtent dès que les bornes de l'autre côté ne peuvent plus changer le
+  résultat (au-dessus du sol, les grottes ne sont plus calculées) ; la pente est gardée par position (`CacheOnce`).
+
+### Tests (`tests/generation_v3.rs`, 3 nouveaux)
+
+Sous-sol creusé de 3 à 25 %, avec des grottes sèches et des nappes ; aucune eau ni lave au-dessus du vide ; aucun vide
+dans les 6 blocs sous un fond de mer ; lave seulement au fond ; peu de niveaux d'eau par chunk (nappes plates) ; terrain
+lointain proche de la vraie surface.
+
+### Mesures
+
+- Génération : 7,0 ms par colonne de 12 couches (3,9 ms sans grottes, 2,0 ms pour les 6 couches de v1).
+- Banc v3 à rayon 16 : chargement de 3,4 à 7,7 s par trajet (v1 : 2 à 7 s), CPU médian 0,5 à 1,3 ms, p99 1,7 à 2,8 ms.
+
+### Limites
+
+- Les grottes n'ont pas encore de décor (biomes de grotte, stalactites, végétation) : lot 4 et vague 4 du lot 5.
+- Les barrages sont des parois droites ; l'eau ne coule pas à la génération (elle est figée jusqu'à une modification).
+- Pas de ravins.

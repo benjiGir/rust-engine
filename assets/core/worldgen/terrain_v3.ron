@@ -24,6 +24,19 @@
         "jagged": (first_octave: -5, amplitudes: [1.0, 1.0, 1.0, 1.0, 1.0]),
         // Le bruit 3D : bosses, surplombs et falaises là où le relief le permet.
         "base_3d": (first_octave: -7, amplitudes: [1.0, 1.0, 1.0, 1.0]),
+        // Les grottes (lot 3) : grandes salles (« fromage »), tunnels (« spaghetti »), réseaux fins
+        // (« nouilles »), et les zones où des tunnels peuvent déboucher à la surface.
+        "cave_cheese": (first_octave: -8, amplitudes: [1.0, 1.0, 1.0, 0.5, 0.25]),
+        "cave_layer": (first_octave: -8, amplitudes: [1.0]),
+        "spaghetti_a": (first_octave: -7, amplitudes: [1.0, 0.5]),
+        "spaghetti_b": (first_octave: -7, amplitudes: [1.0, 0.5]),
+        "spaghetti_size": (first_octave: -9, amplitudes: [1.0]),
+        "noodle_a": (first_octave: -6, amplitudes: [1.0]),
+        "noodle_b": (first_octave: -6, amplitudes: [1.0]),
+        "noodle_toggle": (first_octave: -8, amplitudes: [1.0, 1.0]),
+        "entrance": (first_octave: -8, amplitudes: [0.4, 0.5, 1.0]),
+        // La nappe phréatique : un niveau d'eau souterrain qui varie doucement d'une région à l'autre.
+        "water_table": (first_octave: -9, amplitudes: [1.0, 1.0, 0.5]),
     },
     functions: {
         "shift_x": FlatCache(Cache2d(Mul(Noise(noise: "shift", xz_scale: 1.0, y_scale: 0.0), Constant(16.0)))),
@@ -115,13 +128,49 @@
 
         "depth": Add(YClampedGradient(from_y: -128, to_y: 256, from_value: 1.5, to_value: -1.5), Ref("offset")),
         "jagged": Mul(Ref("jaggedness"), HalfNegative(Noise(noise: "jagged", xz_scale: 1.0, y_scale: 0.0))),
-        "sloped": Add(
+        // Gardée par position : la croûte et les grottes la relisent.
+        "sloped": CacheOnce(Add(
             Mul(Constant(4.0), QuarterNegative(Mul(Add(Ref("depth"), Ref("jagged")), Ref("factor")))),
             Mul(Noise(noise: "base_3d", xz_scale: 1.0, y_scale: 0.5), Constant(0.35)),
+        )),
+        // Les grottes : négatives dans le vide.
+        // Les grandes salles, rangées en étages (le bruit de couche les sépare verticalement).
+        "cheese": Add(
+            Add(Constant(0.30), Mul(Noise(noise: "cave_cheese", xz_scale: 1.0, y_scale: 1.6), Constant(-1.0))),
+            Mul(Square(Noise(noise: "cave_layer", xz_scale: 1.0, y_scale: 6.0)), Constant(1.5)),
         ),
+        // Les tunnels : là où deux bruits sont tous deux proches de zéro, une épaisseur variable.
+        "spaghetti": Add(
+            Max(Abs(Noise(noise: "spaghetti_a", xz_scale: 1.0, y_scale: 1.5)),
+                Abs(Noise(noise: "spaghetti_b", xz_scale: 1.0, y_scale: 1.5))),
+            Mul(Add(Constant(0.07), Mul(Noise(noise: "spaghetti_size", xz_scale: 1.0, y_scale: 1.0), Constant(0.03))), Constant(-1.0)),
+        ),
+        // Les réseaux fins, seulement par endroits.
+        "noodle": RangeChoice(
+            input: Noise(noise: "noodle_toggle", xz_scale: 1.0, y_scale: 1.0),
+            min_inclusive: 0.0, max_exclusive: 10.0,
+            when_in_range: Add(
+                Max(Abs(Noise(noise: "noodle_a", xz_scale: 1.0, y_scale: 1.0)),
+                    Abs(Noise(noise: "noodle_b", xz_scale: 1.0, y_scale: 1.0))),
+                Constant(-0.045)),
+            when_out_of_range: Constant(1.0),
+        ),
+        // Le niveau de la nappe, en blocs : de -110 (régions sèches) à -5 environ.
+        "water_table": FlatCache(Add(Constant(-60.0), Mul(Noise(noise: "water_table", xz_scale: 1.0, y_scale: 0.0), Constant(55.0)))),
+        "caves": Min(Ref("cheese"), Min(Ref("spaghetti"), Ref("noodle"))),
+        // Une croûte protège la surface (et le fond des mers) : pas de grotte à moins d'une dizaine
+        // de blocs du sol, sauf aux entrées.
+        "guard": Add(Constant(1.2), Mul(Ref("sloped"), Constant(-1.0))),
+        // Pas d'entrée sous la mer, sur les côtes basses ni au fond des vallées (l'eau s'y engouffrerait).
+        "low_ground": FlatCache(Max(Constant(0.0), Mul(Add(Ref("offset"), Constant(-0.03)), Constant(-60.0)))),
+        "entrances": Max(
+            Add(Add(Constant(0.8), Mul(Noise(noise: "entrance", xz_scale: 1.0, y_scale: 1.0), Constant(-2.5))), Ref("low_ground")),
+            Ref("spaghetti"),
+        ),
+        "carved": Min(Ref("sloped"), Min(Max(Ref("guard"), Ref("caves")), Ref("entrances"))),
         // Le haut du monde se vide, le bas reste plein.
         "slides": Min(
-            Max(Ref("sloped"), YClampedGradient(from_y: -128, to_y: -112, from_value: 2.0, to_value: -4.0)),
+            Max(Ref("carved"), YClampedGradient(from_y: -128, to_y: -112, from_value: 2.0, to_value: -4.0)),
             YClampedGradient(from_y: 232, to_y: 256, from_value: 4.0, to_value: -2.0),
         ),
         "final": Interpolated(Ref("slides")),

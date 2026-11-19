@@ -45,6 +45,9 @@ pub(super) struct V3State {
     pv: NodeId,
     temperature: NodeId,
     humidity: NodeId,
+    water_table: NodeId,
+    offset: NodeId,
+    sloped: NodeId,
     contexts: ColumnCache<V3Column>,
 }
 
@@ -71,6 +74,9 @@ impl V3State {
             pv: id("pv")?,
             temperature: id("temperature")?,
             humidity: id("humidity")?,
+            water_table: id("water_table")?,
+            offset: id("offset")?,
+            sloped: id("sloped")?,
             graph,
             contexts: ColumnCache::with_limit(CONTEXT_LIMIT),
         })
@@ -109,6 +115,9 @@ pub(super) struct V3Column {
     pub(super) columns: Box<[[Column; CHUNK_SIZE]; CHUNK_SIZE]>,
     /// Les biomes (x + 32 z), comme `Chunk::set_biomes` les attend.
     pub(super) biomes: Vec<u8>,
+    /// La nappe de chaque colonne (x + 32 z) : son niveau (le vide souterrain plus bas est noyé) et le
+    /// haut du barrage de roche qui sépare deux régions de niveaux différents (`i32::MIN` : aucun).
+    water_table: Vec<(i32, i32)>,
 }
 
 impl V3Column {
@@ -201,6 +210,7 @@ impl TerrainGenerator {
             max_y: BOTTOM - 1,
             columns: Box::new([[Column::default(); CHUNK_SIZE]; CHUNK_SIZE]),
             biomes: vec![0; CHUNK_SIZE * CHUNK_SIZE],
+            water_table: vec![(i32::MIN, i32::MIN); CHUNK_SIZE * CHUNK_SIZE],
         };
         // Les paramètres climatiques sur la grille de 4 blocs (ils ne varient guère plus vite).
         let climate: Vec<(f64, f64, f64, f64, f64)> = {
@@ -234,19 +244,24 @@ impl TerrainGenerator {
                 .collect()
         };
         let mut max_y = BOTTOM - 1;
+        let mut regions = std::collections::HashMap::new();
         for lz in 0..SIZE {
             for lx in 0..SIZE {
                 let height = ctx.top(lx, lz, highest);
                 max_y = max_y.max(height);
                 let (c, e, pv, t, h) =
                     climate[(lx / CELL_WIDTH) as usize + CX * (lz / CELL_WIDTH) as usize];
+                let table = self.v3_water_table(&mut regions, x0 + lx, z0 + lz);
+                ctx.water_table[lx as usize + lz as usize * CHUNK_SIZE] = table;
                 let biome = self.v3_biome(height, c, e, pv, t, h);
                 // Il fait plus froid en altitude : la neige descend des sommets.
-                let altitude = (height - (SEA_LEVEL + 60)).max(0) as f32;
+                // Même règle que `plants::is_cold` (la neige que posent les ticks aléatoires) : sinon la
+                // génération et le jeu se contrediraient et l'herbe changerait sans fin.
+                let altitude = (height - (SEA_LEVEL + 40)).max(0) as f32;
                 ctx.columns[lx as usize][lz as usize] = Column {
                     height,
                     biome,
-                    temperature: self.biomes.get(biome).temperature - altitude * 0.010,
+                    temperature: self.biomes.get(biome).temperature - altitude * 0.012,
                     climate_temperature: t as f32,
                 };
                 ctx.biomes[lx as usize + lz as usize * CHUNK_SIZE] = biome.0;
@@ -290,6 +305,51 @@ impl TerrainGenerator {
         ctx.columns[x.rem_euclid(SIZE) as usize][z.rem_euclid(SIZE) as usize]
     }
 
+    /// Une colonne approchée pour le terrain lointain : la surface est cherchée sur la seule verticale
+    /// (x, z), tous les 8 blocs puis par interpolation, dans la densité sans grottes ; le biome vient des
+    /// paramètres du point. Bien moins cher qu'un contexte de colonne de chunks (qui calcule aussi les
+    /// grottes de 81 verticales), et sans évincer du cache les contextes dont les chunks ont besoin.
+    pub(super) fn column_far_v3(&self, x: i32, z: i32) -> Column {
+        let state = self.v3_state();
+        let positions = (0..CY as i32)
+            .rev()
+            .map(|j| IVec3::new(x, BOTTOM + j * CELL_HEIGHT, z));
+        let values = state.graph.sample_many(state.sloped, positions);
+        let mut height = BOTTOM;
+        for (k, pair) in values.windows(2).enumerate() {
+            let (above, below) = (pair[0], pair[1]);
+            if below > 0.0 {
+                let y_above = BOTTOM + (CY as i32 - 1 - k as i32) * CELL_HEIGHT;
+                // Le zéro entre les deux niveaux, en ligne droite.
+                let t = if above < 0.0 {
+                    below / (below - above)
+                } else {
+                    1.0
+                };
+                height = y_above - CELL_HEIGHT + (t * CELL_HEIGHT as f64).floor() as i32;
+                break;
+            }
+        }
+        let p = state.parameters(x, z);
+        let biome = self.v3_biome(
+            height,
+            p.continentalness,
+            p.erosion,
+            p.pv,
+            p.temperature,
+            p.humidity,
+        );
+        // Même règle que `plants::is_cold` (la neige que posent les ticks aléatoires) : sinon la
+        // génération et le jeu se contrediraient et l'herbe changerait sans fin.
+        let altitude = (height - (SEA_LEVEL + 40)).max(0) as f32;
+        Column {
+            height,
+            biome,
+            temperature: self.biomes.get(biome).temperature - altitude * 0.012,
+            climate_temperature: p.temperature as f32,
+        }
+    }
+
     /// Un chunk de la génération v3.
     pub(super) fn generate_v3(&self, chunk_pos: IVec3) -> Option<Chunk> {
         if !self.chunk_range().contains(&chunk_pos.y) {
@@ -318,6 +378,7 @@ impl TerrainGenerator {
                 let column = ctx.columns[lx as usize][lz as usize];
                 let biome = self.biomes.get(column.biome);
                 let frozen = column.temperature < FREEZING;
+                let (table, dam) = ctx.water_table[lx as usize + lz as usize * CHUNK_SIZE];
                 // Combien de blocs pleins d'affilée au-dessus (jusqu'à l'air ou l'eau) : la surface,
                 // puis la sous-couche, puis la roche. On part du haut du chunk.
                 let mut solid_above = {
@@ -340,6 +401,11 @@ impl TerrainGenerator {
                     } else if solid {
                         let depth = solid_above;
                         solid_above += 1;
+                        // Les matériaux de surface ne vont qu'au sol du dessus, plein sans interruption
+                        // depuis le haut de la colonne : le plancher et le plafond d'une grotte restent
+                        // en roche (de l'herbe dans le noir redeviendrait de la terre, bloc après bloc,
+                        // et ferait remailler sans fin).
+                        let near_top = column.height - y == depth;
                         Some(if y < 0 {
                             // La pierre profonde, avec une frontière irrégulière vers 0.
                             let jitter = (hash3(self.seed, x, y, z, 2) % 8) as i32;
@@ -348,6 +414,8 @@ impl TerrainGenerator {
                             } else {
                                 b.stone
                             }
+                        } else if !near_top {
+                            b.stone
                         } else if depth == 0 {
                             if y < SEA_LEVEL {
                                 biome.underwater
@@ -365,6 +433,22 @@ impl TerrainGenerator {
                         } else {
                             b.stone
                         })
+                    } else if y < column.height {
+                        // Sous la surface : une grotte, dont l'eau (ou la lave) vient de l'aquifère.
+                        if y < LAVA_TOP {
+                            solid_above = 0;
+                            Some(b.lava)
+                        } else if y < dam {
+                            // Le barrage entre deux nappes : de la roche.
+                            solid_above += 1;
+                            Some(b.stone)
+                        } else if y < table {
+                            solid_above = 0;
+                            Some(b.water)
+                        } else {
+                            solid_above = 0;
+                            None
+                        }
                     } else {
                         solid_above = 0;
                         (y <= SEA_LEVEL).then_some(if y == SEA_LEVEL && frozen {
@@ -381,8 +465,70 @@ impl TerrainGenerator {
         }
     }
 
+    /// Le niveau d'une région de nappe : la nappe au centre de la région, toujours une vingtaine de
+    /// blocs sous la surface approchée ; `i32::MIN` si la région est sèche.
+    fn v3_region_level(&self, region: (i32, i32)) -> (i32, i32, i32) {
+        let h = |salt: u64| hash3(self.seed, region.0, 0, region.1, salt);
+        let center = (
+            region.0 * REGION + 16 + (h(80) % (REGION as u64 - 32)) as i32,
+            region.1 * REGION + 16 + (h(81) % (REGION as u64 - 32)) as i32,
+        );
+        let state = self.v3_state();
+        let table = state.graph.sample(state.water_table, center.0, 0, center.1);
+        let ground = self.v3_preliminary_surface(center.0, center.1);
+        let level = (table.round() as i32).min(ground - 20);
+        let level = if level < BOTTOM + 30 { i32::MIN } else { level };
+        (center.0, center.1, level)
+    }
+
+    /// La surface sans le bruit 3D : là où la pente verticale et le décalage s'annulent.
+    fn v3_preliminary_surface(&self, x: i32, z: i32) -> i32 {
+        let state = self.v3_state();
+        64 + (128.0 * state.graph.sample(state.offset, x, 0, z)).round() as i32
+    }
+
+    /// La nappe de la colonne (x, z) : le niveau de la région la plus proche, et le haut d'un barrage
+    /// si la colonne est à la frontière de deux régions de niveaux différents.
+    fn v3_water_table(
+        &self,
+        regions: &mut std::collections::HashMap<(i32, i32), (i32, i32, i32)>,
+        x: i32,
+        z: i32,
+    ) -> (i32, i32) {
+        let home = (x.div_euclid(REGION), z.div_euclid(REGION));
+        let (mut first, mut second) = ((f32::MAX, i32::MIN), (f32::MAX, i32::MIN));
+        for dz in -1..=1 {
+            for dx in -1..=1 {
+                let key = (home.0 + dx, home.1 + dz);
+                let (cx, cz, level) = *regions
+                    .entry(key)
+                    .or_insert_with(|| self.v3_region_level(key));
+                let d = (((cx - x) * (cx - x) + (cz - z) * (cz - z)) as f32).sqrt();
+                if d < first.0 {
+                    second = first;
+                    first = (d, level);
+                } else if d < second.0 {
+                    second = (d, level);
+                }
+            }
+        }
+        let dam = if first.1 != second.1 && second.0 - first.0 < DAM_WIDTH {
+            first.1.max(second.1)
+        } else {
+            i32::MIN
+        };
+        (first.1, dam)
+    }
+
     /// Les paramètres climatiques v3 en (x, z) ; `None` hors de la génération v3.
     pub fn v3_parameters(&self, x: i32, z: i32) -> Option<V3Parameters> {
         Some(self.v3.as_ref()?.parameters(x, z))
     }
 }
+
+/// Sous ce niveau, le vide souterrain est de la lave (le fond du monde).
+const LAVA_TOP: i32 = BOTTOM + 20;
+/// La taille d'une région de nappe (en blocs) : le niveau d'eau y est plat.
+const REGION: i32 = 96;
+/// L'épaisseur d'un barrage entre deux régions de nappe (écart de distance aux deux centres).
+const DAM_WIDTH: f32 = 3.0;

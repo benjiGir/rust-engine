@@ -118,20 +118,126 @@ fn valley_floors_inland_are_below_the_sea_so_rivers_cannot_be_perched() {
     );
 }
 
-#[test]
-fn the_underground_is_solid_rock_until_caves_arrive() {
-    let g = v3(42);
-    let deepstone = g.registry().id("core:deepstone").unwrap();
-    for (cx, cz) in [(0, 0), (12, -30)] {
-        for cy in [MIN_CHUNK_Y, -2] {
-            let chunk = g.generate(IVec3::new(cx, cy, cz)).expect("plein");
-            assert!(
-                chunk.blocks().iter().all(|b| !b.is_air()),
-                "trou dans le chunk {cx} {cy} {cz}"
-            );
-            assert!(chunk.blocks().contains(&deepstone));
+/// Ce que contient le sous-sol de quelques colonnes de chunks : vide, eau, lave, eau suspendue au-dessus
+/// du vide, et vide juste sous un fond de mer.
+#[derive(Debug, Default)]
+struct Underground {
+    total: usize,
+    air: usize,
+    water: usize,
+    lava: usize,
+    floating: usize,
+    leaks: usize,
+    ocean_columns: usize,
+}
+
+fn underground(seed: u32) -> Underground {
+    let g = v3(seed);
+    let registry = g.registry().clone();
+    let (water, lava) = (
+        registry.id("core:water").unwrap(),
+        registry.id("core:lava").unwrap(),
+    );
+    let mut u = Underground::default();
+    for (cx, cz) in [
+        (30, -20),
+        (31, -20),
+        (-12, 40),
+        (5, 5),
+        (70, -70),
+        (-55, -9),
+    ] {
+        let chunks = column_chunks(&g, cx, cz);
+        for lz in 0..32 {
+            for lx in 0..32 {
+                let (x, z) = (cx * 32 + lx as i32, cz * 32 + lz as i32);
+                let h = g.column(x, z).height;
+                for y in MIN_CHUNK_Y * 32 + 1..h - 12 {
+                    u.total += 1;
+                    let b = block(&chunks, lx, y, lz);
+                    let below = block(&chunks, lx, y - 1, lz);
+                    if b.is_air() {
+                        u.air += 1;
+                    } else if b == water || b == lava {
+                        if b == water {
+                            u.water += 1
+                        } else {
+                            u.lava += 1
+                        }
+                        u.floating += usize::from(below.is_air());
+                    }
+                }
+                if h < SEA_LEVEL - 4 {
+                    u.ocean_columns += 1;
+                    // Sous un fond de mer, la croûte tient : pas de vide dans les 6 blocs.
+                    u.leaks += (h - 6..=h)
+                        .filter(|&y| block(&chunks, lx, y, lz).is_air())
+                        .count();
+                }
+            }
         }
     }
+    u
+}
+
+#[test]
+fn caves_hollow_the_underground_without_hanging_water_or_leaking_seas() {
+    for seed in [7, 42] {
+        let u = underground(seed);
+        let share = |n: usize| n as f64 / u.total as f64;
+        assert!(
+            (0.03..0.25).contains(&(share(u.air) + share(u.water) + share(u.lava))),
+            "graine {seed} : {u:?}"
+        );
+        assert!(
+            u.air > 0 && u.water > 0,
+            "graine {seed} : des grottes sèches et des nappes : {u:?}"
+        );
+        assert_eq!(
+            u.floating, 0,
+            "graine {seed} : de l'eau ou de la lave au-dessus du vide"
+        );
+        assert_eq!(
+            u.leaks, 0,
+            "graine {seed} : un trou sous un fond de mer ({u:?})"
+        );
+    }
+}
+
+#[test]
+fn lava_lies_only_at_the_bottom_and_underground_water_is_flat_per_region() {
+    let g = v3(42);
+    let registry = g.registry().clone();
+    let (water, lava) = (
+        registry.id("core:water").unwrap(),
+        registry.id("core:lava").unwrap(),
+    );
+    let chunks = column_chunks(&g, 30, -20);
+    // Pour chaque colonne, le plus haut bloc d'eau souterraine (sous la croûte).
+    let mut tops = std::collections::HashMap::new();
+    for lz in 0..32 {
+        for lx in 0..32 {
+            let h = g.column(30 * 32 + lx as i32, -20 * 32 + lz as i32).height;
+            for y in MIN_CHUNK_Y * 32..h - 15 {
+                let b = block(&chunks, lx, y, lz);
+                if b == lava {
+                    assert!(y < MIN_CHUNK_Y * 32 + 20, "lave à {y}");
+                }
+                if b == water && !block(&chunks, lx, y + 1, lz).is_air() {
+                    continue;
+                }
+                if b == water {
+                    tops.insert((lx, lz), y);
+                }
+            }
+        }
+    }
+    // Une même région de nappe a un seul niveau : peu de niveaux différents sur un chunk.
+    let levels: std::collections::BTreeSet<i32> = tops.values().copied().collect();
+    assert!(
+        levels.len() <= 3,
+        "trop de niveaux d'eau sur un chunk : {levels:?}"
+    );
 }
 
 #[test]
@@ -152,6 +258,29 @@ fn the_relief_has_seas_lowlands_and_high_mountains() {
         "pas de haute montagne : {highest}"
     );
     assert!(sea > 600 && land > 1500, "mer {sea}, terre {land}");
+}
+
+#[test]
+fn the_far_terrain_estimate_follows_the_real_surface() {
+    // `column_at_grid_point` (le terrain lointain) cherche la surface sur une seule verticale, sans
+    // grottes ni interpolation de cellule : il doit rester près de la vraie hauteur.
+    let g = v3(42);
+    let (mut close, mut total) = (0, 0);
+    for i in 0..400 {
+        let (gx, gz) = (i * 37 % 2000 - 1000, i * 53 % 2000 - 1000);
+        let far = g.column_at_grid_point(gx, gz).height;
+        let real = g.column(gx * 4, gz * 4).height;
+        total += 1;
+        close += usize::from((far - real).abs() <= 3);
+        assert!(
+            (far - real).abs() <= 24,
+            "({gx}, {gz}) : lointain {far}, réel {real}"
+        );
+    }
+    assert!(
+        close * 100 >= total * 90,
+        "{close} sur {total} à 3 blocs près"
+    );
 }
 
 #[test]
