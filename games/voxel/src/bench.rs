@@ -212,6 +212,14 @@ impl VoxelGame {
                             route.name
                         );
                     }
+                    // Le délai de chargement (démarrage ou téléportation) : le temps jusqu'à ce que tout
+                    // soit généré, maillé et envoyé, moins les images d'attente de la fin.
+                    log::info!(
+                        "benchmark : « {} » chargé en {:.2} s ({} chunks)",
+                        route.name,
+                        since.elapsed().as_secs_f64(),
+                        self.streamer().stats().loaded
+                    );
                     bench.not_loaded = timeout;
                     bench.samples.clear();
                     bench.stage = Stage::Measure {

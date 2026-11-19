@@ -1,6 +1,6 @@
 //! La table des empreintes de la génération v2, figée à la fin du lot 4 du plan puis régénérée par le
-//! lot des parois et des surplombs, puis par celui des escarpements posés sur la structure macro (la v2
-//! n'était encore portée par aucun monde réel). Voir `generation_v2.rs` : la v2 n'est pas encore livrée (aucun monde existant ne la porte), mais dès
+//! lot des parois et des surplombs, puis par celui des escarpements posés sur la structure macro, puis par la recette du lot 9 (densité
+//! de base de la végétation, `CANOPY_BASE`) : la v2 n'était encore portée par aucun monde réel. Voir `generation_v2.rs` : la v2 n'est pas encore livrée (aucun monde existant ne la porte), mais dès
 //! qu'elle le sera, ne jamais modifier cette table pour faire passer un test : un changement voulu
 //! de la v2 appartient à une nouvelle version de génération.
 //!
@@ -38,7 +38,7 @@ pub const COLUMNS: &[(u32, i32, i32, [u64; 6])] = &[
         [
             12241175125373225698,
             18163307314382515134,
-            17754881516456099146,
+            5796073689604944270,
             0,
             0,
             0,
@@ -57,7 +57,7 @@ pub const COLUMNS: &[(u32, i32, i32, [u64; 6])] = &[
         [
             15700164800534757876,
             10672136123472498713,
-            6409745838059856052,
+            14484333972063404805,
             0,
             0,
             0,
@@ -115,7 +115,7 @@ pub const COLUMNS: &[(u32, i32, i32, [u64; 6])] = &[
         [
             8700450530175365437,
             6958170473849941488,
-            5799242102683978943,
+            5418410034218231241,
             0,
             0,
             0,
@@ -184,7 +184,7 @@ pub const COLUMNS: &[(u32, i32, i32, [u64; 6])] = &[
         [
             7890505267873067971,
             17552905115604925369,
-            8045273707657001466,
+            1306851092279124575,
             0,
             0,
             0,
@@ -211,7 +211,7 @@ pub const COLUMNS: &[(u32, i32, i32, [u64; 6])] = &[
             12128274277388752194,
             17979855496929430171,
             12447625327109819868,
-            9794488283179188629,
+            1836286337957668031,
             0,
             0,
         ],
@@ -224,7 +224,7 @@ pub const COLUMNS: &[(u32, i32, i32, [u64; 6])] = &[
             2903180273151609259,
             17530683539531496192,
             14118015672419144627,
-            7004498384322308897,
+            3935512398231768277,
             0,
             0,
         ],
@@ -268,7 +268,7 @@ pub const COLUMNS: &[(u32, i32, i32, [u64; 6])] = &[
         [
             15990528291341573725,
             16877399117039660070,
-            6754596870083003196,
+            16454575667778169559,
             0,
             0,
             0,
@@ -282,7 +282,7 @@ pub const COLUMNS: &[(u32, i32, i32, [u64; 6])] = &[
             11539111162998443051,
             11808614126604765483,
             8910520851624044470,
-            3779648250826026950,
+            8770104357772095384,
             0,
             0,
         ],

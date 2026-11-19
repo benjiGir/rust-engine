@@ -460,7 +460,7 @@ fn vegetation_avoids_cliffs_the_tree_line_and_stays_bounded() {
         for &(x, z, info) in &columns {
             let at = format!("graine {seed}, ({x}, {z}), {info:?}");
             assert!(
-                (0.0..=2.6).contains(&info.canopy),
+                (0.0..=3.8).contains(&info.canopy),
                 "{at} : couvert hors des bornes"
             );
             if info.slope >= 1.12 {

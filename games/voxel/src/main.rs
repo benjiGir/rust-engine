@@ -18,6 +18,7 @@
 //!
 //! Variables d'environnement :
 //! - `VOXEL_SEED=123` : la graine du monde (42 par défaut).
+//! - `VOXEL_TEXTURE_PACK=classic|earth32` : impose le pack de textures pour cette exécution (sans écrire `settings.ron`).
 //! - `VOXEL_RADIUS=24` : le rayon de vue en chunks (16 par défaut).
 //! - `VOXEL_ASSETS=chemin` : le dossier `assets` (les mods sont dans `../mods`).
 //! - `VOXEL_AUTOFLY=1` : vol automatique, pour mesurer le chargement.
@@ -1337,7 +1338,14 @@ impl Game for App {
     fn new(ctx: &mut Context) -> Result<Self> {
         // `?` remonte l'erreur au moteur, qui l'affichera à la fermeture.
         let renderer = Renderer::new(ctx.window.clone())?;
-        let settings = settings::Settings::load(&project_root());
+        let mut settings = settings::Settings::load(&project_root());
+        // `VOXEL_TEXTURE_PACK=classic|earth32` : un pack imposé pour cette exécution (captures de recette),
+        // sans toucher à `settings.ron` : seules les actions du menu des options l'écrivent.
+        match std::env::var("VOXEL_TEXTURE_PACK").as_deref() {
+            Ok("earth32") => settings.texture_pack = settings::TexturePack::Earth32,
+            Ok("classic") => settings.texture_pack = settings::TexturePack::Classic,
+            _ => {}
+        }
         let launch = Launch::from_env().unwrap_or_else(Launch::title);
         Ok(Self {
             game: Some(VoxelGame::create(ctx, renderer, launch, settings)?),

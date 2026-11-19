@@ -128,7 +128,12 @@ fn massif_detail(seed: u32, x: f64, z: f64, chain: f32, elevation: f32) -> f32 {
 
 /// Le plus fort coefficient de [`canopy_factor`] : la borne que le tirage des arbres utilise pour
 /// écarter vite les candidats (voir `features.rs`).
-pub(super) const MAX_CANOPY: f32 = 2.6;
+pub(super) const MAX_CANOPY: f32 = 3.8;
+
+/// Le niveau de base de la végétation v2 : la recette du lot 9 mesurait 2,0 à 2,9 arbres par colonne de chunks
+/// de terre contre 3,4 à 4,0 en v1 ; ce facteur rend la densité moyenne comparable sans toucher aux contrastes
+/// (humidité, pente, ligne des arbres, berges).
+const CANOPY_BASE: f32 = 1.45;
 
 /// Le coefficient de végétation d'une colonne, de 0 à [`MAX_CANOPY`] : il multiplie la densité
 /// d'arbres du biome (voir `features.rs`). Chaque terme est continu :
@@ -153,7 +158,7 @@ pub(super) fn canopy_factor(
     let line = SEA_LEVEL as f64 + 100.0 + 28.0 * sea_temperature;
     let height = 1.0 - smooth64(line - 18.0, line + 8.0, top as f64);
     let riparian = 1.0 + 0.8 * smooth64(9.5, 5.0, clear as f64);
-    ((moisture * steep * height * riparian) as f32).clamp(0.0, MAX_CANOPY)
+    ((moisture * steep * height * riparian) as f32 * CANOPY_BASE).clamp(0.0, MAX_CANOPY)
 }
 
 /// Le dernier bloc plein d'un relief de hauteur flottante `h`.

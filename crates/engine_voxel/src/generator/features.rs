@@ -133,6 +133,7 @@ impl TerrainGenerator {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clear();
+        self.site_cache.clear();
         self.column_cache.clear();
         // La génération v2 : contextes de colonne et caches macro (hydrologie).
         if let Some(v2) = &self.v2 {

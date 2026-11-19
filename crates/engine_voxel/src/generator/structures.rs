@@ -548,7 +548,7 @@ impl StructureBlocks {
     }
 
     fn get(&self, key: &str) -> BlockId {
-        self.0.get(key).copied().unwrap_or_default()
+        self.0.get(key).cloned().unwrap_or_default()
     }
 }
 
@@ -1472,8 +1472,18 @@ impl TerrainGenerator {
     }
 
     /// La structure de la case (`cx`, `cz`) de la sorte `d`, si elle existe et si le terrain
-    /// lui convient.
+    /// lui convient. Le résultat est gardé : le jeu et le terrain lointain interrogent les mêmes
+    /// cases sans cesse, et en génération v2 chaque évaluation lit plusieurs colonnes.
     fn site_in_cell(&self, d: usize, cx: i32, cz: i32) -> Option<StructureSite> {
+        if let Some(found) = self.site_cache.get(&(d, cx, cz)) {
+            return found;
+        }
+        let site = self.compute_site_in_cell(d, cx, cz);
+        self.site_cache.insert((d, cx, cz), site.clone());
+        site
+    }
+
+    fn compute_site_in_cell(&self, d: usize, cx: i32, cz: i32) -> Option<StructureSite> {
         let set = self.structures.as_ref()?;
         let def = set.defs.get(d)?;
         let cell = def.spacing * CHUNK_SIZE as i32;
@@ -2106,5 +2116,35 @@ mod tests {
             .max()
             .unwrap();
         assert!(lowest_floor > ground - 1);
+    }
+}
+
+/// Les sites de structures déjà évalués, par (sorte, case). Le verrou n'est tenu que le temps d'une
+/// recherche ou d'une insertion ; au-delà de la limite, on vide (jamais décisif : le résultat se recalcule).
+#[derive(Debug, Default)]
+pub(super) struct SiteCache(std::sync::Mutex<HashMap<(usize, i32, i32), Option<StructureSite>>>);
+
+/// Au-delà, on vide le cache.
+const SITE_CACHE_LIMIT: usize = 65_536;
+
+impl SiteCache {
+    fn get(&self, key: &(usize, i32, i32)) -> Option<Option<StructureSite>> {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(key)
+            .cloned()
+    }
+
+    fn insert(&self, key: (usize, i32, i32), site: Option<StructureSite>) {
+        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if map.len() >= SITE_CACHE_LIMIT {
+            map.clear();
+        }
+        map.insert(key, site);
+    }
+
+    pub(super) fn clear(&self) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 }

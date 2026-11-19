@@ -1418,3 +1418,180 @@ générateur ; arbres et structures connus affichés aux niveaux proches, zones 
 hystérésis, raccords par lots de région, couverture jusqu'au remplacement, caches bornés ; budgets CPU et GPU des lots 6
 et 7 appliqués. Limites assumées : approximation des bâtiments, surplombs sous la taille d'une cellule, première lecture
 des régions sauvegardées sur les threads du lointain, jeu non joué avec une sauvegarde modifiée.
+
+## Statut du lot 9 (recette finale) : la v2 n'est pas activée
+
+La recette a été exécutée sur la machine du développeur (Apple M3 Pro, 12 cœurs, macOS, release, fenêtre 1280 × 720 au
+premier plan, sans VSync, midi figé, graine 42 pour les trajets). **Verdict : v2 n'est pas activée** (`FOR_NEW_WORLDS`
+reste v1) : la recette a trouvé un défaut de coût grave (corrigé ici) et plusieurs écarts de contenu qui relèvent d'un
+réglage artistique, pas d'un bogue. Les chiffres de v1 et de v2 sont côte à côte. Les écarts de contenu ont ensuite été repris (section 7).
+
+### 1. Le défaut trouvé et corrigé : la boucle des quêtes bloquait v2
+
+Premier passage du banc en v2 : le temps d'image p99 passait de 3 ms (v1) à 60 à 200 ms, le « 1 % le plus lent » de 64 à
+4 FPS, le chargement à rayon 16 de 4 s à 20 s, et à rayon 32 **cinq trajets sur six ne finissaient pas en 90 s**. Un
+échantillonnage du fil principal (`sample`) a montré 50 % du temps dans `VoxelGame::fixed_update`, `refresh_quests`,
+`quest_snapshot`, `TerrainGenerator::structure_sites_near`, à chaque pas fixe. En v2, évaluer un site de structure lit
+plusieurs colonnes (contextes de colonne, hydrologie) : presque gratuit en v1, mais chaque case neuve coûtait des dizaines
+de millisecondes **sur le fil principal** en v2.
+
+Correction (`generator/structures.rs`) : `site_in_cell` garde ses résultats (`SiteCache`, 65 536 cases, vidé au
+débordement, remis à zéro avec les autres caches du générateur). Le résultat est une fonction pure : les empreintes de
+référence v1 et v2 et les tests d'ordre et de caches passent inchangés. Elle profite aussi au terrain lointain (les tuiles
+voisines interrogent les mêmes cases) et à `villagers.rs` et `control.rs`.
+
+Mesure (médiane des cinq trajets de surface ; le sous-sol est écarté, voir plus bas) :
+
+| config | CPU médian ms | CPU p99 ms | 1 % bas FPS | GPU ms | chargement (médiane) |
+| --- | --- | --- | --- | --- | --- |
+| v1, rayon 8 | 1,60 | 3,2 | 64 | 7,7 | 2,5 s |
+| v2 avant correction, rayon 8 | 0,66 | 61,6 | 6 | 6,9 | 2,5 s |
+| **v2 après correction, rayon 8** | 0,67 | 4,3 | 55 | 6,7 | 1,6 s |
+| v1, rayon 16 | 1,04 | 3,1 | 60 | 7,8 | 4,4 s |
+| v2 avant correction, rayon 16 | 1,02 | 128,2 | 6 | 7,5 | 20,3 s |
+| **v2 après correction, rayon 16** | 0,95 | 5,2 | 58 | 7,3 | 4,2 s |
+| v1, rayon 32 | 2,49 | 4,8 | 43 | 10,9 | 19,0 s |
+| v2 avant correction, rayon 32 | 1,93 | 199,7 | 4 | 8,1 | 90,0 s (5/6 pas fini) |
+| **v2 après correction, rayon 32** | 2,12 | 7,0 | 45 | 8,8 | 15,6 s |
+
+Le temps d'image médian et le chargement de v2 sont maintenant au niveau de v1 ; le p99 CPU de v2 reste un peu plus haut (5
+à 7 ms contre 3 à 5). Le chargement est le délai de démarrage ou de téléportation : tout est généré, maillé et envoyé,
+mesuré au début de chaque trajet par le banc (journal « chargé en »). CPU et GPU sont séparés (`gpu_ms` mesuré par le GPU,
+`cpu_ms` sans l'attente de l'écran). v1 n'a pas été remesuré après la correction. Limites : un seul passage par
+configuration (bruit de 5 à 20 % selon la fenêtre) ; le trajet `sous-sol` à rayon 32 en v2 a un « 1 % bas » de 3,7 FPS
+sans CPU anormal (attente de l'écran), non expliqué ; la latence « demande, première image » d'un chunk isolé n'a pas été
+mesurée (le délai de chargement complet l'est).
+
+### 2. Mesures de paysage, v1 contre v2 (`cargo run --release -p engine_voxel --example recette`)
+
+Neuf graines (cinq de référence : 7, 42, 1337, 20260, 987654321 ; quatre défavorables : 0, 1, 123456, 4294967295), une
+zone de 20 000 × 20 000 blocs échantillonnée tous les 200 blocs (proportions d'un continent entier) :
+
+| graine | gén. | terre | océan prof. | montagne | falaise | marches 1 bloc | constructible | forêt | arbres/chunk | eau douce | biomes | entropie | h moy. | s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 7 | v1 | 61.9 % | 9.4 % | 9.3 % | 0.5 % | 28.5 % | 52.7 % | 21.0 % | 3.8 | 3.4 % | 27 | 4.62 | 70 | 1 |
+| 7 | v2 | 52.9 % | 26.1 % | 13.9 % | 0.5 % | 14.3 % | 74.5 % | 13.4 % | 2.7 | 1.0 % | 27 | 3.97 | 67 | 95 |
+| 42 | v1 | 62.7 % | 8.8 % | 10.8 % | 0.6 % | 29.9 % | 51.8 % | 20.4 % | 3.7 | 3.7 % | 27 | 4.63 | 72 | 1 |
+| 42 | v2 | 48.3 % | 27.2 % | 13.4 % | 0.7 % | 14.8 % | 73.6 % | 20.1 % | 3.6 | 0.9 % | 27 | 4.01 | 64 | 88 |
+| 1337 | v1 | 61.6 % | 9.8 % | 12.1 % | 0.5 % | 29.8 % | 50.0 % | 18.3 % | 3.4 | 3.3 % | 27 | 4.59 | 72 | 1 |
+| 1337 | v2 | 51.3 % | 25.8 % | 12.0 % | 0.7 % | 14.5 % | 72.5 % | 21.2 % | 3.8 | 0.8 % | 27 | 3.98 | 66 | 90 |
+| 20260 | v1 | 62.7 % | 8.9 % | 10.4 % | 0.7 % | 29.2 % | 51.8 % | 20.1 % | 3.7 | 3.7 % | 27 | 4.63 | 71 | 1 |
+| 20260 | v2 | 48.6 % | 24.8 % | 8.9 % | 0.5 % | 13.4 % | 76.2 % | 18.4 % | 3.6 | 0.8 % | 27 | 3.99 | 63 | 85 |
+| 987654321 | v1 | 62.1 % | 8.2 % | 10.5 % | 0.5 % | 28.7 % | 53.5 % | 20.6 % | 3.7 | 4.2 % | 27 | 4.58 | 71 | 1 |
+| 987654321 | v2 | 48.4 % | 27.2 % | 10.3 % | 0.3 % | 12.3 % | 78.3 % | 22.2 % | 3.9 | 0.9 % | 26 | 3.84 | 64 | 85 |
+| 0 | v1 | 62.3 % | 9.2 % | 11.4 % | 0.4 % | 29.6 % | 51.2 % | 19.9 % | 3.7 | 3.7 % | 27 | 4.61 | 71 | 1 |
+| 0 | v2 | 47.6 % | 33.1 % | 13.6 % | 0.7 % | 14.6 % | 73.1 % | 18.9 % | 3.5 | 0.8 % | 27 | 3.95 | 63 | 89 |
+| 1 | v1 | 61.7 % | 8.5 % | 10.9 % | 0.6 % | 30.2 % | 50.4 % | 19.4 % | 3.5 | 3.7 % | 27 | 4.61 | 71 | 1 |
+| 1 | v2 | 46.8 % | 24.9 % | 13.7 % | 0.7 % | 16.4 % | 69.3 % | 15.5 % | 3.1 | 0.7 % | 26 | 3.99 | 65 | 82 |
+| 123456 | v1 | 62.6 % | 8.7 % | 10.0 % | 0.6 % | 28.6 % | 53.0 % | 19.8 % | 3.6 | 3.7 % | 27 | 4.61 | 71 | 1 |
+| 123456 | v2 | 46.6 % | 30.8 % | 8.7 % | 0.6 % | 12.5 % | 77.1 % | 19.4 % | 3.6 | 1.0 % | 27 | 3.98 | 62 | 86 |
+| 4294967295 | v1 | 61.7 % | 8.3 % | 10.6 % | 0.8 % | 28.8 % | 52.4 % | 22.6 % | 4.0 | 3.5 % | 27 | 4.58 | 71 | 1 |
+| 4294967295 | v2 | 53.7 % | 21.9 % | 12.4 % | 0.6 % | 14.8 % | 72.0 % | 22.1 % | 3.9 | 1.0 % | 26 | 3.75 | 68 | 95 |
+
+Lecture : les proportions v2 sont **stables d'une graine à l'autre** (aucune graine défavorable ne sort de la fourchette), ce
+qui est le but. Écarts de contenu avec v1 :
+
+- **Terre et océan** : v2 a 47 à 54 % de terre (v1 62 %) et un océan profond plus étendu (22 à 33 % contre 8 à 10 %) : de
+  vrais continents séparés par de vraies mers.
+- **Constructible** : 69 à 78 % de la terre (v1 50 à 53 %) : nettement plus de plaines utilisables.
+- **Montagne** : 9 à 14 % de la terre (v1 9 à 12 %) : équivalent.
+- **Falaises** : 0,3 à 0,7 % (v1 0,4 à 0,8 %) : v2 n'en a **pas plus** que v1 en proportion de terre ; les parois du lot 4
+  sont rares à cette échelle.
+- **Végétation** (avant correction : 8 à 15 % de forêt et 2,0 à 2,9 arbres par colonne de chunks de terre, contre 18 à 23 %
+  et 3,4 à 4,0 en v1) : **corrigée**, voir la section suivante ; le tableau ci-dessus est celui d'après correction
+  (13 à 22 % de forêt, 3,1 à 3,9 arbres).
+- **Eau douce** : 0,7 à 1,0 % des colonnes sous un lac ou un cours au-dessus de la mer (v1 : 3,3 à 4,2 % de colonnes de
+  biome rivière) : les cours v2 sont plus étroits ; les définitions diffèrent (v1 compte des bandes de biome).
+- **Biomes** : 26 à 27 biomes vus (v1 27), entropie plus basse (3,8 à 4,0 bits contre 4,6) : répartition moins uniforme.
+
+Fenêtre locale de 4 000 blocs (10 000 colonnes tous les 40 blocs), pour voir la variabilité autour de l'origine : les
+proportions y varient beaucoup plus (graine 4294967295 : 0 % de montagne et 40 % d'océan profond autour de l'origine ;
+graine 1 : 26 % de terre). Ce sont les cas défavorables, pas une anomalie :
+
+| graine | gén. | terre | océan prof. | montagne | falaise | marches 1 bloc | constructible | forêt | arbres/chunk | eau douce | biomes | entropie | h moy. | s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 7 | v1 | 60.7 % | 12.1 % | 4.9 % | 0.5 % | 23.9 % | 61.9 % | 13.7 % | 3.0 | 2.9 % | 27 | 4.08 | 68 | 1 |
+| 7 | v2 | 49.4 % | 34.0 % | 3.6 % | 0.3 % | 10.9 % | 83.6 % | 33.2 % | 5.4 | 1.4 % | 21 | 3.45 | 64 | 24 |
+| 42 | v1 | 69.5 % | 2.7 % | 6.8 % | 0.6 % | 23.6 % | 62.8 % | 19.1 % | 3.5 | 4.6 % | 27 | 4.25 | 72 | 1 |
+| 42 | v2 | 54.8 % | 21.2 % | 13.8 % | 0.8 % | 16.8 % | 70.3 % | 9.5 % | 2.2 | 0.5 % | 17 | 2.74 | 70 | 22 |
+| 1337 | v1 | 64.7 % | 3.6 % | 2.6 % | 0.4 % | 23.9 % | 60.9 % | 33.6 % | 5.4 | 4.0 % | 24 | 4.06 | 69 | 1 |
+| 1337 | v2 | 44.2 % | 18.9 % | 6.1 % | 0.3 % | 15.6 % | 73.5 % | 28.8 % | 4.9 | 0.6 % | 21 | 3.54 | 63 | 20 |
+| 20260 | v1 | 65.9 % | 7.3 % | 13.0 % | 0.9 % | 30.7 % | 52.9 % | 25.6 % | 4.5 | 3.0 % | 25 | 4.28 | 74 | 1 |
+| 20260 | v2 | 71.3 % | 16.9 % | 7.0 % | 0.3 % | 13.0 % | 78.6 % | 24.8 % | 4.4 | 0.8 % | 19 | 3.37 | 74 | 27 |
+| 987654321 | v1 | 63.5 % | 6.5 % | 2.5 % | 0.4 % | 20.0 % | 68.2 % | 20.2 % | 3.6 | 4.9 % | 27 | 4.17 | 66 | 1 |
+| 987654321 | v2 | 46.6 % | 27.9 % | 5.0 % | 0.2 % | 12.5 % | 79.0 % | 38.9 % | 6.1 | 0.4 % | 16 | 3.17 | 59 | 19 |
+| 0 | v1 | 70.0 % | 4.2 % | 6.0 % | 0.6 % | 25.1 % | 57.3 % | 21.3 % | 3.9 | 4.9 % | 27 | 4.47 | 72 | 1 |
+| 0 | v2 | 45.6 % | 33.5 % | 5.3 % | 0.3 % | 14.5 % | 76.0 % | 11.8 % | 2.6 | 0.4 % | 15 | 2.91 | 60 | 20 |
+| 1 | v1 | 61.5 % | 6.3 % | 5.7 % | 0.5 % | 26.3 % | 57.0 % | 24.1 % | 4.2 | 3.7 % | 27 | 4.29 | 68 | 1 |
+| 1 | v2 | 25.8 % | 27.2 % | 1.7 % | 0.2 % | 11.3 % | 83.7 % | 16.3 % | 2.9 | 0.2 % | 15 | 2.90 | 51 | 12 |
+| 123456 | v1 | 64.8 % | 4.8 % | 4.8 % | 0.6 % | 23.6 % | 61.5 % | 21.8 % | 3.7 | 5.2 % | 26 | 3.93 | 69 | 1 |
+| 123456 | v2 | 50.3 % | 21.2 % | 3.3 % | 0.4 % | 11.5 % | 80.8 % | 29.1 % | 5.1 | 0.7 % | 16 | 3.24 | 62 | 21 |
+| 4294967295 | v1 | 67.5 % | 3.6 % | 6.4 % | 0.7 % | 24.4 % | 61.5 % | 18.7 % | 3.4 | 4.5 % | 27 | 4.25 | 71 | 1 |
+| 4294967295 | v2 | 45.1 % | 39.7 % | 0.0 % | 0.0 % | 6.5 % | 93.9 % | 37.0 % | 5.7 | 0.8 % | 13 | 2.56 | 54 | 20 |
+
+### 3. Cartes et captures
+
+- **Cartes macro** (`cargo xtask map --generator v2 ...`, graines 42 et 7) : continents découpés, réseaux de rivières
+  ramifiés qui rejoignent les côtes, lacs aux points bas, aucune rivière qui remonte (jugement visuel).
+- **Captures v2** (43 vues du tour `VOXEL_SCREENSHOTS` : jour, coucher, nuit, biomes, fluides, menus), mêmes points de vue
+  que v1 pour chaque scène : sol continu entre chunks et lointain, eau et rivières, ciel, étoiles et nuages corrects ;
+  prairies sans arbres plus nombreuses qu'en v1, et des liserés de terre brune qui suivent les courbes de niveau (marches de
+  terrasses sur pente douce). Les packs de textures 16 et 32 ne dépendent pas du générateur : la capture n'a été prise
+  qu'avec le pack courant du développeur (`settings.ron` n'a pas été modifié) ; les tests de l'arme et des textures couvrent
+  les deux packs, mais **aucune capture v2 en pack 32** n'a été faite.
+
+### 4. Cycle de vie d'un monde v2 (`tests/lifecycle_v2.rs`, vrai streamer, vrai dossier)
+
+- Création, creusement et construction, sauvegarde, déchargement lointain, **réouverture dans un autre `ChunkStreamer`** :
+  les modifications sont là, tous les autres chunks sont identiques à la première session, et un monde vierge de même
+  graine ne diffère que par les deux chunks modifiés.
+- **Chargement dans un ordre différent** (A puis B puis retour, contre B puis A) : mêmes chunks octet par octet.
+- Version de génération : un monde v2 s'enregistre et se rouvre en v2 même si on demande v1, un monde sans champ reste v1
+  (tests de `dimensions.rs`) ; changement de dimension : un dossier par dimension et une version lue pour chaque dimension.
+  **Non couvert** : un changement de dimension avec une dimension de mod en v2 dans un jeu réellement lancé (le jeu n'a pas
+  été joué).
+
+### 5. Les six contrôles
+
+`cargo fmt --check`, `cargo clippy --workspace --all-targets` (0 avertissement), `cargo test --workspace` (984 tests, 0
+échec, dont les empreintes gelées de v1 et v2), `cargo xtask check-arch`, `cargo xtask hooks --check` et `cargo xtask docs
+--check` : tous passent.
+
+### 6. Ce qui restait avant d'activer v2, et ce qui en a été fait
+
+La liste d'origine est reprise avec son traitement dans la section 7.
+
+### 7. Reprise des écarts de la recette
+
+1. **Végétation : corrigée.** `canopy_factor` (génération v2) est multiplié par `CANOPY_BASE = 1,45` (borne `MAX_CANOPY`
+   portée de 2,6 à 3,8) : même densité moyenne que v1 sans toucher aux contrastes (humidité, pente, ligne des arbres,
+   berges). Mesuré avec l'outil de recette sur neuf graines : 3,1 à 3,9 arbres par colonne de chunks (v1 3,4 à 4,0), 13 à 22 %
+   de forêt (v1 18 à 23 %). Conséquence assumée : la table d'empreintes v2 (`reference_v2.rs`) est régénérée (deux passes
+   identiques, v2 n'est portée par aucun monde réel) ; la table de v1 est intacte. Un test bornait le couvert à 2,6 :
+   il suit la nouvelle borne.
+2. **Falaises : pas de changement, mesure.** 0,3 à 0,7 % de la terre contre 0,4 à 0,8 % : parité avec v1. Les parois du lot 4
+   existent dans les familles qui les autorisent ; augmenter leur nombre est un choix de monde, pas une anomalie.
+3. **Terrasses de surface : pas de changement, mesure.** On a mesuré les marches d'un bloc entre voisins directs (nouvelle
+   colonne « marches 1 bloc » de l'outil de recette) : 12 à 16 % de la terre en v2 contre 28 à 30 % en v1. v2 n'a donc **pas plus**
+   de marches ; ce qui se voit sur les captures, ce sont des courbes de niveau longues et régulières sur des pentes plus lisses,
+   là où v1 les casse par du bruit fin. Un lissage de la matière ne les supprimerait pas (ce sont des arêtes de relief). Si
+   le rendu ne plaît pas en jeu, la piste est un micro-relief de 1 bloc dans le sol v2 (invalidant les empreintes).
+4. **Eau douce : pas de changement.** Les cours v2 ont la largeur de `river_width` (de 2,5 blocs à `MAX_RIVER_WIDTH`) et
+   suivent le drainage ; la part de colonnes en eau douce n'est pas comparable à celle de v1 (qui compte des bandes de
+   biome rivière). Les cartes montrent un réseau dense ; l'élargir est un réglage à juger en jeu.
+5. **Captures v2 en pack 32 : faites.** Variable `VOXEL_TEXTURE_PACK=classic|earth32` (imposée à l'exécution, sans écrire
+   `settings.ron`) : les 43 vues du tour en v2 avec le pack 32 (jour, coucher, nuit, biomes) sont correctes et diffèrent bien
+   des vues du pack classique. Le pack 16 est le pack classique.
+6. **Coût du lointain v2 : réduit.** Remplir l'anneau lointain avec deux threads prenait 7,4 s (rayon 48) et 19,6 s (rayon 96)
+   en v2 contre 0,7 et 0,9 s en v1, car chaque tuile grossière touche des centaines de contextes de colonne. Le jeu utilise
+   maintenant 4 threads pour un monde v2 : 3,4 s et 10,3 s (6 threads : 7,5 s au rayon 96). Le temps reste proportionnel
+   à la surface ; une vraie réduction demanderait une colonne « grossière » sans contexte complet (non faite).
+7. **Régression de coût après la correction de la végétation** : banc v2 à rayon 16 repassé, CPU médian 0,5 à 1,0 ms et chargement
+   de 1,7 à 3,8 s (la machine n'était plus plafonnée à 120 Hz ce jour-là : FPS et GPU non comparables aux tableaux précédents).
+
+### 8. Ce qui reste, et l'activation
+
+- **Jeu réellement joué** (marche, construction, portail, sauvegarde v2) : toujours non fait ; c'est la seule vérification que
+  les mesures et les captures ne remplacent pas.
+- **Activation** : passer `GenerationVersion::FOR_NEW_WORLDS` à `V2` (un test garde aujourd'hui `V1`) et le documenter. Les mondes
+  v1 existants gardent v1 (version enregistrée dans `world.ron`). À décider.

@@ -239,6 +239,8 @@ pub struct TerrainGenerator {
     tree_blocks: Option<TreeBlocks>,
     /// Les arbres déjà tirés, partagés entre les threads (et entre les clones du générateur).
     tree_cache: Arc<features::TreeCache>,
+    /// Les sites de structures déjà évalués (voir `structures.rs` : `site_in_cell`).
+    site_cache: Arc<structures::SiteCache>,
     /// Les colonnes déjà calculées, partagées de la même façon (voir `column_cache.rs`).
     column_cache: Arc<ColumnCache>,
     /// Ce qui distingue la dimension de ce générateur dans les clés du cache des colonnes.
@@ -310,6 +312,7 @@ impl TerrainGenerator {
         // Les arbres et les colonnes dépendent des biomes, du genre de monde et des villages : on
         // repart de caches vides (et neufs, pour ne rien partager avec un clone qui n'a pas changé).
         self.tree_cache = Arc::default();
+        self.site_cache = Arc::default();
         self.column_cache = Arc::default();
         self.dimension_tag = self.compute_dimension_tag();
         // Les contextes de la génération v2 dépendent aussi des biomes : on en repart à neuf.
@@ -485,6 +488,7 @@ impl TerrainGenerator {
             plant_blocks: PlantBlocks::resolve(&registry)?,
             tree_blocks: TreeBlocks::resolve(&registry).ok(),
             tree_cache: Arc::default(),
+            site_cache: Arc::default(),
             column_cache: Arc::default(),
             dimension_tag: 0,
             world,

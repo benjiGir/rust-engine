@@ -152,3 +152,118 @@ fn print_tile_costs() {
         }
     }
 }
+
+/// Le coût d'une première demande de colonne v2 (ce que paie le thread qui la demande en premier).
+/// `cargo test -p engine_voxel --test far_v2 print_cold_column_cost --release -- --ignored --nocapture`
+#[test]
+#[ignore = "mesure"]
+fn print_cold_column_cost() {
+    let generator = v2(42);
+    let mut times = Vec::new();
+    for i in 0..40 {
+        let (x, z) = (i * 700, (i * 1300) % 9000);
+        let started = std::time::Instant::now();
+        let _ = generator.column(x, z);
+        times.push(started.elapsed().as_secs_f64() * 1000.0);
+    }
+    // Voisines de la dernière : colonnes de chunks proches, contextes froids un par un.
+    let mut near = Vec::new();
+    for i in 0..40 {
+        let started = std::time::Instant::now();
+        let _ = generator.column(5000 + i * 32, 5000);
+        near.push(started.elapsed().as_secs_f64() * 1000.0);
+    }
+    let stat = |mut v: Vec<f64>| {
+        v.sort_by(f64::total_cmp);
+        format!(
+            "p50 {:.1} ms, p90 {:.1} ms, max {:.1} ms",
+            v[v.len() / 2],
+            v[v.len() * 9 / 10],
+            v[v.len() - 1]
+        )
+    };
+    println!("colonne froide, endroits éloignés : {}", stat(times));
+    println!("colonne froide, chunks voisins à la suite : {}", stat(near));
+}
+
+/// Latence d'une demande de colonne sur un thread « principal » pendant que d'autres threads génèrent des chunks
+/// (ce que fait le jeu). `cargo test -p engine_voxel --test far_v2 print_column_latency_under_load --release -- --ignored --nocapture`
+#[test]
+#[ignore = "mesure"]
+fn print_column_latency_under_load() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    for (name, generator) in [("v1", TerrainGenerator::new(42)), ("v2", v2(42))] {
+        let generator = std::sync::Arc::new(generator);
+        let stop = AtomicBool::new(false);
+        let mut worst = Vec::new();
+        std::thread::scope(|scope| {
+            for t in 0..10 {
+                let (generator, stop) = (generator.clone(), &stop);
+                scope.spawn(move || {
+                    let mut i = 0;
+                    while !stop.load(Ordering::Relaxed) {
+                        let pos = glam::IVec3::new(i % 40 + t * 7, (i / 40) % 6, (i / 240) * 3 + t);
+                        let _ = generator.generate(pos);
+                        i += 1;
+                    }
+                });
+            }
+            // Le fil principal vole en ligne droite et demande la hauteur du sol devant lui.
+            for k in 0..600 {
+                let started = std::time::Instant::now();
+                let _ = generator.column(k * 6, 40);
+                worst.push(started.elapsed().as_secs_f64() * 1000.0);
+                std::thread::sleep(std::time::Duration::from_millis(8));
+            }
+            stop.store(true, Ordering::Relaxed);
+        });
+        worst.sort_by(f64::total_cmp);
+        println!(
+            "{name} : p50 {:.2} ms, p99 {:.1} ms, max {:.1} ms",
+            worst[worst.len() / 2],
+            worst[worst.len() * 99 / 100],
+            worst[worst.len() - 1]
+        );
+    }
+}
+
+/// Le temps de remplir l'anneau du terrain lointain avec deux threads (comme le jeu), v1 contre v2.
+/// `cargo test -p engine_voxel --test far_v2 print_far_ring_fill --release -- --ignored --nocapture`
+#[test]
+#[ignore = "mesure"]
+fn print_far_ring_fill() {
+    use engine_voxel::{FarConfig, FarEvent, FarStreamer};
+    for (name, generator) in [("v1", TerrainGenerator::new(42)), ("v2", v2(42))] {
+        let generator = std::sync::Arc::new(generator);
+        for (far_radius, threads) in [(48, 2), (48, 4), (96, 2), (96, 4), (96, 6)] {
+            let config = FarConfig {
+                near_radius: 16,
+                far_radius,
+            };
+            let mut far = FarStreamer::new(generator.clone(), config, threads);
+            let camera = glam::Vec3::new(16.0, 80.0, 16.0);
+            let started = std::time::Instant::now();
+            let mut tiles = 0;
+            loop {
+                for event in far.update(camera) {
+                    if matches!(event, FarEvent::Add(..)) {
+                        tiles += 1;
+                    }
+                }
+                let stats = far.stats();
+                if stats.pending == 0
+                    && stats.staged == 0
+                    && stats.waiting_batches == 0
+                    && tiles > 0
+                {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            println!(
+                "{name}, rayon lointain {far_radius}, {threads} threads : {tiles} tuiles en {:.1} s",
+                started.elapsed().as_secs_f64()
+            );
+        }
+    }
+}

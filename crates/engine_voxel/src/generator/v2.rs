@@ -287,6 +287,7 @@ impl TerrainGenerator {
         };
         // Les arbres et les colonnes dépendent de la version : on repart de caches neufs.
         self.tree_cache = Arc::default();
+        self.site_cache = Arc::default();
         self.column_cache = Arc::default();
         Ok(self)
     }
@@ -300,6 +301,7 @@ impl TerrainGenerator {
             state.relief_only = true;
             self.v2 = Some(Arc::new(state));
             self.tree_cache = Arc::default();
+            self.site_cache = Arc::default();
             self.column_cache = Arc::default();
         }
         self
