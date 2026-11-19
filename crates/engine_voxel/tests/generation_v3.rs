@@ -77,7 +77,8 @@ fn heights_match_the_blocks_and_water_never_sits_above_the_sea() {
                             !terrain(b),
                             "graine {seed} ({x}, {z}) : du terrain à {y} au-dessus de {height}"
                         );
-                        if b == water {
+                        // Seuls les bassins des sources chaudes (deux blocs au plus) dépassent la mer.
+                        if b == water && g.biome(g.column(x, z).biome).key != "core:hot_springs" {
                             assert!(
                                 y <= SEA_LEVEL,
                                 "graine {seed} ({x}, {z}) : de l'eau perchée à {y}"
@@ -292,7 +293,12 @@ fn biomes_follow_the_parameters() {
         for i in -50..50 {
             let (x, z) = (i * 61, j * 67);
             let p = g.v3_parameters(x, z).unwrap();
-            let kind = g.biome(g.column(x, z).biome).kind;
+            let biome = g.biome(g.column(x, z).biome);
+            // Un volcan recouvre ce qu'il y avait (vallée, pic) : son biome suit le cône.
+            if biome.key == "core:volcano" {
+                continue;
+            }
+            let kind = biome.kind;
             if p.pv < -0.95 && p.continentalness > 0.05 && p.erosion > -0.4 {
                 rivers.0 += 1;
                 rivers.1 += usize::from(kind == BiomeKind::River);
@@ -360,6 +366,12 @@ fn the_new_biomes_appear_in_v3_and_never_in_v1_or_v2() {
         "core:highland",
         "core:moor",
         "core:crag",
+        // Vague 3.
+        "core:volcano",
+        "core:volcanic_plains",
+        "core:hot_springs",
+        "core:maquis",
+        "core:flowering_desert",
     ];
     let g = v3(42);
     let ids: Vec<_> = wave.iter().map(|k| g.biomes().id(k).unwrap()).collect();
@@ -396,6 +408,94 @@ fn the_new_biomes_appear_in_v3_and_never_in_v1_or_v2() {
             }
         }
     }
+}
+
+/// Un liquide bien tenu : ni vide dessous, ni vide à côté (dans la zone générée) ; sinon il coulerait.
+fn assert_contained(
+    chunks: &std::collections::HashMap<(i32, i32), Vec<Option<engine_voxel::Chunk>>>,
+    liquid: BlockId,
+    what: &str,
+) -> std::collections::BTreeMap<(i32, i32), i32> {
+    let at = |x: i32, y: i32, z: i32| {
+        chunks
+            .get(&(x.div_euclid(32), z.div_euclid(32)))
+            .map(|c| block(c, x.rem_euclid(32) as usize, y, z.rem_euclid(32) as usize))
+    };
+    let mut tops = std::collections::BTreeMap::new();
+    for (&(cx, cz), column) in chunks {
+        for lz in 0..32 {
+            for lx in 0..32 {
+                let (x, z) = (cx * 32 + lx, cz * 32 + lz);
+                for y in SEA_LEVEL + 1..MAX_CHUNK_Y * 32 - 1 {
+                    if block(column, lx as usize, y, lz as usize) != liquid {
+                        continue;
+                    }
+                    tops.insert((x, z), y);
+                    assert!(
+                        !at(x, y - 1, z).unwrap().is_air(),
+                        "{what} au-dessus du vide en ({x}, {y}, {z})"
+                    );
+                    for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                        if let Some(b) = at(x + dx, y, z + dz) {
+                            assert!(!b.is_air(), "{what} ouvert sur le côté en ({x}, {y}, {z})");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    tops
+}
+
+#[test]
+fn volcano_craters_hold_a_flat_lava_lake_and_spring_pools_hold_their_water() {
+    let g = v3(42);
+    let registry = g.registry().clone();
+    let (water, lava) = (
+        registry.id("core:water").unwrap(),
+        registry.id("core:lava").unwrap(),
+    );
+    // Le cratère d'un volcan : les colonnes de chunks qu'il touche.
+    let sites = g.volcano_sites((-4000, -4000), (4000, 4000));
+    assert!(sites.len() >= 2, "trop peu de volcans : {sites:?}");
+    let (vx, vz) = sites[0];
+    let mut chunks = std::collections::HashMap::new();
+    for cz in (vz - 12).div_euclid(32)..=(vz + 12).div_euclid(32) {
+        for cx in (vx - 12).div_euclid(32)..=(vx + 12).div_euclid(32) {
+            chunks.insert((cx, cz), column_chunks(&g, cx, cz));
+        }
+    }
+    let tops = assert_contained(&chunks, lava, "de la lave");
+    assert!(
+        tops.len() > 30,
+        "un cratère presque vide : {} colonnes de lave",
+        tops.len()
+    );
+    let levels: std::collections::BTreeSet<i32> = tops.values().copied().collect();
+    assert_eq!(
+        levels.len(),
+        1,
+        "un lac de lave qui n'est pas plat : {levels:?}"
+    );
+    assert_eq!(
+        g.biome(g.column(vx, vz).biome).key,
+        "core:volcano",
+        "le cône porte le biome du volcan"
+    );
+
+    // Les bassins d'une source chaude.
+    let springs = g.biomes().id("core:hot_springs").unwrap();
+    let (sx, sz) = g
+        .find_column(0, 0, 32, 40_000, |c| c.biome == springs)
+        .expect("des sources chaudes");
+    let mut chunks = std::collections::HashMap::new();
+    for cz in sz.div_euclid(32) - 1..=sz.div_euclid(32) + 1 {
+        for cx in sx.div_euclid(32) - 1..=sx.div_euclid(32) + 1 {
+            chunks.insert((cx, cz), column_chunks(&g, cx, cz));
+        }
+    }
+    let pools = assert_contained(&chunks, water, "l'eau d'un bassin");
+    assert!(!pools.is_empty(), "aucun bassin autour de ({sx}, {sz})");
 }
 
 #[test]

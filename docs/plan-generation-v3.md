@@ -440,3 +440,43 @@ enfoncé, sans mousse sous terre ; les onze biomes des vagues 1 et 2 apparaissen
 
 Limites : pas de relief propre aux escarpements (ce sont des biomes de surface sur le relief commun : pas d'aiguilles
 rocheuses comme dans Biomes O' Plenty) ; la neige ne se pose pas sur les feuilles.
+
+## Statut du lot 5, vague 3 : chaud et volcanique (à valider)
+
+| Biome | Où | Ce qui le distingue |
+| --- | --- | --- |
+| Volcan (`core:volcano`) | les cônes du relief (pas de case climatique) | cône de roche volcanique de 80 blocs de rayon et 75 de haut, cendres, cratère et lac de lave plat |
+| Plaines volcaniques (`core:volcanic_plains`) | brûlant, ni sec ni humide, intérieur | herbe sombre, coulées de roche volcanique et de cendres, buissons, acacias, rochers ; les volcans s'y posent |
+| Sources chaudes (`core:hot_springs`) | chaud moyen, plaines usées | bassins d'eau turquoise d'un ou deux blocs sur le sol plat, fonds d'argile, gravier |
+| Maquis (`core:maquis`) | chaud assez sec, sur les hauteurs | oliviers (feuillage argenté, couronnes plates), lavande, terre grossière |
+| Désert fleuri (`core:flowering_desert`) | brûlant, au bord le moins sec du désert | sable couvert de soucis et de coquelicots, cactus |
+
+La garrigue existait déjà (`core:shrubland`) : la vague prend le maquis à sa place.
+
+- **Volcans dans le relief** : un nouveau nœud de densité, `Cones` (au plus un cône par carré de `cell` blocs, tiré
+  avec `chance`, entièrement dans son carré, gardé si un masque est positif à son centre). Sa hauteur (en blocs)
+  s'ajoute à `depth` (1/128 par bloc), donc à tout ce qui lit le relief : blocs, hauteurs, terrain lointain. Le
+  masque (`volcano_mask` de `terrain_v3.ron`) suit le climat des plaines volcaniques ; carrés de 320 blocs, chance 0,85.
+  Au-dessus de 12 blocs de cône, le biome est le volcan.
+- **Lave des cratères** : un niveau par volcan (deux blocs sous le point le plus bas du bord, lu sur huit points aux
+  coins des cellules), le même pour toutes les colonnes de chunks qu'il touche ; la lave ne remplit que les colonnes du
+  cratère plus basses.
+- **Bassins des sources chaudes** : là où un bruit est fort et les 5 × 5 colonnes autour à la même hauteur, un ou deux
+  blocs d'eau remplacent le sol ; la hauteur de la colonne devient le fond.
+- **Blocs** : cendres volcaniques, feuilles et pousse d'olivier, souci du désert (textures `assetgen` dans les deux
+  packs, butin, étiquette `leaves`). Arbre `Olive`, que donne sa pousse ; silhouette lointaine.
+- **Plantes** : dans les biomes réservés à la v3, une plante pousse aussi sur le sol du biome (les fleurs sur le sable
+  du désert fleuri) ; v1 et v2 ne changent pas.
+- **Table v3** : la lisière de jungle chaude et le désert reçoivent un décalage, les hautes terres rendent un peu
+  d'érosion aux alpages, les escarpements s'arrêtent au froid. Part de la terre (5 graines) : plaines volcaniques 3,3 %,
+  maquis 2,5 %, désert fleuri 0,9 %, sources chaudes 0,8 %, volcans 0,2 % ; la lisière de jungle passe de 15 à 6 %.
+- **Coût** : 8,7 ms par colonne de chunks contre 8,2 avant la vague (`print_v3_cost`).
+- **Captures** : `biome-volcan` (vue sur le cratère du volcan le plus proche), `biome-plaines-volcaniques`,
+  `biome-sources-chaudes`, `biome-maquis`, `biome-desert-fleuri`.
+
+Tests : le nœud `Cones` est compilé et borné ; un cratère tient un lac de lave plat, sans vide dessous ni à côté ; les
+bassins des sources chaudes tiennent leur eau de même ; le volcan porte son biome ; les seize biomes des vagues 1 à 3
+apparaissent en v3 et jamais en v1 ou v2.
+
+Limites : les bassins ne fument pas ; les volcans n'ont ni coulées ni cheminée sous le cratère ; le désert proprement
+dit et les alpages restent rares (0,1 % chacun).

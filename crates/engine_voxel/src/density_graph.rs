@@ -15,5 +15,5 @@ pub mod graph;
 pub mod noise;
 
 pub use def::{DensityDef, DensityFile, SplineDef, SplinePoint, SplineValue};
-pub use graph::{CELL_HEIGHT, CELL_WIDTH, DensityError, DensityGraph, NodeId};
+pub use graph::{CELL_HEIGHT, CELL_WIDTH, Cones, DensityError, DensityGraph, NodeId};
 pub use noise::{ImprovedPerlin, NoiseDef, NormalNoise, OctaveNoise};

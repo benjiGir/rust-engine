@@ -1564,5 +1564,30 @@
         id: "core:mossy_cobblestone", name: "Moellons moussus", color: (0.16, 0.22, 0.17), texture: "mossy_cobblestone",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 1.5, tool: Pickaxe, tier: 1,
+    ),    // ----- La génération v3, vague 3 (chaud et volcanique) : cendres, oliviers, fleurs du désert -----
+    (
+        id: "core:ash", name: "Cendres volcaniques", color: (0.16, 0.16, 0.17), texture: "ash",
+        sounds: (step: "step_sand", break: "break_soft", place: "place_soft"),
+        hardness: 0.5, tool: Shovel, gravity: true,
+    ),
+    (
+        id: "core:olive_leaves", name: "Feuilles d'olivier", color: (0.30, 0.36, 0.26),
+        texture: "olive_leaves", transparent: true, light_opacity: 1, cutout: true,
+        sway: true, behavior: "core:leaves",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.2, tool: Shears,
+    ),
+    (
+        id: "core:olive_sapling", name: "Pousse d'olivier", color: (0.30, 0.36, 0.26),
+        texture: "olive_sapling", shape: Cross, cutout: true, solid: false, transparent: true,
+        light_opacity: 0, behavior: "core:sapling",
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:marigold", name: "Souci du désert", color: (0.80, 0.42, 0.06), texture: "marigold", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
     ),
 ]

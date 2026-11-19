@@ -97,6 +97,22 @@ pub enum DensityDef {
         when_in_range: Box<DensityDef>,
         when_out_of_range: Box<DensityDef>,
     },
+    /// Des cônes (les volcans) : au plus un par carré de `cell` blocs, tiré avec la probabilité
+    /// `chance`, entièrement dans son carré, et seulement si `mask` (lue au centre, à y = 0) y est
+    /// positive. La valeur est une hauteur en blocs (0 hors des cônes) : un versant concave de `radius`
+    /// blocs de rayon et `height` de haut, un plateau au sommet creusé d'un cratère (`crater_radius`,
+    /// `crater_depth`). Elle ne dépend que de (x, z).
+    Cones {
+        cell: i32,
+        chance: f64,
+        #[serde(default)]
+        salt: u64,
+        mask: Box<DensityDef>,
+        radius: f64,
+        height: f64,
+        crater_radius: f64,
+        crater_depth: f64,
+    },
 }
 
 /// Une spline cubique : la valeur suit des points (abscisse, valeur, pente) le long d'une

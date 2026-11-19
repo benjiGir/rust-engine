@@ -318,3 +318,50 @@ fn print_fill_cost() {
         );
     }
 }
+
+#[test]
+fn cones_rise_around_their_sites_with_a_crater_and_follow_their_mask() {
+    let cones = |mask: &str| {
+        graph(&format!(
+            "\"f\": Cones(cell: 200, chance: 1.0, mask: {mask}, radius: 60.0, height: 50.0, crater_radius: 10.0, crater_depth: 20.0)"
+        ))
+    };
+    let g = cones("Constant(1.0)");
+    let f = g.function("f").unwrap();
+    assert_eq!(g.bounds(f), (0.0, 50.0));
+    let sites = g.cone_sites(f, (0, 0), (999, 999));
+    // Chance 1 : un cône par carré, entier dans son carré.
+    assert_eq!(sites.len(), 25);
+    for &(x, z) in &sites {
+        assert!((60..140).contains(&x.rem_euclid(200)) && (60..140).contains(&z.rem_euclid(200)));
+        let at = |dx: i32| g.sample(f, x + dx, 0, z);
+        let (center, rim, foot, outside) = (at(0), at(12), at(40), at(61));
+        assert!(
+            rim > center + 15.0,
+            "un cratère : bord {rim}, centre {center}"
+        );
+        assert!(
+            rim > foot && foot > 0.0,
+            "un versant : bord {rim}, pied {foot}"
+        );
+        assert_eq!(outside, 0.0);
+        // Ne dépend pas de y.
+        assert_eq!(g.sample(f, x + 12, 90, z), rim);
+    }
+    // Un masque négatif efface tout.
+    let g = cones("Constant(-1.0)");
+    let f = g.function("f").unwrap();
+    assert!(g.cone_sites(f, (0, 0), (999, 999)).is_empty());
+    assert_eq!(
+        g.sample_many(f, (0..200).map(|i| IVec3::new(i * 5, 0, i * 3)))
+            .iter()
+            .sum::<f64>(),
+        0.0
+    );
+    // Un carré trop petit pour le cône est refusé.
+    let text = "(functions: { \"f\": Cones(cell: 100, chance: 1.0, mask: Constant(1.0), radius: 60.0, height: 50.0, crater_radius: 10.0, crater_depth: 20.0) })";
+    assert!(matches!(
+        DensityGraph::parse(text, 1),
+        Err(DensityError::BadCones(_))
+    ));
+}

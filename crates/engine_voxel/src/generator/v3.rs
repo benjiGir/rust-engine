@@ -51,6 +51,13 @@ pub(super) struct V3State {
     water_table: NodeId,
     offset: NodeId,
     sloped: NodeId,
+    /// La hauteur des volcans (en blocs, par carrés de 4) et leur champ de cônes (centres, cratères).
+    volcano: NodeId,
+    volcano_cones: NodeId,
+    springs: NodeId,
+    /// Le biome des cônes, et celui des sources chaudes (`None` dans un registre qui ne les a pas).
+    volcano_biome: Option<BiomeId>,
+    springs_biome: Option<BiomeId>,
     biome_table: BiomeTable,
     surface: SurfaceRules,
     contexts: ColumnCache<V3Column>,
@@ -82,6 +89,11 @@ impl V3State {
             water_table: id("water_table")?,
             offset: id("offset")?,
             sloped: id("sloped")?,
+            volcano: id("volcano")?,
+            volcano_cones: id("volcano_cones")?,
+            springs: id("springs")?,
+            volcano_biome: biomes.id("core:volcano"),
+            springs_biome: biomes.id("core:hot_springs"),
             graph,
             biome_table: BiomeTable::parse(BIOMES, biomes)?,
             surface: SurfaceRules::parse(SURFACE, u64::from(seed), blocks, biomes)?,
@@ -127,6 +139,10 @@ pub(super) struct V3Column {
     water_table: Vec<(i32, i32)>,
     /// Les colonnes sur une pente raide (x + 32 z) : plus de 3 blocs de dénivelé sur 2.
     steep: Vec<bool>,
+    /// Le haut de la lave d'un cratère, ou de l'eau d'un bassin de source chaude, au-dessus du sol de
+    /// la colonne (x + 32 z) ; `i32::MIN` : rien.
+    lava: Vec<i32>,
+    pool: Vec<i32>,
 }
 
 impl V3Column {
@@ -221,15 +237,18 @@ impl TerrainGenerator {
             biomes: vec![0; CHUNK_SIZE * CHUNK_SIZE],
             water_table: vec![(i32::MIN, i32::MIN); CHUNK_SIZE * CHUNK_SIZE],
             steep: vec![false; CHUNK_SIZE * CHUNK_SIZE],
+            lava: vec![i32::MIN; CHUNK_SIZE * CHUNK_SIZE],
+            pool: vec![i32::MIN; CHUNK_SIZE * CHUNK_SIZE],
         };
         // Les paramètres climatiques sur la grille de 4 blocs (ils ne varient guère plus vite).
-        let climate: Vec<(f64, f64, f64, f64, f64)> = {
+        let climate: Vec<(f64, f64, f64, f64, f64, f64)> = {
             let ids = [
                 state.continents,
                 state.erosion,
                 state.pv,
                 state.temperature,
                 state.humidity,
+                state.volcano,
             ];
             let grid = |id| {
                 state.graph.sample_many(
@@ -249,6 +268,7 @@ impl TerrainGenerator {
                         values[2][i],
                         values[3][i],
                         values[4][i],
+                        values[5][i],
                     )
                 })
                 .collect()
@@ -259,11 +279,11 @@ impl TerrainGenerator {
             for lx in 0..SIZE {
                 let height = ctx.top(lx, lz, highest);
                 max_y = max_y.max(height);
-                let (c, e, pv, t, h) =
+                let (c, e, pv, t, h, volcano) =
                     climate[(lx / CELL_WIDTH) as usize + CX * (lz / CELL_WIDTH) as usize];
                 let table = self.v3_water_table(&mut regions, x0 + lx, z0 + lz);
                 ctx.water_table[lx as usize + lz as usize * CHUNK_SIZE] = table;
-                let biome = self.v3_biome(c, e, pv, t, h);
+                let biome = self.v3_biome_with_volcano(c, e, pv, t, h, volcano);
                 // Il fait plus froid en altitude : la neige descend des sommets.
                 // Même règle que `plants::is_cold` (la neige que posent les ticks aléatoires) : sinon la
                 // génération et le jeu se contrediraient et l'herbe changerait sans fin.
@@ -290,7 +310,131 @@ impl TerrainGenerator {
                 ctx.steep[lx as usize + lz as usize * CHUNK_SIZE] = dx.max(dz) > 3;
             }
         }
+        self.v3_crater_lava(&mut ctx, x0, z0);
+        self.v3_spring_pools(&mut ctx, x0, z0);
         ctx
+    }
+
+    /// La lave des cratères qui touchent la colonne de chunks : un lac plat, deux blocs sous le bord le
+    /// plus bas du cratère (lu sur huit points du bord, aux coins des cellules comme la densité), dans
+    /// les colonnes du cratère dont le sol est plus bas. Le même niveau pour toutes les colonnes de
+    /// chunks du cratère : il ne dépend que du volcan.
+    fn v3_crater_lava(&self, ctx: &mut V3Column, x0: i32, z0: i32) {
+        let state = self.v3_state();
+        let Some(cones) = state.graph.cones(state.volcano_cones) else {
+            return;
+        };
+        let reach = cones.crater_radius.ceil() as i32 + 1;
+        let sites = state.graph.cone_sites(
+            state.volcano_cones,
+            (x0 - reach, z0 - reach),
+            (x0 + SIZE + reach, z0 + SIZE + reach),
+        );
+        for (cx, cz) in sites {
+            if cx + reach < x0
+                || cx - reach >= x0 + SIZE
+                || cz + reach < z0
+                || cz - reach >= z0 + SIZE
+            {
+                continue;
+            }
+            let rim = cones.crater_radius + 3.0;
+            let level = (0..8)
+                .map(|k| {
+                    let a = std::f64::consts::TAU * f64::from(k) / 8.0;
+                    let x = cx + (rim * a.cos()).round() as i32;
+                    let z = cz + (rim * a.sin()).round() as i32;
+                    self.v3_surface_estimate(x.div_euclid(4) * 4, z.div_euclid(4) * 4)
+                })
+                .min()
+                .unwrap_or(BOTTOM)
+                - 2;
+            for lz in 0..SIZE {
+                for lx in 0..SIZE {
+                    let (dx, dz) = (f64::from(x0 + lx - cx), f64::from(z0 + lz - cz));
+                    let i = lx as usize + lz as usize * CHUNK_SIZE;
+                    if (dx * dx + dz * dz).sqrt() < cones.crater_radius
+                        && ctx.columns[lx as usize][lz as usize].height < level
+                    {
+                        ctx.lava[i] = level;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Les bassins des sources chaudes : sur un sol bien plat (les 5 × 5 colonnes autour à la même
+    /// hauteur, loin du bord de la colonne de chunks), là où le bruit des bassins est fort, un ou deux
+    /// blocs d'eau à la place du sol. La hauteur de la colonne devient le fond du bassin.
+    fn v3_spring_pools(&self, ctx: &mut V3Column, x0: i32, z0: i32) {
+        let state = self.v3_state();
+        let Some(springs) = state.springs_biome else {
+            return;
+        };
+        let heights: Vec<i32> = (0..SIZE * SIZE)
+            .map(|i| ctx.columns[(i % SIZE) as usize][(i / SIZE) as usize].height)
+            .collect();
+        let height = |lx: i32, lz: i32| heights[(lx + lz * SIZE) as usize];
+        for lz in 2..SIZE - 2 {
+            for lx in 2..SIZE - 2 {
+                let column = &mut ctx.columns[lx as usize][lz as usize];
+                if column.biome != springs || column.height <= SEA_LEVEL {
+                    continue;
+                }
+                let h = height(lx, lz);
+                let flat = (-2..=2).all(|dz| (-2..=2).all(|dx| height(lx + dx, lz + dz) == h));
+                if !flat {
+                    continue;
+                }
+                let v = state.graph.sample(state.springs, x0 + lx, 0, z0 + lz);
+                if v < 0.25 {
+                    continue;
+                }
+                let depth = if v > 0.4 { 2 } else { 1 };
+                column.height = h - depth;
+                ctx.pool[lx as usize + lz as usize * CHUNK_SIZE] = h;
+            }
+        }
+    }
+
+    /// La surface en (x, z) sans les grottes : le zéro de la densité « sloped », cherché tous les 8
+    /// blocs puis en ligne droite (exact aux coins des cellules, comme la densité interpolée).
+    fn v3_surface_estimate(&self, x: i32, z: i32) -> i32 {
+        let state = self.v3_state();
+        let positions = (0..CY as i32)
+            .rev()
+            .map(|j| IVec3::new(x, BOTTOM + j * CELL_HEIGHT, z));
+        let values = state.graph.sample_many(state.sloped, positions);
+        for (k, pair) in values.windows(2).enumerate() {
+            let (above, below) = (pair[0], pair[1]);
+            if below > 0.0 {
+                let y_above = BOTTOM + (CY as i32 - 1 - k as i32) * CELL_HEIGHT;
+                // Le zéro entre les deux niveaux, en ligne droite.
+                let t = if above < 0.0 {
+                    below / (below - above)
+                } else {
+                    1.0
+                };
+                return y_above - CELL_HEIGHT + (t * CELL_HEIGHT as f64).floor() as i32;
+            }
+        }
+        BOTTOM
+    }
+
+    /// Le biome d'une colonne, les volcans compris : au-dessus de 12 blocs de cône, c'est le volcan.
+    fn v3_biome_with_volcano(
+        &self,
+        c: f64,
+        e: f64,
+        pv: f64,
+        t: f64,
+        h: f64,
+        volcano: f64,
+    ) -> BiomeId {
+        match self.v3_state().volcano_biome {
+            Some(id) if volcano > 12.0 => id,
+            _ => self.v3_biome(c, e, pv, t, h),
+        }
     }
 
     /// Le biome d'une colonne : le plus proche de ses paramètres dans `biomes_v3.ron`.
@@ -316,32 +460,15 @@ impl TerrainGenerator {
     /// grottes de 81 verticales), et sans évincer du cache les contextes dont les chunks ont besoin.
     pub(super) fn column_far_v3(&self, x: i32, z: i32) -> Column {
         let state = self.v3_state();
-        let positions = (0..CY as i32)
-            .rev()
-            .map(|j| IVec3::new(x, BOTTOM + j * CELL_HEIGHT, z));
-        let values = state.graph.sample_many(state.sloped, positions);
-        let mut height = BOTTOM;
-        for (k, pair) in values.windows(2).enumerate() {
-            let (above, below) = (pair[0], pair[1]);
-            if below > 0.0 {
-                let y_above = BOTTOM + (CY as i32 - 1 - k as i32) * CELL_HEIGHT;
-                // Le zéro entre les deux niveaux, en ligne droite.
-                let t = if above < 0.0 {
-                    below / (below - above)
-                } else {
-                    1.0
-                };
-                height = y_above - CELL_HEIGHT + (t * CELL_HEIGHT as f64).floor() as i32;
-                break;
-            }
-        }
+        let height = self.v3_surface_estimate(x, z);
         let p = state.parameters(x, z);
-        let biome = self.v3_biome(
+        let biome = self.v3_biome_with_volcano(
             p.continentalness,
             p.erosion,
             p.pv,
             p.temperature,
             p.humidity,
+            state.graph.sample(state.volcano, x, 0, z),
         );
         // Même règle que `plants::is_cold` (la neige que posent les ticks aléatoires) : sinon la
         // génération et le jeu se contrediraient et l'herbe changerait sans fin.
@@ -385,12 +512,17 @@ impl TerrainGenerator {
                 let frozen = column.temperature < FREEZING;
                 let (table, dam) = ctx.water_table[lx as usize + lz as usize * CHUNK_SIZE];
                 let steep = ctx.steep[lx as usize + lz as usize * CHUNK_SIZE];
+                let lava = ctx.lava[lx as usize + lz as usize * CHUNK_SIZE];
+                let pool = ctx.pool[lx as usize + lz as usize * CHUNK_SIZE];
+                // Le bassin d'une source chaude remplace le haut du sol par de l'eau.
+                let solid_at =
+                    |y: i32| ctx.density(lx, y, lz) > 0.0 && !(y > column.height && y <= pool);
                 // Combien de blocs pleins d'affilée au-dessus (jusqu'à l'air ou l'eau) : la surface,
                 // puis la sous-couche, puis la roche. On part du haut du chunk.
                 let mut solid_above = {
                     let mut n = 0;
                     let mut y = origin.y + SIZE;
-                    while n < 8 && ctx.density(lx, y, lz) > 0.0 && y < TOP {
+                    while n < 8 && solid_at(y) && y < TOP {
                         n += 1;
                         y += 1;
                     }
@@ -398,7 +530,7 @@ impl TerrainGenerator {
                 };
                 for ly in (0..SIZE).rev() {
                     let y = origin.y + ly;
-                    let solid = ctx.density(lx, y, lz) > 0.0;
+                    let solid = solid_at(y);
                     let block = if y == BOTTOM
                         || (y < BOTTOM + 4
                             && hash3(self.seed, x, y, z, 1).is_multiple_of((y - BOTTOM) as u64 + 1))
@@ -422,7 +554,7 @@ impl TerrainGenerator {
                                 depth,
                                 subsurface_depth: biome.subsurface_depth,
                                 biome: column.biome,
-                                underwater: column.height < SEA_LEVEL,
+                                underwater: column.height < SEA_LEVEL || pool > column.height,
                                 cold: biome.temperature - altitude * 0.012 < FREEZING,
                                 steep,
                             })
@@ -467,6 +599,13 @@ impl TerrainGenerator {
                             solid_above = 0;
                             None
                         }
+                    } else if y <= lava {
+                        // Le lac de lave d'un cratère.
+                        solid_above = 0;
+                        Some(b.lava)
+                    } else if y <= pool {
+                        solid_above = 0;
+                        Some(b.water)
                     } else {
                         solid_above = 0;
                         (y <= SEA_LEVEL).then_some(if y == SEA_LEVEL && frozen {
@@ -536,6 +675,14 @@ impl TerrainGenerator {
             i32::MIN
         };
         (first.1, dam)
+    }
+
+    /// Les centres des volcans de la génération v3 dont le carré touche le rectangle `[min, max]`
+    /// (vide hors de la v3).
+    pub fn volcano_sites(&self, min: (i32, i32), max: (i32, i32)) -> Vec<(i32, i32)> {
+        self.v3.as_ref().map_or_else(Vec::new, |state| {
+            state.graph.cone_sites(state.volcano_cones, min, max)
+        })
     }
 
     /// Les paramètres climatiques v3 en (x, z) ; `None` hors de la génération v3.

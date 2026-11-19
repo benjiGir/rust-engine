@@ -131,7 +131,7 @@ const fn fluid(name: &'static str, which: FluidShot) -> Shot {
     }
 }
 
-const SHOTS: [Shot; 54] = [
+const SHOTS: [Shot; 59] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -263,6 +263,11 @@ const SHOTS: [Shot; 54] = [
     biome("biome-hautes-terres", "core:highland"),
     biome("biome-landes", "core:moor"),
     biome("biome-escarpements", "core:crag"),
+    biome("biome-volcan", "core:volcano"),
+    biome("biome-plaines-volcaniques", "core:volcanic_plains"),
+    biome("biome-sources-chaudes", "core:hot_springs"),
+    biome("biome-maquis", "core:maquis"),
+    biome("biome-desert-fleuri", "core:flowering_desert"),
 ];
 
 /// Où en est la visite.
@@ -494,6 +499,19 @@ impl VoxelGame {
         Some((center.0 - o.x, center.1 - o.z))
     }
 
+    /// Le centre du volcan le plus proche (génération v3), en coordonnées de scène.
+    fn nearest_volcano(&self) -> Option<(i32, i32)> {
+        let o = self.origin();
+        let sites = self
+            .streamer()
+            .generator()
+            .volcano_sites((o.x - 6000, o.z - 6000), (o.x + 6000, o.z + 6000));
+        sites
+            .into_iter()
+            .min_by_key(|&(x, z)| (x - o.x).pow(2) + (z - o.z).pow(2))
+            .map(|(x, z)| (x - o.x, z - o.z))
+    }
+
     /// Position des yeux, cap et inclinaison (en degrés) pour chaque scène.
     fn viewpoint(&self, scene: Scene) -> (Vec3, f32, f32) {
         let spawn = self.ground(0, 0) as f32;
@@ -560,6 +578,16 @@ impl VoxelGame {
                     Vec3::new(x as f32 - 5.5, g + 5.5, z as f32 - 5.5),
                     45.0,
                     -30.0,
+                )
+            }
+            // Le volcan : de loin et d'en haut, vers le cratère du plus proche.
+            Scene::Biome("core:volcano") if self.nearest_volcano().is_some() => {
+                let (x, z) = self.nearest_volcano().unwrap_or_default();
+                let g = self.ground(x, z) as f32;
+                (
+                    Vec3::new(x as f32 - 60.0, g + 42.0, z as f32 - 60.0),
+                    45.0,
+                    -22.0,
                 )
             }
             Scene::Biome(key) => {

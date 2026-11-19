@@ -98,7 +98,7 @@ fn spacing(kind: TreeKind) -> i32 {
         | TreeKind::TallSpruce
         | TreeKind::Fir
         | TreeKind::Boulder => 3,
-        TreeKind::Fruit | TreeKind::Cypress => 4,
+        TreeKind::Fruit | TreeKind::Cypress | TreeKind::Olive => 4,
         TreeKind::Swamp | TreeKind::Acacia | TreeKind::Maple => 5,
         TreeKind::BigOak | TreeKind::Jungle | TreeKind::Redwood => 6,
     }
@@ -382,7 +382,9 @@ impl TerrainGenerator {
                                 || ground == b.coarse_dirt
                                 || self.registry.def(ground).gravity
                         } else {
-                            b.is_soil(ground)
+                            // Les biomes de la v3 fleurissent aussi sur leur propre sol (les fleurs du
+                            // désert fleuri sur le sable) ; v1 et v2 ne changent pas.
+                            b.is_soil(ground) || (biome.v3_only && ground == biome.surface)
                         };
                         let ly = (y - origin.y) as usize;
                         if ok && chunk.get(lx, ly, lz).is_air() {

@@ -316,8 +316,9 @@ mod tests {
         for e in &file.biomes {
             assert!(biomes.id(&e.biome).is_some(), "biome inconnu : {}", e.biome);
         }
-        // Chaque biome du jeu de base a au moins une case : aucun n'est oublié.
-        for (_, def) in biomes.iter() {
+        // Chaque biome du jeu de base a au moins une case : aucun n'est oublié (sauf le volcan, qui suit
+        // les cônes du relief et non le climat).
+        for (_, def) in biomes.iter().filter(|(_, d)| d.key != "core:volcano") {
             assert!(
                 file.biomes.iter().any(|e| e.biome == def.key),
                 "{} n'a pas de case dans biomes_v3.ron",

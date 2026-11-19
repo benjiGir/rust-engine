@@ -37,6 +37,7 @@ pub enum DensityError {
     UnknownFunction(String),
     Cycle(String),
     BadSpline(String),
+    BadCones(String),
 }
 
 impl std::fmt::Display for DensityError {
@@ -47,6 +48,7 @@ impl std::fmt::Display for DensityError {
             Self::UnknownFunction(n) => write!(f, "fonction inconnue : {n}"),
             Self::Cycle(n) => write!(f, "la fonction {n} dépend d'elle-même"),
             Self::BadSpline(why) => write!(f, "spline invalide : {why}"),
+            Self::BadCones(why) => write!(f, "cônes invalides : {why}"),
         }
     }
 }
@@ -111,6 +113,64 @@ enum Node {
         inside: NodeId,
         outside: NodeId,
     },
+    /// L'indice dans la liste des champs de cônes.
+    Cones(usize),
+}
+
+/// Un champ de cônes compilé (voir `DensityDef::Cones`).
+#[derive(Debug, Clone, Copy)]
+pub struct Cones {
+    pub cell: i32,
+    chance: f64,
+    key: u64,
+    mask: NodeId,
+    pub radius: f64,
+    pub height: f64,
+    pub crater_radius: f64,
+    pub crater_depth: f64,
+}
+
+impl Cones {
+    /// Le centre du cône du carré (cx, cz), s'il y en a un (avant le masque).
+    fn site(&self, cx: i32, cz: i32) -> Option<(i32, i32)> {
+        let mix = |mut z: u64| {
+            z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        };
+        let h = mix(self.key
+            ^ (cx as u64).wrapping_mul(0x632B_E59B_D9B4_E019)
+            ^ (cz as u64).wrapping_mul(0x8CB9_2BA7_2F3D_8DD7));
+        if (h >> 11) as f64 / (1u64 << 53) as f64 >= self.chance {
+            return None;
+        }
+        let margin = self.radius.ceil() as i32;
+        let span = (self.cell - 2 * margin).max(1) as u64;
+        let h2 = mix(h);
+        Some((
+            cx * self.cell + margin + (h2 % span) as i32,
+            cz * self.cell + margin + ((h2 >> 32) % span) as i32,
+        ))
+    }
+
+    /// La hauteur du cône à `d` blocs de son centre : un versant concave jusqu'au plateau, creusé du
+    /// cratère.
+    pub fn profile(&self, d: f64) -> f64 {
+        if d >= self.radius {
+            return 0.0;
+        }
+        let rim = self.crater_radius + 2.0;
+        let t = 1.0 - d.max(rim) / self.radius;
+        let slope = self.height * t.powf(1.6);
+        let crater = if d < self.crater_radius {
+            let u = d / self.crater_radius;
+            self.crater_depth * (1.0 - u * u)
+        } else {
+            0.0
+        };
+        (slope - crater).max(0.0)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -135,6 +195,7 @@ pub struct DensityGraph {
     splines: Vec<CompiledSpline>,
     spline_bounds: Vec<(f64, f64)>,
     names: BTreeMap<String, NodeId>,
+    cones: Vec<Cones>,
     /// Combien de nœuds de chaque sorte de cache, et d'interpolés.
     interpolated: usize,
     flat: usize,
@@ -170,6 +231,7 @@ impl DensityGraph {
                 splines: Vec::new(),
                 spline_bounds: Vec::new(),
                 names: BTreeMap::new(),
+                cones: Vec::new(),
                 interpolated: 0,
                 flat: 0,
                 cache2d: 0,
@@ -206,6 +268,34 @@ impl DensityGraph {
     /// Des bornes de la fonction : toute valeur est dans `[min, max]` (sans être forcément atteinte).
     pub fn bounds(&self, id: NodeId) -> (f64, f64) {
         self.bounds[id as usize]
+    }
+
+    /// Le champ de cônes de la fonction `id`, si c'en est un.
+    pub fn cones(&self, id: NodeId) -> Option<Cones> {
+        match self.nodes[id as usize] {
+            Node::Cones(i) => Some(self.cones[i]),
+            _ => None,
+        }
+    }
+
+    /// Les centres des cônes de la fonction `id` (un champ de cônes) dont le carré touche le rectangle
+    /// de blocs `[min, max]`, masque compris.
+    pub fn cone_sites(&self, id: NodeId, min: (i32, i32), max: (i32, i32)) -> Vec<(i32, i32)> {
+        let Some(cones) = self.cones(id) else {
+            return Vec::new();
+        };
+        let mut eval = Eval::new(self, None);
+        let mut sites = Vec::new();
+        for cz in min.1.div_euclid(cones.cell)..=max.1.div_euclid(cones.cell) {
+            for cx in min.0.div_euclid(cones.cell)..=max.0.div_euclid(cones.cell) {
+                if let Some((x, z)) = cones.site(cx, cz)
+                    && eval.eval(cones.mask, x, 0, z) > 0.0
+                {
+                    sites.push((x, z));
+                }
+            }
+        }
+        sites
     }
 
     /// La valeur exacte en (x, y, z).
@@ -507,6 +597,36 @@ impl Compiler<'_> {
                     bounds,
                 )
             }
+            DensityDef::Cones {
+                cell,
+                chance,
+                salt,
+                mask,
+                radius,
+                height,
+                crater_radius,
+                crater_depth,
+            } => {
+                if *radius <= 0.0 || f64::from(*cell) < 2.0 * radius.ceil() + 1.0 {
+                    return Err(DensityError::BadCones(format!(
+                        "le carré ({cell}) doit contenir le cône (rayon {radius})"
+                    )));
+                }
+                let mask = self.node(mask)?;
+                let key = self.seed ^ salt.wrapping_mul(0xD6E8_FEB8_6659_FD93) ^ 0x636F_6E65;
+                self.graph.cones.push(Cones {
+                    cell: *cell,
+                    chance: *chance,
+                    key,
+                    mask,
+                    radius: *radius,
+                    height: *height,
+                    crater_radius: *crater_radius,
+                    crater_depth: *crater_depth,
+                });
+                let index = self.graph.cones.len() - 1;
+                self.push(Node::Cones(index), (0.0, height.max(0.0)))
+            }
         })
     }
 
@@ -761,6 +881,20 @@ impl<'a> Eval<'a> {
                 } else {
                     self.eval(*outside, x, y, z)
                 }
+            }
+            Node::Cones(index) => {
+                let cones = graph.cones[*index];
+                let cell = (x.div_euclid(cones.cell), z.div_euclid(cones.cell));
+                let Some((cx, cz)) = cones.site(cell.0, cell.1) else {
+                    return 0.0;
+                };
+                let (dx, dz) = (f64::from(x - cx), f64::from(z - cz));
+                let d = (dx * dx + dz * dz).sqrt();
+                // Le masque (le plus cher) seulement au pied du cône.
+                if d >= cones.radius || self.eval(cones.mask, cx, 0, cz) <= 0.0 {
+                    return 0.0;
+                }
+                cones.profile(d)
             }
         }
     }

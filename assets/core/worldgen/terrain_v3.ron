@@ -37,6 +37,8 @@
         "entrance": (first_octave: -8, amplitudes: [0.4, 0.5, 1.0]),
         // La nappe phréatique : un niveau d'eau souterrain qui varie doucement d'une région à l'autre.
         "water_table": (first_octave: -9, amplitudes: [1.0, 1.0, 0.5]),
+        // Les bassins des sources chaudes (lot 5, vague 3).
+        "springs": (first_octave: -5, amplitudes: [1.0, 0.5]),
     },
     functions: {
         "shift_x": FlatCache(Cache2d(Mul(Noise(noise: "shift", xz_scale: 1.0, y_scale: 0.0), Constant(16.0)))),
@@ -126,7 +128,20 @@
             ])),
         ]))),
 
-        "depth": Add(YClampedGradient(from_y: -128, to_y: 256, from_value: 1.5, to_value: -1.5), Ref("offset")),
+        // Les volcans (lot 5, vague 3) : des cônes dans les régions chaudes et assez sèches de l'intérieur,
+        // un par carré de 320 blocs au plus. Leur hauteur (en blocs) s'ajoute au relief : une pente de
+        // 1/128 par bloc dans « depth ».
+        "volcano_mask": Min(Add(Ref("temperature"), Constant(-0.55)),
+            Min(Add(Ref("humidity"), Constant(0.2)),
+            Min(Add(Constant(0.1), Mul(Ref("humidity"), Constant(-1.0))),
+                Add(Ref("continents"), Constant(0.05))))),
+        "volcano_cones": Cones(cell: 320, chance: 0.85, salt: 1, mask: Ref("volcano_mask"),
+            radius: 80.0, height: 75.0, crater_radius: 11.0, crater_depth: 16.0),
+        "volcano": FlatCache(Ref("volcano_cones")),
+        // Les bassins des sources chaudes : là où ce bruit est fort (voir la génération).
+        "springs": Noise(noise: "springs", xz_scale: 1.0, y_scale: 0.0),
+        "depth": Add(Add(YClampedGradient(from_y: -128, to_y: 256, from_value: 1.5, to_value: -1.5), Ref("offset")),
+            Mul(Ref("volcano"), Constant(0.0078125))),
         "jagged": Mul(Ref("jaggedness"), HalfNegative(Noise(noise: "jagged", xz_scale: 1.0, y_scale: 0.0))),
         // Gardée par position : la croûte et les grottes la relisent.
         "sloped": CacheOnce(Add(

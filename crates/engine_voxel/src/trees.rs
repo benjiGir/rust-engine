@@ -46,6 +46,8 @@ pub enum TreeKind {
     Fir,
     /// Un bloc erratique : un rocher de moellons, moussus par endroits, à demi enfoncé.
     Boulder,
+    /// Un olivier : tronc court et tordu, deux ou trois branches, couronnes plates argentées.
+    Olive,
 }
 
 /// Ce qu'est un bloc d'arbre : il décide de ce qu'il a le droit de remplacer.
@@ -80,6 +82,8 @@ pub struct TreeBlocks {
     /// La vague 2 : les aiguilles de sapin et les rochers (moellons, moellons moussus).
     pub fir_leaves: Option<BlockId>,
     pub boulder: Option<(BlockId, BlockId)>,
+    /// La vague 3 : les feuilles d'olivier.
+    pub olive_leaves: Option<BlockId>,
     pub vine: BlockId,
     pub cactus: BlockId,
 }
@@ -110,6 +114,7 @@ impl TreeBlocks {
             boulder: registry
                 .id("core:cobblestone")
                 .zip(registry.id("core:mossy_cobblestone")),
+            olive_leaves: registry.id("core:olive_leaves"),
             vine: id("core:vine")?,
             cactus: id("core:cactus")?,
         })
@@ -135,6 +140,10 @@ impl TreeBlocks {
             TreeKind::Cypress => Wood {
                 log: self.spruce.log,
                 leaves: self.oak.leaves,
+            },
+            TreeKind::Olive => Wood {
+                log: self.oak.log,
+                leaves: self.olive_leaves.unwrap_or(self.oak.leaves),
             },
             TreeKind::Fir => Wood {
                 log: self.spruce.log,
@@ -166,6 +175,7 @@ impl TreeBlocks {
             "core:redwood_sapling" => TreeKind::Redwood,
             "core:maple_sapling" => TreeKind::Maple,
             "core:fir_sapling" => TreeKind::Fir,
+            "core:olive_sapling" => TreeKind::Olive,
             _ => return None,
         })
     }
@@ -287,6 +297,7 @@ pub fn grow(
             }
         }
         TreeKind::Fir => fir(base, rng, wood, put),
+        TreeKind::Olive => olive(base, rng, wood, put),
         TreeKind::Boulder => {
             if blocks.boulder.is_some() {
                 boulder(base, rng, wood, put);
@@ -427,6 +438,48 @@ fn fir(base: IVec3, rng: &mut Rng64, wood: Wood, put: &mut impl FnMut(IVec3, Blo
             }
         }
     }
+}
+
+/// L'olivier : un tronc court qui penche, puis deux ou trois branches courtes en biais, chacune
+/// sous une couronne aplatie ; une couronne au-dessus du tronc.
+fn olive(base: IVec3, rng: &mut Rng64, wood: Wood, put: &mut impl FnMut(IVec3, BlockId, Part)) {
+    let height = rng.range(2, 4);
+    let (lx, lz) = [(1, 0), (-1, 0), (0, 1), (0, -1)][rng.below(4) as usize];
+    let mut top = base;
+    for y in 0..height {
+        top = base
+            + IVec3::new(
+                if y == height - 1 { lx } else { 0 },
+                y,
+                if y == height - 1 { lz } else { 0 },
+            );
+        put(top, wood.log, Part::Log);
+    }
+    let flat = |center: IVec3, r: f32, put: &mut dyn FnMut(IVec3, BlockId, Part)| {
+        let n = r.ceil() as i32;
+        for dy in 0..=1 {
+            let r = if dy == 0 { r } else { r - 1.0 };
+            for dx in -n..=n {
+                for dz in -n..=n {
+                    if (dx * dx + dz * dz) as f32 <= r * r {
+                        put(center + IVec3::new(dx, dy, dz), wood.leaves, Part::Leaves);
+                    }
+                }
+            }
+        }
+    };
+    let directions = [(1, 1), (-1, 1), (1, -1), (-1, -1)];
+    let first = rng.below(4) as usize;
+    for k in 0..rng.range(2, 3) as usize {
+        let (dx, dz) = directions[(first + k) % 4];
+        let mut p = top;
+        for step in 1..=2 {
+            p = top + IVec3::new(dx * step, step, dz * step);
+            put(p, wood.log, Part::Log);
+        }
+        flat(p + IVec3::Y, 2.3, put);
+    }
+    flat(top + IVec3::Y * 2, 2.0, put);
 }
 
 /// Un bloc erratique : une boule de moellons écrasée, centrée un peu sous le sol (seule la partie hors
@@ -570,6 +623,7 @@ mod tests {
             TreeKind::Fruit,
             TreeKind::Cypress,
             TreeKind::Fir,
+            TreeKind::Olive,
         ] {
             for seed in 0..40 {
                 let mut rng = Rng64::new(seed);
@@ -596,6 +650,10 @@ mod tests {
         assert_eq!(
             TreeBlocks::kind_of_sapling("core:fir_sapling"),
             Some(TreeKind::Fir)
+        );
+        assert_eq!(
+            TreeBlocks::kind_of_sapling("core:olive_sapling"),
+            Some(TreeKind::Olive)
         );
     }
 

@@ -1199,6 +1199,15 @@ fn mossy_cobblestone() -> Image {
     image
 }
 
+/// Les cendres volcaniques : une poudre gris sombre, à grain fin, avec des éclats plus clairs.
+fn ash() -> Image {
+    let base = [0.27, 0.27, 0.28];
+    Image::filled(base)
+        .noise(base, 0.12, 153)
+        .speckles([0.42, 0.41, 0.4], 0.08, 154)
+        .speckles([0.15, 0.15, 0.16], 0.1, 155)
+}
+
 /// La bruyère : une touffe basse de tiges brunes et vertes, couverte de petites fleurs mauves.
 fn heather() -> Image {
     let stem = [0.32, 0.36, 0.2];
@@ -1433,6 +1442,15 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
             core.join("fir_sapling.png"),
             sapling([0.3, 0.22, 0.14], [0.16, 0.36, 0.33]),
         ),
+        // La vague 3 : olivier au feuillage argenté.
+        (
+            core.join("olive_leaves.png"),
+            leaves([0.42, 0.5, 0.36], 152),
+        ),
+        (
+            core.join("olive_sapling.png"),
+            sapling([0.36, 0.3, 0.22], [0.44, 0.52, 0.38]),
+        ),
         (
             core.join("tall_grass.png"),
             tall_grass([0.4, 0.66, 0.26], 104),
@@ -1460,6 +1478,10 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
             flower([0.65, 0.42, 0.88], [0.8, 0.6, 0.95]),
         ),
         (core.join("heather.png"), heather()),
+        (
+            core.join("marigold.png"),
+            flower([0.96, 0.58, 0.1], [0.62, 0.22, 0.05]),
+        ),
         (
             core.join("red_mushroom.png"),
             mushroom([0.8, 0.12, 0.1], true),
@@ -1541,6 +1563,7 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("farmland_wet.png"), farmland(true)),
         (core.join("cobblestone.png"), cobblestone()),
         (core.join("mossy_cobblestone.png"), mossy_cobblestone()),
+        (core.join("ash.png"), ash()),
         (core.join("volcanic_rock.png"), volcanic_rock()),
         (core.join("workbench_top.png"), workbench_top()),
         (core.join("workbench_side.png"), workbench_side()),
