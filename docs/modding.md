@@ -495,7 +495,7 @@ fn init(&mut self) {
 fn command(&mut self, name: &str, args: &str) -> Option<String> {
     match name {
         "rubis" => {
-            mod_sdk::give_item(self.ruby, args.trim().parse().unwrap_or(1));
+            mod_sdk::give_stack(self.ruby, args.trim().parse().unwrap_or(1));
             Some("Voilà.".to_string())          // la réponse : une ligne par `\n`
         }
         _ => None,                              // rien à dire
@@ -559,7 +559,7 @@ ci-dessous). 10 000 machines en un appel coûtent bien moins que 10 000 appels.
 ### Objets et recettes de machine
 
 Un script peut donner au joueur n'importe quel **objet**, pas seulement un bloc :
-`item_id("example:ruby")` donne son numéro, `give_stack(objet, nombre)` le donne.
+`item_id("core:ruby")` donne son numéro, `give_stack(objet, nombre)` le donne.
 
 Un mod déclare les recettes de ses machines dans `machine_recipes.ron`, par **type** de
 recette (un type est à lui, `press` devient `example:press` ; un autre mod peut y ajouter) :
@@ -596,7 +596,7 @@ d'un autre (le principe des « capabilities » de Forge).
   `None` pour « de l'intérieur » (la machine elle-même), toujours permis.
 - **Simulation** : `simulate = true` demande « combien accepterais-tu ? » sans rien changer.
 - **Unités** : énergie libre (comme les FE), fluides en millibuckets (1000 mB = un bloc), objets et
-  fluides désignés par leur identifiant texte (`"core:water"`, `"example:ruby"`).
+  fluides désignés par leur identifiant texte (`"core:water"`, `"core:ruby"`).
 
 Les **réseaux** (câbles, tuyaux, arbres de transmission) qui font circuler ces quantités
 d'elles-mêmes arrivent en phase 9c ; d'ici là, un script déplace ce qu'il veut entre voisins.
@@ -780,7 +780,7 @@ test vérifie que le jeu définit exactement ces fonctions.
 
 | Fonction | Rôle |
 |---|---|
-| `item_id(ptr: i32, len: i32) -> i32` | Le numéro d'un objet (bloc ou non) à partir de son identifiant (`example:ruby`) ; −1 s'il n'existe pas. |
+| `item_id(ptr: i32, len: i32) -> i32` | Le numéro d'un objet (bloc ou non) à partir de son identifiant (`core:ruby`) ; −1 s'il n'existe pas. |
 | `item_max_stack(ptr: i32, len: i32) -> i32` | Combien d'exemplaires de cet objet tiennent dans une case (1 pour un outil) ; 0 s'il n'existe pas. |
 | `item_durability(ptr: i32, len: i32) -> i32` | Le nombre d'utilisations d'un objet avant qu'il casse (outils, armures) ; 0 s'il n'use pas ou n'existe pas. |
 | `give_stack(id: i32, count: i32)` | Donne `count` objets de numéro `id` (voir `item_id`) au joueur. |
@@ -861,7 +861,8 @@ le moteur, en tâche de fond, à partir de la graine du monde : le même monde a
 structures et filons, et rien ne ralentit l'image.
 
 **1. Des minerais** — `ores.ron` du mod (même format que `assets/core/ores.ron` : bloc, altitude,
-taille d'un filon, nombre par chunk, biomes). Le mod d'exemple y met des filons de rubis.
+taille d'un filon, nombre par chunk, biomes). Le mod d'exemple y ajoute des filons du minerai de rubis du jeu
+(`core:ruby_ore`) : un mod peut placer les blocs des autres.
 
 **2. Des biomes** — `biomes.ron` du mod (même format que `assets/core/biomes.ron`).
 Dans chaque famille (`kind`), le biome retenu est celui dont le point (`climate`, `variety`) est le
@@ -910,7 +911,7 @@ pour la première fois (jamais pour un chunk relu d'une sauvegarde), le script p
 minimal, 32 blocs de côté) ; le script lit et écrit dans ce chunk avec `get_block` et `set_block`
 (hors des chunks chargés, ils échouent). Le jeu confie au plus 8 chunks par tick, et seulement quand
 tous les scripts abonnés ont du budget : un chunk n'est pas perdu parce qu'un mod est occupé.
-Le mod d'exemple y pose un rubis sur le sol de certains chunks (réglage `surface_ruby_chance`).
+Le mod d'exemple y pose un minerai de rubis sur le sol de certains chunks (réglage `surface_ruby_chance`).
 Limites : un chunk déchargé avant que son événement soit livré n'est pas décoré, et un chunk entièrement
 vide (de l'air) ne déclenche rien.
 

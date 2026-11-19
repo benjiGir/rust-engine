@@ -26,7 +26,7 @@
         id: "example:guard", name: "Gardien", health: 20.0, speed: 2.2, size: (0.7, 1.7),
         hostile: true, brain: true, xp: (2, 6), weight: 1,
         spawn_on: ["core:grass", "core:stone"],
-        drops: [(item: "example:ruby", count: (0, 2), chance: 0.6)],
+        drops: [(item: "core:ruby", count: (0, 2), chance: 0.6)],
         parts: [
             (offset: (0.0, 0.96, 0.0), size: (0.37, 0.62, 0.53), color: (0.15645, 0.21894, 0.23638), texture: "example:mob_guard_plate"),
             (offset: (0.0, 0.68, 0.0), size: (0.4, 0.09, 0.56), color: (0.09477, 0.05221, 0.03081), texture: "example:mob_guard_leather"),

@@ -212,7 +212,7 @@ impl FluidTank {
     }
 }
 
-/// Une pile d'objets. L'objet est un identifiant texte (`core:stone`, `example:ruby`).
+/// Une pile d'objets. L'objet est un identifiant texte (`core:stone`, `core:ruby`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ItemStack {
     pub item: String,

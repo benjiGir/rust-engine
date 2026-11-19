@@ -237,7 +237,7 @@ unsafe extern "C" {
     ) -> i32;
     /// 1 si le mod (son identifiant) est chargé et actif.
     pub fn mod_loaded(ptr: i32, len: i32) -> i32;
-    /// Le numéro d'un objet (bloc ou non) à partir de son identifiant (`example:ruby`) ; −1 s'il n'existe pas.
+    /// Le numéro d'un objet (bloc ou non) à partir de son identifiant (`core:ruby`) ; −1 s'il n'existe pas.
     pub fn item_id(ptr: i32, len: i32) -> i32;
     /// Combien d'exemplaires de cet objet tiennent dans une case (1 pour un outil) ; 0 s'il n'existe pas.
     pub fn item_max_stack(ptr: i32, len: i32) -> i32;

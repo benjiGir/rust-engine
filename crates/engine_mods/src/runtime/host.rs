@@ -809,7 +809,7 @@ fn define_capabilities(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
     Ok(())
 }
 
-/// Un texte de la forme `core:iron_ingot*2,example:ruby*1` : des (objet, nombre).
+/// Un texte de la forme `core:iron_ingot*2,core:ruby*1` : des (objet, nombre).
 fn parse_stacks(state: &HostState, text: &str) -> Vec<(engine_voxel::ItemId, u32)> {
     text.split(',')
         .filter_map(|part| {

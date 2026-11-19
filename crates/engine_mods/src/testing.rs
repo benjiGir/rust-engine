@@ -172,6 +172,13 @@ impl Harness {
             .unwrap_or_else(|| panic!("bloc inconnu : {key}"))
     }
 
+    /// Le numéro d'un objet (`core:ruby`...), bloc ou non.
+    pub fn item_id(&self, key: &str) -> engine_voxel::ItemId {
+        self.items
+            .id(key)
+            .unwrap_or_else(|| panic!("objet inconnu : {key}"))
+    }
+
     /// Pose un bloc dans le monde de test (sans prévenir les voisins).
     pub fn place(&mut self, pos: IVec3, key: &str) {
         let block = self.block_id(key);

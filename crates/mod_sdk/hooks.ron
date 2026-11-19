@@ -238,7 +238,7 @@
         // Objets et recettes.
         (name: "item_id", group: "Objets et recettes",
          params: [("ptr", I32), ("len", I32)], ret: I32, fallback: "-1",
-         doc: "Le numéro d'un objet (bloc ou non) à partir de son identifiant (`example:ruby`) ; −1 s'il n'existe pas."),
+         doc: "Le numéro d'un objet (bloc ou non) à partir de son identifiant (`core:ruby`) ; −1 s'il n'existe pas."),
         (name: "item_max_stack", group: "Objets et recettes",
          params: [("ptr", I32), ("len", I32)], ret: I32, fallback: "0",
          doc: "Combien d'exemplaires de cet objet tiennent dans une case (1 pour un outil) ; 0 s'il n'existe pas."),

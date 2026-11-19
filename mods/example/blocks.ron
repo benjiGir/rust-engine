@@ -1,15 +1,9 @@
-// Un mod d'exemple : un bloc de rubis et un casseur de blocs.
+// Un mod d'exemple : un casseur de blocs, et des formes taillées dans le rubis du jeu.
 //
 // Un mod est un dossier dans `mods/`. Son nom (ici `example`) est son espace
 // de noms : tous ses identifiants doivent commencer par `example:`.
 // Les mods sont chargés après leurs dépendances (voir `mod.ron`).
 [
-    // La texture vient de `mods/example/textures/ruby.png` ; les sons réutilisent ceux
-    // du jeu (`core:...`). Un mod peut aussi fournir les siens dans `sounds/`.
-    (
-        id: "example:ruby", name: "Rubis", color: (0.2349, 0.0060, 0.0210), texture: "ruby",
-        sounds: (step: "core:step_hard", break: "core:break_glass", place: "core:place_hard"),
-    ),
     // Une machine : son comportement est écrit dans le script du mod (`script/src/lib.rs`).
     (
         id: "example:breaker", name: "Casseur", color: (0.1866, 0.1971, 0.2384), texture: "breaker",
@@ -23,7 +17,8 @@
         behavior: "breaker",
         sounds: (step: "core:step_hard", break: "core:break_hard", place: "core:place_hard"),
     ),
-    // Des formes qui ne sont pas des cubes : des boîtes, en seizièmes de bloc (0 à 16).
+    // Des formes qui ne sont pas des cubes (la texture vient de `mods/example/textures/ruby.png` ;
+    // les sons réutilisent ceux du jeu, `core:...` : un mod peut aussi fournir les siens dans `sounds/`) : des boîtes, en seizièmes de bloc (0 à 16).
     // `states` fabrique une variante par combinaison ; la forme écrite est celle de la première
     // valeur (moitié basse, avant au nord, axe Y) et le jeu en déduit les autres par rotation.
     // Posée, la variante suit le regard et la face visée ; cassée, elle rend le bloc de base.

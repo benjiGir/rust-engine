@@ -882,9 +882,16 @@ fn v3_ores_reach_the_deep_world_and_new_ores_stay_out_of_v1() {
     ] {
         assert!(count(&g, id(key), -4..0) > 0, "{key} absent sous 0 en v3");
     }
-    assert!(count(&g, id("core:tin_ore"), 0..4) > 0, "étain absent en v3");
+    assert!(
+        count(&g, id("core:tin_ore"), 0..4) > 0,
+        "étain absent en v3"
+    );
     // Le diamant reste tout au fond.
-    assert_eq!(count(&g, id("core:diamond_ore"), 0..8), 0, "du diamant au-dessus de 0");
+    assert_eq!(
+        count(&g, id("core:diamond_ore"), 0..8),
+        0,
+        "du diamant au-dessus de 0"
+    );
     // Les mondes v1 n'ont aucun des nouveaux minerais.
     let v1 = TerrainGenerator::new(42);
     for key in [

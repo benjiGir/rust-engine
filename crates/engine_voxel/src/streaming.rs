@@ -2004,7 +2004,7 @@ pub(crate) mod tests {
     fn mod_blocks_can_be_placed_and_meshed() {
         let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let registry = BlockRegistry::load(&repo.join("assets"), Some(&repo.join("mods"))).unwrap();
-        let ruby = registry.id("example:ruby").unwrap();
+        let ruby = registry.id("example:ruby_slab").unwrap();
         let ruby_texture = registry.def(ruby).face_textures[0];
         assert_ne!(ruby_texture, 0);
         let generator = TerrainGenerator::with_registry(7, Arc::new(registry)).unwrap();
@@ -2015,14 +2015,14 @@ pub(crate) mod tests {
         let mut s = ChunkStreamer::new(generator, config);
         pump(&mut s, Vec3::new(5.0, 40.0, 5.0));
 
-        // Un rubis seul dans le ciel : 6 faces.
+        // Une dalle de rubis seule dans le ciel : 6 faces.
         let pos = IVec3::new(8, 120, 8);
         assert!(s.set_block(pos, ruby));
         let Some(StreamEvent::Mesh(_, mesh)) = s.next_event() else {
             panic!("pas de maillage");
         };
         assert_eq!(mesh.quad_count(), 6);
-        // Le rubis a une texture : ses faces portent sa couche.
+        // La dalle a une texture : ses faces portent sa couche.
         assert!(mesh.vertices.iter().all(|v| v.texture == ruby_texture));
     }
 

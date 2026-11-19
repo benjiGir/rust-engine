@@ -16,7 +16,7 @@
 //!
 //! Le numéro d'un bloc ([`BlockId`]) dépend des mods installés et de leur ordre. Chaque
 //! chunk écrit donc sa propre **palette** : la liste des identifiants texte
-//! (`core:stone`, `example:ruby`...) qu'il contient. Les blocs sont stockés comme des
+//! (`core:stone`, `example:ruby_slab`...) qu'il contient. Les blocs sont stockés comme des
 //! indices dans cette palette. Au chargement, on retraduit chaque identifiant avec le
 //! registre du moment. Bonus : un chunk avec peu de types de blocs se compresse très bien.
 //!

@@ -9,7 +9,7 @@ use glam::IVec3;
 #[test]
 fn breaking_stone_sometimes_gives_a_ruby() {
     let mut h = Harness::for_mod("example").unwrap();
-    let (stone, ruby) = (h.block_id("core:stone"), h.block_id("example:ruby"));
+    let (stone, ruby) = (h.block_id("core:stone"), h.item_id("core:ruby"));
     let broken = ModEvent::BlockBroken {
         at: GridPos::world(IVec3::new(0, 50, 0)),
         block: stone,
@@ -17,7 +17,7 @@ fn breaking_stone_sometimes_gives_a_ruby() {
     let rubies = (0..400)
         .map(|_| h.event(&broken).unwrap())
         .flat_map(|r| r.actions)
-        .filter(|a| matches!(a, MachineAction::GiveItem { block, .. } if *block == ruby))
+        .filter(|a| matches!(a, MachineAction::GiveStack { item, .. } if *item == ruby))
         .count();
     // 1 chance sur 8 par défaut : environ 50 sur 400.
     assert!((20..100).contains(&rubies), "{rubies} rubis sur 400");
@@ -58,12 +58,12 @@ fn the_toggle_disables_the_breaker_and_refreshes_the_menu() {
 fn new_chunks_get_a_surface_ruby() {
     use engine_mods::ModEvent;
     let mut h = Harness::for_mod("example").unwrap();
-    // Un rubis dans chaque chunk neuf qui a une surface (réglage forcé à 1 sur 1).
+    // Un minerai de rubis dans chaque chunk neuf qui a une surface (réglage forcé à 1 sur 1).
     h.settings
         .borrow_mut()
         .set("example", "surface_ruby_chance", "1");
-    let ruby = h.block_id("example:ruby");
-    // Les filons de rubis du terrain existent déjà : on compte ce que le script ajoute.
+    let ruby = h.block_id("core:ruby_ore");
+    // On compte ce que le script ajoute (un monde v3 a aussi ses filons de rubis).
     let count = |h: &Harness| {
         let streamer = h.streamer.borrow();
         let mut n = 0;
@@ -90,7 +90,7 @@ fn new_chunks_get_a_surface_ruby() {
     }
     let placed = count(&h) - before;
     assert!(placed >= 3, "{placed} rubis de surface ajoutés");
-    // Désactivé par le réglage : rien n'est posé (les filons de rubis du terrain, eux, existent déjà).
+    // Désactivé par le réglage : rien n'est posé.
     let mut off = Harness::for_mod("example").unwrap();
     off.settings
         .borrow_mut()
@@ -122,13 +122,13 @@ fn the_ruby_command_gives_rubies() {
     use engine_voxel::MachineAction;
     let mut h = Harness::for_mod("example").unwrap();
     assert_eq!(h.commands().len(), 1);
-    let ruby = h.block_id("example:ruby");
+    let ruby = h.item_id("core:ruby");
     let (reply, requests) = h.command("rubis", "5").unwrap();
     assert!(reply.unwrap().contains('5'));
     assert_eq!(
         requests.actions,
-        vec![MachineAction::GiveItem {
-            block: ruby,
+        vec![MachineAction::GiveStack {
+            item: ruby,
             count: 5
         }]
     );
@@ -136,16 +136,16 @@ fn the_ruby_command_gives_rubies() {
     let (_, one) = h.command("rubis", "").unwrap();
     assert_eq!(
         one.actions,
-        vec![MachineAction::GiveItem {
-            block: ruby,
+        vec![MachineAction::GiveStack {
+            item: ruby,
             count: 1
         }]
     );
     let (_, many) = h.command("rubis", "1000").unwrap();
     assert_eq!(
         many.actions,
-        vec![MachineAction::GiveItem {
-            block: ruby,
+        vec![MachineAction::GiveStack {
+            item: ruby,
             count: 64
         }]
     );

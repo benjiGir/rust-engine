@@ -413,7 +413,7 @@ pub fn set_kinetic(pos: Pos, speed: f32, stress_capacity: f32, stress_impact: f3
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct Item(pub u16);
 
-/// Le numéro d'un objet à partir de son identifiant (`"example:ruby"`), s'il existe.
+/// Le numéro d'un objet à partir de son identifiant (`"core:ruby"`), s'il existe.
 pub fn item_id(key: &str) -> Option<Item> {
     let (ptr, len) = addr(key.as_bytes());
     // SAFETY: l'hôte lit `len` octets à `ptr`, dans `key`.

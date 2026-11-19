@@ -1399,7 +1399,7 @@ pub(crate) mod tests {
         let registry =
             BlockRegistry::load(&repo().join("assets"), Some(&repo().join("mods"))).unwrap();
         let ruby = registry
-            .id("example:ruby")
+            .id("example:ruby_slab")
             .expect("le bloc du mod est chargé");
         // Core d'abord : les blocs des mods viennent après ceux de base (et l'air), qui gardent
         // leur numéro.

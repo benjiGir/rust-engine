@@ -2479,6 +2479,6 @@ mod tests {
             .map(|id| registry.def(id).key.as_str())
             .collect();
         assert_eq!(hotbar.first(), Some(&"core:grass"));
-        assert!(hotbar.contains(&"example:ruby"), "{hotbar:?}");
+        assert!(hotbar.contains(&"example:ruby_slab"), "{hotbar:?}");
     }
 }
