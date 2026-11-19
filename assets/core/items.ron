@@ -215,6 +215,19 @@
         (id: "core:wool_purple", name: "Laine violette", category: Material, color: (0.15280, 0.08129, 0.25512), icon: "wool_purple"),
         (id: "core:wool_magenta", name: "Laine magenta", category: Material, color: (0.30743, 0.09741, 0.19985), icon: "wool_magenta"),
         (id: "core:wool_pink", name: "Laine rose", category: Material, color: (0.45627, 0.20937, 0.22743), icon: "wool_pink"),
+        // Les minerais de la génération v3 : métaux bruts et lingots, pierres précieuses, quartz.
+        (id: "core:raw_tin", name: "Étain brut", category: Material, color: (0.42, 0.43, 0.42), icon: "raw_tin"),
+        (id: "core:raw_lead", name: "Plomb brut", category: Material, color: (0.30, 0.31, 0.37), icon: "raw_lead"),
+        (id: "core:raw_silver", name: "Argent brut", category: Material, color: (0.62, 0.63, 0.66), icon: "raw_silver"),
+        (id: "core:raw_nickel", name: "Nickel brut", category: Material, color: (0.50, 0.50, 0.40), icon: "raw_nickel"),
+        (id: "core:tin_ingot", name: "Lingot d'étain", category: Material, color: (0.62, 0.64, 0.63), icon: "tin_ingot"),
+        (id: "core:lead_ingot", name: "Lingot de plomb", category: Material, color: (0.36, 0.38, 0.46), icon: "lead_ingot"),
+        (id: "core:silver_ingot", name: "Lingot d'argent", category: Material, color: (0.78, 0.80, 0.84), icon: "silver_ingot"),
+        (id: "core:nickel_ingot", name: "Lingot de nickel", category: Material, color: (0.66, 0.66, 0.55), icon: "nickel_ingot"),
+        (id: "core:diamond", name: "Diamant", category: Material, color: (0.45, 0.85, 0.88), icon: "diamond"),
+        (id: "core:ruby", name: "Rubis", category: Material, color: (0.75, 0.08, 0.15), icon: "ruby"),
+        (id: "core:emerald", name: "Émeraude", category: Material, color: (0.10, 0.70, 0.32), icon: "emerald"),
+        (id: "core:quartz", name: "Quartz", category: Material, color: (0.90, 0.88, 0.84), icon: "quartz"),
     ],
     // Des groupes d'objets, utilisables dans les recettes (« #planks » : n'importe quelles planches).
     tags: {
@@ -224,5 +237,7 @@
         "logs": ["oak_log", "birch_log", "spruce_log", "acacia_log", "jungle_log", "redwood_log"],
         "stones": ["cobblestone", "deepstone", "mossy_cobblestone"],
         "coals": ["coal", "charcoal"],
+        "ingots": ["iron_ingot", "copper_ingot", "gold_ingot", "tin_ingot", "lead_ingot", "silver_ingot", "nickel_ingot"],
+        "gems": ["sapphire", "jade", "diamond", "ruby", "emerald"],
     },
 )

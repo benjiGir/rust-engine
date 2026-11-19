@@ -187,6 +187,10 @@ struct OreEntry {
     replace: Option<Vec<String>>,
     #[serde(default)]
     biomes: Option<Vec<String>>,
+    #[serde(default)]
+    deep: Option<(i32, i32)>,
+    #[serde(default)]
+    v3_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -200,6 +204,22 @@ pub struct OreDef {
     pub replace: Vec<BlockId>,
     /// `None` : partout.
     pub biomes: Option<Vec<BiomeId>>,
+    /// Les altitudes dans un monde v3 (de -128 à 255), si elles diffèrent : les minerais profonds y
+    /// descendent sous 0. `None` : les mêmes que `height`.
+    pub deep: Option<(i32, i32)>,
+    /// Un minerai de la génération v3 seulement : les mondes v1 ne changent pas.
+    pub v3_only: bool,
+}
+
+impl OreDef {
+    /// Les altitudes du minerai pour une génération (`None` : il n'y est pas).
+    pub fn range(&self, v3: bool) -> Option<(i32, i32)> {
+        match (v3, self.v3_only) {
+            (true, _) => Some(self.deep.unwrap_or(self.height)),
+            (false, true) => None,
+            (false, false) => Some(self.height),
+        }
+    }
 }
 
 /// Les biomes et les minerais.
@@ -376,7 +396,7 @@ impl BiomeRegistry {
                 ),
                 None => None,
             };
-            if e.height.0 > e.height.1 {
+            if e.height.0 > e.height.1 || e.deep.is_some_and(|d| d.0 > d.1) {
                 bail!("{origin} : « {} » : height (min, max) à l'envers", e.block);
             }
             self.ores.push(OreDef {
@@ -386,6 +406,8 @@ impl BiomeRegistry {
                 per_chunk: e.per_chunk,
                 replace,
                 biomes,
+                deep: e.deep,
+                v3_only: e.v3_only,
             });
         }
         Ok(())

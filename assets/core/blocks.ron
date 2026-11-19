@@ -1636,4 +1636,46 @@
         sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
         hardness: 0.3, tool: Axe,
     ),
+    // ----- Les minerais de la génération v3 : étain, plomb, argent, nickel (métaux à fondre), diamant,
+    // rubis, émeraude, quartz. Absents des mondes v1 (`v3_only` dans ores.ron).
+    (
+        id: "core:tin_ore", name: "Minerai d'étain", color: (0.33, 0.34, 0.33), texture: "tin_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 3.0, tool: Pickaxe, tier: 2, xp: (0, 2),
+    ),
+    (
+        id: "core:lead_ore", name: "Minerai de plomb", color: (0.25, 0.26, 0.30), texture: "lead_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 3.0, tool: Pickaxe, tier: 2, xp: (0, 2),
+    ),
+    (
+        id: "core:silver_ore", name: "Minerai d'argent", color: (0.42, 0.43, 0.45), texture: "silver_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 3.0, tool: Pickaxe, tier: 3, xp: (1, 3),
+    ),
+    (
+        id: "core:nickel_ore", name: "Minerai de nickel", color: (0.36, 0.37, 0.31), texture: "nickel_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 3.0, tool: Pickaxe, tier: 3, xp: (1, 3),
+    ),
+    (
+        id: "core:diamond_ore", name: "Minerai de diamant", color: (0.30, 0.42, 0.44), texture: "diamond_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 3.0, tool: Pickaxe, tier: 3, xp: (4, 8),
+    ),
+    (
+        id: "core:ruby_ore", name: "Minerai de rubis", color: (0.36, 0.20, 0.21), texture: "ruby_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 3.0, tool: Pickaxe, tier: 3, xp: (3, 7),
+    ),
+    (
+        id: "core:emerald_ore", name: "Minerai d'émeraude", color: (0.22, 0.36, 0.27), texture: "emerald_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 3.0, tool: Pickaxe, tier: 3, xp: (3, 7),
+    ),
+    (
+        id: "core:quartz_ore", name: "Minerai de quartz", color: (0.46, 0.45, 0.43), texture: "quartz_ore",
+        sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
+        hardness: 3.0, tool: Pickaxe, tier: 2, xp: (1, 3),
+    ),
 ]

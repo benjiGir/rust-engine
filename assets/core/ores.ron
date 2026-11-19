@@ -5,20 +5,38 @@
 // - height : (min, max), l'altitude où l'on en trouve ;
 // - size : le nombre de blocs d'un filon (une marche aléatoire de cette longueur) ;
 // - per_chunk : combien de filons par chunk (32 × 32 × 32), en moyenne ;
-// - biomes : facultatif, seulement dans ces biomes.
+// - biomes : facultatif, seulement dans ces biomes ;
+// - deep : facultatif, les altitudes dans un monde v3 (de -128 à 255) quand elles diffèrent : les
+//   minerais profonds y descendent sous 0, dans la pierre profonde ;
+// - v3_only : un minerai des mondes v3 seulement (les mondes v1 ne changent pas).
+//
+// L'ordre compte : chaque minerai tire ses filons avec son rang ; on ajoute à la fin.
 [
     (block: "dirt", height: (20, 140), size: 30, per_chunk: 4.0),
     (block: "gravel", height: (5, 140), size: 30, per_chunk: 4.0),
-    (block: "coal_ore", height: (40, 180), size: 17, per_chunk: 40.0),
-    (block: "iron_ore", height: (5, 90), size: 9, per_chunk: 26.0),
-    (block: "copper_ore", height: (30, 100), size: 10, per_chunk: 16.0),
-    (block: "gold_ore", height: (2, 36), size: 8, per_chunk: 4.0),
-    (block: "cinnabar_ore", height: (2, 20), size: 7, per_chunk: 4.0),
-    (block: "malachite_ore", height: (5, 40), size: 6, per_chunk: 1.5),
-    (block: "sapphire_ore", height: (2, 16), size: 5, per_chunk: 3.0),
+    (block: "coal_ore", height: (40, 180), size: 17, per_chunk: 40.0, deep: (0, 200)),
+    (block: "iron_ore", height: (5, 90), size: 9, per_chunk: 26.0, deep: (-64, 90)),
+    (block: "copper_ore", height: (30, 100), size: 10, per_chunk: 16.0, deep: (0, 110)),
+    (block: "gold_ore", height: (2, 36), size: 8, per_chunk: 4.0, deep: (-96, 20)),
+    (block: "cinnabar_ore", height: (2, 20), size: 7, per_chunk: 4.0, deep: (-110, -40)),
+    (block: "malachite_ore", height: (5, 40), size: 6, per_chunk: 1.5, deep: (-40, 40)),
+    (block: "sapphire_ore", height: (2, 16), size: 5, per_chunk: 3.0, deep: (-120, -70)),
     (block: "jade_ore", height: (60, 180), size: 2, per_chunk: 3.0, biomes: ["mountains", "snowy_peaks"]),
     // La pierre lumineuse : des poches profondes, qui éclairent les grottes qu'elles touchent.
     // À la fin de la liste : chaque minerai tire ses filons avec son numéro, et un ajout ici ne
     // déplace pas ceux des mondes existants.
-    (block: "glowstone", height: (2, 28), size: 5, per_chunk: 2.0),
+    (block: "glowstone", height: (2, 28), size: 5, per_chunk: 2.0, deep: (-110, 0)),
+    // Les minerais de la génération v3. Métaux à fondre : l'étain près de la surface, le plomb plus bas,
+    // le nickel et l'argent en profondeur. Le diamant tout au fond, le quartz dans la pierre profonde, le
+    // rubis dans les pays chauds et secs, l'émeraude dans les montagnes (de petits filons).
+    (block: "tin_ore", height: (0, 100), size: 9, per_chunk: 14.0, v3_only: true),
+    (block: "lead_ore", height: (-60, 40), size: 8, per_chunk: 10.0, v3_only: true),
+    (block: "silver_ore", height: (-90, 10), size: 7, per_chunk: 5.0, v3_only: true),
+    (block: "nickel_ore", height: (-80, 30), size: 7, per_chunk: 7.0, v3_only: true),
+    (block: "diamond_ore", height: (-125, -80), size: 5, per_chunk: 2.0, v3_only: true),
+    (block: "ruby_ore", height: (-100, 60), size: 4, per_chunk: 6.0, v3_only: true,
+        biomes: ["desert", "flowering_desert", "badlands", "savanna", "shrubland", "volcanic_plains", "volcano"]),
+    (block: "emerald_ore", height: (40, 230), size: 2, per_chunk: 5.0, v3_only: true,
+        biomes: ["mountains", "wooded_mountains", "alpine_meadow", "snowy_peaks", "stony_peaks", "crag"]),
+    (block: "quartz_ore", height: (-128, 20), size: 8, per_chunk: 6.0, v3_only: true),
 ]

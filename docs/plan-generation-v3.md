@@ -627,3 +627,16 @@ Vus en jeu sur la graine 1404532460 (vers x = -700, z = -1320), puis sur des cou
   12 à 16, grand chêne 10 à 14. Les géants (jungle, séquoia) ne changent pas, ni les mondes v1 (empreintes
   inchangées). Une pousse plantée dans un monde v3 donne aussi un grand arbre ; les silhouettes lointaines suivent.
   Test : chaque essence est plus haute en moyenne, toujours dans les bornes de la génération par chunk.
+
+### Minerais de la v3
+
+- **Profondeurs** : les altitudes des minerais (`ores.ron`) étaient celles du monde v1 (à partir de 0) ; un monde v3
+  n'avait aucun minerai sous y = 2. Chaque minerai peut maintenant avoir des altitudes propres à la v3 (`deep`) : le fer
+  descend à -64, l'or à -96, le cinabre (-110 à -40) et le saphir (-120 à -70) sont dans la pierre profonde, la pierre
+  lumineuse de -110 à 0. Les mondes v1 gardent leurs altitudes.
+- **Huit minerais nouveaux**, réservés à la v3 (`v3_only` : les mondes v1 n'en ont pas) : étain (0 à 100), plomb (-60
+  à 40), nickel (-80 à 30), argent (-90 à 10), qui se fondent en lingots ; diamant (-125 à -80) ; quartz (-128 à 20) ;
+  rubis (-100 à 60, pays chauds et secs) ; émeraude (en hauteur, montagnes seulement). Blocs, objets, textures (deux
+  packs), butin, fonte, étiquettes `ingots` et `gems`, page « Où creuser » du guide.
+- Test : sous 0, les minerais profonds anciens et nouveaux existent en v3 ; le diamant ne remonte pas au-dessus de 0 ;
+  un monde v1 n'a aucun des nouveaux minerais.

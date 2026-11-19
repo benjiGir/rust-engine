@@ -1094,9 +1094,14 @@ impl TerrainGenerator {
         let origin = World::chunk_origin(chunk_pos);
         let size = CHUNK_SIZE as i32;
         for (index, ore) in self.biomes.ores().iter().enumerate() {
+            // Les altitudes du minerai dans cette génération (la v3 descend sous 0 ; certains
+            // minerais n'existent qu'en v3).
+            let Some(height) = ore.range(self.v3.is_some()) else {
+                continue;
+            };
             // La part de l'intervalle d'altitude du minerai qui tombe dans ce chunk.
-            let low = ore.height.0.max(origin.y);
-            let high = ore.height.1.min(origin.y + size - 1);
+            let low = height.0.max(origin.y);
+            let high = height.1.min(origin.y + size - 1);
             if low > high {
                 continue;
             }
@@ -1118,7 +1123,7 @@ impl TerrainGenerator {
                 for _ in 0..ore.size {
                     let inside = p.cmpge(IVec3::ZERO).all() && p.cmplt(IVec3::splat(size)).all();
                     // Le filon ne sort pas de ses altitudes, même en serpentant.
-                    if inside && (ore.height.0..=ore.height.1).contains(&(origin.y + p.y)) {
+                    if inside && (height.0..=height.1).contains(&(origin.y + p.y)) {
                         let (x, y, z) = (p.x as usize, p.y as usize, p.z as usize);
                         if ore.replace.contains(&chunk.get(x, y, z)) {
                             chunk.set(x, y, z, ore.block);

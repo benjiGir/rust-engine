@@ -1428,6 +1428,15 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("malachite_ore.png"), ore([0.2, 0.7, 0.45], 55)),
         (core.join("sapphire_ore.png"), ore([0.3, 0.5, 1.0], 56)),
         (core.join("jade_ore.png"), ore([0.4, 0.9, 0.6], 57)),
+        // Les minerais de la génération v3.
+        (core.join("tin_ore.png"), ore([0.58, 0.64, 0.7], 58)),
+        (core.join("lead_ore.png"), ore([0.42, 0.45, 0.6], 59)),
+        (core.join("silver_ore.png"), ore([0.92, 0.93, 0.97], 60)),
+        (core.join("nickel_ore.png"), ore([0.78, 0.76, 0.55], 61)),
+        (core.join("diamond_ore.png"), ore([0.45, 0.95, 0.95], 62)),
+        (core.join("ruby_ore.png"), ore([0.9, 0.1, 0.2], 63)),
+        (core.join("emerald_ore.png"), ore([0.15, 0.85, 0.4], 64)),
+        (core.join("quartz_ore.png"), ore([1.0, 0.88, 0.78], 65)),
         (core.join("oak_log.png"), log_side([0.42, 0.31, 0.18], 90)),
         (
             core.join("oak_log_top.png"),

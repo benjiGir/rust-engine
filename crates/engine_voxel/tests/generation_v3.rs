@@ -850,3 +850,51 @@ fn liquids_never_stand_against_air_on_their_sides() {
         );
     }
 }
+
+#[test]
+fn v3_ores_reach_the_deep_world_and_new_ores_stay_out_of_v1() {
+    let g = v3(42);
+    let registry = g.registry().clone();
+    let id = |k: &str| registry.id(k).unwrap();
+    let count = |g: &TerrainGenerator, block: BlockId, cy: std::ops::Range<i32>| {
+        let mut n = 0;
+        for (cx, cz) in [(0, 0), (3, -2), (-4, 5), (7, 7), (-6, -3), (10, -9)] {
+            for y in cy.clone() {
+                if let Some(chunk) = g.generate(IVec3::new(cx, y, cz)) {
+                    n += (0..32 * 32 * 32)
+                        .filter(|&i| chunk.get(i % 32, i / 1024, i / 32 % 32) == block)
+                        .count();
+                }
+            }
+        }
+        n
+    };
+    // Sous 0 (pierre profonde) : les minerais profonds, anciens et nouveaux.
+    for key in [
+        "core:iron_ore",
+        "core:gold_ore",
+        "core:sapphire_ore",
+        "core:diamond_ore",
+        "core:silver_ore",
+        "core:nickel_ore",
+        "core:lead_ore",
+        "core:quartz_ore",
+    ] {
+        assert!(count(&g, id(key), -4..0) > 0, "{key} absent sous 0 en v3");
+    }
+    assert!(count(&g, id("core:tin_ore"), 0..4) > 0, "étain absent en v3");
+    // Le diamant reste tout au fond.
+    assert_eq!(count(&g, id("core:diamond_ore"), 0..8), 0, "du diamant au-dessus de 0");
+    // Les mondes v1 n'ont aucun des nouveaux minerais.
+    let v1 = TerrainGenerator::new(42);
+    for key in [
+        "core:tin_ore",
+        "core:lead_ore",
+        "core:silver_ore",
+        "core:nickel_ore",
+        "core:quartz_ore",
+        "core:diamond_ore",
+    ] {
+        assert_eq!(count(&v1, id(key), 0..4), 0, "{key} dans un monde v1");
+    }
+}
