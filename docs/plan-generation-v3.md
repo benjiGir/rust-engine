@@ -174,3 +174,49 @@ rien sous 0 ni au-dessus de 191, et le streamer ne demande que les couches de le
   faut qu'il n'ait aucune lumière du ciel et soit à plus de 3 couches sous le joueur.
 - Les captures automatiques n'attendent pas le terrain lointain : une vue lointaine peut le montrer incomplet (déjà le
   cas avant ce lot, vérifié sur le commit précédent).
+
+## Statut du lot 1 : le moteur de densité (fait)
+
+Module `engine_voxel::density_graph`, sans encore aucun terrain : il servira au relief v3 (lot 2).
+
+### Ce qui existe
+
+- **Bruits** (`density_graph/noise.rs`) : Perlin amélioré (gradients des 12 arêtes, lissage quintique, permutation et
+  origine tirées de la graine), sommes d'octaves (fréquence doublée et poids divisé par deux à chaque octave, somme des
+  poids 1), « normal noise » (deux sommes d'octaves, la seconde à l'échelle 1,0181, normalisées selon l'étendue des
+  octaves). Chaque bruit est dérivé de la graine et de son **nom** : l'ordre de création ne change rien. Les coordonnées
+  sont ramenées près de 0 (période de 2²⁵) pour garder la précision loin de l'origine.
+- **Description RON** (`density_graph/def.rs`) : un fichier de bruits (`first_octave`, `amplitudes`) et de fonctions
+  nommées. Nœuds : `Constant`, `Ref`, `Noise`, `ShiftedNoise`, `Add`, `Mul`, `Min`, `Max`, `Clamp`, `Abs`, `Square`,
+  `Cube`, `HalfNegative`, `QuarterNegative`, `Squeeze`, `YClampedGradient`, `Spline` (points, pentes, splines imbriquées),
+  `Interpolated`, `FlatCache`, `Cache2d`, `CacheOnce`, `RangeChoice`.
+- **Compilation** (`density_graph/graph.rs`) : un tableau de nœuds ; une fonction nommée n'est compilée qu'une fois et
+  partagée ; erreurs claires (bruit ou fonction inconnus, cycle, spline vide ou mal ordonnée, RON illisible).
+- **Bornes d'intervalle** calculées à la compilation pour chaque nœud (sommes, produits, splines avec leur dépassement
+  possible et leurs prolongements, choix de plage qui écarte une branche impossible) : toute valeur y tombe.
+- **Évaluation** : `sample` (une position, exacte) et `fill_chunk` (32³ blocs). Les `Interpolated` sont calculés aux 9 ×
+  5 × 9 coins des cellules de 4 × 8 × 4 blocs puis interpolés ; `FlatCache` une fois par carré de 4 × 4 blocs ; `Cache2d`
+  par colonne ; `CacheOnce` par position. Splines : hermite par morceaux, prolongée en ligne droite.
+
+### Tests (`noise.rs` : 5, `tests/density_graph.rs` : 9)
+
+- Bruits : bornés, nuls aux nœuds de la grille, dépendants de la graine et du nom mais pas de l'ordre, centrés, échelle
+  réglée par la première octave, précis à 30 millions de blocs.
+- Chaque nœud contre sa valeur attendue ; gradient borné ; splines exactes à leurs points, droites au-delà, plates entre
+  deux points égaux, imbriquées ; partage des fonctions nommées ; chaque erreur.
+- Bornes respectées par 3 000 échantillons de chaque fonction d'un graphe proche d'un relief.
+- `fill_chunk` égale `sample` partout sans interpolation ; avec interpolation : exacte aux coins, trilinéaire entre eux
+  (y compris en coordonnées négatives et sous 0) ; pas de couture entre deux chunks voisins.
+- Mêmes résultats dans tous les ordres, sur plusieurs threads, d'une compilation à l'autre ; une autre graine diffère.
+
+### Coût (`print_fill_cost`, release, M3 Pro)
+
+Graphe d'essai proche d'un relief (deux bruits, spline de continentalité, bruit déformé, caches) : **0,27 ms par chunk**
+avec interpolation, contre 8,0 ms en calculant chaque bloc exactement (× 29). La génération v1 complète d'un chunk coûte
+de l'ordre de la milliseconde : la densité tient dans le budget. Le vrai coût sera mesuré avec le relief du lot 2 (plus
+de bruits, grottes au lot 3).
+
+### Limites
+
+- Pas encore de « blend » entre anciens et nouveaux chunks (inutile tant que v3 ne remplace pas un monde existant).
+- `FlatCache` garde une table par remplissage : suffisant ici, à revoir si le profil le montre.

@@ -24,6 +24,7 @@ pub use conduit_shell::{ConduitShell, conduit_shell};
 mod connections;
 mod containers;
 mod crafting;
+pub mod density_graph;
 mod dimension;
 mod edited_surface;
 mod far;
