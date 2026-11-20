@@ -521,7 +521,13 @@
         sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
         states: [Facing4, ChestPart],
-        lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
+        lid: (
+            body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside",
+            paired_textures: (
+                left: (top: "chest_double_left_top", front: "chest_double_left_front", back: "chest_double_left_back", inside: "chest_double_left_inside"),
+                right: (top: "chest_double_right_top", front: "chest_double_right_front", back: "chest_double_right_back", inside: "chest_double_right_inside"),
+            ),
+        ),
     ),
     // La terre labourée (phase O6) : la houe la crée ; l'eau à 4 blocs la garde humide.
     (
@@ -1249,7 +1255,13 @@
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 3.0, tool: Pickaxe,
         states: [Facing4, ChestPart],
-        lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
+        lid: (
+            body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside",
+            paired_textures: (
+                left: (top: "copper_chest_double_left_top", front: "copper_chest_double_left_front", back: "copper_chest_double_left_back", inside: "chest_double_left_inside"),
+                right: (top: "copper_chest_double_right_top", front: "copper_chest_double_right_front", back: "copper_chest_double_right_back", inside: "chest_double_right_inside"),
+            ),
+        ),
     ),
     (
         id: "core:iron_chest", name: "Coffre de fer", color: (0.14902, 0.22082, 0.21916),
@@ -1264,7 +1276,13 @@
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 3.0, tool: Pickaxe,
         states: [Facing4, ChestPart],
-        lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
+        lid: (
+            body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside",
+            paired_textures: (
+                left: (top: "iron_chest_double_left_top", front: "iron_chest_double_left_front", back: "iron_chest_double_left_back", inside: "chest_double_left_inside"),
+                right: (top: "iron_chest_double_right_top", front: "iron_chest_double_right_front", back: "iron_chest_double_right_back", inside: "chest_double_right_inside"),
+            ),
+        ),
     ),
     (
         id: "core:gold_chest", name: "Coffre d'or", color: (0.32832, 0.18665, 0.03984),
@@ -1279,7 +1297,13 @@
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 3.0, tool: Pickaxe,
         states: [Facing4, ChestPart],
-        lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
+        lid: (
+            body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside",
+            paired_textures: (
+                left: (top: "gold_chest_double_left_top", front: "gold_chest_double_left_front", back: "gold_chest_double_left_back", inside: "chest_double_left_inside"),
+                right: (top: "gold_chest_double_right_top", front: "gold_chest_double_right_front", back: "gold_chest_double_right_back", inside: "chest_double_right_inside"),
+            ),
+        ),
     ),
     (
         id: "core:sapphire_chest", name: "Coffre de saphir", color: (0.04446, 0.10258, 0.25705),
@@ -1294,7 +1318,13 @@
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 3.0, tool: Pickaxe,
         states: [Facing4, ChestPart],
-        lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
+        lid: (
+            body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside",
+            paired_textures: (
+                left: (top: "sapphire_chest_double_left_top", front: "sapphire_chest_double_left_front", back: "sapphire_chest_double_left_back", inside: "chest_double_left_inside"),
+                right: (top: "sapphire_chest_double_right_top", front: "sapphire_chest_double_right_front", back: "sapphire_chest_double_right_back", inside: "chest_double_right_inside"),
+            ),
+        ),
     ),
     (
         id: "core:storage_controller", name: "Contrôleur de stockage", color: (0.13101, 0.12401, 0.10695),

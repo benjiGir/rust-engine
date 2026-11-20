@@ -1709,13 +1709,19 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (root.join("mods/example/textures/ruby.png"), ruby()),
     ];
     let mut textures = textures;
-    textures.extend(crate::machine_faces::NAMES.iter().map(|&name| {
-        let pixels = crate::machine_faces::draw(name, SIZE)
-            .unwrap()
-            .try_into()
-            .unwrap();
-        (core.join(format!("{name}.png")), Image { pixels })
-    }));
+    textures.extend(
+        crate::machine_faces::NAMES
+            .iter()
+            .map(|&name| name.to_owned())
+            .chain(crate::machine_faces::paired_chest_names())
+            .map(|name| {
+                let pixels = crate::machine_faces::draw(&name, SIZE)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                (core.join(format!("{name}.png")), Image { pixels })
+            }),
+    );
     textures.extend(crate::ore_veins::ORES.iter().map(|ore| {
         let mut image = stone();
         ore.paint(&mut image.pixels, SIZE);

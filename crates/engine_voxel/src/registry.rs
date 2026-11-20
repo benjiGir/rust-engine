@@ -460,6 +460,15 @@ pub struct ChestLid {
     /// Hauteur et profondeur de la charnière au nord, en seizièmes.
     pub hinge: (u8, u8),
     pub inside: u32,
+    paired_textures: Option<[PairedChestLayers; 2]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PairedChestLayers {
+    top: u32,
+    front: u32,
+    back: u32,
+    inside: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -468,6 +477,24 @@ struct LidEntry {
     body: usize,
     boxes: Vec<usize>,
     hinge: (u8, u8),
+    inside: String,
+    #[serde(default)]
+    paired_textures: Option<PairedChestEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PairedChestEntry {
+    left: ChestHalfEntry,
+    right: ChestHalfEntry,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ChestHalfEntry {
+    top: String,
+    front: String,
+    back: String,
     inside: String,
 }
 
@@ -945,11 +972,26 @@ impl BlockRegistry {
                     "{origin} : « {} » : corps, pièces ou charnière du couvercle invalides",
                     entry.id
                 );
+                ensure!(
+                    lid.paired_textures.is_none() || entry.states.contains(&StateKind::ChestPart),
+                    "{origin} : « {} » : `paired_textures` exige un état `ChestPart`",
+                    entry.id
+                );
+                let inside = self.texture_layer(&qualify(&lid.inside, namespace));
+                let paired_textures = lid.paired_textures.map(|pair| {
+                    [pair.left, pair.right].map(|half| PairedChestLayers {
+                        top: self.texture_layer(&qualify(&half.top, namespace)),
+                        front: self.texture_layer(&qualify(&half.front, namespace)),
+                        back: self.texture_layer(&qualify(&half.back, namespace)),
+                        inside: self.texture_layer(&qualify(&half.inside, namespace)),
+                    })
+                });
                 Some(ChestLid {
                     body: lid.body,
                     boxes: lid.boxes,
                     hinge: lid.hinge,
-                    inside: self.texture_layer(&qualify(&lid.inside, namespace)),
+                    inside,
+                    paired_textures,
                 })
             } else {
                 None
@@ -1079,6 +1121,7 @@ impl BlockRegistry {
             bail!("{origin} : « {key} » aurait {count} variantes ({MAX_VARIANTS} au maximum)");
         }
         let template = self.def(base).clone();
+        let chest_part = states.iter().position(|s| *s == StateKind::ChestPart);
         let mut ids = vec![base];
         for index in 0..count {
             // Le premier état varie le plus vite.
@@ -1139,18 +1182,24 @@ impl BlockRegistry {
             def.placeable = false;
             def.base = Some(base);
             def.variants = Vec::new();
+            let part = chest_part.map_or(0, |i| values[i]);
+            if let Some(lid) = &mut def.lid
+                && let Some(halves) = lid.paired_textures.take()
+                && let Some(index) = part.checked_sub(1)
+            {
+                let layers = halves[usize::from(index)];
+                def.face_textures[0] = layers.top;
+                def.end_textures = [Some(layers.front), Some(layers.back)];
+                if def.face_textures[2] == lid.inside {
+                    def.face_textures[2] = layers.inside;
+                }
+                lid.inside = layers.inside;
+            }
             def.boxes = template
                 .boxes
                 .iter()
-                .map(|&b| {
-                    // La moitié d'un grand coffre se dessine dans le repère du modèle, avant
-                    // d'être tournée.
-                    states
-                        .iter()
-                        .zip(&values)
-                        .find(|(s, _)| **s == StateKind::ChestPart)
-                        .map_or(b, |(_, &v)| crate::double_chest::half_box(b, v))
-                })
+                // Les deux moitiés sont dessinées dans le repère du modèle avant rotation.
+                .map(|&b| crate::double_chest::half_box(b, part))
                 .map(|b| {
                     b.mapped(|c| {
                         states

@@ -287,6 +287,11 @@ hauteur et la profondeur de la charnière en seizièmes dans le modèle orienté
 menu de mod déclenche l’animation et les sons du coffre. La collision conserve les
 boîtes fermées.
 
+Avec `states: [Facing4, ChestPart]`, `lid.paired_textures` peut préciser un jeu de
+textures par moitié. Les champs `left` et `right` décrivent chacun `top`, `front`,
+`back` et `inside`. Gauche et droite se lisent face au coffre. Les flancs extérieurs
+conservent le champ `side` du bloc.
+
 Le four (`behavior: "core:furnace"`) a aussi un effet de flammes dans la bouche de
 `furnace_front.png` : il s'affiche uniquement si `FurnaceState::burning()` vaut vrai.
 Le shader l'anime à 10 images par seconde et rend les flammes lumineuses, sans ajouter

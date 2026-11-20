@@ -1040,6 +1040,11 @@ fn model_boxes(
         (s.rails.as_slice(), s.windows.as_slice())
     });
     let chest_body = def.lid.as_ref().map(|lid| chest_walls(solid[lid.body]));
+    let chest_joint = def.lid.as_ref().and_then(|_| {
+        crate::double_chest::partner(&hood.registry, p, hood.get(p))
+            .filter(|&(other, expected)| hood.get(other) == expected)
+            .map(|(other, _)| other - p)
+    });
     for (box_index, b) in solid.iter().chain(windows).enumerate() {
         let pane = def.glazing == Some(box_index);
         let glass = pane || box_index >= solid.len();
@@ -1077,6 +1082,9 @@ fn model_boxes(
                 } else {
                     b.min[a] <= 0.0
                 };
+                if on_edge && chest_joint == Some(face.normal()) {
+                    continue;
+                }
                 let (neighbour, sky, light) = hood.cell(p + face.normal());
                 if rotation.is_none()
                     && lid.is_none()
@@ -1509,6 +1517,51 @@ mod tests {
                 .any(|v| v.texture == lid.inside | FLAG_MODEL_UV | (1 << FLAG_TURN_SHIFT))
         );
         assert!(mesh.bounds().unwrap().1.y > 32.0);
+    }
+
+    #[test]
+    fn double_chest_mesh_uses_paired_faces_and_hides_the_join_across_chunks() {
+        let registry = BlockRegistry::builtin();
+        for (turn, side) in [IVec3::X, IVec3::Z, IVec3::NEG_X, IVec3::NEG_Z]
+            .into_iter()
+            .enumerate()
+        {
+            let mut world = World::new();
+            let base = registry.id("core:iron_chest").unwrap();
+            let right = registry.variant(base, &[turn as u8, 2]);
+            let left = registry.variant(base, &[turn as u8, 1]);
+            let start = 31 * side.max(IVec3::ZERO) + IVec3::new(0, 5, 0);
+            world.set_block(start, right);
+            world.set_block(start + side, left);
+            let axis = if side.x == 0 { 2 } else { 0 };
+            let center = (start[axis] + i32::from(side[axis] > 0)) as f32;
+            let front = [IVec3::NEG_Z, IVec3::X, IVec3::Z, IVec3::NEG_X][turn];
+            let normal = front.as_vec3();
+            let front_axis = if front.x == 0 { 2 } else { 0 };
+            for (part, pos, block) in [("right", start, right), ("left", start + side, left)] {
+                let model = registry.def(block);
+                let layer = model.face_texture(front_axis, front[front_axis] > 0);
+                assert_eq!(
+                    registry.textures()[layer as usize - 1],
+                    format!("core:iron_chest_double_{part}_front")
+                );
+                let mesh = mesh_binary(&world, pos.div_euclid(IVec3::splat(CHUNK_SIZE as i32)));
+                assert!(
+                    mesh.vertices
+                        .iter()
+                        .any(|v| v.normal() == normal && v.texture & TEXTURE_MASK == layer)
+                );
+                assert!(
+                    mesh.vertices
+                        .iter()
+                        .any(|v| v.texture & TEXTURE_MASK == model.lid.as_ref().unwrap().inside)
+                );
+                assert!(!mesh.vertices.as_chunks::<4>().0.iter().any(|quad| {
+                    quad[0].normal()[axis].abs() == 1.0
+                        && quad.iter().all(|v| mesh.world_position(v)[axis] == center)
+                }));
+            }
+        }
     }
 
     fn terrain(chunks: i32) -> World {

@@ -62,6 +62,10 @@ hauteur du couvercle et des ferrures qui passent du dessus à l’avant et au do
 Le couvercle s’ouvre sur un intérieur creux, avec deux prises de porte du pack
 RPG Audio de Kenney adaptées au coffre.
 
+Sur un coffre double, les deux moitiés sont découpées dans un même dessin. Les
+planches et le revêtement intérieur traversent la jointure. Deux ferrures
+encadrent l’ensemble et une seule serrure occupe le milieu de la façade.
+
 ## Objets lâchés
 
 Les piles dans le monde utilisent les faces et boîtes du bloc d'origine. Les outils,

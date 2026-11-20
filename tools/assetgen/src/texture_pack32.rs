@@ -250,6 +250,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn double_chest_textures_join_across_the_centre_in_both_packs() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for pack in ["", "texture_packs/earth-copper-32"] {
+            let dir = root.join(pack).join("assets/core/textures");
+            for left in
+                crate::machine_faces::paired_chest_names().filter(|name| name.contains("_left_"))
+            {
+                let right = left.replace("_left_", "_right_");
+                let (size, left_pixels) = read(&dir.join(format!("{left}.png"))).unwrap();
+                let (other_size, right_pixels) = read(&dir.join(format!("{right}.png"))).unwrap();
+                assert_eq!(size, other_size);
+                assert_ne!(
+                    left_pixels, right_pixels,
+                    "{left} doit avoir son propre dessin"
+                );
+                for y in 0..size {
+                    assert_eq!(
+                        right_pixels[(y + 1) * size - 1],
+                        left_pixels[y * size],
+                        "{left} {size}, ligne {y}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn case_edges_and_lid_bands_align_in_both_texture_packs() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         for pack in ["", "texture_packs/earth-copper-32"] {
