@@ -1,8 +1,8 @@
 //! Miniatures isométriques des blocs, calculées une fois et mises en cache par l'UI.
 //! Les boîtes du modèle restent visibles : une dalle ou un engrenage n'est pas un cube.
 
-use engine_voxel::shaped::{Piece, PieceKind, Shaped};
-use engine_voxel::{BlockBox, BlockDef, BlockId, BlockRegistry, Face};
+use engine_voxel::shaped::{Neighbours, Piece, PieceKind, Shaped};
+use engine_voxel::{BlockBox, BlockDef, BlockId, BlockRegistry};
 use glam::Vec3;
 
 pub const ICON_SIZE: usize = 32;
@@ -27,33 +27,11 @@ pub fn piece_icon(
     kind: PieceKind,
     textures: &[Vec<u8>],
 ) -> Vec<u8> {
-    let piece = match kind {
-        PieceKind::Layer => Piece::Layer {
-            face: Face::NegY,
-            offset: 0,
-            thickness: 2,
-        },
-        PieceKind::Slab => Piece::Layer {
-            face: Face::NegY,
-            offset: 0,
-            thickness: 8,
-        },
-        PieceKind::SlopeLayer | PieceKind::Slope => Piece::Slope {
-            facing: 0,
-            ceiling: false,
-            level: if kind == PieceKind::Slope { 16 } else { 6 },
-        },
-        PieceKind::Micro => Piece::Micro {
-            cells: engine_voxel::shaped::micro_mask(1, 0, 1, 2),
-        },
-        PieceKind::Nano => Piece::Micro {
-            cells: engine_voxel::shaped::micro_mask(1, 0, 2, 1),
-        },
-    };
     let mut shaped = Shaped::new();
-    let _ = shaped.try_add(piece, "icon");
+    let _ = shaped.try_add(Piece::sample(kind), "icon");
     let mut def = blocks.def(material).clone();
-    def.boxes = shaped.boxes();
+    // Une forme raccordée est montrée avec deux voisins en ligne, pour qu'on voie ses bras.
+    def.boxes = shaped.boxes_with(&Neighbours::sample());
     render(&[(&def, Vec3::ZERO)], textures, 17.0)
 }
 

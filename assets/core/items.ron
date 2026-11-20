@@ -178,7 +178,7 @@
         (id: "core:seal_unsocket", name: "Sceau de retrait", category: Material, color: (0.5776, 0.1022, 0.1022), icon: "seal_unsocket", max_stack: 16),
         (id: "core:seal_socket", name: "Sceau d'emplacement", category: Material, color: (0.1022, 0.3050, 0.7157), icon: "seal_socket", max_stack: 16),
         // L'enchantement avancé (phase 3) : livres, tomes et charmes de potion (voir enchantments.ron, charms.ron).
-        // Les formes : six sortes de pièces, taillées à l'établi de taille (voir docs/plan-formes.md). Le matériau
+        // Les formes : vingt-trois sortes de pièces, taillées à l'établi de taille (voir docs/plan-formes.md). Le matériau
         // est le `damage` de la pile (un numéro de la palette `materials.ron` du monde) ; l'icône est
         // dessinée avec les textures du matériau. Les piles de même matériau s'empilent.
         (id: "core:shape_layer", name: "Couche", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_layer"),
@@ -187,6 +187,24 @@
         (id: "core:shape_slope", name: "Pente", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_slope"),
         (id: "core:shape_micro", name: "Microbloc", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_micro"),
         (id: "core:shape_nano", name: "Grain", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_nano"),
+        // Deuxième vague (docs/plan-formes-2.md) : pièces en boîtes, pentes en coin, formes raccordées.
+        (id: "core:shape_stairs", name: "Escalier", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_stairs"),
+        (id: "core:shape_vertical_stairs", name: "Escalier vertical", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_vertical_stairs"),
+        (id: "core:shape_step", name: "Marche verticale", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_step"),
+        (id: "core:shape_beam", name: "Poutre", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_beam"),
+        (id: "core:shape_slice", name: "Tranche", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_slice"),
+        (id: "core:shape_corner_slice", name: "Tranche de coin", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_corner_slice"),
+        (id: "core:shape_half_layer", name: "Demi-couche", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_half_layer"),
+        (id: "core:shape_half_panel", name: "Demi-panneau", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_half_panel"),
+        (id: "core:shape_quarter_panel", name: "Panneau d'un quart", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_quarter_panel"),
+        (id: "core:shape_board", name: "Planchette", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_board"),
+        (id: "core:shape_corner_slope_layer", name: "Couche de pente en coin", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_corner_slope_layer"),
+        (id: "core:shape_inner_slope_layer", name: "Couche de pente rentrante", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_inner_slope_layer"),
+        (id: "core:shape_wall", name: "Muret", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_wall"),
+        (id: "core:shape_fence", name: "Barrière", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_fence"),
+        (id: "core:shape_gate", name: "Portillon", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_gate"),
+        (id: "core:shape_pane", name: "Vitre", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_pane"),
+        (id: "core:shape_flat_pane", name: "Vitre à plat", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_flat_pane"),
         (id: "core:guide", name: "Guide du voyageur", category: Material, color: (0.1200, 0.2600, 0.1400), icon: "guide", max_stack: 1),
         (id: "core:book", name: "Livre", category: Material, color: (0.2200, 0.1000, 0.0600), icon: "book", max_stack: 16),
         (id: "core:enchanted_book", name: "Livre enchanté", category: Material, color: (0.3000, 0.1400, 0.5200), icon: "enchanted_book", max_stack: 1),

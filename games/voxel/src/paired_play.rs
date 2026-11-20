@@ -62,6 +62,10 @@ impl VoxelGame {
     }
 
     pub(crate) fn use_door(&mut self, pos: IVec3) -> bool {
+        // Un portillon (une forme raccordée) s'ouvre comme une porte.
+        if self.use_gate(pos) {
+            return true;
+        }
         let block = self.streamer().world().block(pos);
         if !door::is_door(self.registry.def(block)) {
             return false;

@@ -1,14 +1,17 @@
 //! Les commandes `ctl` des formes, pour les essais sans souris (voir `shaping_ui.rs`, `shaped_play.rs`).
 //!
 //! - `shape forme [n|all]` : taille `n` blocs (un par défaut, `all` : toute la pile) du bloc tenu en
-//!   pièces. Les formes : `layer`, `slab`, `slope_layer`, `slope`, `micro`, `nano` ;
+//!   pièces. Les formes : la clé de l'objet sans `core:shape_` (`layer`, `slab`, `slope_layer`, `slope`,
+//!   `micro`, `nano`, `stairs`, `vertical_stairs`, `step`, `beam`, `slice`, `corner_slice`, `half_layer`,
+//!   `half_panel`, `quarter_panel`, `board`, `corner_slope_layer`, `inner_slope_layer`, `wall`, `fence`,
+//!   `gate`, `pane`, `flat_pane`) ;
 //! - `rebuild [all]` : refait un bloc plein (ou tous ceux que la pile permet) avec les pièces tenues ;
 //! - `shaping` : ouvre l'écran de l'établi de taille, le bloc tenu dans sa case d'entrée ;
 //! - `pieces x y z` : le contenu de la case de formes en x y z, en JSON.
 //!
 //! Pour poser une pièce, on la tient et on se sert de `use` (ou `place`) sur un bloc visé, comme au clic droit.
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 use engine_voxel::shaped::{Piece, PieceKind};
 use glam::IVec3;
 
@@ -30,15 +33,13 @@ pub enum Command {
 pub fn parse(name: &str, args: &[&str]) -> Option<Result<Command>> {
     Some(match name {
         "shape" => (|| {
-            let kind = match args.first().copied() {
-                Some("layer") => PieceKind::Layer,
-                Some("slab") => PieceKind::Slab,
-                Some("slope_layer") => PieceKind::SlopeLayer,
-                Some("slope") => PieceKind::Slope,
-                Some("micro") => PieceKind::Micro,
-                Some("nano") => PieceKind::Nano,
-                _ => bail!("shape : layer|slab|slope_layer|slope|micro|nano [n|all]"),
-            };
+            let kind = args
+                .first()
+                .and_then(|name| PieceKind::from_short_name(name))
+                .with_context(|| {
+                    let names: Vec<&str> = PieceKind::ALL.iter().map(|k| k.short_name()).collect();
+                    format!("shape : {} [n|all]", names.join("|"))
+                })?;
             Ok(match args.get(1).copied() {
                 None => Command::Shape(kind, false, 1),
                 Some("all") => Command::Shape(kind, true, 0),
@@ -118,13 +119,33 @@ impl VoxelGame {
                                 "{{\"layer\":\"{face:?}\",\"offset\":{offset},\"thickness\":{thickness}"
                             ),
                             Piece::Slope {
-                                facing,
-                                ceiling,
+                                base,
+                                up,
                                 level,
+                                corner,
                             } => format!(
-                                "{{\"slope\":{facing},\"ceiling\":{ceiling},\"level\":{level}"
+                                "{{\"slope\":{{\"base\":\"{base:?}\",\"up\":\"{up:?}\",\"corner\":\"{corner:?}\"}},\"level\":{level}"
                             ),
                             Piece::Micro { cells } => format!("{{\"micro\":{cells}"),
+                            Piece::Cuboid {
+                                min,
+                                max,
+                                kind,
+                                count,
+                            } => format!(
+                                "{{\"cuboid\":\"{}\",\"min\":{min:?},\"max\":{max:?},\"count\":{count}",
+                                kind.short_name()
+                            ),
+                            Piece::Stairs {
+                                facing,
+                                ceiling,
+                                vertical,
+                            } => format!(
+                                "{{\"stairs\":{facing},\"ceiling\":{ceiling},\"vertical\":{vertical}"
+                            ),
+                            Piece::Connected { kind, open } => {
+                                format!("{{\"connected\":\"{kind:?}\",\"open\":{open}")
+                            }
                         };
                         format!("{shape},\"material\":{}}}", json_str(shaped.material_of(p)))
                     })
@@ -156,6 +177,14 @@ mod tests {
         assert_eq!(
             parse("shape", &["nano", "3"]).unwrap().unwrap(),
             Command::Shape(PieceKind::Nano, false, 3)
+        );
+        assert_eq!(
+            parse("shape", &["corner_slice", "2"]).unwrap().unwrap(),
+            Command::Shape(PieceKind::CornerSlice, false, 2)
+        );
+        assert_eq!(
+            parse("shape", &["flat_pane"]).unwrap().unwrap(),
+            Command::Shape(PieceKind::FlatPane, false, 1)
         );
         assert!(parse("shape", &["cube"]).unwrap().is_err());
         assert!(parse("shape", &["slab", "0"]).unwrap().is_err());

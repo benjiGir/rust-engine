@@ -106,8 +106,9 @@ coffres, wagons coffres, sacs et contrôleur ; Déposer, Compléter, Tout prendr
 
 ### Les formes (couches, pentes, microblocs)
 
-L'**établi de taille** (`shaping_ui.rs`) transforme un bloc plein en pièces : couche, dalle, couche de pente, pente,
-microbloc, grain (`engine_voxel::shaped::PieceKind`, six objets `core:shape_*`). Le matériau d'une pièce est le
+L'**établi de taille** (`shaping_ui.rs`) transforme un bloc plein en pièces (`engine_voxel::shaped::PieceKind`, vingt-trois objets `core:shape_*`, rangés en
+familles dans une liste qui défile : couches, pentes, escaliers, panneaux, formes raccordées). Une tranche posée
+sur une tranche l'agrandit ; un clic droit ouvre un portillon. Le matériau d'une pièce est le
 `damage` de sa pile : un numéro de la **palette du monde** (`materials.ron`, `shape_materials.rs`), attribué au
 premier usage et jamais réutilisé. Les piles de même pièce et même matériau s'empilent (c'est la seule exception à
 « seules les piles neuves s'empilent », voir `inventory::stackable` et `storage.rs`). `shaped_play.rs` pose une pièce

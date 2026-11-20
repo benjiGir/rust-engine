@@ -116,32 +116,57 @@ accepterais-tu ? »).
 
 ### Les formes : une case de pièces
 
-Un seul bloc du registre, `core:shaped` (`shaped.rs`), sert à toutes les formes : couches de 1 à 16
-seizièmes, pentes à 16 niveaux (quatre orientations, retournées au plafond), microblocs sur une grille
-4 × 4 × 4. Son contenu est dans son entité de bloc (`BlockEntity::data`), pas dans des variantes : aucun
-bloc à déclarer par matériau, et n'importe quel cube plein (du jeu ou d'un mod) peut être taillé
+Un seul bloc du registre, `core:shaped` (`shaped/`), sert à toutes les formes : couches de 1 à 16 seizièmes,
+pentes à 16 niveaux (24 orientations, coins sortants et rentrants), escaliers, pavés (marche, poutre, tranches,
+panneaux, planchettes), microblocs sur une grille 4 × 4 × 4 et formes qui se raccordent (muret, barrière,
+portillon, vitres). Son contenu est dans son entité de bloc (`BlockEntity::data`), pas dans des variantes :
+aucun bloc à déclarer par matériau, et n'importe quel cube plein (du jeu ou d'un mod) peut être taillé
 (`is_shapeable`).
 
 ```rust
 pub enum Piece {
-    Layer { face: Face, offset: u8, thickness: u8 }, // une tranche collée à une face
-    Slope { facing: u8, ceiling: bool, level: u8 },  // un plan incliné, côté haut vers `facing`
-    Micro { cells: u64 },                            // des cellules de 1/64 de bloc
+    Layer { face: Face, offset: u8, thickness: u8 },              // une tranche collée à une face
+    Slope { base: Face, up: Face, level: u8, corner: Corner },    // un plan incliné : 24 orientations
+    Micro { cells: u64 },                                         // des cellules de 1/64 de bloc
+    Cuboid { min: [u8; 3], max: [u8; 3], kind: PieceKind, count: u8 }, // un pavé au seizième
+    Stairs { facing: u8, ceiling: bool, vertical: bool },         // un escalier, droit ou vertical
+    Connected { kind: Link, open: bool },                         // muret, barrière, portillon, vitres
 }
 pub struct Part { pub piece: Piece, pub material: u8 }   // indice dans `materials`
 pub struct Shaped { pub materials: Vec<String>, pub parts: Vec<Part> }
 ```
 
+Le module est découpé : `grid` (l'occupation 16³), `piece` (`Piece`), `slope` (pentes), `connected` (formes
+raccordées), `kind` (`PieceKind` : les 23 sortes d'objets), `format`, `place` (où poser selon le point visé).
+
 - **Une pièce, un matériau** : `materials` est une liste d'identifiants **texte** (`core:oak_planks`), jamais
   de numéros de blocs. Au plus 16 matériaux et 32 pièces par case. Le format (`encode` / `decode`) commence par
-  un octet de version ; un matériau que le registre ne connaît plus garde son nom et se dessine en
-  `core:unknown`.
+  un octet de version : **`VERSION = 2`**, et la version 1 (pentes `facing, ceiling, level`) se relit comme des
+  pentes droites au sol ou au plafond. Un matériau que le registre ne connaît plus garde son nom et se dessine
+  en `core:unknown`.
 - **L'occupation** (`occupancy`) : 16 × 16 × 16 bits, calculée à la demande. `try_add` refuse un recouvrement et
   fusionne ce qui se touche (même matériau) : une couche s'épaissit, une pente monte de niveau, des
-  microblocs se réunissent.
-- **Les boîtes** (`boxes`) : couches et microblocs en boîtes, pentes en escalier de seizièmes (au plus 16
-  boîtes). `connections::boxes_at` les lit dans l'entité : la physique (la marche automatique de 0,6 monte une
-  pente en marchant), le lancer de rayon et le contour de visée suivent donc la pièce.
+  demi-couches s'allongent, des microblocs se réunissent. Une planchette qui touche une autre planchette (autre
+  face) est rognée d'un seizième à l'arête.
+- **Les pentes** : une base (la face d'appui) et un haut (la face vers laquelle elles montent) ; en coin, la
+  hauteur d'une colonne est `h(max(dz, dx))` (sortant, une pyramide) ou `h(min(dz, dx))` (rentrant), `dz` et
+  `dx` étant les distances aux deux bords hauts. Toute la géométrie est écrite une fois (pente canonique) puis
+  remenée dans l'orientation par une rotation propre (`slope::Frame`).
+- **Les tranches** (d'arête : n × n × 16 ; de coin : n³, n de 1 à 8) grandissent d'un cran (`try_grow`). Un
+  objet tranche vaut 16 seizièmes cubes (une barre 1 × 1 × 16), un objet tranche de coin 8 ; grossir de n à n + 1
+  coûte la différence (`slice_cost`, `corner_slice_cost`) et casser rend le total : rien ne se perd.
+- **Les formes raccordées** occupent **seules** leur case (`AddError::Alone`). Leur géométrie n'est pas
+  sauvegardée : elle se calcule des **voisins** (`connected::neighbours_at`, comme les conduits). Un muret se
+  raccorde à un muret, un portillon et un cube plein opaque ; une barrière à une barrière, un portillon et un
+  cube ; une vitre à une vitre et à un cube ; un portillon s'oriente selon ses voisins. Une case se remaille
+  quand un voisin change (le streamer remaille déjà le chunk d'un bloc modifié et ceux de ses 26 voisins, et,
+  pour un changement d'entité, ceux des six cellules voisines).
+- **Les boîtes** (`boxes`) : la visée et le contour. Pentes en escalier de seizièmes (au plus 16 groupes, deux
+  boîtes par groupe en coin). `connections::boxes_at` les lit dans l'entité, **voisins compris**. La
+  **collision** a sa propre lecture, `World::collision_boxes` (`connections::collision_at`) : une barrière et un
+  portillon fermé montent à 24 seizièmes (la physique regarde aussi la rangée de cellules sous le corps pour
+  les boîtes qui dépassent), un portillon ouvert ne gêne plus (`None`). La marche automatique de 0,6 monte une
+  pente en marchant, en coin aussi.
 - **La simplification** (`store`) : une case vide redevient de l'air, une case pleine d'un seul matériau le vrai
   bloc de ce matériau.
 - **Les structures mobiles** : une case de formes tourne avec le vaisseau qui se repose (`Shaped::turned`).

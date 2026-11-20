@@ -121,7 +121,10 @@ pub(crate) fn boxes_at<'a>(
     // Une case de formes : ses boîtes viennent de son contenu. Sans contenu lisible, elle garde
     // sa boîte pleine.
     if crate::shaped::is_shaped_block(def) {
-        return match entity(pos).and_then(|e| crate::shaped::Shaped::boxes_of(&e.data)) {
+        let boxes = entity(pos).and_then(|e| {
+            crate::shaped::world_boxes(registry, pos, &e.data, &block, &entity, false)
+        });
+        return match boxes {
             Some(boxes) if !boxes.is_empty() => Cow::Owned(boxes),
             _ => Cow::Borrowed(&def.boxes),
         };
@@ -154,6 +157,26 @@ pub(crate) fn boxes_at<'a>(
         }
     }
     boxes
+}
+
+/// Les boîtes qui arrêtent un corps dans la cellule `pos` (la collision, pas la visée). `None` : rien
+/// n'y gêne (un portillon ouvert) ; une liste vide : un cube plein. Seules les cases de formes
+/// diffèrent de [`boxes_at`] : une barrière monte à 1,5 bloc, on ne saute pas par-dessus.
+pub(crate) fn collision_at<'a>(
+    registry: &'a BlockRegistry,
+    pos: IVec3,
+    block: impl Fn(IVec3) -> BlockId,
+    entity: impl Fn(IVec3) -> Option<&'a BlockEntity>,
+) -> Option<Cow<'a, [BlockBox]>> {
+    let def = registry.def(block(pos));
+    if crate::shaped::is_shaped_block(def)
+        && let Some(e) = entity(pos)
+        && let Some(boxes) =
+            crate::shaped::world_boxes(registry, pos, &e.data, &block, &entity, true)
+    {
+        return (!boxes.is_empty()).then_some(Cow::Owned(boxes));
+    }
+    Some(boxes_at(registry, pos, block, entity))
 }
 
 /// Le tronçon entre la frontière de cellule et la première pièce qui coupe son axe.

@@ -15,6 +15,13 @@
 //!
 //! Le matériau vient de la pile (son `damage`, voir `shape_materials.rs`).
 //!
+//! Quelques cas particuliers :
+//!
+//! - une **tranche** (d'arête ou de coin) posée sur une tranche de même sorte et de même matière
+//!   l'agrandit d'un cran ; l'objet coûte la matière ajoutée (voir `engine_voxel::shaped::slice_cost`) ;
+//! - un **portillon** s'ouvre et se ferme d'un clic droit (sauf si l'on tient une pièce, qui se pose) ;
+//! - une **forme raccordée** (muret, barrière, vitre...) va toujours seule dans une case.
+//!
 //! # Casser
 //!
 //! Le clic gauche retire **la pièce visée** (le rayon touche une de ses boîtes) et la rend en objets
@@ -24,7 +31,7 @@
 
 use std::borrow::Cow;
 
-use engine_voxel::shaped::{self, PieceKind, Shaped};
+use engine_voxel::shaped::{self, Link, Part, Piece, PieceKind, Shaped};
 use engine_voxel::{BlockDef, BlockId, RayHit};
 use glam::{IVec3, Vec3};
 
@@ -63,6 +70,14 @@ impl VoxelGame {
         }
         let forward = self.camera.forward();
         let point = self.aimed_point(&hit);
+        // Une tranche sur une tranche : elle grandit.
+        if kind.is_resizable()
+            && let Some(existing) = self.shaped_at(hit.block_pos)
+            && let Some(index) = existing.resizable_hit(point, hit.normal.as_vec3(), kind)
+            && existing.material_of(&existing.parts[index]) == material
+        {
+            return Some(self.grow_slice(hit.block_pos, existing, index, stack.count));
+        }
         // D'abord dans la case visée, si c'en est une et que la face visée est à l'intérieur.
         let mut placed = None;
         if let Some(existing) = self.shaped_at(hit.block_pos)
@@ -88,6 +103,78 @@ impl VoxelGame {
         self.inventory.consume_selected();
         self.hand.punch();
         Some(Some(pos))
+    }
+
+    /// Agrandit la tranche `index` de la case `pos` d'un cran, avec `available` objets en main.
+    fn grow_slice(
+        &mut self,
+        pos: IVec3,
+        existing: Shaped,
+        index: usize,
+        available: u32,
+    ) -> Option<IVec3> {
+        let mut shaped = existing.clone();
+        let extra = match shaped.try_grow(index, available) {
+            Ok(extra) => extra,
+            Err(shaped::AddError::NotEnough) => {
+                self.toast("Il n'y a pas assez de tranches en main pour l'agrandir");
+                return None;
+            }
+            Err(_) => {
+                self.toast("Cette tranche ne peut pas grandir ici");
+                return None;
+            }
+        };
+        if self.blocks_the_player(pos, &existing, &shaped)
+            || !shaped::store(&mut self.streamer_mut(), pos, &shaped)
+        {
+            return None;
+        }
+        for _ in 0..extra {
+            self.inventory.consume_selected();
+        }
+        self.hand.punch();
+        self.target = None;
+        self.after_edit(pos);
+        Some(pos)
+    }
+
+    /// Un clic droit sur un portillon : il s'ouvre ou se ferme. `false` : ce n'est pas un portillon
+    /// (ou l'on tient une pièce, qui se pose).
+    pub(crate) fn use_gate(&mut self, pos: IVec3) -> bool {
+        let holds_piece = self.inventory.selected_stack().is_some_and(|stack| {
+            PieceKind::from_key(&self.content.items.get(stack.item).key).is_some()
+        });
+        if holds_piece {
+            return false;
+        }
+        let Some(mut shaped) = self.shaped_at(pos) else {
+            return false;
+        };
+        let Some(Part {
+            piece:
+                Piece::Connected {
+                    kind: Link::Gate,
+                    open,
+                },
+            ..
+        }) = shaped.parts.first().copied()
+        else {
+            return false;
+        };
+        shaped.parts[0].piece = Piece::Connected {
+            kind: Link::Gate,
+            open: !open,
+        };
+        if shaped::store(&mut self.streamer_mut(), pos, &shaped) {
+            if let Some(audio) = &mut self.audio {
+                audio.play("core:place_hard");
+            }
+            self.hand.punch();
+            self.target = None;
+            self.after_edit(pos);
+        }
+        true
     }
 
     /// Ajoute `piece` à la case `pos` (qui contient `existing`, ou rien). `Some(pos)` si c'est fait.
@@ -202,6 +289,10 @@ impl VoxelGame {
 
     /// L'indice de la pièce visée dans la case `pos`.
     fn aimed_part(&self, pos: IVec3, shaped: &Shaped) -> Option<usize> {
+        // Une forme raccordée est seule dans sa case : c'est elle, bras compris.
+        if shaped.link().is_some() {
+            return Some(0);
+        }
         let hit = self.target.filter(|t| t.block_pos == pos)?;
         shaped.part_hit(self.aimed_point(&hit), hit.normal.as_vec3())
     }
@@ -273,15 +364,65 @@ impl VoxelGame {
 }
 
 /// Le nom d'une pièce et sa taille, pour la fiche de visée.
-fn describe_piece(piece: &shaped::Piece) -> (&'static str, String) {
+fn describe_piece(piece: &shaped::Piece) -> (String, String) {
+    let text = |a: &str, b: String| (a.to_string(), b);
     match *piece {
-        shaped::Piece::Layer { thickness, .. } if thickness >= 16 => ("bloc", "16/16".to_string()),
-        shaped::Piece::Layer { thickness: 8, .. } => ("dalle", "8/16".to_string()),
-        shaped::Piece::Layer { thickness, .. } => ("couche", format!("{thickness}/16")),
-        shaped::Piece::Slope { level, .. } => ("pente", format!("niveau {level}/16")),
-        shaped::Piece::Micro { cells } => (
+        Piece::Layer { thickness, .. } if thickness >= 16 => text("bloc", "16/16".to_string()),
+        Piece::Layer { thickness: 8, .. } => text("dalle", "8/16".to_string()),
+        Piece::Layer { thickness, .. } => text("couche", format!("{thickness}/16")),
+        Piece::Slope {
+            level,
+            corner,
+            base,
+            ..
+        } => {
+            let name = match corner {
+                shaped::Corner::None => "pente",
+                shaped::Corner::Outer => "pente en coin sortant",
+                shaped::Corner::Inner => "pente en coin rentrant",
+            };
+            let wall = if matches!(base, engine_voxel::Face::NegY | engine_voxel::Face::PosY) {
+                ""
+            } else {
+                ", murale"
+            };
+            text(name, format!("niveau {level}/16{wall}"))
+        }
+        Piece::Micro { cells } => text(
             "microblocs",
             format!("{} cellule(s) de 1/64", cells.count_ones()),
+        ),
+        Piece::Cuboid {
+            kind,
+            count,
+            min,
+            max,
+        } => {
+            let size = (0..3)
+                .map(|a| (max[a] - min[a]).to_string())
+                .collect::<Vec<_>>();
+            (
+                kind.name().to_lowercase(),
+                format!("{} ({count} objet(s))", size.join(" × ")),
+            )
+        }
+        Piece::Stairs { vertical, .. } => text(
+            if vertical {
+                "escalier vertical"
+            } else {
+                "escalier"
+            },
+            "3/4 de bloc".to_string(),
+        ),
+        Piece::Connected { kind, open } => text(
+            match kind {
+                Link::Wall => "muret",
+                Link::Fence => "barrière",
+                Link::Gate => "portillon",
+                Link::Pane => "vitre",
+                Link::FlatPane => "vitre à plat",
+            },
+            if open { "ouvert" } else { "se raccorde" }.to_string(),
         ),
     }
 }

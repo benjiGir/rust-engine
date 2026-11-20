@@ -172,13 +172,28 @@
             pages: [
                 (
                     title: "L'établi de taille",
-                    text: "Un lingot de fer et trois planches donnent l'établi de taille. Un clic droit l'ouvre : pose un bloc dans la case (bois, pierre, verre, laine, minerai, bloc d'un mod... tout cube plein), puis clique une forme pour récupérer des pièces. Maj + clic taille toute la pile.\n\nUn bloc donne 16 couches, 2 dalles, 16 couches de pente, 2 pentes, 8 microblocs ou 64 grains. Les pièces gardent le matériau du bloc : « dalle de chêne », « pente de pierre ». Pour refaire un bloc plein, remets les pièces dans la case : un bouton les reconstitue.",
+                    text: "Un lingot de fer et trois planches donnent l'établi de taille. Un clic droit l'ouvre : pose un bloc dans la case (bois, pierre, verre, laine, minerai, bloc d'un mod... tout cube plein), puis clique une forme pour récupérer des pièces. Maj + clic taille toute la pile.\n\nL'écran range vingt-trois formes par familles (la liste défile si la fenêtre est petite). Un bloc donne par exemple 16 couches, 2 dalles, 16 couches de pente, 2 pentes, 8 microblocs, 64 grains, 4 poutres ou marches verticales, 2 barrières, 1 escalier ou 1 muret. Les pièces gardent le matériau du bloc : « dalle de chêne », « pente de pierre ». Pour refaire un bloc plein, remets les pièces dans la case : un bouton les reconstitue.",
                     items: ["shaping_table", "shape_slab", "shape_slope", "shape_micro"],
                 ),
                 (
                     title: "Poser et empiler",
                     text: "Une pièce se pose d'un clic droit sur un bloc. Une couche ou une dalle se colle à la face visée ; une pente monte vers l'endroit où tu regardes (retournée sous un plafond) ; un microbloc se pose sur le point visé.\n\nSur une pièce déjà posée, vise sa face : la pièce suivante s'y ajoute dans la même case. Des couches de même matière s'épaississent jusqu'au bloc plein, des couches de pente montent la pente niveau par niveau, et chaque pièce peut avoir sa matière : une dalle de chêne sur une dalle de pierre.",
                     items: ["shape_layer", "shape_slope_layer", "shape_nano"],
+                ),
+                (
+                    title: "Escaliers, panneaux et tranches",
+                    text: "L'escalier (et sa version verticale), la marche verticale et la poutre se posent d'un clic droit selon le coin ou le côté que tu vises. Demi-couches, demi-panneaux, panneaux d'un quart et planchettes se collent à une face ; plusieurs planchettes peuvent couvrir les faces d'une même case.\n\nLa tranche d'arête et la tranche de coin grandissent : clic droit avec une tranche sur une tranche déjà posée, et elle gagne un cran (jusqu'à 8). L'agrandir consomme exactement la matière ajoutée, et la casser rend tout ce qu'elle contient.",
+                    items: ["shape_stairs", "shape_beam", "shape_slice", "shape_half_panel", "shape_board"],
+                ),
+                (
+                    title: "Pentes en coin et pentes murales",
+                    text: "Les couches de pente en coin sortant et rentrant se posent sur le quart de la face que tu vises : le coin se tourne vers lui. Viser le milieu d'un mur avec une pente la colle au mur, le bord le plus proche vers le haut ; viser le bas ou le haut d'un mur la pose au sol ou au plafond. Chaque niveau s'empile jusqu'à 16.",
+                    items: ["shape_corner_slope_layer", "shape_inner_slope_layer", "shape_slope"],
+                ),
+                (
+                    title: "Murets, barrières et vitres",
+                    text: "Le muret, la barrière, le portillon, la vitre et la vitre à plat se raccordent tout seuls à leurs voisins : un muret à un muret, à un portillon et aux blocs pleins ; une barrière à une barrière et à un portillon ; une vitre à une vitre. Chacun occupe seul sa case. On ne saute pas par-dessus une barrière.\n\nUn clic droit ouvre ou ferme un portillon (main vide de pièce) ; ouvert, on le traverse. Un portillon se tourne selon ses voisins : pose d'abord la barrière, puis le portillon.",
+                    items: ["shape_wall", "shape_fence", "shape_gate", "shape_pane", "shape_flat_pane"],
                 ),
                 (
                     title: "Casser une pièce",

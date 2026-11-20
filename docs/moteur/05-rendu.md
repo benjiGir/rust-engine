@@ -63,13 +63,19 @@ le mailleur lit son entité (le `Neighbourhood` donne accès aux entités des ch
 par pièce, des faces avec **les textures du matériau** (la teinte de biome, la découpe, la passe translucide
 du verre sont gardées).
 
-- **Couches et microblocs** : des boîtes, comme un modèle. Une face est omise si elle est cachée : contre
-  une autre pièce **opaque** de la case (l'occupation au seizième) ou contre un voisin opaque (un cube, ou une
-  autre case de formes dont la tranche voisine est pleine).
-- **Pentes** : un vrai plan incliné (un quad dont la normale penche), le mur du bord haut, le dessous et **deux
-  triangles** de côté. Le shader tire ses UV de la position selon l'axe dominant de la normale : une pente à 45°
-  ou moins se texture comme un dessus, **sans changer le shader**. La collision, elle, suit l'escalier de
-  seizièmes de la pente.
+- **Couches, microblocs, pavés, escaliers, formes raccordées** : des boîtes, comme un modèle. Une face est
+  omise si elle est cachée : contre une autre pièce **opaque** de la case (l'occupation au seizième) ou contre un
+  voisin opaque (un cube, ou une autre case de formes dont la tranche voisine est pleine). Une forme raccordée,
+  même en verre, cache les faces de ses propres boîtes et le bout de ses bras contre une voisine de même forme et
+  de même matériau (deux murets voisins ne dessinent pas leurs bouts de bras). Ses boîtes dépendent des voisins
+  (`connected::neighbours_at`), lus par le `Neighbourhood`.
+- **Pentes** : un vrai plan incliné, dans l'une de ses 24 orientations. Droite : un quad incliné, le mur du bord
+  haut, le dessous et **deux triangles** de côté. En coin : le plan est fait de **deux triangles** (une pyramide
+  pour un coin sortant, deux plans qui se rejoignent en creux pour un coin rentrant), avec des triangles ou des
+  quads de côté. Les faces sont écrites une fois pour la pente canonique (`slope::facets`) et remenées par la
+  rotation de l'orientation. Le plan incliné prend la texture de la face « dessus » de la pente. Le shader tire
+  ses UV de la position selon l'axe dominant de la normale : une pente à 45° ou moins se texture comme un dessus,
+  **sans changer le shader**. La collision, elle, suit l'escalier de seizièmes de la pente.
 - **Lumière** : celle de la cellule d'à côté (comme les modèles), sans occlusion ambiante fine. Une case de
   formes laisse passer la lumière, même pleine de deux matériaux (fuite connue).
 

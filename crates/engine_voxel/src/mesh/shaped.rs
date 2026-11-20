@@ -1,13 +1,17 @@
 //! Le maillage d'une case de formes (`core:shaped`) : ses pièces, une à une, avec **les textures de
 //! leur matériau**.
 //!
-//! - Une **couche** ou un **microbloc** est une ou plusieurs boîtes, dessinées comme celles d'un
+//! - Une **couche**, un **microbloc**, un **pavé** (marche, poutre, tranche, panneau, planchette), un
+//!   **escalier** ou une **forme raccordée** est une ou plusieurs boîtes, dessinées comme celles d'un
 //!   modèle. Une face n'est pas dessinée si elle est cachée : contre une autre pièce opaque de la
-//!   case (l'occupation au seizième), ou contre un voisin opaque au bord de la case.
-//! - Une **pente** est un vrai plan incliné : la face inclinée (un quad dont la normale penche), le
-//!   mur du bord haut, le dessous, et deux **triangles** de côté. Le shader tire déjà ses UV de la
-//!   position selon l'axe dominant de la normale : une pente à 45° (ou moins) se texture comme un
-//!   dessus, sans rien changer. La collision, elle, suit l'escalier de seizièmes de la pente.
+//!   case (l'occupation au seizième), ou contre un voisin opaque au bord de la case (deux murets
+//!   voisins ne dessinent pas le bout de leurs bras qui se touchent).
+//! - Une **pente** est un vrai plan incliné, dans l'une de ses 24 orientations : le plan incliné (un
+//!   quad dont la normale penche, ou, en coin, **deux triangles** : une pyramide pour un coin sortant,
+//!   deux plans qui se rejoignent pour un coin rentrant), les murs du bord haut, le dessous, et des
+//!   triangles de côté (voir `shaped::slope::facets`). Le shader tire déjà ses UV de la position selon
+//!   l'axe dominant de la normale : une pente à 45° (ou moins) se texture comme un dessus, sans rien
+//!   changer. La collision, elle, suit l'escalier de seizièmes de la pente.
 //! - La lumière est celle de la cellule d'à côté (comme les modèles) et il n'y a pas d'occlusion
 //!   ambiante fine : une case de formes est petite, souvent contre un mur.
 //! - La teinte de biome (herbe, feuillage) et la découpe (cutout) de chaque matériau sont gardées ;
@@ -22,7 +26,10 @@ use super::{ChunkMesh, FLAG_GROUND, Face, Neighbourhood, block_flags, face_tint}
 use crate::block::BlockId;
 use crate::chunk::BlockEntity;
 use crate::registry::{BlockDef, Tint};
-use crate::shaped::{self, Occupancy, Piece, Shaped};
+use crate::shaped::connected::{self, Neighbours};
+use crate::shaped::grid;
+use crate::shaped::slope::{self, Frame};
+use crate::shaped::{self, Corner, Occupancy, Piece, Shaped};
 
 /// Les matériaux de la case, résolus une fois : le bloc et son opacité.
 struct Material<'a> {
@@ -44,6 +51,8 @@ struct Cell<'a> {
     opaque: Occupancy,
     /// Ce que remplissent les pièces opaques des cases de formes voisines (une par face).
     neighbours: [Option<Occupancy>; 6],
+    /// Les voisins de la forme raccordée de la case (aucun pour les autres pièces).
+    links: Neighbours,
 }
 
 /// Dessine la case de formes en `p` (relatif au chunk maillé). `origin` : l'origine du chunk.
@@ -63,24 +72,36 @@ pub(super) fn mesh_cell(
         .map(|name| material(hood, name))
         .collect();
     let (_, own_sky, own_light) = hood.cell(p);
+    // Une forme raccordée n'a qu'un matériau : même translucide (verre), ses boîtes se cachent entre
+    // elles et ses bouts se cachent contre une voisine de même forme et de même matériau.
+    let own_link = shaped.link();
+    let own_material = shaped.parts.first().map(|p| shaped.material_of(p));
     let neighbours = Face::ALL.map(|face| {
         let q = p + face.normal();
         let block = hood.get(q);
         let def = hood.registry.def(block);
         shaped::is_shaped_block(def).then(|| {
             let other = hood.entity(q).and_then(|e| Shaped::decode(&e.data))?;
-            Some(other.occupancy_where(|name| material(hood, name).opaque))
+            let around = links(hood, &other, q);
+            let twin = own_link.is_some()
+                && other.link() == own_link
+                && other.parts.first().map(|p| other.material_of(p)) == own_material;
+            Some(other.occupancy_with(&around, |name| twin || material(hood, name).opaque))
         })?
     });
+    let links = links(hood, &shaped, p);
     let cell = Cell {
         hood,
         p,
         base: (origin + p).as_vec3(),
         own_sky,
         own_light,
-        opaque: shaped.occupancy_where(|name| material(hood, name).opaque),
+        opaque: shaped.occupancy_with(&links, |name| {
+            own_link.is_some() || material(hood, name).opaque
+        }),
         materials,
         neighbours,
+        links,
     };
     for part in &shaped.parts {
         let Some(material) = cell.materials.get(usize::from(part.material)) else {
@@ -88,13 +109,21 @@ pub(super) fn mesh_cell(
         };
         match part.piece {
             Piece::Slope {
-                facing,
-                ceiling,
+                base,
+                up,
                 level,
-            } => cell.slope(mesh, material, facing, ceiling, level),
+                corner,
+            } => cell.slope(mesh, material, base, up, level, corner),
             piece => cell.boxes(mesh, material, piece),
         }
     }
+}
+
+/// Les voisins de la forme raccordée de `shaped` en `p` (aucun si la case n'en a pas).
+fn links(hood: &Neighbourhood, shaped: &Shaped, p: IVec3) -> Neighbours {
+    shaped.link().map_or(Neighbours::NONE, |link| {
+        connected::neighbours_at(&hood.registry, link, p, |q| hood.get(q), |q| hood.entity(q))
+    })
 }
 
 fn material<'a>(hood: &'a Neighbourhood, name: &str) -> Material<'a> {
@@ -154,7 +183,7 @@ impl Cell<'_> {
 
     /// Les boîtes d'une couche ou d'un microbloc.
     fn boxes(&self, mesh: &mut ChunkMesh, material: &Material, piece: Piece) {
-        for b in piece.int_boxes() {
+        for b in piece.int_boxes_with(&self.links) {
             let b = b.map(i32::from);
             for face in Face::ALL {
                 let a = face.axis;
@@ -190,99 +219,55 @@ impl Cell<'_> {
         }
     }
 
-    /// Une pente : le plan incliné, le mur du bord haut, le dessous et les deux triangles de côté.
+    /// Une pente : ses faces canoniques (voir `slope::facets`), remenées dans son orientation. Le plan
+    /// incliné prend la texture de la face « dessus » de la pente (le dessous, au plafond) ; les autres
+    /// faces, posées sur le bord de la case, se cachent comme des boîtes.
     fn slope(
         &self,
         mesh: &mut ChunkMesh,
         material: &Material,
-        facing: u8,
-        ceiling: bool,
+        base: crate::capabilities::Face,
+        up: crate::capabilities::Face,
         level: u8,
+        corner: Corner,
     ) {
-        let h = f32::from(level) / 16.0;
-        let hi = i32::from(level);
-        // La pente « canonique » : son bord haut au nord (z = 0), qui descend vers z = 1.
-        let incline = Vec3::new(0.0, 1.0, h).normalize();
-        let polygons: [(Vec<Vec3>, Vec3); 5] = [
-            (
-                vec![
-                    Vec3::new(0.0, h, 0.0),
-                    Vec3::new(1.0, h, 0.0),
-                    Vec3::new(1.0, 0.0, 1.0),
-                    Vec3::new(0.0, 0.0, 1.0),
-                ],
-                incline,
-            ),
-            (
-                vec![
-                    Vec3::new(0.0, 0.0, 0.0),
-                    Vec3::new(0.0, h, 0.0),
-                    Vec3::new(1.0, h, 0.0),
-                    Vec3::new(1.0, 0.0, 0.0),
-                ],
-                -Vec3::Z,
-            ),
-            (
-                vec![
-                    Vec3::new(0.0, 0.0, 0.0),
-                    Vec3::new(1.0, 0.0, 0.0),
-                    Vec3::new(1.0, 0.0, 1.0),
-                    Vec3::new(0.0, 0.0, 1.0),
-                ],
-                -Vec3::Y,
-            ),
-            (
-                vec![
-                    Vec3::new(0.0, 0.0, 0.0),
-                    Vec3::new(0.0, 0.0, 1.0),
-                    Vec3::new(0.0, h, 0.0),
-                ],
-                -Vec3::X,
-            ),
-            (
-                vec![
-                    Vec3::new(1.0, 0.0, 0.0),
-                    Vec3::new(1.0, h, 0.0),
-                    Vec3::new(1.0, 0.0, 1.0),
-                ],
-                Vec3::X,
-            ),
-        ];
-        for (index, (corners, normal)) in polygons.into_iter().enumerate() {
-            // Où est cette face une fois la pente tournée et retournée ?
-            let turned: Vec<Vec3> = corners
-                .iter()
-                .map(|&c| orient(c, facing, ceiling))
-                .collect();
-            let normal = orient_direction(normal, facing, ceiling);
-            // Le plan incliné prend la texture du dessus (ou du dessous, au plafond).
-            let face = if index == 0 {
-                Face::new(1, normal.y > 0.0)
+        let Some(frame) = Frame::new(base, up) else {
+            return;
+        };
+        let (top_axis, top_positive) = grid::face_axis(frame.top_face());
+        for facet in slope::facets(level, corner) {
+            let corners: Vec<Vec3> = facet.corners.iter().map(|&c| frame.point(c)).collect();
+            let normal = frame.direction(facet.normal);
+            let face = if facet.incline {
+                // Le plan incliné prend la texture du dessus (ou du dessous, au plafond).
+                Face::new(top_axis, top_positive)
             } else {
                 Face::of_normal(normal)
             };
-            let (lo, top) = if ceiling { (16 - hi, 16) } else { (0, hi) };
-            let plane = if face.positive { 16 } else { 0 };
-            let hidden = match index {
-                // Le plan incliné : toujours visible.
-                0 => false,
-                // Le dessous : toute la face de la case.
-                2 => self.covered(face, plane, [0..16, 0..16]),
-                // Le mur du bord haut, ou un triangle de côté (caché si tout son rectangle l'est).
-                _ => {
-                    let ranges = if face.axis == 0 {
-                        [lo..top, 0..16]
-                    } else {
-                        [0..16, lo..top]
-                    };
-                    self.covered(face, plane, ranges)
+            if !facet.incline {
+                // Posée sur le bord de la case : cachée si tout son rectangle l'est.
+                let a = face.axis;
+                let (u, v) = ((a + 1) % 3, (a + 2) % 3);
+                let range = |axis: usize| {
+                    let lo = corners
+                        .iter()
+                        .map(|c| (c[axis] * 16.0).round() as i32)
+                        .min()
+                        .unwrap_or(0);
+                    let hi = corners
+                        .iter()
+                        .map(|c| (c[axis] * 16.0).round() as i32)
+                        .max()
+                        .unwrap_or(0);
+                    lo..hi
+                };
+                let plane = if face.positive { 16 } else { 0 };
+                if self.covered(face, plane, [range(u), range(v)]) {
+                    continue;
                 }
-            };
-            if hidden {
-                continue;
             }
-            let light = self.light(Some(face));
-            self.emit(mesh, material, &turned, normal, face, light);
+            let light = self.light(Some(Face::of_normal(normal)));
+            self.emit(mesh, material, &corners, normal, face, light);
         }
     }
 
@@ -367,29 +352,4 @@ fn cells_set(
             shaped::is_set(occupancy, c[0], c[1], c[2])
         })
     })
-}
-
-/// Un point de la pente canonique (bord haut au nord) une fois tournée de `facing` quarts de tour et
-/// éventuellement retournée au plafond.
-fn orient(p: Vec3, facing: u8, ceiling: bool) -> Vec3 {
-    let mut p = p;
-    for _ in 0..facing {
-        p = Vec3::new(1.0 - p.z, p.y, p.x);
-    }
-    if ceiling {
-        p.y = 1.0 - p.y;
-    }
-    p
-}
-
-/// La même transformation pour une direction.
-fn orient_direction(d: Vec3, facing: u8, ceiling: bool) -> Vec3 {
-    let mut d = d;
-    for _ in 0..facing {
-        d = Vec3::new(-d.z, d.y, d.x);
-    }
-    if ceiling {
-        d.y = -d.y;
-    }
-    d
 }

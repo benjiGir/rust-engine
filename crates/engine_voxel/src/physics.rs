@@ -86,6 +86,24 @@ pub struct PlayerBody {
 /// L'amortissement de la poussée, par seconde : au sol, en l'air.
 const IMPULSE_DECAY: (f32, f32) = (8.0, 1.5);
 
+/// Les boîtes qui arrêtent un corps dans la cellule `block` (liste vide : un cube plein) ; `None` si
+/// rien n'y gêne. `below` : la cellule est sous celles que touche le corps : seules les cases de
+/// formes comptent alors, car leurs boîtes (une barrière : 24 seizièmes) peuvent dépasser de la
+/// cellule.
+fn blockers(
+    world: &World,
+    block: IVec3,
+    below: bool,
+) -> Option<std::borrow::Cow<'_, [crate::BlockBox]>> {
+    if !world.is_solid(block) {
+        return None;
+    }
+    if below && !crate::shaped::is_shaped_block(world.registry().def(world.block(block))) {
+        return None;
+    }
+    world.collision_boxes(block)
+}
+
 impl PlayerBody {
     pub fn new(position: Vec3) -> Self {
         Self {
@@ -250,13 +268,13 @@ impl PlayerBody {
         let (min, max) = self.bounds();
         let (first, last) = (min.floor().as_ivec3(), max.ceil().as_ivec3() - IVec3::ONE);
         for x in first.x..=last.x {
-            for y in first.y..=last.y {
+            // Une rangée de plus, dessous : une barrière monte au-delà de sa case.
+            for y in first.y - 1..=last.y {
                 for z in first.z..=last.z {
                     let block = IVec3::new(x, y, z);
-                    if !world.is_solid(block) {
+                    let Some(boxes) = blockers(world, block, y < first.y) else {
                         continue;
-                    }
-                    let boxes = world.block_boxes(block);
+                    };
                     if boxes.is_empty() {
                         return true;
                     }
@@ -394,16 +412,16 @@ impl PlayerBody {
         // La face de bloc la plus proche dans le sens du mouvement.
         let mut wall: Option<f32> = None;
         for x in first.x..=last.x {
-            for y in first.y..=last.y {
+            // Une rangée de plus, dessous : une barrière monte au-delà de sa case.
+            for y in first.y - 1..=last.y {
                 for z in first.z..=last.z {
                     let block = IVec3::new(x, y, z);
                     // Le registre dit si ce bloc arrête le joueur (un bloc de mod peut ne pas le faire).
-                    if !world.is_solid(block) {
-                        continue;
-                    }
                     // Un bloc à boîtes (dalle, escalier) ne bloque que là où il est : on cherche la
                     // face de chaque boîte que la nôtre chevauche.
-                    let boxes = world.block_boxes(block);
+                    let Some(boxes) = blockers(world, block, y < first.y) else {
+                        continue;
+                    };
                     let mut faces = [f32::NAN; 1];
                     let mut hit_faces = Vec::new();
                     if boxes.is_empty() {

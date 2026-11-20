@@ -148,6 +148,23 @@ impl World {
         )
     }
 
+    /// Les boîtes qui arrêtent un corps dans ce bloc (voir `connections::collision_at`) : `None` si
+    /// rien n'y gêne (un portillon ouvert), une liste vide pour un cube plein.
+    pub fn collision_boxes(
+        &self,
+        pos: IVec3,
+    ) -> Option<std::borrow::Cow<'_, [crate::registry::BlockBox]>> {
+        crate::connections::collision_at(
+            &self.registry,
+            pos,
+            |p| self.block(p),
+            |p| {
+                let (chunk, [x, y, z]) = Self::split(p);
+                self.chunk(chunk)?.block_entity(x, y, z)
+            },
+        )
+    }
+
     /// La plus petite boîte (coin min, coin max, en coordonnées monde) qui contient le bloc.
     pub fn block_bounds(&self, pos: IVec3) -> (Vec3, Vec3) {
         let origin = pos.as_vec3();

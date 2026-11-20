@@ -5,8 +5,8 @@
 //! l'établi ordinaire, donc rien ne se perd.
 //!
 //! - **Tailler** : n'importe quel cube plein (bois, pierres, verre, laine, minerais, blocs de mods : voir
-//!   `engine_voxel::shaped::is_shapeable`) donne, au choix, des couches, des dalles, des couches de
-//!   pente, des pentes, des microblocs ou des grains. Un clic taille un bloc, Maj + clic toute la pile. Un
+//!   `engine_voxel::shaped::is_shapeable`) donne, au choix, des pièces des vingt-trois formes de
+//!   `PieceKind`, rangées par familles dans une liste qui défile (couches, pentes, escaliers, panneaux, formes raccordées). Un clic taille un bloc, Maj + clic toute la pile. Un
 //!   bloc refusé dit pourquoi.
 //! - **Reconstituer** : quand la case contient assez de pièces d'un même matériau (16 couches, 2 dalles, 8
 //!   microblocs...), un bouton les rend en bloc plein.
@@ -14,7 +14,7 @@
 //! Le matériau d'une pièce est un numéro de la palette du monde (voir `shape_materials.rs`).
 
 use engine_render::egui;
-use engine_voxel::shaped::{self, PieceKind};
+use engine_voxel::shaped::{self, Family, PieceKind};
 
 use crate::VoxelGame;
 use crate::inventory::{ItemStack, Slot};
@@ -97,34 +97,50 @@ impl VoxelGame {
         }
     }
 
-    /// Les six formes, dessinées avec le matériau, chacune avec son rendement.
+    /// Les formes, rangées par familles, dessinées avec le matériau, chacune avec son rendement. La
+    /// liste défile quand la fenêtre est petite : les entrées passent à la ligne, donc 320 px de large
+    /// suffisent.
     fn shape_buttons(&mut self, ui: &mut egui::Ui, material: &str) {
         let number = shape_materials::number_of(material);
-        ui.label("Formes");
-        ui.horizontal_wrapped(|ui| {
-            for kind in PieceKind::ALL {
-                let Some(item) = self.content.items.id(kind.key()) else {
-                    continue;
-                };
-                let preview = ItemStack {
-                    item,
-                    count: kind.per_block(),
-                    damage: number,
-                };
-                ui.vertical(|ui| {
-                    ui.set_width(crate::ui_layout::slot_size(ui.ctx()) + 30.0);
-                    if self.stack_widget(ui, Some(preview), false).is_some() {
-                        let all = ui.input(|i| i.modifiers.shift);
-                        if let Err(why) = self.carve(Slot::Craft(0), kind, all) {
-                            self.toast(&why);
+        let height = (crate::ui_layout::safe_rect(ui.ctx()).height() * 0.42).clamp(120.0, 420.0);
+        egui::ScrollArea::vertical()
+            .id_salt("shaping_shapes")
+            .max_height(height)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for family in Family::ALL {
+                    ui.label(egui::RichText::new(family.name()).strong());
+                    ui.horizontal_wrapped(|ui| {
+                        for kind in PieceKind::of_family(family) {
+                            self.shape_entry(ui, kind, number);
                         }
-                    }
-                    ui.label(
-                        egui::RichText::new(format!("{}\n×{}", kind.name(), kind.per_block()))
-                            .small(),
-                    );
-                });
+                    });
+                    ui.add_space(4.0);
+                }
+            });
+    }
+
+    /// Une entrée de la grille : l'icône de la pièce et son rendement ; un clic taille.
+    fn shape_entry(&mut self, ui: &mut egui::Ui, kind: PieceKind, number: u32) {
+        let Some(item) = self.content.items.id(kind.key()) else {
+            return;
+        };
+        let preview = ItemStack {
+            item,
+            count: kind.per_block().min(999),
+            damage: number,
+        };
+        ui.vertical(|ui| {
+            ui.set_width(crate::ui_layout::slot_size(ui.ctx()) + 30.0);
+            if self.stack_widget(ui, Some(preview), false).is_some() {
+                let all = ui.input(|i| i.modifiers.shift);
+                if let Err(why) = self.carve(Slot::Craft(0), kind, all) {
+                    self.toast(&why);
+                }
             }
+            ui.label(
+                egui::RichText::new(format!("{}\n×{}", kind.name(), kind.per_block())).small(),
+            );
         });
     }
 
