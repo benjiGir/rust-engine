@@ -26,7 +26,7 @@ impl VoxelGame {
         );
         let mut item = None;
         let mut preview = None;
-        let fluids = self.streamer().world().fluids().cloned();
+        let fluids = self.view_world().fluids().cloned();
         let lines = |block: engine_voxel::BlockId, caps: Option<&engine_voxel::Capabilities>| {
             let main = engine_voxel::layout_of(&self.registry, block).map(|l| l.main);
             caps.map(|caps| ui_info::capabilities(caps, fluids.as_deref(), main))
@@ -121,9 +121,9 @@ impl VoxelGame {
                     .and_then(|e| e.caps.as_deref());
                 (block, lines(block, caps), summary(block, caps))
             } else if let Some(hit) = self.target {
-                let s = self.streamer();
+                let s = self.view_streamer();
                 // La moitié droite d'un grand coffre montre l'inventaire de la gauche.
-                let pos = engine_voxel::double_chest::storage_pos(&*s, hit.block_pos);
+                let pos = engine_voxel::double_chest::storage_pos(s, hit.block_pos);
                 let block = s.world().block(pos);
                 let caps = s.block_entity(pos).and_then(|e| e.caps.as_deref());
                 (block, lines(block, caps), summary(block, caps))

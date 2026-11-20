@@ -237,7 +237,7 @@ impl VoxelGame {
 
     /// Les réponses du simulateur au joueur de la fenêtre. Celles des autres joueurs partiront sur
     /// le réseau (lot 5).
-    fn apply_replies(&mut self) {
+    pub(crate) fn apply_replies(&mut self) {
         let local = self.players.local_id();
         for (player, reply) in std::mem::take(&mut self.replies) {
             if player != local {
@@ -259,8 +259,12 @@ impl VoxelGame {
                     }
                     self.camera.position = position + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT;
                 }
+                // Le monde que voit la fenêtre : la réplique l'applique à la prochaine mise à jour
+                // de ses vues (voir `client_world.rs`).
+                chunk_msg => self.view.receive(chunk_msg),
             }
         }
+        self.view.apply_received();
     }
 
     /// Applique une intention du client. Tout ce que le simulateur touche pendant ce temps est

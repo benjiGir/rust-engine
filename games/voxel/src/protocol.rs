@@ -11,7 +11,10 @@
 //! sont prêts pour le réseau (postcard), même si en solo les messages restent en mémoire et sont
 //! appliqués dans la même image.
 
+use std::sync::Arc;
+
 use engine_ecs::Entity;
+use engine_voxel::Chunk;
 use glam::{IVec3, Vec3};
 use serde::{Deserialize, Serialize};
 
@@ -161,10 +164,31 @@ pub enum ClientMsg {
 }
 
 /// Ce que le simulateur répond au client.
+///
+/// Les messages de chunks portent un `Arc<Chunk>` : en mémoire il passe sans copie, et la réplique du
+/// client tient les mêmes blocs que le serveur. Ils ne sont donc pas sérialisables pour l'instant
+/// (`#[serde(skip)]`) : le transport réseau les encodera avec le format des sauvegardes (lot 5).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServerMsg {
     /// Un mouvement refusé (ou un déplacement imposé) : le client place le joueur ici.
     Correct { position: Vec3 },
+    /// Un chunk hors de portée : le client l'oublie.
+    Unload(IVec3),
+    // Les variantes `serde(skip)` sont à la fin : elles décalent les numéros de variantes qui les suivent.
+    /// Un chunk que le client n'avait pas, avec sa lumière et ses blocs actifs. Le serveur envoie des
+    /// colonnes entières, éclairées (voir `engine_voxel::ChunkSender`).
+    #[serde(skip)]
+    Chunk { pos: IVec3, chunk: Arc<Chunk> },
+    /// Un chunk que le client a déjà et qui a changé : le chunk d'aujourd'hui, avec les positions des
+    /// blocs posés ou cassés (`edits`, remaillés dans l'image), ou `remesh` pour un changement qui
+    /// peut attendre (lumière, machine). Ni l'un ni l'autre : des données seules, sans remaillage.
+    #[serde(skip)]
+    ChunkChanged {
+        pos: IVec3,
+        chunk: Arc<Chunk>,
+        edits: Vec<IVec3>,
+        remesh: bool,
+    },
 }
 
 #[cfg(test)]
@@ -222,5 +246,24 @@ mod tests {
         };
         let bytes = postcard::to_stdvec(&reply).unwrap();
         assert_eq!(postcard::from_bytes::<ServerMsg>(&bytes).unwrap(), reply);
+        let unload = ServerMsg::Unload(IVec3::new(1, -2, 3));
+        let bytes = postcard::to_stdvec(&unload).unwrap();
+        assert_eq!(postcard::from_bytes::<ServerMsg>(&bytes).unwrap(), unload);
+    }
+
+    #[test]
+    fn chunk_messages_share_the_chunk_in_memory() {
+        let chunk = Arc::new(Chunk::new());
+        let msg = ServerMsg::Chunk {
+            pos: IVec3::ZERO,
+            chunk: chunk.clone(),
+        };
+        // Copier le message ne copie pas les 96 Kio du chunk.
+        let ServerMsg::Chunk { chunk: copy, .. } = msg.clone() else {
+            unreachable!()
+        };
+        assert!(Arc::ptr_eq(&copy, &chunk));
+        // Le transport réseau (lot 5) les encodera à part : pour l'instant, `postcard` les refuse.
+        assert!(postcard::to_stdvec(&msg).is_err());
     }
 }

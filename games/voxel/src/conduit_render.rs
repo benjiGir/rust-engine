@@ -8,8 +8,7 @@ impl VoxelGame {
     pub(crate) fn draw_conduit_contents(&mut self, out: &mut Vec<CubeInstance>) {
         self.conduit_fx
             .ingest(self.mods.machines.take_visual_transfers());
-        let shared = self.world.clone();
-        let streamer = shared.borrow();
+        let streamer = self.view.replica();
         let Some(fluids) = streamer.world().fluids() else {
             return;
         };
@@ -17,7 +16,7 @@ impl VoxelGame {
         let start = out.len();
         self.conduit_fx.instances(
             GridId::WORLD,
-            &*streamer,
+            streamer,
             &self.content.items,
             fluids,
             self.camera.position,

@@ -199,10 +199,7 @@ impl VoxelGame {
                 }
             }
             Stage::Load { since, quiet } => {
-                let ready = {
-                    let streamer = self.streamer();
-                    streamer.is_idle() && streamer.stats().meshes_waiting == 0
-                };
+                let ready = self.world_idle() && self.stream_stats().meshes_waiting == 0;
                 *quiet = if ready { *quiet + 1 } else { 0 };
                 let timeout = since.elapsed() > LOAD_TIMEOUT;
                 if *quiet >= SETTLE_FRAMES || timeout {
@@ -218,7 +215,7 @@ impl VoxelGame {
                         "benchmark : « {} » chargé en {:.2} s ({} chunks)",
                         route.name,
                         since.elapsed().as_secs_f64(),
-                        self.streamer().stats().loaded
+                        self.stream_stats().loaded
                     );
                     bench.not_loaded = timeout;
                     bench.samples.clear();

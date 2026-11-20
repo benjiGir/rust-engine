@@ -42,8 +42,8 @@ impl VoxelGame {
             let min = chunk.as_vec3() * size;
             frustum.intersects(&Aabb::new(min, min + Vec3::splat(size)))
         };
-        let radius = self.streamer().config().view_radius + 1;
-        let vertical = self.streamer().world().vertical();
+        let radius = self.view_streamer().config().view_radius + 1;
+        let vertical = self.view_world().vertical();
         let culling = &mut self.culling;
         culling.chunks.clear();
         culling.graph.visible(

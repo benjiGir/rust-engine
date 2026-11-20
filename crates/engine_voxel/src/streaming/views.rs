@@ -11,7 +11,7 @@
 
 use glam::{IVec3, Vec2, Vec3};
 
-use super::ChunkStreamer;
+use super::{ChunkStreamer, Role};
 use crate::world::World;
 
 /// Un centre de chargement : un joueur, et où il regarde.
@@ -51,15 +51,23 @@ impl ChunkStreamer {
             .collect();
         others.sort_by_key(|c| (c.x, c.y, c.z));
         others.dedup();
-        let meshing = views.iter().any(|v| v.mesh);
+        // Un serveur ne maille jamais : les maillages sont ceux de la réplique de chaque client.
+        let meshing = self.role != Role::Server && views.iter().any(|v| v.mesh);
         if self.centre != Some(centre) || self.others != others || self.meshing != meshing {
             self.centre = Some(centre);
             self.others = others;
             self.meshing = meshing;
-            self.refresh(centre);
+            if self.role == Role::Replica {
+                // Rien à charger ni à libérer : les chunks viennent des messages du serveur.
+                self.refresh_meshing(centre);
+            } else {
+                self.refresh(centre);
+            }
         } else if self.view_changed_enough() {
             self.resort_load_queue(centre);
         }
+        // Les blocs modifiés reçus se remaillent dans cette image, avant tout résultat de fond.
+        self.flush_edits();
         self.receive();
         // Les chunks modifiés en silence (machines) : un seul remaillage par chunk et par image.
         for pos in std::mem::take(&mut self.remesh_pending) {

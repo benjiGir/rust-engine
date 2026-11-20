@@ -6,6 +6,8 @@
 //! plafonds, mais le premier envoi de l'image passe toujours : une très grosse opération n'est jamais
 //! bloquée, on mesure ce qu'elle coûte (`envois : ...` dans les logs).
 //!
+//! Les maillages viennent de la réplique du client (voir `client_world.rs`), jamais du serveur.
+//!
 //! Ordre dans l'image : les maillages d'un bloc modifié (hors budget, le joueur attend son coup), les
 //! maillages arrivés du plus proche au plus lointain, les libérations (étalées), puis ce qui reste va
 //! au terrain lointain, lot par lot. Pour que le lointain ne meure pas de faim pendant un long vol,
@@ -67,7 +69,7 @@ impl VoxelGame {
         let mut largest = 0usize;
         loop {
             // Une instruction à part : l'emprunt du streamer ne doit pas durer pendant l'envoi.
-            let next = self.streamer_mut().next_event_budgeted(&mut budget);
+            let next = self.view.replica_mut().next_event_budgeted(&mut budget);
             let Some(event) = next else { break };
             let started = Instant::now();
             match event {
@@ -81,7 +83,7 @@ impl VoxelGame {
                 StreamEvent::Mesh(pos, mesh) => {
                     let bytes = mesh.byte_size();
                     self.culling.graph.set(pos, mesh.visibility);
-                    self.streamer_mut().note_uploaded(pos);
+                    self.view.replica_mut().note_uploaded(pos);
                     // `insert` et `remove` rendent l'ancienne valeur : on libère l'ancien maillage,
                     // qui est resté affiché jusqu'à ce que le nouveau soit prêt.
                     let old = match upload(&mut self.renderer, &mesh) {
@@ -131,7 +133,7 @@ impl VoxelGame {
     /// Le bilan des envois depuis le dernier appel, dans les logs.
     pub(crate) fn log_transfers(&mut self) {
         let stats = std::mem::take(&mut self.uploads.window);
-        let waiting = self.streamer().stats();
+        let waiting = self.stream_stats();
         log::info!(
             "envois : {} maillages, {:.2} Mio | pire image {:.2} ms, {:.2} Mio | plus gros {:.0} Kio | \
              {} images au-dessus du budget ({:.1} Mio / {} ms) | en attente : {} maillages ({:.2} Mio), {} libérations",

@@ -87,13 +87,13 @@ impl VoxelGame {
         }
         .filter(|&pos| {
             self.registry
-                .def(self.streamer().world().block(pos))
+                .def(self.view_world().block(pos))
                 .lid
                 .is_some()
         });
         // Les deux couvercles d'un grand coffre s'ouvrent ensemble.
         let other =
-            target.and_then(|pos| engine_voxel::double_chest::paired(&*self.streamer(), pos));
+            target.and_then(|pos| engine_voxel::double_chest::paired(self.view_streamer(), pos));
         let targets: Vec<IVec3> = target.into_iter().chain(other).collect();
         let now = self.renderer.time;
         let (closing, opening) = self.chest_lids.update(&targets, now);

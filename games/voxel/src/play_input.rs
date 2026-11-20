@@ -116,9 +116,9 @@ impl VoxelGame {
             self.hand.visible = !self.hand.visible;
         }
         if input.key_pressed(KeyCode::F1) {
-            let mesher = self.streamer().config().mesher.other();
+            let mesher = self.view_streamer().config().mesher.other();
             log::info!("maillage {} : on remaille tout", mesher.name());
-            self.streamer_mut().set_mesher(mesher);
+            self.view.replica_mut().set_mesher(mesher);
         }
         if input.key_pressed(KeyCode::F6) {
             self.toggle_cave_culling();
@@ -140,10 +140,10 @@ impl VoxelGame {
     /// `click_used` : le clic de cette image a servi à autre chose (capturer la souris, un écran
     /// ouvert) ; il ne casse ni ne pose rien.
     pub(crate) fn play_input(&mut self, ctx: &Context, dt: f32, click_used: bool) {
-        // Le bloc visé, depuis la caméra de la dernière image. Le `Ref` du streamer doit être rendu
-        // avant d'écrire dans `self.target` : on calcule d'abord dans une variable locale.
+        // Le bloc visé, depuis la caméra de la dernière image, dans le monde que voit la fenêtre (la
+        // réplique) : le serveur refait lui-même son lancer de rayon dans `handle`.
         let target = raycast(
-            self.streamer().world(),
+            self.view_world(),
             self.camera.position,
             self.camera.forward(),
             self.players.me().gear.reach(),

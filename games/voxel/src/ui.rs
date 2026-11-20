@@ -8,7 +8,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::shared::StreamerExt;
 use crate::skin;
 use engine_core::winit::window::Window;
 use engine_ecs::{Entity, World};
@@ -1471,14 +1470,10 @@ impl VoxelGame {
     fn draw_inspector(&mut self, ctx: &egui::Context) {
         let eye = player::eye(&self.ecs, self.players.entity(), 1.0);
         let chunk = engine_voxel::World::chunk_containing(eye);
-        let streamer_stats = self.ecs.streamer().borrow().stats();
-        let target_light = self.target.map(|hit| {
-            self.ecs
-                .streamer()
-                .borrow()
-                .world()
-                .light(hit.block_pos + hit.normal)
-        });
+        let streamer_stats = self.stream_stats();
+        let target_light = self
+            .target
+            .map(|hit| self.view_world().light(hit.block_pos + hit.normal));
         let render = self.last_render;
         let debug = self.debug.clone();
         crate::ui_layout::window(ctx, "Inspecteur (F3)", 520.0)

@@ -60,6 +60,7 @@ mod charm_play;
 mod charms;
 mod chest_lids;
 mod chest_preview;
+mod client_world;
 mod components;
 mod console;
 mod content;
@@ -239,8 +240,12 @@ struct VoxelGame {
     waiting_key: Option<settings::Action>,
     /// Les mondes sauvegardés, listés à l'ouverture de l'écran de choix.
     worlds: Vec<menus::SavedWorld>,
-    /// Le monde de blocs, partagé avec l'ECS (ressource `SharedStreamer`) et les mods.
+    /// Le monde de blocs du **serveur**, partagé avec l'ECS (ressource `SharedStreamer`) et les mods.
+    /// Il charge, éclaire et sauvegarde, mais ne maille rien.
     world: Rc<RefCell<ChunkStreamer>>,
+    /// Le monde que voit la fenêtre : la réplique des chunks envoyés par le serveur (voir
+    /// `client_world.rs`). Tout ce qui se dessine ou se vise la lit.
+    view: client_world::ClientWorld,
     /// Les machines et les scripts des mods.
     mods: modding::ModSystem,
     /// Les dossiers des mods, dans l'ordre de chargement.
@@ -479,8 +484,6 @@ impl VoxelGame {
             dims.generation.generation_version()?,
         )?;
         let mut streamer = ChunkStreamer::new(generator, config);
-        // `VOXEL_PIPELINE=1` : les délais demande → génération → lumière → maillage → envoi.
-        streamer.set_pipeline_timing(std::env::var("VOXEL_PIPELINE").is_ok_and(|v| v == "1"));
         let far = (far_chunks > 0).then(|| {
             let far = far_terrain::FarTerrain::new(&streamer, near_radius, far_chunks);
             log::info!("terrain lointain : jusqu'à {far_chunks} chunks");
@@ -580,6 +583,12 @@ impl VoxelGame {
         let eye = dims.arrive(eye, meta.as_ref(), streamer.generator());
         // Le monde ECS : le streamer et les registres deviennent des ressources, que les
         // systèmes (physique, IA) lisent sans que le jeu ait à les leur passer.
+        // Le serveur ne maille pas ; la fenêtre en a la réplique (après les fluides, qu'elle copie).
+        let streamer = streamer.as_server();
+        let mut view = client_world::ClientWorld::new(&streamer);
+        // `VOXEL_PIPELINE=1` : les délais d'un chunk reçu → maillage → envoi (la réplique).
+        view.replica_mut()
+            .set_pipeline_timing(std::env::var("VOXEL_PIPELINE").is_ok_and(|v| v == "1"));
         let world = Rc::new(RefCell::new(streamer));
         let mut mods = modding::ModSystem::new(
             &mod_order,
@@ -796,6 +805,7 @@ impl VoxelGame {
             waiting_key: None,
             worlds: Vec::new(),
             world,
+            view,
             mods,
             mod_dirs,
             mod_readers,
@@ -912,9 +922,10 @@ impl VoxelGame {
         let snapshot = self.player_snapshot();
         self.mods.set_player(snapshot);
         self.run_mob_brains(machine_tick.is_some());
+        let world_ready = self.world_idle();
         if let Some(stress) = &mut self.stress {
             let eye = player::eye(&self.ecs, self.players.entity(), 1.0);
-            let ready = self.world.borrow().is_idle();
+            let ready = world_ready;
             stress.build_if_ready(ready, &mut self.ecs, &mut self.mods, eye);
             let start = Instant::now();
             stress::conveyors(&mut self.ecs);
@@ -1046,8 +1057,7 @@ impl VoxelGame {
         self.day.update(dt);
         let thunder = {
             let player_position = player::body(&self.ecs, self.players.entity()).position;
-            let streamer = self.world.borrow();
-            self.weather.update(dt, streamer.world(), player_position)
+            self.weather.update(dt, self.view.world(), player_position)
         };
         self.update_water_fx(dt);
         self.conduit_fx.advance(dt);
@@ -1150,6 +1160,7 @@ impl VoxelGame {
         let views = self.stream_views();
         self.streamer_mut().update_views(&views);
         self.update_far(eye);
+        self.sync_world_view();
         let streamed = Instant::now();
         let uploads = self.apply_stream_events();
         self.frame_stats
@@ -1181,8 +1192,7 @@ impl VoxelGame {
             .set_instances_at(&mob_boxes, self.camera.position);
         // Le bras, éclairé par la lumière là où se tient le joueur.
         let (sky, block) = self
-            .streamer()
-            .world()
+            .view_world()
             .light(self.camera.position.floor().as_ivec3());
         let held = self.players.me_mut().inventory.selected_item();
         let size = ctx.window.inner_size();
@@ -1220,10 +1230,7 @@ impl VoxelGame {
         self.renderer.clear_color = engine_render::wgpu_color(sky.x, sky.y, sky.z);
         self.renderer.outline = self.target.map(|hit| {
             let point = self.camera.position + self.camera.forward() * hit.distance;
-            let (min, max) = self
-                .streamer()
-                .world()
-                .selection_bounds(hit.block_pos, point);
+            let (min, max) = self.view_world().selection_bounds(hit.block_pos, point);
             Aabb::new(min, max)
         });
 
@@ -1355,14 +1362,20 @@ impl Game for App {
     fn update(&mut self, ctx: &mut Context, dt: f32) {
         self.game().update(ctx, dt);
         if let (Some(control), Some(game)) = (&self.control, self.game.as_mut()) {
+            let mut ran = false;
             for request in control.poll() {
                 game.run_command(request);
+                ran = true;
+            }
+            if ran {
+                // Une commande a pu éditer le monde : la fenêtre le voit dans cette image.
+                game.flush_world_view();
             }
         }
         if let Some((start, step)) = &mut self.menu_demo {
             // Chaque étape quand le monde courant est chargé et quelques secondes passées.
             let ready = start.elapsed().as_secs_f32() > 4.0
-                && self.game.as_ref().is_some_and(|g| g.streamer().is_idle());
+                && self.game.as_ref().is_some_and(|g| g.world_idle());
             if ready {
                 let request = match step {
                     0 => Request::Play(Launch {
@@ -1445,7 +1458,8 @@ impl VoxelGame {
                     self.ecs.insert_resource(Arc::new(creatures));
                     self.registry = Arc::new(fresh);
                     let registry = self.registry.clone();
-                    self.streamer_mut().replace_registry(registry);
+                    self.streamer_mut().replace_registry(registry.clone());
+                    self.view.replica_mut().replace_registry(registry);
                     textures = true;
                     log::info!("blocs rechargés : lumière et maillages recalculés");
                 }
@@ -1966,8 +1980,7 @@ impl VoxelGame {
             return;
         };
         let below_block = self
-            .streamer()
-            .world()
+            .view_world()
             .block((transform - Vec3::Y * 0.05).floor().as_ivec3());
         let Some(audio) = &mut self.audio else {
             return;
@@ -1988,7 +2001,7 @@ impl VoxelGame {
     }
 
     fn show_stats(&mut self, ctx: &mut Context) {
-        let stream = self.streamer().stats();
+        let stream = self.stream_stats();
         let render = self.last_render;
         let pending = stream.queued + stream.in_flight + stream.meshes_waiting;
         let triangles = render.triangles as f64 / 1e6;
@@ -2049,7 +2062,7 @@ impl VoxelGame {
                 render.chunk_draws,
                 render.page_binds,
             );
-            if let Some(pipeline) = self.streamer().pipeline_report() {
+            if let Some(pipeline) = self.view.replica().pipeline_report() {
                 log::info!("délais des chunks : {pipeline}");
             }
             self.log_transfers();
@@ -2145,7 +2158,7 @@ impl VoxelGame {
                 if breaking { "-" } else { block },
                 body.position.to_array(),
                 body.on_ground,
-                self.streamer().stats().meshes_waiting,
+                self.stream_stats().meshes_waiting,
             ),
             None => log::info!(
                 "démo : rien à {} (cible {:?}) | pieds {:.1?}",

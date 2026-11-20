@@ -66,6 +66,7 @@ mindmap
       audio / soundscape
       water_fx / conduit_fx
       far_terrain / culling
+      client_world (réplique du monde)
     Outils
       control (ctl)
       bench / screenshots / stress

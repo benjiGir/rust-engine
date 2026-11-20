@@ -388,6 +388,102 @@ deviendront des vues au lot 3.
 - Le serveur et le client sont encore **dans le même thread**. Le lien mémoire est vidé à chaque pas. On
   peut ainsi comparer facilement l'ancien et le nouveau chemin.
 
+#### Le lot 3 découpé (après le lot 2, `38b1f9e`)
+
+Le lot 3 est trop gros pour un seul passage : 180 lectures du streamer dans 41 fichiers, 56 requêtes ECS côté jeu, et
+tous les écrans. On le coupe en quatre sous-lots, chacun commité à part, le solo restant identique à chaque fois.
+
+| Sous-lot | Contenu |
+|---|---|
+| **3a. Le monde côté client** | les chunks envoyés par le serveur, une réplique qui maille ; le rendu, la visée et le culling lisent la réplique |
+| **3b. Les entités côté client** | `NetId`, apparition, disparition, positions à 20 Hz, interpolation ; le rendu des créatures, objets, wagons, projectiles, bateaux et autres joueurs lit la réplique |
+| **3c. L'état du joueur et les effets** | vie, faim, XP, effets et cases d'inventaire envoyés au client ; le HUD les lit ; sons, particules, coups et `Correct` deviennent des messages |
+| **3d. Les menus en vues** | `MenuView` pour les conteneurs (coffre, four, sac, établi), puis chaque autre écran (taille, enchantement, forge, échanges, quêtes, guide, aventure, menus des mods) |
+
+##### 3a en détail
+
+**But.** Le serveur ne maille plus rien. Le client reçoit des chunks et les maille dans sa **réplique**. Tout ce que la
+fenêtre dessine ou vise vient de la réplique, plus jamais du monde du serveur.
+
+**Côté serveur**
+
+- Le streamer du serveur tourne **sans vue maillée**. Le lot 1 l'a rendu possible : `mesh: false` sur toutes les vues.
+  Il charge, génère, éclaire et sauvegarde.
+- Le streamer note chaque chunk dont l'`Arc` a changé : bloc posé, lumière, bloc actif, machine. Il le fait avec
+  `take_changed()` ou un équivalent, une fois par pas.
+- Un **expéditeur par joueur** (`ChunkSender`, dans `engine_voxel` s'il ne dépend pas du jeu) garde la liste des chunks
+  envoyés. À chaque pas, il envoie :
+  - les chunks prêts (générés **et** éclairés) dans le rayon de vue du joueur, du plus proche au plus lointain, avec un
+    budget par pas ;
+  - `Unload` pour ceux sortis du rayon de vue plus la marge ;
+  - pour un chunk déjà envoyé qui a changé, le chunk de nouveau, avec **les positions modifiées** quand c'est une
+    édition. La réplique en a besoin pour remailler les voisins d'un bloc de bordure, comme aujourd'hui.
+- Les messages : `ServerMsg::Chunk { pos, chunk: Arc<Chunk> }`, `ChunkChanged { pos, chunk, edits: Vec<IVec3> }` et
+  `Unload(pos)`.
+  - En mémoire, l'`Arc` passe sans copie.
+  - Au lot 5, le transport TCP encodera le chunk avec le format des sauvegardes, et `ChunkChanged` en différences.
+  - Pour ce lot, `ServerMsg` peut ne pas être `Serialize` (un `Arc<Chunk>` direct).
+
+**Côté client**
+
+- La **réplique** est un mode du `ChunkStreamer` existant, sans générateur ni sauvegarde, pour réutiliser tout le
+  maillage (priorités, budget d'envoi, couches sombres, remaillage des voisins) et ses tests.
+  - `insert_chunk`, `replace_chunk(pos, chunk, edits)` et `remove_chunk`.
+  - La réplique ne recalcule **pas** la lumière : elle vient dans le chunk.
+- **Ce qui lit la réplique** (« le monde que je vois ») :
+  - `stream_upload.rs` et le rendu ;
+  - le lancer de rayon de la fenêtre (`self.target`, `ui_target.rs`) ;
+  - le culling des grottes ;
+  - le terrain lointain (les chunks proches chargés) ;
+  - les effets d'eau, les pas, `chest_lids`, `conduit_fx`, `shapes_scene` et les captures.
+- **Ce qui reste au serveur** : la physique, l'IA, les mods, les machines, les fluides, `intents.rs` (il refait déjà sa
+  propre visée) et `ctl block` / `inspect` (outils de débogage).
+- Le **joueur local** garde sa physique sur l'ECS partagé. C'est sa prédiction ; il ne sera séparé qu'au lot 4.
+- Un accesseur `self.view_world()` (la réplique) et `self.streamer()` (le serveur) rendent l'intention lisible à chaque
+  lecture.
+
+**Le ressenti** : une édition traitée par `handle` doit être remaillée **dans la même image**. Le serveur vide les
+changements et la réplique les applique avant l'envoi au GPU, en remaillage urgent comme aujourd'hui.
+
+**Coût mémoire** : la réplique tient les mêmes `Arc` que le serveur. Une édition sur le serveur copie donc le chunk
+(`Arc::make_mut`), soit environ 64 Ko par chunk modifié. On le mesure (`cargo xtask bench` avant et après) et on le
+note.
+
+**Tests**
+
+- La réplique reçoit un chunk et le maille, et un remplacement remaille avec ses voisins de bordure.
+- L'expéditeur :
+  - envoie du plus proche au plus lointain sous budget ;
+  - n'envoie pas un chunk non éclairé ;
+  - envoie `Unload` hors du rayon ;
+  - renvoie un chunk changé, et seulement aux joueurs qui l'ont.
+- Deux joueurs ont des envois indépendants.
+- Les tests actuels du streamer passent.
+- `cargo xtask bench` : temps d'image et mémoire comparés à `38b1f9e`, avec les nombres dans le rapport.
+
+**En jeu** (`multitest`, `VOXEL_SAVES` du scratchpad) :
+- le monde apparaît autour du joueur et se charge en volant loin ;
+- casser et poser se voient tout de suite, y compris en bordure de chunk ;
+- une torche éclaire le chunk voisin ;
+- une porte s'ouvre ;
+- le couvercle du coffre s'anime ;
+- le terrain lointain est en place ;
+- une capture avant/après au même endroit doit être identique.
+
+**Réalisé (3a).** Écarts au plan :
+- `ChunkChanged` porte `{ pos, chunk, edits, remesh }` : `edits` (blocs posés ou cassés par une action immédiate)
+  se remaille dans l'image ; `remesh` (lumière, fluide, machine, forme) remaille en tâche de fond ; ni l'un
+  ni l'autre, c'est un changement de données seules (contenu d'un coffre), sans remaillage. Sans cette
+  distinction, une machine qui travaille aurait remaillé son chunk à chaque tick.
+- Les envois sont **par colonnes entières éclairées** (la réplique sait qu'une colonne est complète dès que
+  son premier chunk arrive : les chunks vides ne sont jamais envoyés). Une colonne sans aucun chunk non vide
+  ne serait jamais connue de la réplique (cas qui n'existe pas dans les mondes v1 et v3).
+- La réplique partage le générateur (registre, hauteur du monde) et les threads de fond du serveur : un seul
+  pool. Le terrain lointain lit encore le générateur et les résumés de surface du serveur (calcul depuis la
+  graine, voir le tableau des choix).
+- `VOXEL_PIPELINE=1` mesure maintenant la réplique (chunk reçu → maillé → envoyé).
+- Les menus (conteneurs, four...) lisent encore les blocs actifs du serveur : ils deviennent des vues au 3d.
+
 ### Lot 4 : le serveur intégré sur son thread
 
 - `VoxelServer` est construit **sur** son thread, avec ses `Rc` internes. Seuls les messages traversent.

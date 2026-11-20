@@ -347,8 +347,8 @@ impl Players {
 }
 
 impl crate::VoxelGame {
-    /// Les centres de chargement du monde : un par joueur. La vue du joueur local est celle qu'on
-    /// maille et qu'on dessine (elle suit la caméra) ; les autres chargent seulement.
+    /// Les centres de chargement du monde du serveur : un par joueur. Le serveur ne maille pas : le
+    /// maillage de la fenêtre se fait dans sa réplique (voir `client_world.rs`), qui suit la caméra.
     pub(crate) fn stream_views(&self) -> Vec<engine_voxel::View> {
         self.players
             .iter()
@@ -361,7 +361,7 @@ impl crate::VoxelGame {
                     } else {
                         glam::Vec3::ZERO
                     },
-                    mesh: local,
+                    mesh: false,
                 }
             })
             .collect()

@@ -1521,7 +1521,7 @@ impl VoxelGame {
     pub(crate) fn aimed(&mut self) -> Result<engine_voxel::RayHit> {
         let eye = player::eye(&self.ecs, self.players.entity(), 1.0);
         let hit = engine_voxel::raycast(
-            self.streamer().world(),
+            self.view_world(),
             eye,
             self.camera.forward(),
             self.players.me().gear.reach(),
@@ -1579,7 +1579,7 @@ impl VoxelGame {
                 self.players.me().inventory.selected + 1
             ),
         };
-        let stats = streamer.stats();
+        let stats = self.stream_stats();
         format!(
             "{{\"ok\":true,\"mode\":\"{mode}\",\"move\":\"{}\",\"pos\":{},\"on_ground\":{},\"in_liquid\":{},\"frozen\":{},\
 \"yaw\":{:.1},\"pitch\":{:.1},\"health\":[{:.1},{:.1}],\"time\":{:.3},\"clock\":{},\
@@ -1608,7 +1608,7 @@ impl VoxelGame {
             self.remote.walk.is_some(),
             stats.loaded,
             stats.queued,
-            streamer.is_idle(),
+            self.world_idle(),
             self.last_render.meshes_drawn,
             self.last_render.meshes_hidden,
             self.last_render.meshes_total,

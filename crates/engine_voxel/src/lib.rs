@@ -6,7 +6,8 @@
 //! - [`World`] : tous les chunks, accessibles en coordonnées monde.
 //! - [`TerrainGenerator`] : le terrain procédural (bruit de Perlin, biomes, grottes).
 //! - [`mesh_culled`], [`mesh_greedy`] et [`mesh_binary`] : transforment un chunk en triangles.
-//! - [`ChunkStreamer`] : charge et maille les chunks autour du joueur, en tâche de fond.
+//! - [`ChunkStreamer`] : charge et maille les chunks autour du joueur, en tâche de fond. Serveur
+//!   (sans maillage) ou réplique du client, avec [`ChunkSender`] pour les envois.
 //! - [`raycast`] : le bloc visé. [`PlayerBody`] : la physique du joueur.
 //! - [`SaveStore`] : la sauvegarde du monde sur disque.
 //!
@@ -18,6 +19,7 @@ mod block;
 mod block_rules;
 mod capabilities;
 mod chunk;
+mod chunk_sender;
 mod circuits;
 mod conduit_shell;
 pub use conduit_shell::{ConduitShell, conduit_shell};
@@ -77,6 +79,7 @@ pub use capabilities::{
     Sides,
 };
 pub use chunk::{BlockEntity, CHUNK_SIZE, Chunk, DEFAULT_LIGHT};
+pub use chunk_sender::{ChunkSender, DEFAULT_SEND_BUDGET};
 pub use circuits::{FACINGS, PUSH_LIMIT, facing_of, placement_state};
 pub use connections::ConnectedShape;
 pub use containers::{
@@ -160,7 +163,9 @@ pub use storage::{
     installed as installed_upgrades, is_controller, kit_of, kit_target, layout_of, maintain,
     put_in, relayout, room_in, stack_limit, stack_multiplier, upgrade_chest,
 };
-pub use streaming::{ChunkStreamer, StreamEvent, StreamStats, StreamingConfig, View};
+pub use streaming::{
+    ChunkChange, ChunkStreamer, ChunkUpdate, StreamEvent, StreamStats, StreamingConfig, View,
+};
 pub use subgrid::{
     AssemblyError, MAX_BLOCKS, SubGrid, SubGrids, extract, land, landing_cells, load_grids,
     quarter_turns, rotate_facing, rotate_y, save_grids,

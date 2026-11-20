@@ -364,7 +364,7 @@ impl VoxelGame {
             return Ok(());
         };
         let stage = tour.stage;
-        let ready = self.streamer().is_idle();
+        let ready = self.world_idle();
         match stage {
             Stage::Move => {
                 self.day.time = shot.time;

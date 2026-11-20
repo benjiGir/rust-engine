@@ -123,7 +123,7 @@ impl VoxelGame {
     /// met à jour les tuiles voulues autour de la caméra. L'envoi au GPU se fait avec celui des chunks
     /// (voir `stream_upload.rs`).
     pub(crate) fn update_far(&mut self, eye: Vec3) {
-        let backlog = self.streamer().stats().backlog();
+        let backlog = self.stream_stats().backlog();
         let Some(far) = &mut self.far else { return };
         far.streamer
             .set_allowance(far_allowance(backlog, far.threads));
