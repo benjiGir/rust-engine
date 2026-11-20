@@ -401,6 +401,8 @@ pub struct Vitals {
     burn_timer: f32,
     /// Secondes depuis le dernier coup reçu (pour le HUD).
     pub since_hit: f32,
+    /// Le nombre de coups reçus : le client fait rougir l'écran quand il change.
+    pub hits: u32,
     /// La cause du dernier coup reçu : le message de l'écran de mort.
     pub last_cause: Option<DamageCause>,
 }
@@ -417,6 +419,7 @@ impl Vitals {
             lava_timer: rules.lava_interval,
             burn_timer: 0.0,
             since_hit: f32::INFINITY,
+            hits: 0,
             last_cause: None,
         }
     }
@@ -524,6 +527,7 @@ impl Vitals {
         };
         self.invulnerable = rules.invulnerable;
         self.since_hit = 0.0;
+        self.hits = self.hits.wrapping_add(1);
         self.last_cause = Some(cause);
         Some(dealt)
     }
@@ -697,11 +701,9 @@ impl crate::VoxelGame {
                 }
                 self.toast(potion.effect.name());
                 self.give_back_flask();
-                if let Some(audio) = &mut self.audio {
-                    audio.play("core:gulp");
-                }
-            } else if let Some(audio) = &mut self.audio {
-                audio.play("core:place_soft");
+                self.sound("core:gulp");
+            } else {
+                self.sound("core:place_soft");
             }
             log::debug!(
                 "miam : faim {:.1}, saturation {:.1}",
@@ -818,9 +820,7 @@ impl crate::VoxelGame {
         }
         if let Some(level) = self.players.me_mut().experience.add(points) {
             self.toast(&format!("Niveau {level}"));
-            if let Some(audio) = &mut self.audio {
-                audio.play("core:break_glass");
-            }
+            self.sound("core:break_glass");
         }
     }
 
@@ -892,9 +892,7 @@ impl crate::VoxelGame {
             {
                 let name = self.content.items.get(item).name.clone();
                 self.toast(&format!("{name} : brisé"));
-                if let Some(audio) = &mut self.audio {
-                    audio.play("core:break_glass");
-                }
+                self.sound("core:break_glass");
             }
         }
         let left = {

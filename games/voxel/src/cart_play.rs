@@ -93,10 +93,8 @@ impl VoxelGame {
             return false;
         }
         self.players.me_mut().inventory.consume_selected();
-        self.hand.punch();
-        if let Some(audio) = &mut self.audio {
-            audio.play("core:place_hard");
-        }
+        self.punch();
+        self.sound("core:place_hard");
         true
     }
 
@@ -107,7 +105,7 @@ impl VoxelGame {
             return false;
         }
         if carts::board(&mut self.ecs, self.players.entity(), cart) {
-            self.hand.punch();
+            self.punch();
             self.toast("Maj : descendre. Avancer : pousser.");
             true
         } else {
@@ -155,7 +153,7 @@ impl VoxelGame {
             Some(false) => self.toast("Wagons détachés"),
             None => {}
         }
-        self.hand.punch();
+        self.punch();
         true
     }
 
@@ -172,10 +170,8 @@ impl VoxelGame {
             cart.hurt = 1.2;
             broken
         };
-        self.hand.punch();
-        if let Some(audio) = &mut self.audio {
-            audio.play("core:break_soft");
-        }
+        self.punch();
+        self.sound("core:break_soft");
         if broken {
             self.break_cart(entity);
         }

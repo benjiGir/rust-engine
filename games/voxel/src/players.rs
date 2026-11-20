@@ -76,6 +76,8 @@ pub struct PlayerState {
     pub eat_progress: Option<f32>,
     /// Le bouton de repas est tenu (message `Eat`) : le simulateur mâche à chaque pas.
     pub eating: bool,
+    /// Mort, en attente de réapparaître : sa mort a déjà été traitée (objets lâchés, message).
+    pub dead: bool,
     /// Le conteneur ouvert par ce joueur (coffre, four, sac, wagon) : les clics de cases ne valent
     /// que pour lui (voir `intents.rs`).
     pub open: Option<OpenContainer>,
@@ -141,6 +143,7 @@ impl PlayerState {
             air_swing: false,
             eat_progress: None,
             eating: false,
+            dead: false,
             open: None,
             dig: None,
             last_move: None,

@@ -570,7 +570,15 @@ impl VoxelGame {
 
     /// La barre d'objets en bas de l'écran, la vie au-dessus, et l'avancement du minage.
     fn draw_hud(&mut self, ctx: &egui::Context) {
-        let health = player::health(&self.ecs, self.players.entity());
+        // Les jauges et l'inventaire tels que le serveur les a envoyés (voir `player_view.rs`) ;
+        // la barre de minage et de repas est la prédiction de la fenêtre.
+        let Some(vitals) = self.view.me.vitals.clone() else {
+            return;
+        };
+        let since_hit = self.view.me.since_hit();
+        let hotbar: Vec<_> = self.view.me.inventory.slots[..HOTBAR].to_vec();
+        let selected_slot = usize::from(self.view.me.inventory.selected);
+        let held_stack = self.view.me.inventory.selected_stack();
         // La barre sous le réticule : le minage, ou le repas en cours.
         if let Some(progress) = self
             .players
@@ -593,7 +601,7 @@ impl VoxelGame {
         let target_bottom = self.draw_target_info(ctx);
         self.ui.target_bottom = target_bottom;
         // Les potions en cours, en haut à droite, avec le temps restant.
-        if !self.players.me_mut().effects.list().is_empty() {
+        if !vitals.effects.is_empty() {
             egui::Area::new(egui::Id::unique("effects"))
                 .anchor(
                     egui::Align2::RIGHT_TOP,
@@ -607,13 +615,13 @@ impl VoxelGame {
                     ),
                 )
                 .show(ctx, |ui| {
-                    for active in self.players.me_mut().effects.list() {
+                    for active in &vitals.effects {
                         ui.label(
                             egui::RichText::new(format!(
                                 "{} {}:{:02}",
                                 active.effect.name(),
-                                active.left as u32 / 60,
-                                active.left as u32 % 60
+                                active.seconds / 60,
+                                active.seconds % 60
                             ))
                             .color(skin::MAGIC)
                             .size(15.0),
@@ -622,7 +630,7 @@ impl VoxelGame {
                 });
         }
         // Un coup reçu : l'écran rougit un instant.
-        let flash = (1.0 - self.players.me_mut().vitals.since_hit / 0.35).clamp(0.0, 1.0);
+        let flash = (1.0 - since_hit / 0.35).clamp(0.0, 1.0);
         if flash > 0.0 {
             ctx.layer_painter(egui::LayerId::background()).rect_filled(
                 ctx.content_rect(),
@@ -630,8 +638,9 @@ impl VoxelGame {
                 Color32::from_rgba_unmultiplied(200, 0, 0, (flash * 70.0) as u8),
             );
         }
-        let air = self.players.me_mut().vitals.air / self.survival.air.max(0.01);
-        let burning = self.players.me_mut().vitals.burning > 0.0;
+        let air = vitals.air / self.survival.air.max(0.01);
+        let burning = vitals.burning;
+        let [health_now, health_max] = vitals.health;
         egui::Area::new(egui::Id::unique("hud"))
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
             .show(ctx, |ui| {
@@ -657,7 +666,7 @@ impl VoxelGame {
                     // Orange quand le joueur brûle.
                     let heart = if burning { skin::GOLD } else { skin::RED };
                     // À droite, la réserve de nourriture, couleur blé.
-                    let squares = (health.max / 2.0).ceil().clamp(1.0, 20.0) as usize;
+                    let squares = (health_max / 2.0).ceil().clamp(1.0, 20.0) as usize;
                     let food_squares =
                         (self.hunger_rules.max_food / 2.0).ceil().clamp(1.0, 20.0) as usize;
                     let hotbar_width = HOTBAR as f32 * crate::ui_layout::slot_size(ctx)
@@ -671,14 +680,13 @@ impl VoxelGame {
                         (
                             0.0,
                             squares,
-                            health.current / health.max.max(1.0) * squares as f32,
+                            health_now / health_max.max(1.0) * squares as f32,
                             heart,
                         ),
                         (
                             squares as f32 * step + gap,
                             food_squares,
-                            self.players.me_mut().hunger.food / self.hunger_rules.max_food.max(1.0)
-                                * food_squares as f32,
+                            vitals.food / self.hunger_rules.max_food.max(1.0) * food_squares as f32,
                             food,
                         ),
                     ];
@@ -693,12 +701,12 @@ impl VoxelGame {
                         }
                     }
                     // L'expérience : une barre verte, le niveau par-dessus.
-                    let (level, _) = self.players.me_mut().experience.level();
+                    let level = vitals.level;
                     let (bar, _) =
                         ui.allocate_exact_size(egui::vec2(rect.width(), 7.0), egui::Sense::hover());
                     ui.painter().rect_filled(bar, 0.0, skin::INSET);
                     let mut fill = bar.shrink(1.0);
-                    fill.set_width(fill.width() * self.players.me_mut().experience.progress());
+                    fill.set_width(fill.width() * vitals.progress);
                     ui.painter().rect_filled(fill, 0.0, skin::SAGE);
                     if level > 0 {
                         // Dans l'espace entre la vie et la faim, juste au-dessus de la barre.
@@ -726,13 +734,10 @@ impl VoxelGame {
                         .show(ui, |ui| {
                             ui.spacing_mut().item_spacing.x = 2.0;
                             ui.horizontal(|ui| {
-                                for i in 0..HOTBAR {
-                                    let selected = i == self.players.me().inventory.selected;
-                                    if self.stack_widget(
-                                        ui,
-                                        self.players.me().inventory.slots[i],
-                                        selected,
-                                    ) == Some(Press::Primary)
+                                for (i, &stack) in hotbar.iter().enumerate() {
+                                    let selected = i == selected_slot;
+                                    if self.stack_widget(ui, stack, selected)
+                                        == Some(Press::Primary)
                                     {
                                         self.send_now(crate::protocol::ClientMsg::SelectSlot(
                                             i as u8,
@@ -741,7 +746,7 @@ impl VoxelGame {
                                 }
                             });
                         });
-                    if let Some(held) = self.players.me_mut().inventory.selected_stack() {
+                    if let Some(held) = held_stack {
                         // Un objet à affixes : son nom composé, dans la couleur de sa rareté.
                         let data = crate::adventure_data::current();
                         let sheet = crate::item_data::sheet(held.damage);

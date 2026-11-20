@@ -65,7 +65,7 @@ impl VoxelGame {
         self.mods.set_player(snapshot);
         let actions = self.mods.dispatch(&ModEvent::ItemUsed { item });
         self.apply_machine_actions(actions);
-        self.hand.punch();
+        self.punch();
         true
     }
 

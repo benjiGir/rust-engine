@@ -577,9 +577,7 @@ impl VoxelGame {
                 .me_mut()
                 .hunger
                 .eat(&self.hunger_rules, food.nutrition, food.saturation);
-            if let Some(audio) = &mut self.audio {
-                audio.play("core:place_soft");
-            }
+            self.sound("core:place_soft");
             return;
         }
     }

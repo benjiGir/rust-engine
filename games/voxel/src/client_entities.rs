@@ -211,6 +211,11 @@ impl ClientEntities {
             }
             ServerMsg::Correct { .. }
             | ServerMsg::Unload(_)
+            | ServerMsg::Vitals(_)
+            | ServerMsg::Inventory(_)
+            | ServerMsg::Feedback(_)
+            | ServerMsg::Died { .. }
+            | ServerMsg::Respawned
             | ServerMsg::Chunk { .. }
             | ServerMsg::ChunkChanged { .. } => {}
         }
@@ -304,7 +309,10 @@ mod tests {
     /// Une créature de cette taille (largeur, hauteur) : la taille est dans l'apparence.
     fn mob(width: f32, height: f32) -> (EntityKind, Look) {
         (
-            EntityKind::Mob { kind: 0 },
+            EntityKind::Mob {
+                kind: 0,
+                title: None,
+            },
             Look {
                 size: [width, height],
                 ..Look::default()

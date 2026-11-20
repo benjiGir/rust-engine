@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use crate::VoxelGame;
 use crate::client_entities::ClientEntities;
 use crate::entities::{EntityTracker, NetId, NetIds, Viewer, collect};
+use crate::player_view::{ClientPlayer, PlayerViews};
 use crate::players::PlayerId;
 use crate::protocol::ServerMsg;
 use engine_voxel::{ChunkSender, ChunkStreamer, ChunkUpdate, StreamStats, View, World};
@@ -40,6 +41,10 @@ pub struct ClientWorld {
     pub entities: ClientEntities,
     /// Le pas fixe du serveur auquel en sont les entités.
     tick: u64,
+    /// Ce que le serveur a envoyé en dernier des jauges et de l'inventaire de chaque joueur.
+    pub player_views: PlayerViews,
+    /// Le joueur de la fenêtre, tel que le serveur le décrit (voir `player_view.rs`).
+    pub me: ClientPlayer,
 }
 
 /// Le nombre de pas fixes entre deux envois de positions : 1 sur le lien en mémoire (60 Hz, comme
@@ -61,6 +66,8 @@ impl ClientWorld {
             trackers: HashMap::new(),
             entities: ClientEntities::new(entity_interval()),
             tick: 0,
+            player_views: PlayerViews::default(),
+            me: ClientPlayer::default(),
         }
     }
 
@@ -72,6 +79,7 @@ impl ClientWorld {
     pub fn forget_player(&mut self, id: PlayerId) {
         self.senders.remove(&id);
         self.trackers.remove(&id);
+        self.player_views.forget(id);
     }
 
     pub fn replica_mut(&mut self) -> &mut ChunkStreamer {
@@ -101,7 +109,13 @@ impl ClientWorld {
                 remesh,
             }),
             ServerMsg::Unload(pos) => self.incoming.push(ChunkUpdate::Unload(pos)),
-            ServerMsg::Correct { .. } => {}
+            ServerMsg::Vitals(vitals) => self.me.receive_vitals(vitals),
+            ServerMsg::Inventory(inventory) => self.me.inventory = inventory,
+            // Les retours (son, message, bras) et `Correct` sont appliqués par le jeu.
+            ServerMsg::Correct { .. }
+            | ServerMsg::Feedback(_)
+            | ServerMsg::Died { .. }
+            | ServerMsg::Respawned => {}
             // Les entités : Tick, Spawn, Despawn, Moves, EntityState, GridBlocks.
             entity_msg => self.entities.receive(&entity_msg),
         }
@@ -241,6 +255,7 @@ impl VoxelGame {
                     .map(|update| (player.id, update_msg(update))),
             );
         }
+        self.replicate_player_views();
         self.apply_replies();
         let eye = crate::player::eye(&self.ecs, self.players.entity(), 1.0);
         let view = View {

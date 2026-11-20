@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::entities::{EntityKind, GridSnapshot, Look, NetId, Pose};
 use crate::inventory::{Click, Slot};
 use crate::player::MoveMode;
+use crate::player_view::{Feedback, InventoryView, VitalsView};
 
 /// Ce que le joueur regarde : l'œil et la direction du regard, au moment de l'action.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -178,6 +179,18 @@ pub enum ServerMsg {
         id: NetId,
         look: Look,
     },
+    /// Les jauges du joueur (vie, faim, air, expérience, effets), quand elles changent.
+    Vitals(VitalsView),
+    /// L'inventaire du joueur, quand il change.
+    Inventory(InventoryView),
+    /// Un son, un message à l'écran, le bras qui frappe (voir `player_view.rs`).
+    Feedback(Feedback),
+    /// Le joueur est mort : l'écran de mort, avec sa cause.
+    Died {
+        message: String,
+    },
+    /// Le joueur est revenu à la vie.
+    Respawned,
     // Les variantes `serde(skip)` sont à la fin : elles décalent les numéros de variantes qui les suivent.
     /// Un chunk que le client n'avait pas, avec sa lumière et ses blocs actifs. Le serveur envoie des
     /// colonnes entières, éclairées (voir `engine_voxel::ChunkSender`).

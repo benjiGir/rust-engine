@@ -103,7 +103,7 @@ impl VoxelGame {
         }
         let pos = placed?;
         self.players.me_mut().inventory.consume_selected();
-        self.hand.punch();
+        self.punch();
         Some(Some(pos))
     }
 
@@ -135,7 +135,7 @@ impl VoxelGame {
         for _ in 0..extra {
             self.players.me_mut().inventory.consume_selected();
         }
-        self.hand.punch();
+        self.punch();
         self.target = None;
         self.after_edit(pos);
         Some(pos)
@@ -174,10 +174,8 @@ impl VoxelGame {
             open: !open,
         };
         if shaped::store(&mut self.streamer_mut(), pos, &shaped) {
-            if let Some(audio) = &mut self.audio {
-                audio.play("core:place_hard");
-            }
-            self.hand.punch();
+            self.sound("core:place_hard");
+            self.punch();
             self.target = None;
             self.after_edit(pos);
         }

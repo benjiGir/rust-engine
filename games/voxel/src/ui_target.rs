@@ -1,7 +1,6 @@
 //! Identification du bloc ou de la créature regardée, dans le monde et les structures.
 use crate::{
     VoxelGame,
-    components::{Health, Mob},
     mobs::MobRegistry,
     skin,
     ui_info::{self, Card},
@@ -18,16 +17,22 @@ impl VoxelGame {
             self.target
                 .map_or(self.players.me_mut().gear.reach(), |h| h.distance)
         });
-        // Ce qui est visé vient de la réplique des entités ; la fiche, elle, lit encore l'ECS du serveur
-        // (vie, nom d'élite : ils viendront par messages au sous-lot 3c).
-        let aimed = self
-            .view
-            .entities
-            .hit(self.camera.position, self.camera.forward(), block_distance)
-            .and_then(|id| self.server_entity(id));
-        let mob = aimed
-            .filter(|&e| self.ecs.has::<Mob>(e))
-            .map(|entity| (entity, 0.0));
+        // Ce qui est visé vient de la réplique des entités : la fiche d'une créature (nom, vie, élite)
+        // aussi. Le wagon lit encore le serveur pour l'aperçu de son contenu (les menus, sous-lot 3d).
+        let aimed_id =
+            self.view
+                .entities
+                .hit(self.camera.position, self.camera.forward(), block_distance);
+        let mob = aimed_id.and_then(|id| {
+            let view = self.view.entities.get(id)?;
+            match &view.kind {
+                crate::entities::EntityKind::Mob { kind, title } => {
+                    Some((*kind, title.clone(), view.look))
+                }
+                _ => None,
+            }
+        });
+        let aimed = aimed_id.and_then(|id| self.server_entity(id));
         let mut item = None;
         let mut preview = None;
         let fluids = self.view_world().fluids().cloned();
@@ -70,34 +75,24 @@ impl VoxelGame {
                 origin: ui_info::origin("core:cart"),
                 lines: Vec::new(),
             }
-        } else if let Some((entity, _)) = mob {
-            let Some(kind) = self.ecs.get::<Mob>(entity).map(|m| m.kind) else {
-                return 12.0;
-            };
+        } else if let Some((kind, title, look)) = mob {
             let registry = self.ecs.resource::<std::sync::Arc<MobRegistry>>();
             let Some(def) = registry.get(kind) else {
                 return 12.0;
             };
-            let mut lines = Vec::new();
-            if let Some(h) = self.ecs.get::<Health>(entity) {
-                lines.push((
-                    format!("Vie : {:.0} / {:.0}", h.current.max(0.0), h.max),
-                    skin::RED,
-                ));
-            }
+            let mut lines = vec![(
+                format!("Vie : {:.0} / {:.0}", look.health[0], look.health[1]),
+                skin::RED,
+            )];
             // Une élite ou un envahisseur porte son nom composé et sa teinte.
-            let elite = self
-                .ecs
-                .get::<crate::elites::Elite>(entity)
-                .map(|e| e.clone());
-            if let Some(elite) = &elite {
+            if let Some(title) = &title {
                 lines.push((
-                    format!("{} augmentation(s)", elite.augmentations.len()),
+                    format!("{} augmentation(s)", title.augmentations),
                     skin::GOLD,
                 ));
             }
             Card {
-                name_color: elite.as_ref().map(|e| {
+                name_color: look.elite.map(|e| {
                     let c = e.tint;
                     egui::Color32::from_rgb(
                         (c.x * 255.0) as u8,
@@ -105,7 +100,7 @@ impl VoxelGame {
                         (c.z * 255.0) as u8,
                     )
                 }),
-                name: elite.map_or_else(|| def.name.clone(), |e| e.name),
+                name: title.map_or_else(|| def.name.clone(), |t| t.name),
                 origin: ui_info::origin(&def.key),
                 lines,
             }

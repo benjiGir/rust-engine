@@ -54,9 +54,10 @@ pub struct NetId(pub u32);
 /// Ce qu'est une entité : ce qui ne change pas pendant sa vie.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum EntityKind {
-    /// Une créature : son numéro dans le registre.
+    /// Une créature : son numéro dans le registre, et le nom d'une élite ou d'un envahisseur.
     Mob {
         kind: u32,
+        title: Option<MobTitle>,
     },
     /// Un objet au sol.
     Item {
@@ -101,6 +102,13 @@ pub struct EliteLook {
     pub invader: bool,
 }
 
+/// Le nom composé d'une élite ou d'un envahisseur, pour la fiche de la cible.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MobTitle {
+    pub name: String,
+    pub augmentations: u8,
+}
+
 /// L'apparence qui peut changer pendant la vie de l'entité (`EntityState`).
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct Look {
@@ -114,6 +122,8 @@ pub struct Look {
     /// La boîte de la créature (largeur, hauteur) : le client s'en sert pour la viser. Elle change quand
     /// un petit grandit.
     pub size: [f32; 2],
+    /// La vie (actuelle, maximale) d'une créature, au demi-point près, pour la fiche de la cible.
+    pub health: [f32; 2],
 }
 
 /// Les blocs d'une structure mobile, tels que le serveur les a au moment de l'envoi. Les chunks sont
@@ -240,7 +250,13 @@ pub fn collect(
             out.push(Replicated {
                 id: *id,
                 entity: Some(entity),
-                kind: EntityKind::Mob { kind: mob.kind },
+                kind: EntityKind::Mob {
+                    kind: mob.kind,
+                    title: world.get::<crate::elites::Elite>(entity).map(|e| MobTitle {
+                        name: e.name.clone(),
+                        augmentations: e.augmentations.len().min(255) as u8,
+                    }),
+                },
                 pose: Pose {
                     position: transform.position,
                     yaw: transform.yaw,
@@ -262,6 +278,11 @@ pub fn collect(
                             invader: e.invader,
                         }),
                     size,
+                    health: world
+                        .get::<crate::components::Health>(entity)
+                        .map_or([0.0, 0.0], |h| {
+                            [(h.current.max(0.0) * 2.0).round() / 2.0, h.max]
+                        }),
                 },
                 range: MOB_RANGE,
                 blocks: None,
@@ -655,6 +676,60 @@ mod tests {
         let out = step(&mut tracker, 6, &mut world, &subs, &viewer);
         assert_eq!(despawns(&out), 1);
         assert_eq!(tracker.len(), 0);
+    }
+
+    #[test]
+    fn a_hurt_mob_sends_its_health_and_an_elite_its_title() {
+        let eye = Vec3::new(0.5, 150.0, 0.5);
+        let (mut world, player, subs) = scene(eye);
+        let pig = mob_kind(&world, "core:pig");
+        let mob = mobs::spawn_mob(&mut world, pig, Vec3::new(4.5, 150.0, 0.5)).unwrap();
+        world.insert(
+            mob,
+            crate::elites::Elite {
+                name: "Cochon colosse".into(),
+                augmentations: vec!["a".into(), "b".into()],
+                tint: Vec3::ONE,
+                damage: 0.0,
+                speed: 1.0,
+                armor: 0.0,
+                regen: 0.0,
+                invader: false,
+            },
+        );
+        let mut tracker = EntityTracker::new(1);
+        let viewer = viewer_at(player, eye, &everywhere);
+        let out = step(&mut tracker, 1, &mut world, &subs, &viewer);
+        let spawned = out.iter().find_map(|m| match m {
+            ServerMsg::Spawn {
+                kind: EntityKind::Mob { title, .. },
+                look,
+                ..
+            } => Some((title.clone(), look.health)),
+            _ => None,
+        });
+        let (title, health) = spawned.expect("la créature apparaît");
+        assert_eq!(
+            title,
+            Some(MobTitle {
+                name: "Cochon colosse".into(),
+                augmentations: 2
+            })
+        );
+        assert!(health[0] > 0.0 && health[0] == health[1], "{health:?}");
+        // Un coup : la vie arrive par `EntityState`, au demi-point près.
+        world
+            .get_mut::<crate::components::Health>(mob)
+            .unwrap()
+            .current = 3.3;
+        let out = step(&mut tracker, 2, &mut world, &subs, &viewer);
+        assert!(
+            out.iter().any(|m| matches!(
+                m,
+                ServerMsg::EntityState { look, .. } if look.health[0] == 3.5
+            )),
+            "{out:?}"
+        );
     }
 
     #[test]

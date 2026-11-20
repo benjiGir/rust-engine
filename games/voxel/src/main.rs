@@ -121,6 +121,7 @@ mod persistence;
 mod play_input;
 mod player;
 mod player_api;
+mod player_view;
 mod players;
 mod potions;
 mod projectiles;
@@ -1207,7 +1208,7 @@ impl VoxelGame {
         let (sky, block) = self
             .view_world()
             .light(self.camera.position.floor().as_ivec3());
-        let held = self.players.me_mut().inventory.selected_item();
+        let held = self.view.me.inventory.selected_stack().map(|s| s.item);
         let size = ctx.window.inner_size();
         self.hand
             .set_aspect_ratio(size.width as f32 / size.height.max(1) as f32);
@@ -1550,9 +1551,7 @@ impl VoxelGame {
         }
         if tool.is_some() && def.hardness > 0.0 && self.wear_held() {
             log::info!("l'outil s'est cassé");
-            if let Some(audio) = &mut self.audio {
-                audio.play("core:break_glass");
-            }
+            self.sound("core:break_glass");
         }
         self.exert(self.hunger_rules.mine);
         true
@@ -1578,9 +1577,7 @@ impl VoxelGame {
         for (entity, stack) in drops::update(&mut self.ecs, feet, dt) {
             let left = self.collect_stack(stack);
             if left < stack.count {
-                if let Some(audio) = &mut self.audio {
-                    audio.play("core:place_soft");
-                }
+                self.sound("core:place_soft");
                 if left == 0 {
                     self.ecs.despawn(entity);
                 } else if let Some(mut drop) = self.ecs.get_mut::<drops::DroppedItem>(entity) {
@@ -1622,9 +1619,7 @@ impl VoxelGame {
         if let Some(parts) = self.paired_placement(pos, block, forward) {
             self.place_pair(parts)?;
             self.players.me_mut().inventory.consume_selected();
-            if self.players.current_is_local() {
-                self.hand.punch();
-            }
+            self.punch();
             return Some(pos);
         }
         let block = self
@@ -1650,9 +1645,7 @@ impl VoxelGame {
         let placed = self.edit(pos, block);
         if placed {
             self.players.me_mut().inventory.consume_selected();
-            if self.players.current_is_local() {
-                self.hand.punch();
-            }
+            self.punch();
             // Des feuilles posées par le joueur ne se décomposent pas : une entité de bloc
             // les marque comme « posées ».
             // Un piston, un inverseur, un répéteur : ils visent où le joueur regarde.
@@ -1775,22 +1768,37 @@ impl VoxelGame {
 
     /// Le jeu écoute ses propres événements pour jouer les sons.
     fn play_event_sounds(&mut self) {
-        let Some(audio) = &mut self.audio else {
-            return;
-        };
+        // Les événements du monde deviennent des sons pour les joueurs qui les entendent.
+        use crate::player_view::Sound;
+        let mut sounds = Vec::new();
+        let centre = |pos: IVec3| pos.as_vec3() + Vec3::splat(0.5);
         for event in self
             .readers
             .broken
             .read(&self.ecs.resource::<Events<BlockBroken>>())
         {
-            audio.play_block(&self.registry, event.block, audio::BlockSound::Break);
+            let kind = audio::BlockSound::Break;
+            sounds.push((
+                Sound::Block {
+                    block: event.block.0,
+                    kind,
+                },
+                centre(event.pos),
+            ));
         }
         for event in self
             .readers
             .placed
             .read(&self.ecs.resource::<Events<BlockPlaced>>())
         {
-            audio.play_block(&self.registry, event.block, audio::BlockSound::Place);
+            let kind = audio::BlockSound::Place;
+            sounds.push((
+                Sound::Block {
+                    block: event.block.0,
+                    kind,
+                },
+                centre(event.pos),
+            ));
         }
         for event in self
             .readers
@@ -1798,17 +1806,25 @@ impl VoxelGame {
             .read(&self.ecs.resource::<Events<EntityDied>>())
         {
             log::info!("{} est mort", event.kind);
-            audio.play("core:break_soft");
+            sounds.push((Sound::key("core:break_soft"), event.position));
         }
+        let mut cries = Vec::new();
         for event in self
             .readers
             .damaged
             .read(&self.ecs.resource::<Events<PlayerDamaged>>())
-            // Le cri de douleur est celui du joueur de la fenêtre.
-            .filter(|e| e.player.is_none_or(|p| p == self.players.local_id()))
         {
             log::info!("aïe : -{} ({} restants)", event.amount, event.health_left);
-            audio.play("core:place_hard");
+            cries.push(event.player.unwrap_or(self.players.local_id()));
+        }
+        for (sound, at) in sounds {
+            self.sound_near(sound, at);
+        }
+        // Le cri de douleur : seulement pour le joueur touché.
+        for player in cries {
+            let feedback = crate::player_view::Feedback::Sound(Sound::key("core:place_hard"));
+            self.replies
+                .push((player, crate::protocol::ServerMsg::Feedback(feedback)));
         }
     }
 

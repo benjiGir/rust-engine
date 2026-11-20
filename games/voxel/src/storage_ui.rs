@@ -926,10 +926,8 @@ impl VoxelGame {
         self.apply_machine_actions(actions);
         self.players.me_mut().inventory.consume_selected();
         self.target = None;
-        self.hand.punch();
-        if let Some(audio) = &mut self.audio {
-            audio.play("core:place_hard");
-        }
+        self.punch();
+        self.sound("core:place_hard");
         self.toast(&format!("{} !", CHEST_TIERS[to].name));
         true
     }

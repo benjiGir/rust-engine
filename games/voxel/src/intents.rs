@@ -267,6 +267,16 @@ impl VoxelGame {
                     }
                     self.camera.position = position + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT;
                 }
+                ServerMsg::Feedback(feedback) => self.apply_feedback(feedback),
+                ServerMsg::Died { message } => {
+                    // L'écran ouvert se ferme, la souris est rendue au menu de mort.
+                    if self.ui.inventory_open {
+                        self.close_screen();
+                        self.ui.inventory_open = false;
+                    }
+                    self.mode = Mode::Dead(message);
+                }
+                ServerMsg::Respawned => self.mode = Mode::Playing,
                 // Le monde que voit la fenêtre : la réplique l'applique à la prochaine mise à jour
                 // de ses vues (voir `client_world.rs`).
                 chunk_msg => self.view.receive(chunk_msg),
@@ -341,7 +351,7 @@ impl VoxelGame {
             }
             ClientMsg::Command(line) => self.handle_command(&line),
             ClientMsg::Respawn => {
-                if self.players.current_is_local() && matches!(self.mode, Mode::Dead(_)) {
+                if self.players.current_is_local() && self.players.me().dead {
                     self.respawn();
                 } else {
                     log::debug!("réapparition ignorée : le joueur n'est pas mort");
@@ -640,9 +650,7 @@ impl VoxelGame {
         if let Some(mut velocity) = self.ecs.get_mut::<components::Velocity>(entity) {
             velocity.0 = aim.forward * 3.5 + Vec3::Y;
         }
-        if self.players.current_is_local() {
-            self.hand.punch();
-        }
+        self.punch();
     }
 
     // ----- Les cases -----
@@ -685,7 +693,7 @@ impl VoxelGame {
 
     /// `CloseMenu` : la main et la grille d'artisanat retournent dans l'inventaire (ce qui n'y tient
     /// pas tombe par terre), et le conteneur n'est plus ouvert.
-    fn close_menu(&mut self) {
+    pub(crate) fn close_menu(&mut self) {
         self.players.me_mut().open = None;
         let loose = self
             .players

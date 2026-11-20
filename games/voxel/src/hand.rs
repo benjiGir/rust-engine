@@ -25,9 +25,10 @@ impl crate::VoxelGame {
             sprinting: ctx.input.key_held(KeyCode::ControlLeft),
             on_ground,
             mining: self.players.me_mut().mining.is_some() || self.players.me_mut().air_swing,
+            // L'objet tenu : l'inventaire tel que le serveur l'a envoyé.
             selected: (
-                self.players.me_mut().inventory.selected,
-                self.players.me_mut().inventory.selected_item(),
+                usize::from(self.view.me.inventory.selected),
+                self.view.me.inventory.selected_stack().map(|s| s.item),
             ),
             yaw: self.camera.yaw,
             pitch: self.camera.pitch,

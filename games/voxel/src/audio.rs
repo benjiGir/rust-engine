@@ -98,7 +98,7 @@ pub fn to_decibels(volume: f32) -> Decibels {
 }
 
 /// Le type de son d'un bloc.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BlockSound {
     Step,
     Break,

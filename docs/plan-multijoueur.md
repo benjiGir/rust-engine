@@ -595,6 +595,35 @@ une **réplique d'entités** avec seulement ce que le rendu demande.
 - Les attributs de rendu restent du contenu et non de l'état : `entity_render` lit encore le registre des
   créatures dans l'ECS (`Arc<MobRegistry>`) ; la table de numéros du lot 5 le remplacera.
 
+##### 3c : l'état du joueur et les effets (réalisé)
+
+- **`player_view.rs`** :
+  - `VitalsView` porte la vie, la faim, l'air, le feu, le compteur de coups, le niveau et l'avancement, et les effets (au
+    nombre de secondes près, pour ne pas changer à chaque image) ;
+  - `InventoryView` porte les cases, l'armure, la grille, la case choisie et la pile tenue ;
+  - `PlayerViews` n'envoie à chaque joueur, en fin d'image, que la vue qui a changé (`ServerMsg::Vitals` et
+    `ServerMsg::Inventory`) ;
+  - le client les range dans `ClientPlayer` (`self.view.me`).
+- **Le HUD lit `self.view.me`** : barre d'objets, nom de l'objet tenu, cœurs, faim, air, niveau, effets et rougeur
+  après un coup. La rougeur part du changement de `hits` : le client garde sa propre minuterie. La main en première
+  personne lit aussi l'objet tenu de la vue.
+- **La barre de minage et de repas** reste la prédiction de la fenêtre.
+- **Les retours** passent par `ServerMsg::Feedback` : `Sound` (une clé, ou un bloc et une sorte), `Toast` et `Punch`.
+  - Le code du serveur les adresse au joueur qui agit, avec `sound`, `toast` et `punch`, ou aux joueurs à moins de
+    24 blocs avec `sound_near`. C'est le cas des sons de blocs cassés et posés, des morts et des portes.
+  - Le cri de douleur va au seul joueur touché.
+  - Restent côté fenêtre : les sons d'interface (clics des écrans), les pas, les éclaboussures, la pluie, le tonnerre,
+    l'ambiance et la musique.
+- **La mort et la réapparition** sont `ServerMsg::Died { message }` et `Respawned`. `PlayerState::dead` empêche de
+  traiter une mort deux fois. À la mort, le serveur range lui-même la pile tenue et la grille (`close_menu`), puis fait
+  tout tomber.
+- **La fiche de la cible** lit la créature dans la réplique. `EntityKind::Mob` porte un `MobTitle` (nom et nombre
+  d'augmentations d'une élite), et `Look::health` la vie au demi-point près.
+- **Restent au serveur jusqu'au 3d** : l'écran d'inventaire et les autres écrans, l'aperçu du contenu d'un wagon, et
+  les quêtes épinglées.
+- **Pour le lot 5** : une pile d'objets porte un numéro (`damage`) qui renvoie à une fiche (`item_data`) gardée dans une
+  table globale du processus. Sur le réseau, il faudra envoyer ces fiches avec les piles.
+
 ### Lot 4 : le serveur intégré sur son thread
 
 - `VoxelServer` est construit **sur** son thread, avec ses `Rc` internes. Seuls les messages traversent.

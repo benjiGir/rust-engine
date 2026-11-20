@@ -156,9 +156,7 @@ impl VoxelGame {
                 .name(crate::settings::Action::Tiers)
                 .to_string();
             self.toast(&format!("Palier débloqué : {name} (touche {key})"));
-            if let Some(audio) = &mut self.audio {
-                audio.play("core:enchant");
-            }
+            self.sound("core:enchant");
         }
     }
 
@@ -293,10 +291,8 @@ impl VoxelGame {
     fn announce_invader(&mut self, center: Vec3, site: Vec3) {
         let distance = center.distance(site).round();
         self.toast(&format!("Un envahisseur approche ! ({distance} blocs)"));
-        if let Some(audio) = &mut self.audio {
-            audio.play("core:cave_rumble");
-            audio.play("core:enchant");
-        }
+        self.sound("core:cave_rumble");
+        self.sound("core:enchant");
     }
 
     /// Tire les objets « à tirer » d'un coffre qu'on ouvre (voir la doc du module).

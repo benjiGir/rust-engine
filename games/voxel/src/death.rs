@@ -7,8 +7,6 @@
 //! - Le lit (clic droit) : fixe le point de réapparition, et la nuit fait dormir jusqu'au
 //!   matin, sauf si une créature hostile rôde.
 
-use std::time::Instant;
-
 use engine_render::egui::{self, Color32, RichText};
 use engine_voxel::bed;
 use glam::{IVec3, Vec3};
@@ -30,6 +28,7 @@ impl VoxelGame {
     /// À chaque pas : la vie à 0, c'est la mort.
     pub(crate) fn check_death(&mut self) {
         if self.mode != Mode::Playing
+            || self.players.me().dead
             || player::health(&self.ecs, self.players.entity()).current > 0.0
         {
             return;
@@ -40,12 +39,9 @@ impl VoxelGame {
             .vitals
             .last_cause
             .map_or("Vous êtes mort.", |cause| cause.death_message());
-        // L'écran ouvert se ferme (la grille d'artisanat revient dans l'inventaire), puis
-        // tout tombe là où le joueur est mort.
-        if self.ui.inventory_open {
-            self.close_screen();
-            self.ui.inventory_open = false;
-        }
+        // Ce qu'il tenait à la souris et la grille d'artisanat reviennent dans l'inventaire, puis
+        // tout tombe là où le joueur est mort. La fenêtre ferme son écran en recevant `Died`.
+        self.close_menu();
         let feet = player::body(&self.ecs, self.players.entity())
             .position
             .floor()
@@ -61,7 +57,14 @@ impl VoxelGame {
         let (level, _) = self.players.me_mut().experience.level();
         self.players.me_mut().experience = crate::survival::Experience::default();
         log::info!("{message} ({dropped} objets lâchés en {feet}, niveau {level} perdu)");
-        self.mode = Mode::Dead(message.to_string());
+        self.players.me_mut().dead = true;
+        let id = self.players.current_id();
+        self.replies.push((
+            id,
+            crate::protocol::ServerMsg::Died {
+                message: message.to_string(),
+            },
+        ));
     }
 
     /// Réapparaître : au lit s'il existe encore, sinon au départ du monde.
@@ -78,7 +81,10 @@ impl VoxelGame {
         self.players.me_mut().vitals = Vitals::new(&self.survival);
         self.players.me_mut().hunger = Hunger::new(&self.hunger_rules);
         self.players.me_mut().effects.clear();
-        self.mode = Mode::Playing;
+        self.players.me_mut().dead = false;
+        let id = self.players.current_id();
+        self.replies
+            .push((id, crate::protocol::ServerMsg::Respawned));
         // Le jeu a déplacé le joueur : son prochain mouvement n'est pas à comparer à l'ancien.
         self.forget_last_move();
         log::info!("réapparition en {feet}");
@@ -137,12 +143,6 @@ impl VoxelGame {
                 found |= hostile && transform.position.distance(center) < MONSTER_RADIUS;
             });
         found
-    }
-
-    /// Un message en haut de l'écran, quelques secondes.
-    pub(crate) fn toast(&mut self, text: &str) {
-        log::info!("{text}");
-        self.ui.toast = Some((text.to_string(), Instant::now()));
     }
 
     /// Le message en cours, s'il n'a pas expiré.

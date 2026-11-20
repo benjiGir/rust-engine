@@ -90,10 +90,14 @@ impl VoxelGame {
             for (p, _) in parts {
                 self.notify_edit(p);
             }
-            if let Some(audio) = &mut self.audio {
-                audio.play_block(&self.registry, block, audio::BlockSound::Place);
-            }
-            self.hand.punch();
+            self.sound_near(
+                crate::player_view::Sound::Block {
+                    block: block.0,
+                    kind: audio::BlockSound::Place,
+                },
+                pos.as_vec3() + glam::Vec3::splat(0.5),
+            );
+            self.punch();
         }
         true
     }

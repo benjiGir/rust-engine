@@ -46,10 +46,8 @@ impl VoxelGame {
             } else if self.players.me_mut().inventory.add_stack(filled, &items) > 0 {
                 self.drop_stack(pos, filled);
             }
-            if let Some(audio) = &mut self.audio {
-                audio.play(audio::SPLASH);
-            }
-            self.hand.punch();
+            self.sound(audio::SPLASH);
+            self.punch();
         } else {
             let Some(hit) = self.aim().hit else { return };
             let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
@@ -75,10 +73,8 @@ impl VoxelGame {
             } else {
                 inventory::ItemStack::new(items.id("core:bucket").unwrap_or(item), 1)
             });
-            if let Some(audio) = &mut self.audio {
-                audio.play(audio::SPLASH);
-            }
-            self.hand.punch();
+            self.sound(audio::SPLASH);
+            self.punch();
         }
     }
 }

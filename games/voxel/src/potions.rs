@@ -6,11 +6,11 @@ use std::collections::HashMap;
 
 use anyhow::{Context as _, Result};
 use engine_voxel::{ItemId, ItemRegistry};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 const BUILTIN_POTIONS: &str = include_str!("../../../assets/core/potions.ron");
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Effect {
     Healing,
     Regeneration,

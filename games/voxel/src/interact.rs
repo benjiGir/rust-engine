@@ -118,10 +118,8 @@ impl VoxelGame {
         if left > 0 {
             self.drop_stack(pos, inventory::ItemStack::new(full, left));
         }
-        if let Some(audio) = &mut self.audio {
-            audio.play(audio::SPLASH);
-        }
-        self.hand.punch();
+        self.sound(audio::SPLASH);
+        self.punch();
     }
 
     /// La musique et les sons d'ambiance, selon l'endroit où se trouve le joueur.
@@ -232,10 +230,8 @@ impl VoxelGame {
         self.apply_machine_actions(actions);
         self.ui.allow_mod_menu = false;
         if used {
-            self.hand.punch();
-            if let Some(audio) = &mut self.audio {
-                audio.play("core:place_hard");
-            }
+            self.punch();
+            self.sound("core:place_hard");
         }
         used
     }
@@ -253,10 +249,8 @@ impl VoxelGame {
             return false;
         }
         self.players.me_mut().inventory.consume_selected();
-        self.hand.punch();
-        if let Some(audio) = &mut self.audio {
-            audio.play("core:place_soft");
-        }
+        self.punch();
+        self.sound("core:place_soft");
         true
     }
 
@@ -279,10 +273,8 @@ impl VoxelGame {
             return false;
         }
         self.players.me_mut().inventory.consume_selected();
-        self.hand.punch();
-        if let Some(audio) = &mut self.audio {
-            audio.play("core:place_soft");
-        }
+        self.punch();
+        self.sound("core:place_soft");
         true
     }
 
@@ -310,10 +302,8 @@ impl VoxelGame {
             return false;
         }
         self.wear_held();
-        self.hand.punch();
-        if let Some(audio) = &mut self.audio {
-            audio.play("core:place_soft");
-        }
+        self.punch();
+        self.sound("core:place_soft");
         true
     }
 }

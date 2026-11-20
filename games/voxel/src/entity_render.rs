@@ -83,7 +83,7 @@ pub fn draw(entities: &ClientEntities, env: &DrawEnv, out: &mut Vec<CubeInstance
     for (_, view) in entities.iter() {
         let pose = view.pose_at(now);
         match &view.kind {
-            EntityKind::Mob { kind } => {
+            EntityKind::Mob { kind, .. } => {
                 let Some(def) = env.mobs.get(*kind) else {
                     continue;
                 };
