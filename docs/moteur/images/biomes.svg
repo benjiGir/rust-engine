@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" width="960" height="520" role="img" aria-label="Biomes dans l'espace des paramètres">
+<title>Biomes dans l'espace des paramètres</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22303a"/></marker><marker id="arrowc" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8692f"/></marker><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8d9296" stroke-width="2"/></pattern></defs>
+<rect x="0.5" y="0.5" width="959" height="519" rx="14" fill="#ffffff" stroke="#d5dde2"/>
+<text x="24.0" y="34.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="18" fill="#22303a" text-anchor="start" font-weight="bold">Les biomes des terres : température × humidité</text>
+<text x="24.0" y="54.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Deux des six dimensions. La variété, l'érosion et pv départagent les variantes (entre parenthèses).</text>
+<text x="228.0" y="74.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#22303a" text-anchor="middle" font-weight="bold">glacial</text>
+<text x="228.0" y="88.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">&lt; -0,45</text>
+<rect x="152.0" y="386.0" width="152.0" height="68.0" fill="#e8f1f8" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="228.0" y="424.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Toundra enneigée</text>
+<rect x="152.0" y="314.0" width="152.0" height="68.0" fill="#e8f1f8" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="228.0" y="352.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Toundra enneigée</text>
+<rect x="152.0" y="242.0" width="152.0" height="68.0" fill="#e8f1f8" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="228.0" y="280.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Taïga enneigée</text>
+<rect x="152.0" y="170.0" width="152.0" height="68.0" fill="#e8f1f8" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="228.0" y="200.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Taïga enneigée</text>
+<text x="228.0" y="217.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(sapinière enneigée)</text>
+<rect x="152.0" y="98.0" width="152.0" height="68.0" fill="#e8f1f8" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="228.0" y="128.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Taïga enneigée</text>
+<text x="228.0" y="145.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(sapinière enneigée)</text>
+<text x="384.0" y="74.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#22303a" text-anchor="middle" font-weight="bold">froid</text>
+<text x="384.0" y="88.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">-0,45 à -0,15</text>
+<rect x="308.0" y="386.0" width="152.0" height="68.0" fill="#dfeadf" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="384.0" y="424.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Steppe</text>
+<rect x="308.0" y="314.0" width="152.0" height="68.0" fill="#dfeadf" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="384.0" y="344.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Forêt de bouleaux</text>
+<text x="384.0" y="361.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(toundra)</text>
+<rect x="308.0" y="242.0" width="152.0" height="68.0" fill="#dfeadf" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="384.0" y="272.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Forêt de bouleaux</text>
+<text x="384.0" y="289.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(forêt d'érables)</text>
+<rect x="308.0" y="170.0" width="152.0" height="68.0" fill="#dfeadf" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="384.0" y="200.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Taïga</text>
+<text x="384.0" y="217.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(forêt d'érables, landes)</text>
+<rect x="308.0" y="98.0" width="152.0" height="68.0" fill="#dfeadf" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="384.0" y="128.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Vieille taïga</text>
+<text x="384.0" y="145.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(landes)</text>
+<text x="540.0" y="74.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#22303a" text-anchor="middle" font-weight="bold">tempéré</text>
+<text x="540.0" y="88.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">-0,15 à 0,2</text>
+<rect x="464.0" y="386.0" width="152.0" height="68.0" fill="#e4f0d6" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="540.0" y="416.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Plaine</text>
+<text x="540.0" y="433.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(champs de lavande)</text>
+<rect x="464.0" y="314.0" width="152.0" height="68.0" fill="#e4f0d6" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="540.0" y="344.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Plaine</text>
+<text x="540.0" y="361.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(prairie fleurie)</text>
+<rect x="464.0" y="242.0" width="152.0" height="68.0" fill="#e4f0d6" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="540.0" y="272.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Forêt</text>
+<text x="540.0" y="289.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(forêt sombre, verger)</text>
+<rect x="464.0" y="170.0" width="152.0" height="68.0" fill="#e4f0d6" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="540.0" y="200.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Forêt</text>
+<text x="540.0" y="217.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(forêt sombre)</text>
+<rect x="464.0" y="98.0" width="152.0" height="68.0" fill="#e4f0d6" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="540.0" y="128.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Forêt mixte</text>
+<text x="540.0" y="145.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(séquoias, marais)</text>
+<text x="696.0" y="74.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#22303a" text-anchor="middle" font-weight="bold">chaud</text>
+<text x="696.0" y="88.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">0,2 à 0,55</text>
+<rect x="620.0" y="386.0" width="152.0" height="68.0" fill="#f4ecd2" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="696.0" y="424.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Savane</text>
+<rect x="620.0" y="314.0" width="152.0" height="68.0" fill="#f4ecd2" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="696.0" y="344.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Garrigue</text>
+<text x="696.0" y="361.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(prairie, maquis)</text>
+<rect x="620.0" y="242.0" width="152.0" height="68.0" fill="#f4ecd2" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="696.0" y="272.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Lisière de jungle</text>
+<text x="696.0" y="289.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(sources chaudes)</text>
+<rect x="620.0" y="170.0" width="152.0" height="68.0" fill="#f4ecd2" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="696.0" y="208.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Lisière de jungle</text>
+<rect x="620.0" y="98.0" width="152.0" height="68.0" fill="#f4ecd2" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="696.0" y="128.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Jungle</text>
+<text x="696.0" y="145.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(bayou)</text>
+<text x="852.0" y="74.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#22303a" text-anchor="middle" font-weight="bold">brûlant</text>
+<text x="852.0" y="88.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">&gt; 0,55</text>
+<rect x="776.0" y="386.0" width="152.0" height="68.0" fill="#f6e0cf" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="852.0" y="416.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Désert</text>
+<text x="852.0" y="433.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(plateaux rouges)</text>
+<rect x="776.0" y="314.0" width="152.0" height="68.0" fill="#f6e0cf" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="852.0" y="344.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Garrigue</text>
+<text x="852.0" y="361.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(désert fleuri)</text>
+<rect x="776.0" y="242.0" width="152.0" height="68.0" fill="#f6e0cf" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="852.0" y="272.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Lisière de jungle</text>
+<text x="852.0" y="289.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(plaines volcaniques)</text>
+<rect x="776.0" y="170.0" width="152.0" height="68.0" fill="#f6e0cf" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="852.0" y="208.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Lisière de jungle</text>
+<rect x="776.0" y="98.0" width="152.0" height="68.0" fill="#f6e0cf" rx="6" stroke="#ffffff" stroke-width="1"/>
+<text x="852.0" y="128.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">Jungle</text>
+<text x="852.0" y="145.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">(bayou)</text>
+<text x="138.0" y="420.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="end" font-weight="bold">sec</text>
+<text x="138.0" y="434.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="end" font-weight="normal">&lt; -0,35</text>
+<text x="138.0" y="348.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="end" font-weight="bold">plutôt sec</text>
+<text x="138.0" y="362.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="end" font-weight="normal">-0,35 à -0,1</text>
+<text x="138.0" y="276.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="end" font-weight="bold">moyen</text>
+<text x="138.0" y="290.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="end" font-weight="normal">-0,1 à 0,1</text>
+<text x="138.0" y="204.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="end" font-weight="bold">humide</text>
+<text x="138.0" y="218.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="end" font-weight="normal">0,1 à 0,3</text>
+<text x="138.0" y="132.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="end" font-weight="bold">détrempé</text>
+<text x="138.0" y="146.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="end" font-weight="normal">&gt; 0,3</text>
+<text x="540.0" y="484.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">Mers, côtes et rivières sont choisies d'abord par la continentalité et pv ; montagnes, pics, collines et escarpements par l'érosion et pv.</text>
+</svg>

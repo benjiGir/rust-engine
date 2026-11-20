@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 330" width="960" height="330" role="img" aria-label="Sparse set">
+<title>Sparse set</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22303a"/></marker><marker id="arrowc" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8692f"/></marker><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8d9296" stroke-width="2"/></pattern></defs>
+<rect x="0.5" y="0.5" width="959" height="329" rx="14" fill="#ffffff" stroke="#d5dde2"/>
+<text x="24.0" y="34.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="18" fill="#22303a" text-anchor="start" font-weight="bold">Un sparse set par type de composant</text>
+<text x="24.0" y="54.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Retrouver le composant d'une entité : une lecture de tableau. Parcourir tous les composants : un tableau contigu.</text>
+<text x="134.0" y="110.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#22303a" text-anchor="end" font-weight="bold">sparse</text>
+<text x="134.0" y="126.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="end" font-weight="normal">(par entité)</text>
+<rect x="150.0" y="92.0" width="48.0" height="40.0" fill="#ffffff" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="174.0" y="87.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">0</text>
+<text x="174.0" y="117.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">—</text>
+<rect x="202.0" y="92.0" width="48.0" height="40.0" fill="#f1dcc9" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="226.0" y="87.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">1</text>
+<text x="226.0" y="117.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">2</text>
+<rect x="254.0" y="92.0" width="48.0" height="40.0" fill="#ffffff" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="278.0" y="87.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">2</text>
+<text x="278.0" y="117.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">—</text>
+<rect x="306.0" y="92.0" width="48.0" height="40.0" fill="#f1dcc9" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="330.0" y="87.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">3</text>
+<text x="330.0" y="117.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">0</text>
+<rect x="358.0" y="92.0" width="48.0" height="40.0" fill="#ffffff" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="382.0" y="87.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">4</text>
+<text x="382.0" y="117.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">—</text>
+<rect x="410.0" y="92.0" width="48.0" height="40.0" fill="#ffffff" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="434.0" y="87.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">5</text>
+<text x="434.0" y="117.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">—</text>
+<rect x="462.0" y="92.0" width="48.0" height="40.0" fill="#f1dcc9" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="486.0" y="87.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">6</text>
+<text x="486.0" y="117.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">1</text>
+<rect x="514.0" y="92.0" width="48.0" height="40.0" fill="#ffffff" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="538.0" y="87.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">7</text>
+<text x="538.0" y="117.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">—</text>
+<rect x="566.0" y="92.0" width="48.0" height="40.0" fill="#f1dcc9" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="590.0" y="87.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">8</text>
+<text x="590.0" y="117.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">3</text>
+<rect x="618.0" y="92.0" width="48.0" height="40.0" fill="#ffffff" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="642.0" y="87.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">9</text>
+<text x="642.0" y="117.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">—</text>
+<rect x="670.0" y="92.0" width="48.0" height="40.0" fill="#ffffff" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="694.0" y="87.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">10</text>
+<text x="694.0" y="117.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">—</text>
+<rect x="722.0" y="92.0" width="48.0" height="40.0" fill="#ffffff" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="746.0" y="87.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">11</text>
+<text x="746.0" y="117.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">—</text>
+<rect x="774.0" y="92.0" width="48.0" height="40.0" fill="#ffffff" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="798.0" y="87.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">12</text>
+<text x="798.0" y="117.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">—</text>
+<text x="134.0" y="236.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#22303a" text-anchor="end" font-weight="bold">dense</text>
+<text x="134.0" y="252.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="end" font-weight="normal">(sans trou)</text>
+<rect x="220.0" y="212.0" width="124.0" height="52.0" fill="#d8ecc9" rx="8" stroke="#3f8f5a" stroke-width="1.2"/>
+<text x="282.0" y="233.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">Health 20</text>
+<text x="282.0" y="252.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">entité 3</text>
+<text x="282.0" y="206.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">[0]</text>
+<rect x="352.0" y="212.0" width="124.0" height="52.0" fill="#d8ecc9" rx="8" stroke="#3f8f5a" stroke-width="1.2"/>
+<text x="414.0" y="233.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">Health 8</text>
+<text x="414.0" y="252.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">entité 6</text>
+<text x="414.0" y="206.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">[1]</text>
+<rect x="484.0" y="212.0" width="124.0" height="52.0" fill="#d8ecc9" rx="8" stroke="#3f8f5a" stroke-width="1.2"/>
+<text x="546.0" y="233.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">Health 14</text>
+<text x="546.0" y="252.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">entité 1</text>
+<text x="546.0" y="206.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">[2]</text>
+<rect x="616.0" y="212.0" width="124.0" height="52.0" fill="#d8ecc9" rx="8" stroke="#3f8f5a" stroke-width="1.2"/>
+<text x="678.0" y="233.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#22303a" text-anchor="middle" font-weight="normal">Health 3</text>
+<text x="678.0" y="252.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">entité 8</text>
+<text x="678.0" y="206.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">[3]</text>
+<path d="M226,134 C226,170 546,170 546,208" fill="none" stroke="#b8692f" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M330,134 C330,170 282,170 282,208" fill="none" stroke="#b8692f" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M486,134 C486,170 414,170 414,208" fill="none" stroke="#b8692f" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M590,134 C590,170 678,170 678,208" fill="none" stroke="#b8692f" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
+<text x="220.0" y="292.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="start" font-weight="normal">Retirer l'entité 6 : le dernier élément (entité 8) prend sa place (swap_remove),</text>
+<text x="220.0" y="308.2" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="start" font-weight="normal">et sparse[8] est corrigé. Temps constant, pas de trou.</text>
+</svg>

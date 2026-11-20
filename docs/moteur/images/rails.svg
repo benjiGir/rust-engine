@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 330" width="960" height="330" role="img" aria-label="Formes des rails">
+<title>Formes des rails</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22303a"/></marker><marker id="arrowc" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8692f"/></marker><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8d9296" stroke-width="2"/></pattern></defs>
+<rect x="0.5" y="0.5" width="959" height="329" rx="14" fill="#ffffff" stroke="#d5dde2"/>
+<text x="24.0" y="34.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="18" fill="#22303a" text-anchor="start" font-weight="bold">Les dix formes d'un rail</text>
+<text x="24.0" y="54.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Calculées depuis les rails voisins, rangées dans data[0] : pas de variante de bloc sauvegardée.</text>
+<rect x="40.0" y="84.0" width="70.0" height="70.0" fill="#f3f6f8" rx="4" stroke="#c9d2d8" stroke-width="1"/>
+<path d="M75.0,84 L75.0,154" fill="none" stroke="#6f4628" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M75.0,84 L75.0,154" fill="none" stroke="#c0c4c8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="75.0" y="172.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#22303a" text-anchor="middle" font-weight="bold">droit N-S</text>
+<rect x="220.0" y="84.0" width="70.0" height="70.0" fill="#f3f6f8" rx="4" stroke="#c9d2d8" stroke-width="1"/>
+<path d="M220,119.0 L290,119.0" fill="none" stroke="#6f4628" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M220,119.0 L290,119.0" fill="none" stroke="#c0c4c8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="255.0" y="172.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#22303a" text-anchor="middle" font-weight="bold">droit E-O</text>
+<rect x="400.0" y="84.0" width="70.0" height="70.0" fill="#f3f6f8" rx="4" stroke="#c9d2d8" stroke-width="1"/>
+<path d="M435.0,84 L435.0,154" fill="none" stroke="#6f4628" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M435.0,84 L435.0,154" fill="none" stroke="#c0c4c8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="435.0" y1="119.0" x2="435.0" y2="97.0" stroke="#b8692f" stroke-width="2.5"/>
+<line x1="435.0" y1="119.0" x2="435.0" y2="97.0" stroke="#b8692f" stroke-width="2.5" marker-end="url(#arrowc)"/>
+<text x="480.0" y="123.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#b8692f" text-anchor="start" font-weight="bold">+1</text>
+<text x="435.0" y="172.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#22303a" text-anchor="middle" font-weight="bold">montée N</text>
+<rect x="580.0" y="84.0" width="70.0" height="70.0" fill="#f3f6f8" rx="4" stroke="#c9d2d8" stroke-width="1"/>
+<path d="M615.0,84 L615.0,154" fill="none" stroke="#6f4628" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M615.0,84 L615.0,154" fill="none" stroke="#c0c4c8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="615.0" y1="119.0" x2="615.0" y2="141.0" stroke="#b8692f" stroke-width="2.5"/>
+<line x1="615.0" y1="119.0" x2="615.0" y2="141.0" stroke="#b8692f" stroke-width="2.5" marker-end="url(#arrowc)"/>
+<text x="660.0" y="123.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#b8692f" text-anchor="start" font-weight="bold">+1</text>
+<text x="615.0" y="172.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#22303a" text-anchor="middle" font-weight="bold">montée S</text>
+<rect x="760.0" y="84.0" width="70.0" height="70.0" fill="#f3f6f8" rx="4" stroke="#c9d2d8" stroke-width="1"/>
+<path d="M760,119.0 L830,119.0" fill="none" stroke="#6f4628" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M760,119.0 L830,119.0" fill="none" stroke="#c0c4c8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="795.0" y1="119.0" x2="817.0" y2="119.0" stroke="#b8692f" stroke-width="2.5"/>
+<line x1="795.0" y1="119.0" x2="817.0" y2="119.0" stroke="#b8692f" stroke-width="2.5" marker-end="url(#arrowc)"/>
+<text x="840.0" y="123.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#b8692f" text-anchor="start" font-weight="bold">+1</text>
+<text x="795.0" y="172.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#22303a" text-anchor="middle" font-weight="bold">montée E</text>
+<rect x="40.0" y="200.0" width="70.0" height="70.0" fill="#f3f6f8" rx="4" stroke="#c9d2d8" stroke-width="1"/>
+<path d="M40,235.0 L110,235.0" fill="none" stroke="#6f4628" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M40,235.0 L110,235.0" fill="none" stroke="#c0c4c8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<line x1="75.0" y1="235.0" x2="53.0" y2="235.0" stroke="#b8692f" stroke-width="2.5"/>
+<line x1="75.0" y1="235.0" x2="53.0" y2="235.0" stroke="#b8692f" stroke-width="2.5" marker-end="url(#arrowc)"/>
+<text x="120.0" y="239.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#b8692f" text-anchor="start" font-weight="bold">+1</text>
+<text x="75.0" y="288.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#22303a" text-anchor="middle" font-weight="bold">montée O</text>
+<rect x="220.0" y="200.0" width="70.0" height="70.0" fill="#f3f6f8" rx="4" stroke="#c9d2d8" stroke-width="1"/>
+<path d="M255.0,200 Q255.0,235.0 290,235.0" fill="none" stroke="#6f4628" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M255.0,200 Q255.0,235.0 290,235.0" fill="none" stroke="#c0c4c8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="255.0" y="288.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#22303a" text-anchor="middle" font-weight="bold">virage N-E</text>
+<rect x="400.0" y="200.0" width="70.0" height="70.0" fill="#f3f6f8" rx="4" stroke="#c9d2d8" stroke-width="1"/>
+<path d="M470,235.0 Q435.0,235.0 435.0,270" fill="none" stroke="#6f4628" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M470,235.0 Q435.0,235.0 435.0,270" fill="none" stroke="#c0c4c8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="435.0" y="288.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#22303a" text-anchor="middle" font-weight="bold">virage E-S</text>
+<rect x="580.0" y="200.0" width="70.0" height="70.0" fill="#f3f6f8" rx="4" stroke="#c9d2d8" stroke-width="1"/>
+<path d="M615.0,270 Q615.0,235.0 580,235.0" fill="none" stroke="#6f4628" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M615.0,270 Q615.0,235.0 580,235.0" fill="none" stroke="#c0c4c8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="615.0" y="288.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#22303a" text-anchor="middle" font-weight="bold">virage S-O</text>
+<rect x="760.0" y="200.0" width="70.0" height="70.0" fill="#f3f6f8" rx="4" stroke="#c9d2d8" stroke-width="1"/>
+<path d="M760,235.0 Q795.0,235.0 795.0,200" fill="none" stroke="#6f4628" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M760,235.0 Q795.0,235.0 795.0,200" fill="none" stroke="#c0c4c8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="795.0" y="288.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#22303a" text-anchor="middle" font-weight="bold">virage O-N</text>
+<text x="40.0" y="316.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Trois voisins reliés font un aiguillage : droit sans signal, virage avec. Un wagon avance en sous-pas de 0,5 bloc au plus.</text>
+</svg>

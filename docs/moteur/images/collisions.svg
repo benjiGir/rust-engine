@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 360" width="960" height="360" role="img" aria-label="Collisions axe par axe">
+<title>Collisions axe par axe</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22303a"/></marker><marker id="arrowc" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8692f"/></marker><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8d9296" stroke-width="2"/></pattern></defs>
+<rect x="0.5" y="0.5" width="959" height="359" rx="14" fill="#ffffff" stroke="#d5dde2"/>
+<text x="24.0" y="34.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="18" fill="#22303a" text-anchor="start" font-weight="bold">Les collisions, un axe après l'autre</text>
+<text x="24.0" y="54.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Le joueur (0,6 × 1,8) avance en diagonale vers un mur : seul l'axe bloqué s'arrête, il glisse le long du mur.</text>
+<rect x="60.0" y="90.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="100.0" y="90.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="140.0" y="90.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="180.0" y="90.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="220.0" y="90.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="260.0" y="90.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="300.0" y="90.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="340.0" y="90.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="380.0" y="90.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="420.0" y="90.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="60.0" y="130.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="100.0" y="130.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="140.0" y="130.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="180.0" y="130.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="220.0" y="130.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="260.0" y="130.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="300.0" y="130.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="340.0" y="130.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="380.0" y="130.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="420.0" y="130.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="60.0" y="170.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="100.0" y="170.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="140.0" y="170.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="180.0" y="170.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="220.0" y="170.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="260.0" y="170.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="300.0" y="170.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="340.0" y="170.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="380.0" y="170.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="420.0" y="170.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="60.0" y="210.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="100.0" y="210.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="140.0" y="210.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="180.0" y="210.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="220.0" y="210.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="260.0" y="210.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="300.0" y="210.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="340.0" y="210.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="380.0" y="210.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="420.0" y="210.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="60.0" y="250.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="100.0" y="250.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="140.0" y="250.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="180.0" y="250.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="220.0" y="250.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="260.0" y="250.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="300.0" y="250.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="340.0" y="250.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="380.0" y="250.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="420.0" y="250.0" width="40.0" height="40.0" fill="#e8f3fb" stroke="#ffffff" stroke-width="1"/>
+<rect x="60.0" y="290.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="100.0" y="290.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="140.0" y="290.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="180.0" y="290.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="220.0" y="290.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="260.0" y="290.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="300.0" y="290.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="340.0" y="290.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="380.0" y="290.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="420.0" y="290.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="228.0" y="218.0" width="24.0" height="24.0" fill="#f1dcc9" rx="3" stroke="#b8692f" stroke-width="2"/>
+<text x="240.0" y="210.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#22303a" text-anchor="middle" font-weight="normal">départ</text>
+<line x1="240.0" y1="230.0" x2="380.0" y2="138.0" stroke="#5b6b75" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<text x="388.0" y="130.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="start" font-weight="normal">voulu</text>
+<rect x="316.0" y="150.0" width="24.0" height="24.0" fill="#d8ecc9" rx="3" stroke="#3f8f5a" stroke-width="2"/>
+<line x1="240.0" y1="230.0" x2="328.0" y2="230.0" stroke="#b8692f" stroke-width="2.5" marker-end="url(#arrow)"/>
+<line x1="328.0" y1="230.0" x2="328.0" y2="164.0" stroke="#3f8f5a" stroke-width="2.5" marker-end="url(#arrow)"/>
+<text x="280.0" y="254.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#b8692f" text-anchor="middle" font-weight="bold" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">X : ramené contre le mur</text>
+<text x="322.0" y="206.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#3f8f5a" text-anchor="end" font-weight="bold" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">Z : continue</text>
+<text x="520.0" y="110.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">À chaque pas fixe :</text>
+<text x="520.0" y="126.9" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal"></text>
+<text x="520.0" y="143.8" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">1. la vitesse : entrées, gravité, saut ;</text>
+<text x="520.0" y="160.6" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">2. déplacer Y, puis X, puis Z ; après chaque axe,</text>
+<text x="520.0" y="177.5" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">   si la boîte chevauche un bloc plein, la ramener</text>
+<text x="520.0" y="194.4" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">   contre sa face ;</text>
+<text x="520.0" y="211.2" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">3. un grand déplacement est découpé en pas plus</text>
+<text x="520.0" y="228.1" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">   petits qu'un bloc et que la largeur du joueur :</text>
+<text x="520.0" y="245.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">   on ne traverse jamais un mur entre deux images.</text>
+<text x="520.0" y="261.9" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal"></text>
+<text x="520.0" y="278.8" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">Vue de dessus ; Y (la chute) se traite pareil.</text>
+</svg>

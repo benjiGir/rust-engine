@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 300" width="960" height="300" role="img" aria-label="Les passes d'une image">
+<title>Les passes d'une image</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22303a"/></marker><marker id="arrowc" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8692f"/></marker><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8d9296" stroke-width="2"/></pattern></defs>
+<rect x="0.5" y="0.5" width="959" height="299" rx="14" fill="#ffffff" stroke="#d5dde2"/>
+<text x="24.0" y="34.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="18" fill="#22303a" text-anchor="start" font-weight="bold">Une image, passe par passe</text>
+<text x="24.0" y="54.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Dans l'ordre d'encodage ; chaque passe dessine par-dessus la précédente.</text>
+<rect x="30.0" y="96.0" width="118.0" height="112.0" fill="#dde5ea" rx="10" stroke="#4a5d6b" stroke-width="1.5"/>
+<circle cx="50.0" cy="118.0" r="12" fill="#4a5d6b"/>
+<text x="50.0" y="122.5" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">0</text>
+<text x="89.0" y="160.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#22303a" text-anchor="middle" font-weight="bold">Nuages</text>
+<text x="89.0" y="180.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">½ résolution</text>
+<line x1="149.0" y1="152.0" x2="161.0" y2="152.0" stroke="#b8692f" stroke-width="1.5" marker-end="url(#arrowc)"/>
+<rect x="162.0" y="96.0" width="118.0" height="112.0" fill="#f1dcc9" rx="10" stroke="#b8692f" stroke-width="1.5"/>
+<circle cx="182.0" cy="118.0" r="12" fill="#b8692f"/>
+<text x="182.0" y="122.5" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">1</text>
+<text x="221.0" y="160.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#22303a" text-anchor="middle" font-weight="bold">Opaque</text>
+<text x="221.0" y="180.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">cubes + chunks</text>
+<line x1="281.0" y1="152.0" x2="293.0" y2="152.0" stroke="#b8692f" stroke-width="1.5" marker-end="url(#arrowc)"/>
+<rect x="294.0" y="96.0" width="118.0" height="112.0" fill="#e8f3fb" rx="10" stroke="#3f84c6" stroke-width="1.5"/>
+<circle cx="314.0" cy="118.0" r="12" fill="#3f84c6"/>
+<text x="314.0" y="122.5" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">2</text>
+<text x="353.0" y="160.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#22303a" text-anchor="middle" font-weight="bold">Ciel</text>
+<text x="353.0" y="180.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">pixels vides</text>
+<line x1="413.0" y1="152.0" x2="425.0" y2="152.0" stroke="#b8692f" stroke-width="1.5" marker-end="url(#arrowc)"/>
+<rect x="426.0" y="96.0" width="118.0" height="112.0" fill="#cfe3f5" rx="10" stroke="#3f84c6" stroke-width="1.5"/>
+<circle cx="446.0" cy="118.0" r="12" fill="#3f84c6"/>
+<text x="446.0" y="122.5" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">3</text>
+<text x="485.0" y="160.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#22303a" text-anchor="middle" font-weight="bold">Translucide</text>
+<text x="485.0" y="180.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">loin → près</text>
+<line x1="545.0" y1="152.0" x2="557.0" y2="152.0" stroke="#b8692f" stroke-width="1.5" marker-end="url(#arrowc)"/>
+<rect x="558.0" y="96.0" width="118.0" height="112.0" fill="#f3f6f8" rx="10" stroke="#22303a" stroke-width="1.5"/>
+<circle cx="578.0" cy="118.0" r="12" fill="#22303a"/>
+<text x="578.0" y="122.5" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">4</text>
+<text x="617.0" y="160.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#22303a" text-anchor="middle" font-weight="bold">Lignes</text>
+<text x="617.0" y="180.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">contour, réticule</text>
+<line x1="677.0" y1="152.0" x2="689.0" y2="152.0" stroke="#b8692f" stroke-width="1.5" marker-end="url(#arrowc)"/>
+<rect x="690.0" y="96.0" width="118.0" height="112.0" fill="#fbefc9" rx="10" stroke="#b8901e" stroke-width="1.5"/>
+<circle cx="710.0" cy="118.0" r="12" fill="#b8901e"/>
+<text x="710.0" y="122.5" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">5</text>
+<text x="749.0" y="160.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#22303a" text-anchor="middle" font-weight="bold">Bras</text>
+<text x="749.0" y="180.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">profondeur effacée</text>
+<line x1="809.0" y1="152.0" x2="821.0" y2="152.0" stroke="#b8692f" stroke-width="1.5" marker-end="url(#arrowc)"/>
+<rect x="822.0" y="96.0" width="118.0" height="112.0" fill="#e6def2" rx="10" stroke="#7a5ea8" stroke-width="1.5"/>
+<circle cx="842.0" cy="118.0" r="12" fill="#7a5ea8"/>
+<text x="842.0" y="122.5" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">6</text>
+<text x="881.0" y="160.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#22303a" text-anchor="middle" font-weight="bold">Interface</text>
+<text x="881.0" y="180.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">egui</text>
+<text x="162.0" y="236.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#b8692f" text-anchor="start" font-weight="normal">← tampon de profondeur écrit</text>
+<text x="426.0" y="236.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#3f84c6" text-anchor="start" font-weight="normal">← testé, non écrit (mélange alpha)</text>
+<text x="30.0" y="270.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Le GPU chronomètre la passe principale (timestamps relus 3 images plus tard). Puis la présentation à l'écran (VSync).</text>
+</svg>

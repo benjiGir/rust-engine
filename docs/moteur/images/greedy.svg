@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" width="960" height="400" role="img" aria-label="Faces visibles et fusion greedy">
+<title>Faces visibles et fusion greedy</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22303a"/></marker><marker id="arrowc" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8692f"/></marker><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8d9296" stroke-width="2"/></pattern></defs>
+<rect x="0.5" y="0.5" width="959" height="399" rx="14" fill="#ffffff" stroke="#d5dde2"/>
+<text x="24.0" y="34.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="18" fill="#22303a" text-anchor="start" font-weight="bold">Des faces visibles aux rectangles</text>
+<text x="24.0" y="54.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Le dessus d'un terrain vu d'en haut : à gauche une face par bloc, à droite les faces identiques fusionnées.</text>
+<rect x="40.0" y="90.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="70.0" y="90.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="100.0" y="90.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="130.0" y="90.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="160.0" y="90.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="190.0" y="90.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="220.0" y="90.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="250.0" y="90.0" width="30.0" height="30.0" fill="#d9c48f" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="280.0" y="90.0" width="30.0" height="30.0" fill="#d9c48f" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="310.0" y="90.0" width="30.0" height="30.0" fill="#d9c48f" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="40.0" y="120.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="70.0" y="120.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="100.0" y="120.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="130.0" y="120.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="160.0" y="120.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="190.0" y="120.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="220.0" y="120.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="250.0" y="120.0" width="30.0" height="30.0" fill="#d9c48f" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="280.0" y="120.0" width="30.0" height="30.0" fill="#d9c48f" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="310.0" y="120.0" width="30.0" height="30.0" fill="#d9c48f" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="40.0" y="150.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="70.0" y="150.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="100.0" y="150.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="130.0" y="150.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="160.0" y="150.0" width="30.0" height="30.0" fill="#3f84c6" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="190.0" y="150.0" width="30.0" height="30.0" fill="#3f84c6" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="220.0" y="150.0" width="30.0" height="30.0" fill="#3f84c6" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="250.0" y="150.0" width="30.0" height="30.0" fill="#d9c48f" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="280.0" y="150.0" width="30.0" height="30.0" fill="#d9c48f" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="310.0" y="150.0" width="30.0" height="30.0" fill="#d9c48f" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="40.0" y="180.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="70.0" y="180.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="100.0" y="180.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="130.0" y="180.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="160.0" y="180.0" width="30.0" height="30.0" fill="#3f84c6" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="190.0" y="180.0" width="30.0" height="30.0" fill="#3f84c6" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="220.0" y="180.0" width="30.0" height="30.0" fill="#3f84c6" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="250.0" y="180.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="280.0" y="180.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="310.0" y="180.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="40.0" y="210.0" width="30.0" height="30.0" fill="#8a5a35" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="70.0" y="210.0" width="30.0" height="30.0" fill="#8a5a35" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="100.0" y="210.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="130.0" y="210.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="160.0" y="210.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="190.0" y="210.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="220.0" y="210.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="250.0" y="210.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="280.0" y="210.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="310.0" y="210.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="40.0" y="240.0" width="30.0" height="30.0" fill="#8a5a35" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="70.0" y="240.0" width="30.0" height="30.0" fill="#8a5a35" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="100.0" y="240.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="130.0" y="240.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="160.0" y="240.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="190.0" y="240.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="220.0" y="240.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="250.0" y="240.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="280.0" y="240.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<rect x="310.0" y="240.0" width="30.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="1.4"/>
+<text x="190.0" y="294.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="middle" font-weight="bold">face culling : 60 quads</text>
+<rect x="420.0" y="90.0" width="210.0" height="60.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="2.5"/>
+<rect x="630.0" y="90.0" width="90.0" height="90.0" fill="#d9c48f" stroke="#ffffff" stroke-width="2.5"/>
+<rect x="420.0" y="150.0" width="120.0" height="60.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="2.5"/>
+<rect x="540.0" y="150.0" width="90.0" height="60.0" fill="#3f84c6" stroke="#ffffff" stroke-width="2.5"/>
+<rect x="630.0" y="180.0" width="90.0" height="30.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="2.5"/>
+<rect x="420.0" y="210.0" width="60.0" height="60.0" fill="#8a5a35" stroke="#ffffff" stroke-width="2.5"/>
+<rect x="480.0" y="210.0" width="240.0" height="60.0" fill="#5e9e3a" stroke="#ffffff" stroke-width="2.5"/>
+<text x="570.0" y="294.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="middle" font-weight="bold">greedy : 7 quads</text>
+<line x1="352.0" y1="180.0" x2="410.0" y2="180.0" stroke="#b8692f" stroke-width="2" marker-end="url(#arrowc)"/>
+<text x="740.0" y="110.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">Deux faces ne fusionnent que si</text>
+<text x="740.0" y="126.9" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">elles sont identiques : même bloc,</text>
+<text x="740.0" y="143.8" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">même lumière et même occlusion</text>
+<text x="740.0" y="160.6" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">à chaque coin.</text>
+<text x="740.0" y="177.5" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal"></text>
+<text x="740.0" y="194.4" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">Le maillage binaire calcule une</text>
+<text x="740.0" y="211.2" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">rangée de 32 faces visibles en</text>
+<text x="740.0" y="228.1" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">une opération sur des bits :</text>
+<text x="740.0" y="262.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#b8692f" text-anchor="start" font-weight="bold">opaques &amp; !voisins</text>
+<text x="740.0" y="290.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="start" font-weight="normal">opaques</text>
+<rect x="800.0" y="278.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="809.0" y="278.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="818.0" y="278.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="827.0" y="278.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="836.0" y="278.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="845.0" y="278.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="854.0" y="278.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="863.0" y="278.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="872.0" y="278.0" width="8.0" height="15.0" fill="#ffffff" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="881.0" y="278.0" width="8.0" height="15.0" fill="#ffffff" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="890.0" y="278.0" width="8.0" height="15.0" fill="#ffffff" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="899.0" y="278.0" width="8.0" height="15.0" fill="#ffffff" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="908.0" y="278.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="917.0" y="278.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="926.0" y="278.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="935.0" y="278.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<text x="740.0" y="312.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="start" font-weight="normal">voisins</text>
+<rect x="800.0" y="300.0" width="8.0" height="15.0" fill="#ffffff" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="809.0" y="300.0" width="8.0" height="15.0" fill="#ffffff" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="818.0" y="300.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="827.0" y="300.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="836.0" y="300.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="845.0" y="300.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="854.0" y="300.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="863.0" y="300.0" width="8.0" height="15.0" fill="#ffffff" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="872.0" y="300.0" width="8.0" height="15.0" fill="#ffffff" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="881.0" y="300.0" width="8.0" height="15.0" fill="#ffffff" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="890.0" y="300.0" width="8.0" height="15.0" fill="#ffffff" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="899.0" y="300.0" width="8.0" height="15.0" fill="#ffffff" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="908.0" y="300.0" width="8.0" height="15.0" fill="#ffffff" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="917.0" y="300.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="926.0" y="300.0" width="8.0" height="15.0" fill="#4a5d6b" stroke="#4a5d6b" stroke-width="0.6"/>
+<rect x="935.0" y="300.0" width="8.0" height="15.0" fill="#ffffff" stroke="#4a5d6b" stroke-width="0.6"/>
+<text x="740.0" y="334.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#b8692f" text-anchor="start" font-weight="normal">visibles</text>
+<rect x="800.0" y="322.0" width="8.0" height="15.0" fill="#b8692f" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="809.0" y="322.0" width="8.0" height="15.0" fill="#b8692f" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="818.0" y="322.0" width="8.0" height="15.0" fill="#ffffff" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="827.0" y="322.0" width="8.0" height="15.0" fill="#ffffff" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="836.0" y="322.0" width="8.0" height="15.0" fill="#ffffff" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="845.0" y="322.0" width="8.0" height="15.0" fill="#ffffff" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="854.0" y="322.0" width="8.0" height="15.0" fill="#ffffff" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="863.0" y="322.0" width="8.0" height="15.0" fill="#b8692f" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="872.0" y="322.0" width="8.0" height="15.0" fill="#ffffff" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="881.0" y="322.0" width="8.0" height="15.0" fill="#ffffff" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="890.0" y="322.0" width="8.0" height="15.0" fill="#ffffff" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="899.0" y="322.0" width="8.0" height="15.0" fill="#ffffff" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="908.0" y="322.0" width="8.0" height="15.0" fill="#b8692f" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="917.0" y="322.0" width="8.0" height="15.0" fill="#ffffff" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="926.0" y="322.0" width="8.0" height="15.0" fill="#ffffff" stroke="#b8692f" stroke-width="0.6"/>
+<rect x="935.0" y="322.0" width="8.0" height="15.0" fill="#b8692f" stroke="#b8692f" stroke-width="0.6"/>
+</svg>

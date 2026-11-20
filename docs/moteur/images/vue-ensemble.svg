@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" width="960" height="520" role="img" aria-label="Vue d'ensemble du moteur">
+<title>Vue d'ensemble du moteur</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22303a"/></marker><marker id="arrowc" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8692f"/></marker><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8d9296" stroke-width="2"/></pattern></defs>
+<rect x="0.5" y="0.5" width="959" height="519" rx="14" fill="#ffffff" stroke="#d5dde2"/>
+<text x="24.0" y="34.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="18" fill="#22303a" text-anchor="start" font-weight="bold">Vue d'ensemble</text>
+<text x="24.0" y="54.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Le jeu au-dessus, le moteur dessous ; les flèches suivent les données d'une image.</text>
+<rect x="24.0" y="74.0" width="912.0" height="92.0" fill="#f1dcc9" rx="12" stroke="#b8692f" stroke-width="1.5"/>
+<text x="44.0" y="100.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="15" fill="#b8692f" text-anchor="start" font-weight="bold">games/voxel — le jeu</text>
+<rect x="44.0" y="114.0" width="136.0" height="36.0" fill="#ffffff" rx="8" stroke="#b8692f" stroke-width="1"/>
+<text x="112.0" y="137.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="normal">joueur &amp; inventaire</text>
+<rect x="192.0" y="114.0" width="136.0" height="36.0" fill="#ffffff" rx="8" stroke="#b8692f" stroke-width="1"/>
+<text x="260.0" y="137.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="normal">créatures (ECS)</text>
+<rect x="340.0" y="114.0" width="136.0" height="36.0" fill="#ffffff" rx="8" stroke="#b8692f" stroke-width="1"/>
+<text x="408.0" y="137.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="normal">interface egui</text>
+<rect x="488.0" y="114.0" width="136.0" height="36.0" fill="#ffffff" rx="8" stroke="#b8692f" stroke-width="1"/>
+<text x="556.0" y="137.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="normal">sons kira</text>
+<rect x="636.0" y="114.0" width="136.0" height="36.0" fill="#ffffff" rx="8" stroke="#b8692f" stroke-width="1"/>
+<text x="704.0" y="137.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="normal">quêtes, aventure</text>
+<rect x="784.0" y="114.0" width="136.0" height="36.0" fill="#ffffff" rx="8" stroke="#b8692f" stroke-width="1"/>
+<text x="852.0" y="137.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="normal">sauvegarde</text>
+<rect x="24.0" y="186.0" width="912.0" height="236.0" fill="#f3f6f8" rx="12" stroke="#4a5d6b" stroke-width="1.5"/>
+<text x="44.0" y="212.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="15" fill="#4a5d6b" text-anchor="start" font-weight="bold">Le moteur (crates/)</text>
+<rect x="44.0" y="226.0" width="160.0" height="74.0" fill="#ffffff" rx="10" stroke="#4a5d6b" stroke-width="1.5"/>
+<text x="124.0" y="259.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#22303a" text-anchor="middle" font-weight="bold">engine_core</text>
+<text x="124.0" y="277.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">fenêtre winit</text>
+<text x="124.0" y="292.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">boucle à pas fixe</text>
+<rect x="44.0" y="316.0" width="160.0" height="74.0" fill="#ffffff" rx="10" stroke="#4a5d6b" stroke-width="1.5"/>
+<text x="124.0" y="349.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#22303a" text-anchor="middle" font-weight="bold">engine_ecs</text>
+<text x="124.0" y="367.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">entités, composants</text>
+<text x="124.0" y="382.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">systèmes, événements</text>
+<rect x="224.0" y="226.0" width="330.0" height="164.0" fill="#ffffff" rx="10" stroke="#4a5d6b" stroke-width="1.5"/>
+<text x="389.0" y="252.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#22303a" text-anchor="middle" font-weight="bold">engine_voxel</text>
+<text x="304.0" y="282.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="middle" font-weight="normal">registre des blocs</text>
+<text x="474.0" y="282.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="middle" font-weight="normal">chunks &amp; World</text>
+<text x="304.0" y="312.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="middle" font-weight="normal">génération v3</text>
+<text x="474.0" y="312.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="middle" font-weight="normal">lumière &amp; maillage</text>
+<text x="304.0" y="342.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="middle" font-weight="normal">streaming &amp; sauvegarde</text>
+<text x="474.0" y="342.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="middle" font-weight="normal">machines, réseaux, fluides</text>
+<rect x="574.0" y="226.0" width="170.0" height="164.0" fill="#ffffff" rx="10" stroke="#4a5d6b" stroke-width="1.5"/>
+<text x="659.0" y="304.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#22303a" text-anchor="middle" font-weight="bold">engine_render</text>
+<text x="659.0" y="322.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">wgpu (Metal / Vulkan / DX12)</text>
+<text x="659.0" y="337.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">arène GPU, culling</text>
+<text x="659.0" y="352.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">passes, shaders WGSL</text>
+<text x="659.0" y="367.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">ciel &amp; nuages</text>
+<rect x="764.0" y="226.0" width="152.0" height="164.0" fill="#ffffff" rx="10" stroke="#4a5d6b" stroke-width="1.5"/>
+<text x="840.0" y="304.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#22303a" text-anchor="middle" font-weight="bold">engine_mods</text>
+<text x="840.0" y="322.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">wasmtime</text>
+<text x="840.0" y="337.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">bac à sable</text>
+<text x="840.0" y="352.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">fonctions hôtes</text>
+<rect x="24.0" y="438.0" width="600.0" height="60.0" fill="#dde5ea" rx="12" stroke="#4a5d6b" stroke-width="1"/>
+<text x="44.0" y="463.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#4a5d6b" text-anchor="start" font-weight="bold">Pool de threads rayon (cœurs − 2)</text>
+<text x="44.0" y="483.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="start" font-weight="normal">génération · lumière · maillage · tuiles lointaines — jamais de verrou sur le monde</text>
+<rect x="640.0" y="438.0" width="296.0" height="60.0" fill="#e6def2" rx="12" stroke="#7a5ea8" stroke-width="1"/>
+<text x="660.0" y="463.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#7a5ea8" text-anchor="start" font-weight="bold">mods/*/script → .wasm</text>
+<text x="660.0" y="483.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="start" font-weight="normal">forge, entrepot, mecanique, magie...</text>
+<line x1="124.0" y1="166.0" x2="124.0" y2="222.0" stroke="#b8692f" stroke-width="2" marker-end="url(#arrowc)"/>
+<line x1="389.0" y1="166.0" x2="389.0" y2="222.0" stroke="#b8692f" stroke-width="2" marker-end="url(#arrowc)"/>
+<line x1="554.0" y1="300.0" x2="572.0" y2="300.0" stroke="#b8692f" stroke-width="2" marker-end="url(#arrowc)"/>
+<text x="563.0" y="292.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#b8692f" text-anchor="middle" font-weight="normal">sommets</text>
+<line x1="300.0" y1="392.0" x2="300.0" y2="436.0" stroke="#b8692f" stroke-width="2" marker-end="url(#arrowc)"/>
+<line x1="840.0" y1="392.0" x2="840.0" y2="436.0" stroke="#b8692f" stroke-width="2" marker-end="url(#arrowc)"/>
+<line x1="746.0" y1="300.0" x2="762.0" y2="300.0" stroke="#b8692f" stroke-width="2"/>
+</svg>

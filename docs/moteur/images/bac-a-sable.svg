@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" width="960" height="400" role="img" aria-label="Bac à sable WebAssembly">
+<title>Bac à sable WebAssembly</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22303a"/></marker><marker id="arrowc" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8692f"/></marker><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8d9296" stroke-width="2"/></pattern></defs>
+<rect x="0.5" y="0.5" width="959" height="399" rx="14" fill="#ffffff" stroke="#d5dde2"/>
+<text x="24.0" y="34.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="18" fill="#22303a" text-anchor="start" font-weight="bold">Un mod dans son bac à sable</text>
+<text x="24.0" y="54.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Le script ne voit que ce que le jeu lui donne.</text>
+<rect x="30.0" y="80.0" width="900.0" height="290.0" fill="#f1dcc9" rx="12" stroke="#b8692f" stroke-width="1.5"/>
+<text x="50.0" y="106.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" fill="#b8692f" text-anchor="start" font-weight="bold">Le jeu (hôte)</text>
+<rect x="330.0" y="120.0" width="300.0" height="200.0" fill="#e6def2" rx="12" stroke="#7a5ea8" stroke-width="2"/>
+<text x="480.0" y="146.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#7a5ea8" text-anchor="middle" font-weight="bold">wasmtime : instance du mod</text>
+<rect x="360.0" y="162.0" width="240.0" height="60.0" fill="#ffffff" rx="8" stroke="#7a5ea8" stroke-width="1"/>
+<text x="480.0" y="186.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">mémoire du mod</text>
+<text x="480.0" y="205.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">≤ 32 Mio</text>
+<rect x="360.0" y="234.0" width="240.0" height="70.0" fill="#ffffff" rx="8" stroke="#7a5ea8" stroke-width="1"/>
+<text x="480.0" y="256.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">exports</text>
+<text x="480.0" y="274.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">mod_init · on_event · on_machines</text>
+<text x="480.0" y="290.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="10.5" fill="#5b6b75" text-anchor="middle" font-weight="normal">sdk_alloc · menus · créatures</text>
+<rect x="60.0" y="140.0" width="220.0" height="160.0" fill="#ffffff" rx="8" stroke="#4a5d6b" stroke-width="1"/>
+<text x="76.0" y="164.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">Le jeu appelle le mod</text>
+<text x="76.0" y="180.2" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">(par lot) :</text>
+<text x="76.0" y="196.4" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal"></text>
+<text x="76.0" y="212.6" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">· événements</text>
+<text x="76.0" y="228.8" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">· machines à réveiller</text>
+<text x="76.0" y="245.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">· clics, menus</text>
+<text x="76.0" y="261.2" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">· créatures à diriger</text>
+<line x1="282.0" y1="200.0" x2="326.0" y2="200.0" stroke="#b8692f" stroke-width="2.5" marker-end="url(#arrowc)"/>
+<rect x="680.0" y="140.0" width="230.0" height="160.0" fill="#ffffff" rx="8" stroke="#4a5d6b" stroke-width="1"/>
+<text x="696.0" y="164.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">Le mod appelle le jeu</text>
+<text x="696.0" y="180.2" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">(module « voxel ») :</text>
+<text x="696.0" y="196.4" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal"></text>
+<text x="696.0" y="212.6" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">· lire / écrire des blocs</text>
+<text x="696.0" y="228.8" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">· capacités par face</text>
+<text x="696.0" y="245.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">· ticks programmés, signal</text>
+<text x="696.0" y="261.2" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">· joueur, rayons, menus</text>
+<line x1="634.0" y1="250.0" x2="676.0" y2="250.0" stroke="#b8692f" stroke-width="2.5" marker-end="url(#arrowc)"/>
+<rect x="60.0" y="328.0" width="205.0" height="28.0" fill="#f6d9d6" rx="6" stroke="#c8443a" stroke-width="1"/>
+<text x="162.0" y="346.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#22303a" text-anchor="middle" font-weight="normal">ni fichiers, ni réseau (pas de WASI)</text>
+<rect x="275.0" y="328.0" width="205.0" height="28.0" fill="#f6d9d6" rx="6" stroke="#c8443a" stroke-width="1"/>
+<text x="377.0" y="346.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#22303a" text-anchor="middle" font-weight="normal">carburant : 50 M d'instructions / appel</text>
+<rect x="490.0" y="328.0" width="205.0" height="28.0" fill="#f6d9d6" rx="6" stroke="#c8443a" stroke-width="1"/>
+<text x="592.0" y="346.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#22303a" text-anchor="middle" font-weight="normal">budget : 20 M / mod / tick</text>
+<rect x="705.0" y="328.0" width="205.0" height="28.0" fill="#f6d9d6" rx="6" stroke="#c8443a" stroke-width="1"/>
+<text x="807.0" y="346.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#22303a" text-anchor="middle" font-weight="normal">plantage → mod désactivé, le jeu continue</text>
+</svg>

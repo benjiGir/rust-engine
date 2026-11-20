@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" width="960" height="400" role="img" aria-label="Simulation des fluides">
+<title>Simulation des fluides</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22303a"/></marker><marker id="arrowc" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8692f"/></marker><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8d9296" stroke-width="2"/></pattern></defs>
+<rect x="0.5" y="0.5" width="959" height="399" rx="14" fill="#ffffff" stroke="#d5dde2"/>
+<text x="24.0" y="34.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="18" fill="#22303a" text-anchor="start" font-weight="bold">Les fluides : un volume conservé</text>
+<text x="24.0" y="54.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Chaque cellule contient une quantité (4 096 = un bloc). Dix étapes par seconde, sur les cellules actives seulement.</text>
+<rect x="50.0" y="100.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="51.0" y="108.0" width="38.0" height="32.0" fill="#3f84c6" fill-opacity="0.85"/>
+<rect x="50.0" y="140.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="51.0" y="168.0" width="38.0" height="12.0" fill="#3f84c6" fill-opacity="0.85"/>
+<rect x="50.0" y="180.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<line x1="106.0" y1="140.0" x2="140.0" y2="140.0" stroke="#b8692f" stroke-width="2" marker-end="url(#arrowc)"/>
+<rect x="156.0" y="100.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="157.0" y="136.0" width="38.0" height="4.0" fill="#3f84c6" fill-opacity="0.85"/>
+<rect x="156.0" y="140.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="157.0" y="140.0" width="38.0" height="40.0" fill="#3f84c6" fill-opacity="0.85"/>
+<rect x="156.0" y="180.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<text x="140.0" y="250.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#22303a" text-anchor="middle" font-weight="bold">1. tomber</text>
+<text x="140.0" y="268.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">tout ce qui tient dessous</text>
+<rect x="330.0" y="140.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="331.0" y="140.0" width="38.0" height="40.0" fill="#3f84c6" fill-opacity="0.85"/>
+<rect x="330.0" y="180.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="370.0" y="140.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="370.0" y="180.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="410.0" y="140.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="410.0" y="180.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<line x1="456.0" y1="160.0" x2="486.0" y2="160.0" stroke="#b8692f" stroke-width="2" marker-end="url(#arrowc)"/>
+<rect x="496.0" y="140.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="497.0" y="150.0" width="38.0" height="30.0" fill="#3f84c6" fill-opacity="0.85"/>
+<rect x="496.0" y="180.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="536.0" y="140.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="537.0" y="170.0" width="38.0" height="10.0" fill="#3f84c6" fill-opacity="0.85"/>
+<rect x="536.0" y="180.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="576.0" y="140.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="576.0" y="180.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<text x="480.0" y="250.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#22303a" text-anchor="middle" font-weight="bold">2. s'étaler</text>
+<text x="480.0" y="268.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">un quart de la différence au voisin</text>
+<rect x="680.0" y="80.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="720.0" y="80.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="721.0" y="80.0" width="38.0" height="40.0" fill="#3f84c6" fill-opacity="0.85"/>
+<rect x="760.0" y="80.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="800.0" y="80.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="840.0" y="80.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="680.0" y="120.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="720.0" y="120.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="721.0" y="120.0" width="38.0" height="40.0" fill="#3f84c6" fill-opacity="0.85"/>
+<rect x="760.0" y="120.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="800.0" y="120.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="840.0" y="120.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="680.0" y="160.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="720.0" y="160.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="721.0" y="160.0" width="38.0" height="40.0" fill="#3f84c6" fill-opacity="0.85"/>
+<rect x="760.0" y="160.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="800.0" y="160.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="840.0" y="160.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="680.0" y="200.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<rect x="720.0" y="200.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="721.0" y="200.0" width="38.0" height="40.0" fill="#3f84c6" fill-opacity="0.85"/>
+<rect x="721.0" y="201.0" width="38.0" height="5.0" fill="#1d4f7a"/>
+<rect x="760.0" y="200.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="761.0" y="200.0" width="38.0" height="40.0" fill="#3f84c6" fill-opacity="0.85"/>
+<rect x="800.0" y="200.0" width="40.0" height="40.0" fill="#ffffff" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="801.0" y="200.0" width="38.0" height="40.0" fill="#3f84c6" fill-opacity="0.85"/>
+<rect x="840.0" y="200.0" width="40.0" height="40.0" fill="#8d9296" stroke="#ffffff" stroke-width="1"/>
+<path d="M740.0,220.0 L820.0,220.0 L820.0,104.0" fill="none" stroke="#b8692f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+<text x="780.0" y="270.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#22303a" text-anchor="middle" font-weight="bold">3. remonter</text>
+<text x="780.0" y="288.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">le fond comprimé pousse l'excédent</text>
+<text x="780.0" y="302.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#5b6b75" text-anchor="middle" font-weight="normal">(vases communicants)</text>
+<text x="50.0" y="380.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Pas d'arrondi : ce qui quitte une cellule arrive dans une autre. L'eau générée est un réservoir stable qui ne coûte rien tant qu'on n'y touche pas.</text>
+</svg>

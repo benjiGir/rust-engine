@@ -1,0 +1,247 @@
+# 3. Le monde en blocs
+
+[← Boucle et ECS](02-boucle-et-ecs.md) · [Sommaire](README.md) · [La génération →](04-generation.md)
+
+Tout ce chapitre vit dans `crates/engine_voxel`.
+
+## Le découpage de l'espace
+
+![Bloc, chunk, colonne, région](images/decoupage.svg)
+
+| Unité | Taille | Rôle |
+|---|---|---|
+| **Bloc** | 1 × 1 × 1 | un `BlockId` (`u16`, 2 octets) |
+| **Chunk** | 32 × 32 × 32 blocs | l'unité de stockage, de génération, de lumière et de maillage |
+| **Colonne** | 1 × 12 chunks (y de -128 à 255) | l'unité de la lumière du ciel et du cache de génération |
+| **Région** | 16 × 16 colonnes | un fichier de sauvegarde `regions/r.<x>.<z>.bin` |
+| **Monde** | infini en x et z | une table `HashMap<IVec3, Arc<Chunk>>` (`World`) |
+
+Les coordonnées : `x` vers l'est, `y` vers le haut, `z` vers le sud. La mer est à `y = 62`. Un monde v3 va
+de `y = -128` (le socle, `MIN_CHUNK_Y = -4`) à `y = 255` (`MAX_CHUNK_Y = 8`, exclu) ; un monde v1, de 0 à 191.
+
+### Un chunk
+
+```rust
+pub struct Chunk {
+    blocks: Box<[BlockId]>,                     // 32 768 blocs, index x + 32·z + 1024·y
+    light: Box<[u8]>,                           // 32 768 octets : ciel (4 bits) | blocs (4 bits)
+    block_entities: HashMap<u16, BlockEntity>,  // les blocs actifs, presque toujours vide
+    biomes: Vec<u8>,                            // le biome de chaque colonne (teintes), recalculé
+    fluids: HashMap<u16, u16>,                  // le volume des cellules de fluide en mouvement
+}
+```
+
+Un chunk pèse environ 96 Kio (blocs + lumière). Le monde le garde dans un `Arc` : les threads de fond le
+lisent sans copie, et le thread principal le copie seulement s'il le modifie pendant qu'une tâche le lit
+(`Arc::make_mut`).
+
+## Le registre des blocs
+
+`BlockRegistry` (`registry.rs`) lit `assets/core/blocks.ron` puis le `blocks.ron` de chaque mod.
+
+```ron
+(
+    id: "core:chest", name: "Coffre", color: (0.18, 0.08, 0.04),
+    boxes: [
+        (from: (1, 1, 1), to: (15, 10, 15)),     // le corps, en seizièmes de bloc
+        (from: (1, 10, 1), to: (15, 13, 15)),    // le couvercle
+        (from: (2, 13, 2), to: (14, 14, 14)),
+        (from: (6, 8, 0), to: (10, 12, 1)),      // la serrure
+    ],
+    textures: (top: "chest_top", side: "chest_side_panel", bottom: "chest_inside",
+               front: "chest_side", back: "chest_back_panel"),
+    behavior: "core:chest",
+    hardness: 2.0, tool: Axe,
+    states: [Facing4, ChestPart],
+    lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside", ...),
+)
+```
+
+Une définition (`BlockDef`) porte : nom, couleur (carte, lointain), solidité, transparence, lumière émise
+et absorbée, textures par face, **forme** (`Cube`, `Cross` pour les plantes, `Flat`, `Model` avec des
+boîtes, `Rail`), sons, dureté et outil, support nécessaire (sol, eau, terre labourée), gravité (sable),
+comportement (`behavior` : la machine qui l'anime), fluide, conduit de réseau, ports d'inventaire,
+portail vers une dimension...
+
+### Les états et les variantes
+
+Un bloc peut **varier** selon des états : chaque combinaison est un bloc du registre, avec son propre
+`BlockId`. La forme écrite dans le fichier est celle de la première valeur ; les autres sont déduites par
+rotation ou symétrie des boîtes.
+
+| État | Valeurs | Exemple |
+|---|---|---|
+| `Facing4` | nord, est, sud, ouest | four, coffre, escalier |
+| `Facing6` | + haut, bas | piston, tuyau à sens unique |
+| `Half` | bas, haut | dalle, escalier retourné |
+| `Axis` | y, x, z | bûche couchée |
+| `DoorOpen` | fermé, ouvert | porte |
+| `ChestPart` | seul, gauche, droite | moitié de grand coffre |
+
+```mermaid
+flowchart LR
+    base["core:chest\n(base, placeable)"] --> v1["core:chest[facing=east,part=single]"]
+    base --> v2["core:chest[facing=north,part=left]"]
+    base --> v3["... 12 variantes"]
+    v2 -. "base()" .-> base
+```
+
+Les clés des variantes s'écrivent `core:chest[facing=east,part=single]`. Un état ajouté **en dernier**
+garde lisibles les sauvegardes d'avant : sa première valeur répond aussi au nom sans lui
+(`core:chest[facing=east]`).
+
+## Les blocs actifs et leurs capacités
+
+Un bloc qui a un état propre (un coffre et ses objets, un four qui chauffe, un câble) a une
+**entité de bloc**, rangée dans son chunk :
+
+```rust
+pub struct BlockEntity {
+    pub power: u8,                          // signal émis vers les voisins (0 à 15)
+    pub data: Vec<u8>,                      // octets libres, lus par le comportement
+    pub caps: Option<Box<Capabilities>>,    // 8 octets quand il n'y en a pas
+}
+pub struct Capabilities {
+    pub energy: Option<EnergyStorage>,      // quantité, capacité, débits
+    pub tanks: Vec<FluidTank>,              // fluides en millibuckets
+    pub inventory: Option<Inventory>,       // cases d'ItemStack (identifiant texte + nombre)
+    pub kinetic: Option<Kinetic>,           // vitesse de rotation et contrainte (« stress »)
+}
+```
+
+Les **capacités** sont des conteneurs génériques communs à tous les mods, à la manière des
+*capabilities* de Forge : un câble d'un mod alimente la machine d'un autre. Chacune dit **par quelle
+face** elle échange (`Sides`, 6 bits) et offre `insert` / `extract` avec un mode simulation (« combien
+accepterais-tu ? »).
+
+### Les grilles
+
+Un bloc se désigne par `GridPos { grid, pos }`, pas seulement par ses coordonnées : `GridId::WORLD` est
+le monde, chaque structure mobile (vaisseau) a la sienne, en coordonnées locales qui ne changent jamais.
+Le code des machines passe par le trait `BlockAccess` (lire et écrire blocs et entités), implémenté par le
+monde (`ChunkStreamer`) et par les sous-grilles (`SubGrid`) : une machine ne sait pas si elle vole.
+
+## La lumière
+
+Deux niveaux de 0 à 15 par bloc, rangés dans un octet (`light.rs`) :
+
+- **la lumière du ciel** tombe tout droit depuis le haut du monde sans rien perdre dans l'air, puis s'étale
+  sur les côtés en perdant 1 par bloc ;
+- **la lumière des blocs** part des blocs émissifs (torche 14, pierre lumineuse 15) et perd 1 par bloc.
+
+![Propagation de la lumière](images/lumiere.svg)
+
+Les deux se calculent par un **parcours en largeur** (BFS) : les sources entrent dans une file, chaque
+bloc sorti donne `niveau - 1` à ses six voisins s'ils étaient moins éclairés. Comme on avance par distance
+croissante, chaque bloc reçoit son niveau final dès sa première visite.
+
+- **En tâche de fond** : `LightRegion::compute` éclaire une **colonne** entière (la lumière du ciel
+  tombe du haut), avec ses 8 voisines générées (elle déborde de 15 blocs).
+- **Sur le thread principal**, quand le joueur casse ou pose : `update_light` fait un BFS de **retrait**
+  (on éteint ce qui dépendait de l'ancienne source) puis un BFS d'**ajout**.
+
+Au rendu, l'heure du jour multiplie la lumière du ciel : la nuit ne demande aucun recalcul.
+
+## Le streaming : un monde infini
+
+`ChunkStreamer` (`streaming.rs`) charge, éclaire et maille les chunks autour du joueur, en tâche de fond.
+
+```mermaid
+flowchart LR
+    subgraph Principal["Thread principal"]
+        decide["update_view\nquoi charger ?\n(colonnes proches d'abord,\nbiais vers le regard)"]
+        state["états des chunks\n+ World"]
+        upload["envois au GPU\nsous budget"]
+    end
+    subgraph Fond["Pool rayon (cœurs - 2)"]
+        gen["1. Génération\nchunk par chunk\njusqu'au rayon + 3"]
+        light["2. Lumière\ncolonne par colonne\n(9 colonnes générées)"]
+        mesh["3. Maillage\nchunk par chunk\n(voisins éclairés)"]
+    end
+    decide --> gen
+    gen -- "Chunk neuf" --> state
+    state --> light
+    light -- "lumière" --> state
+    state --> mesh
+    mesh -- "ChunkMesh" --> upload
+```
+
+![Les trois rayons du streaming](images/rayons-streaming.svg)
+
+1. **Génération**, chunk par chunk, jusqu'au rayon de vue + 3.
+2. **Lumière**, colonne par colonne : il faut la colonne et ses 8 voisines générées.
+3. **Maillage**, chunk par chunk, jusqu'au rayon de vue : la lumière douce et l'occlusion lisent un bloc
+   au-delà du bord, il faut donc les voisins éclairés.
+
+**Les priorités.** On complète des colonnes entières, de la plus proche à la plus lointaine, avec un biais
+borné vers ce que regarde la caméra (aucune colonne n'est affamée). Seul le maillage le plus récent de
+chaque chunk attend son envoi ; celui d'un bloc que le joueur vient de modifier passe en tête, hors budget.
+
+**Le budget d'envoi** (`transfer.rs`) compte des **octets** et du **temps** par image, commun aux chunks et
+au terrain lointain : un chunk de plaine pèse quelques kilo-octets, une forêt dense plusieurs centaines.
+Le premier envoi de l'image passe toujours (sinon un très gros maillage ne partirait jamais). L'ancien
+maillage reste affiché jusqu'à l'arrivée du nouveau : pas de trou pendant un remaillage.
+
+**Le déchargement.** Au-delà du rayon + une marge, un chunk est retiré ; s'il a été modifié, il est d'abord
+sauvegardé, et un résumé de sa surface est gardé pour le terrain lointain (`edited_surface.rs`).
+
+**Mesurer.** `VOXEL_PIPELINE=1` note, pour chaque chunk, les délais demande → généré → lumière →
+maillé → envoyé (`pipeline_timing.rs`).
+
+## Modifier le monde
+
+Casser ou poser passe par `VoxelGame::edit` (jeu) puis `ChunkStreamer::set_block` (moteur) :
+
+```mermaid
+flowchart TD
+    A["edit(pos, bloc)"] --> B{"un conteneur ?"}
+    B -- oui --> C["son contenu tombe au sol\n(une moitié de grand coffre\nse sépare d'abord)"]
+    B -- non --> D
+    C --> D["set_block : le chunk est copié\nsi une tâche le lit (Arc::make_mut)"]
+    D --> E["lumière incrémentale\n(retrait puis ajout)"]
+    E --> F["remaillage du chunk\n(et des voisins si bord)"]
+    F --> G["événement BlockBroken / BlockPlaced\n(sons, quêtes, mods)"]
+    G --> H["voisins prévenus :\nmachines, fluides réveillés"]
+    H --> I["settle : support et gravité\n(fleur sans sol, sable qui tombe)"]
+```
+
+`settle` (`block_rules.rs`) traite une **file de positions** : casser le bloc sous une colonne de sable la
+fait tomber entièrement, et les fleurs posées dessus avec.
+
+## La sauvegarde
+
+![Format de sauvegarde](images/sauvegarde.svg)
+
+`SaveStore` (`save.rs`) écrit un dossier par monde :
+
+```
+saves/<monde>/
+├── world.ron           réglages lisibles : graine, heure, joueur, mods, version de génération
+├── regions/
+│   └── r.<x>.<z>.bin   les chunks modifiés d'une région de 16 × 16 colonnes
+├── grids.bin           les structures mobiles
+├── carts.bin           les wagons
+├── backpacks.bin       le contenu des sacs à dos
+├── items.bin           les fiches des objets enrichis (affixes, gemmes, enchantements)
+├── quests.ron          l'avancement du livre de quêtes
+├── mod_data.ron        les données que les mods gardent pour ce monde
+└── dimensions/<nom>/   les autres dimensions : leurs regions/, grids.bin, carts.bin
+```
+
+Un fichier illisible n'est jamais écrasé : il est mis de côté (`items.bin.illisible`) et le jeu repart
+d'un état vide, en le disant dans les logs.
+
+- **Seuls les chunks modifiés** sont écrits : les autres se régénèrent depuis la graine. La lumière n'est
+  jamais écrite : elle se recalcule.
+- **Jamais de numéro de bloc sur disque** : chaque chunk écrit sa **palette** (les identifiants texte qu'il
+  contient) et ses blocs comme des indices dans cette palette. Au chargement, on retraduit avec le
+  registre du moment : ajouter ou retirer un mod ne casse pas un monde (un bloc inconnu devient
+  `core:unknown` et garde son nom pour revenir si le mod revient).
+- **Format** : `serde` + `postcard` (compact) + `lz4_flex` (compression très rapide).
+- **Écriture atomique** : un fichier temporaire, puis un renommage. Un plantage au milieu laisse l'ancien
+  fichier entier.
+- **Deux versions** : celle du **format** (`FORMAT_VERSION`, comment lire les fichiers) et celle de la
+  **génération** (`GenerationVersion`, comment le terrain est calculé). Un monde garde sa version de
+  génération à vie : changer les formules ferait bouger le paysage sous les constructions du joueur.
+
+[← Boucle et ECS](02-boucle-et-ecs.md) · [Sommaire](README.md) · [La génération →](04-generation.md)

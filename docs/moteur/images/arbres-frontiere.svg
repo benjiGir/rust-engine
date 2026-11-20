@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 420" width="960" height="420" role="img" aria-label="Arbres à cheval sur deux chunks">
+<title>Arbres à cheval sur deux chunks</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22303a"/></marker><marker id="arrowc" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8692f"/></marker><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8d9296" stroke-width="2"/></pattern></defs>
+<rect x="0.5" y="0.5" width="959" height="419" rx="14" fill="#ffffff" stroke="#d5dde2"/>
+<text x="24.0" y="34.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="18" fill="#22303a" text-anchor="start" font-weight="bold">Un arbre à cheval sur deux chunks</text>
+<text x="24.0" y="54.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Vue de dessus : chaque chunk recalcule les arbres des 9 colonnes autour et n'écrit que sa part.</text>
+<rect x="60.0" y="80.0" width="96.0" height="96.0" fill="#d8ecc9" stroke="#4a5d6b" stroke-width="1"/>
+<rect x="60.0" y="176.0" width="96.0" height="96.0" fill="#d8ecc9" stroke="#4a5d6b" stroke-width="1"/>
+<rect x="60.0" y="272.0" width="96.0" height="96.0" fill="#d8ecc9" stroke="#4a5d6b" stroke-width="1"/>
+<rect x="156.0" y="80.0" width="96.0" height="96.0" fill="#d8ecc9" stroke="#4a5d6b" stroke-width="1"/>
+<rect x="156.0" y="176.0" width="96.0" height="96.0" fill="#cfe7b8" stroke="#4a5d6b" stroke-width="1"/>
+<rect x="156.0" y="272.0" width="96.0" height="96.0" fill="#d8ecc9" stroke="#4a5d6b" stroke-width="1"/>
+<rect x="252.0" y="80.0" width="96.0" height="96.0" fill="#d8ecc9" stroke="#4a5d6b" stroke-width="1"/>
+<rect x="252.0" y="176.0" width="96.0" height="96.0" fill="#d8ecc9" stroke="#4a5d6b" stroke-width="1"/>
+<rect x="252.0" y="272.0" width="96.0" height="96.0" fill="#d8ecc9" stroke="#4a5d6b" stroke-width="1"/>
+<rect x="156.0" y="176.0" width="96.0" height="96.0" fill="none" stroke="#b8692f" stroke-width="3"/>
+<text x="204.0" y="390.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#b8692f" text-anchor="middle" font-weight="bold">chunk en cours de génération</text>
+<clipPath id="mine"><rect x="156.0" y="176.0" width="96.0" height="96.0"/></clipPath>
+<clipPath id="other"><rect x="252.0" y="80" width="96.0" height="288.0"/></clipPath>
+<circle cx="240.0" cy="224.0" r="34" fill="#3f7f2a" clip-path="url(#mine)"/>
+<circle cx="240.0" cy="224.0" r="34" fill="url(#hatch)" stroke="#3f7f2a" stroke-width="2" clip-path="url(#other)"/>
+<circle cx="240.0" cy="224.0" r="5" fill="#6f4628"/>
+<text x="420.0" y="120.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">1. Les emplacements d'arbres d'une colonne ne dépendent</text>
+<text x="420.0" y="136.9" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">   que de la graine et de sa position.</text>
+<text x="420.0" y="153.8" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">2. Le chunk du milieu recalcule les arbres de ses 8 voisins</text>
+<text x="420.0" y="170.6" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">   et n'écrit que les blocs qui tombent chez lui (plein).</text>
+<text x="420.0" y="187.5" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">3. Le voisin de droite fait le même calcul et écrit</text>
+<text x="420.0" y="204.4" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">   l'autre moitié (hachurée) : aucune coupure,</text>
+<text x="420.0" y="221.2" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">   sans que les deux chunks se parlent.</text>
+<text x="420.0" y="238.1" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal"></text>
+<text x="420.0" y="255.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">Même ordre de parcours, mêmes règles des deux côtés :</text>
+<text x="420.0" y="271.9" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">un tronc remplace l'air et les feuilles ;</text>
+<text x="420.0" y="288.8" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="start" font-weight="normal">des feuilles ne remplacent que l'air.</text>
+</svg>

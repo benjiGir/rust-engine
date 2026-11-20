@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" width="960" height="400" role="img" aria-label="Réseau et extrémités">
+<title>Réseau et extrémités</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22303a"/></marker><marker id="arrowc" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8692f"/></marker><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8d9296" stroke-width="2"/></pattern></defs>
+<rect x="0.5" y="0.5" width="959" height="399" rx="14" fill="#ffffff" stroke="#d5dde2"/>
+<text x="24.0" y="34.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="18" fill="#22303a" text-anchor="start" font-weight="bold">Un réseau d'énergie</text>
+<text x="24.0" y="54.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6b75" text-anchor="start" font-weight="normal">Les câbles forment un graphe ; les machines branchées en sont les extrémités. Un seul bilan par tick.</text>
+<rect x="108.0" y="148.0" width="16.0" height="16.0" fill="#b8901e" rx="3" stroke="#22303a" stroke-width="1"/>
+<rect x="152.0" y="148.0" width="16.0" height="16.0" fill="#b8901e" rx="3" stroke="#22303a" stroke-width="1"/>
+<rect x="196.0" y="148.0" width="16.0" height="16.0" fill="#b8901e" rx="3" stroke="#22303a" stroke-width="1"/>
+<rect x="240.0" y="148.0" width="16.0" height="16.0" fill="#b8901e" rx="3" stroke="#22303a" stroke-width="1"/>
+<rect x="284.0" y="148.0" width="16.0" height="16.0" fill="#b8901e" rx="3" stroke="#22303a" stroke-width="1"/>
+<rect x="328.0" y="148.0" width="16.0" height="16.0" fill="#b8901e" rx="3" stroke="#22303a" stroke-width="1"/>
+<rect x="196.0" y="192.0" width="16.0" height="16.0" fill="#b8901e" rx="3" stroke="#22303a" stroke-width="1"/>
+<rect x="196.0" y="236.0" width="16.0" height="16.0" fill="#b8901e" rx="3" stroke="#22303a" stroke-width="1"/>
+<rect x="240.0" y="236.0" width="16.0" height="16.0" fill="#b8901e" rx="3" stroke="#22303a" stroke-width="1"/>
+<rect x="284.0" y="236.0" width="16.0" height="16.0" fill="#b8901e" rx="3" stroke="#22303a" stroke-width="1"/>
+<rect x="328.0" y="236.0" width="16.0" height="16.0" fill="#b8901e" rx="3" stroke="#22303a" stroke-width="1"/>
+<rect x="328.0" y="192.0" width="16.0" height="16.0" fill="#b8901e" rx="3" stroke="#22303a" stroke-width="1"/>
+<line x1="116.0" y1="156.0" x2="160.0" y2="156.0" stroke="#b8901e" stroke-width="5"/>
+<line x1="160.0" y1="156.0" x2="204.0" y2="156.0" stroke="#b8901e" stroke-width="5"/>
+<line x1="204.0" y1="156.0" x2="248.0" y2="156.0" stroke="#b8901e" stroke-width="5"/>
+<line x1="248.0" y1="156.0" x2="292.0" y2="156.0" stroke="#b8901e" stroke-width="5"/>
+<line x1="292.0" y1="156.0" x2="336.0" y2="156.0" stroke="#b8901e" stroke-width="5"/>
+<line x1="204.0" y1="156.0" x2="204.0" y2="200.0" stroke="#b8901e" stroke-width="5"/>
+<line x1="204.0" y1="200.0" x2="204.0" y2="244.0" stroke="#b8901e" stroke-width="5"/>
+<line x1="204.0" y1="244.0" x2="248.0" y2="244.0" stroke="#b8901e" stroke-width="5"/>
+<line x1="248.0" y1="244.0" x2="292.0" y2="244.0" stroke="#b8901e" stroke-width="5"/>
+<line x1="292.0" y1="244.0" x2="336.0" y2="244.0" stroke="#b8901e" stroke-width="5"/>
+<line x1="336.0" y1="156.0" x2="336.0" y2="200.0" stroke="#b8901e" stroke-width="5"/>
+<line x1="336.0" y1="200.0" x2="336.0" y2="244.0" stroke="#b8901e" stroke-width="5"/>
+<rect x="52.0" y="136.0" width="40.0" height="40.0" fill="#fbefc9" rx="6" stroke="#b8901e" stroke-width="2"/>
+<text x="72.0" y="157.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#b8901e" text-anchor="middle" font-weight="bold">Out</text>
+<text x="72.0" y="190.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">solaire</text>
+<rect x="184.0" y="268.0" width="40.0" height="40.0" fill="#d8ecc9" rx="6" stroke="#3f8f5a" stroke-width="2"/>
+<text x="204.0" y="289.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#3f8f5a" text-anchor="middle" font-weight="bold">Both</text>
+<text x="204.0" y="322.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">batterie</text>
+<rect x="360.0" y="136.0" width="40.0" height="40.0" fill="#f1dcc9" rx="6" stroke="#b8692f" stroke-width="2"/>
+<text x="380.0" y="157.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#b8692f" text-anchor="middle" font-weight="bold">In</text>
+<text x="380.0" y="190.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">lampe</text>
+<rect x="360.0" y="224.0" width="40.0" height="40.0" fill="#f1dcc9" rx="6" stroke="#b8692f" stroke-width="2"/>
+<text x="380.0" y="245.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#b8692f" text-anchor="middle" font-weight="bold">In</text>
+<text x="380.0" y="278.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">moteur</text>
+<rect x="140.0" y="224.0" width="40.0" height="40.0" fill="#d8ecc9" rx="6" stroke="#3f8f5a" stroke-width="2"/>
+<text x="160.0" y="245.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#3f8f5a" text-anchor="middle" font-weight="bold">Both</text>
+<text x="160.0" y="278.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10" fill="#5b6b75" text-anchor="middle" font-weight="normal">batterie</text>
+<rect x="100.0" y="140.0" width="252.0" height="120.0" fill="none" rx="10" stroke="#4a5d6b" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="100.0" y="130.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#4a5d6b" text-anchor="start" font-weight="normal">un réseau = composante connexe de câbles</text>
+<text x="480.0" y="110.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#22303a" text-anchor="start" font-weight="bold">Le bilan d'un tick, dans la limite du débit :</text>
+<rect x="480.0" y="124.0" width="440.0" height="30.0" fill="#f3f6f8" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="492.0" y="144.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">1. Producteurs (Out) → consommateurs (In), au prorata</text>
+<rect x="480.0" y="164.0" width="440.0" height="30.0" fill="#f3f6f8" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="492.0" y="184.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">2. Surplus → tampons (Both : batteries, réservoirs)</text>
+<rect x="480.0" y="204.0" width="440.0" height="30.0" fill="#f3f6f8" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="492.0" y="224.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">3. Tampons → consommateurs encore en manque</text>
+<rect x="480.0" y="244.0" width="440.0" height="30.0" fill="#f3f6f8" rx="6" stroke="#4a5d6b" stroke-width="1"/>
+<text x="492.0" y="264.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#22303a" text-anchor="start" font-weight="normal">4. Équilibrage des tampons entre eux</text>
+<text x="480.0" y="300.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="start" font-weight="normal">Le contenu ne voyage pas de câble en câble : 3 câbles ou 300,</text>
+<text x="480.0" y="316.2" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="start" font-weight="normal">tout le réseau est servi dans le même tick.</text>
+<text x="480.0" y="332.4" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="start" font-weight="normal">Poser ou casser un câble marque le réseau « sale » :</text>
+<text x="480.0" y="348.6" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="start" font-weight="normal">il est reconstruit au tick suivant (parcours en largeur).</text>
+</svg>

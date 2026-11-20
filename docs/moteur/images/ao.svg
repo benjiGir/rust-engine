@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 380" width="960" height="380" role="img" aria-label="Occlusion ambiante des coins">
+<title>Occlusion ambiante des coins</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22303a"/></marker><marker id="arrowc" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8692f"/></marker><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8d9296" stroke-width="2"/></pattern></defs>
+<rect x="0.5" y="0.5" width="959" height="379" rx="14" fill="#ffffff" stroke="#d5dde2"/>
+<text x="24.0" y="34.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="18" fill="#22303a" text-anchor="start" font-weight="bold">L'occlusion ambiante d'un coin</text>
+<text x="24.0" y="54.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6b75" text-anchor="start" font-weight="normal">On regarde les trois blocs qui touchent le coin, au-dessus de la face : deux côtés et la diagonale.</text>
+<rect x="40.0" y="100.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="86.0" y="100.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="132.0" y="100.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="40.0" y="146.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="86.0" y="146.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="132.0" y="146.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="40.0" y="192.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="86.0" y="192.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="132.0" y="192.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="86.0" y="146.0" width="46.0" height="46.0" fill="#d8ecc9" stroke="#3f8f5a" stroke-width="1.5"/>
+<circle cx="86.0" cy="146.0" r="6" fill="#b8692f" stroke="#ffffff" stroke-width="1.5"/>
+<rect x="192.0" y="146.0" width="40.0" height="40.0" fill="rgb(255,255,242)" rx="4" stroke="#22303a" stroke-width="1"/>
+<text x="212.0" y="204.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">AO = 3</text>
+<text x="109.0" y="260.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="middle" font-weight="bold">aucun</text>
+<rect x="265.0" y="100.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="311.0" y="100.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="357.0" y="100.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="265.0" y="146.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="311.0" y="146.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="357.0" y="146.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="265.0" y="192.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="311.0" y="192.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="357.0" y="192.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="311.0" y="146.0" width="46.0" height="46.0" fill="#d8ecc9" stroke="#3f8f5a" stroke-width="1.5"/>
+<rect x="265.0" y="146.0" width="46.0" height="46.0" fill="#8d9296" stroke="#22303a" stroke-width="1"/>
+<circle cx="311.0" cy="146.0" r="6" fill="#b8692f" stroke="#ffffff" stroke-width="1.5"/>
+<rect x="417.0" y="146.0" width="40.0" height="40.0" fill="rgb(208,208,197)" rx="4" stroke="#22303a" stroke-width="1"/>
+<text x="437.0" y="204.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">AO = 2</text>
+<text x="334.0" y="260.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="middle" font-weight="bold">un côté</text>
+<rect x="490.0" y="100.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="536.0" y="100.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="582.0" y="100.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="490.0" y="146.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="536.0" y="146.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="582.0" y="146.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="490.0" y="192.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="536.0" y="192.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="582.0" y="192.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="536.0" y="146.0" width="46.0" height="46.0" fill="#d8ecc9" stroke="#3f8f5a" stroke-width="1.5"/>
+<rect x="490.0" y="146.0" width="46.0" height="46.0" fill="#8d9296" stroke="#22303a" stroke-width="1"/>
+<rect x="490.0" y="100.0" width="46.0" height="46.0" fill="#8d9296" stroke="#22303a" stroke-width="1"/>
+<circle cx="536.0" cy="146.0" r="6" fill="#b8692f" stroke="#ffffff" stroke-width="1.5"/>
+<rect x="642.0" y="146.0" width="40.0" height="40.0" fill="rgb(161,161,152)" rx="4" stroke="#22303a" stroke-width="1"/>
+<text x="662.0" y="204.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">AO = 1</text>
+<text x="559.0" y="260.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="middle" font-weight="bold">côté + diagonale</text>
+<rect x="715.0" y="100.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="761.0" y="100.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="807.0" y="100.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="715.0" y="146.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="761.0" y="146.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="807.0" y="146.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="715.0" y="192.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="761.0" y="192.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="807.0" y="192.0" width="46.0" height="46.0" fill="#f3f6f8" stroke="#c9d2d8" stroke-width="1"/>
+<rect x="761.0" y="146.0" width="46.0" height="46.0" fill="#d8ecc9" stroke="#3f8f5a" stroke-width="1.5"/>
+<rect x="715.0" y="146.0" width="46.0" height="46.0" fill="#8d9296" stroke="#22303a" stroke-width="1"/>
+<rect x="761.0" y="100.0" width="46.0" height="46.0" fill="#8d9296" stroke="#22303a" stroke-width="1"/>
+<circle cx="761.0" cy="146.0" r="6" fill="#b8692f" stroke="#ffffff" stroke-width="1.5"/>
+<rect x="867.0" y="146.0" width="40.0" height="40.0" fill="rgb(114,114,108)" rx="4" stroke="#22303a" stroke-width="1"/>
+<text x="887.0" y="204.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#22303a" text-anchor="middle" font-weight="bold">AO = 0</text>
+<text x="784.0" y="260.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#22303a" text-anchor="middle" font-weight="bold">deux côtés</text>
+<text x="40.0" y="300.0" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="start" font-weight="normal">AO = 3 − (côté₁ + côté₂ + diagonale), et 0 si les deux côtés sont pleins (le coin est enfermé).</text>
+<text x="40.0" y="316.2" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="start" font-weight="normal">Le shader multiplie la lumière par 0,45 + 0,55 × AO / 3 : un coin enfermé descend à 45 %.</text>
+<text x="40.0" y="332.4" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#5b6b75" text-anchor="start" font-weight="normal">La lumière douce fait la moyenne des 4 cellules d'air autour du coin, sur le même principe.</text>
+</svg>
