@@ -25,100 +25,6 @@ impl VoxelGame {
         self.place_at_target();
         true
     }
-    pub(crate) fn handle_keys(&mut self, ctx: &Context) {
-        let input = &ctx.input;
-        if self.mouse_captured
-            && !self.ui.inventory_open
-            && input.key_pressed(self.settings.keys.key(Action::Drop))
-        {
-            self.throw_selected();
-        }
-        // Le sac à dos : la même touche l'ouvre (le premier sac de l'inventaire) et le referme.
-        if input.key_pressed(self.settings.keys.key(Action::Backpack))
-            && !self.ui.ctx.egui_wants_keyboard_input()
-        {
-            if self.ui.inventory_open && matches!(self.ui.screen, ui::Screen::Bag(_)) {
-                self.close_screen();
-            } else if self.mouse_captured && !self.ui.inventory_open {
-                self.open_first_bag();
-            }
-        }
-        // Les paliers du monde : la même touche ouvre l'écran et le referme.
-        if input.key_pressed(self.settings.keys.key(Action::Tiers))
-            && !self.ui.ctx.egui_wants_keyboard_input()
-        {
-            self.toggle_tiers_screen();
-        }
-        // Le livre de quêtes : la même touche l'ouvre et le referme.
-        if input.key_pressed(self.settings.keys.key(Action::Quests))
-            && !self.ui.ctx.egui_wants_keyboard_input()
-        {
-            self.toggle_quests_screen();
-        }
-        if input.key_pressed(self.settings.keys.key(Action::Time)) {
-            self.day.cycle_speed();
-            log::info!("temps {} ({})", self.day.speed.name(), self.day.clock());
-        }
-        if input.key_pressed(self.settings.keys.key(Action::Fly)) {
-            player::toggle_mode(&mut self.ecs, self.players.entity());
-            log::info!(
-                "mode {}",
-                player::mode(&self.ecs, self.players.entity()).name()
-            );
-        }
-        for (i, key) in HOTBAR_KEYS.iter().enumerate() {
-            if input.key_pressed(*key) {
-                self.players.me_mut().inventory.selected = i;
-            }
-        }
-        if input.key_pressed(KeyCode::F3) {
-            self.ui.inspector_open = !self.ui.inspector_open;
-        }
-        if input.key_pressed(KeyCode::F4) {
-            self.hand.visible = !self.hand.visible;
-        }
-        if input.key_pressed(KeyCode::F1) {
-            let mesher = self.streamer().config().mesher.other();
-            log::info!("maillage {} : on remaille tout", mesher.name());
-            self.streamer_mut().set_mesher(mesher);
-        }
-        if input.key_pressed(KeyCode::F6) {
-            self.toggle_cave_culling();
-        }
-        if input.key_pressed(KeyCode::F2) {
-            self.renderer.frustum_culling = !self.renderer.frustum_culling;
-            let state = if self.renderer.frustum_culling {
-                "activé"
-            } else {
-                "désactivé"
-            };
-            log::info!("frustum culling {state}");
-        }
-    }
-
-    /// Jette un exemplaire en conservant son usure et son enchantement.
-    pub(crate) fn throw_selected(&mut self) {
-        let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
-            return;
-        };
-        let direction = self.camera.forward();
-        let center = self.camera.position + direction * 0.45;
-        if self.streamer().world().is_solid(center.floor().as_ivec3()) {
-            return;
-        }
-        self.players.me_mut().inventory.consume_selected();
-        let seed = self.next_random();
-        let entity = drops::spawn(
-            &mut self.ecs,
-            inventory::ItemStack { count: 1, ..stack },
-            center,
-            seed,
-        );
-        if let Some(mut velocity) = self.ecs.get_mut::<components::Velocity>(entity) {
-            velocity.0 = direction * 3.5 + Vec3::Y;
-        }
-        self.hand.punch();
-    }
 
     /// Pose le bloc de la case choisie contre la face visée. Renvoie sa position si c'est fait.
     /// Une flèche sur le bloc visé s'il est orienté (piston, inverseur, répéteur) : une barre
@@ -188,11 +94,12 @@ impl VoxelGame {
         let Some(full) = items.id("core:water_flask") else {
             return;
         };
+        let aim = self.aim();
         let water = {
             let streamer = self.streamer();
             (1..(self.players.me().gear.reach() * 10.0) as i32)
                 .map(|k| {
-                    (self.camera.position + self.camera.forward() * (k as f32 * 0.1))
+                    (aim.eye + aim.forward * (k as f32 * 0.1))
                         .floor()
                         .as_ivec3()
                 })
@@ -265,24 +172,20 @@ impl VoxelGame {
 
     /// Un clic droit sur un habitant : l'écran d'échange.
     pub(crate) fn trade_with_villager(&mut self) -> bool {
-        let block_distance = self
-            .target
-            .map_or(self.players.me_mut().gear.reach(), |hit| hit.distance);
-        let Some((mob, _)) = mobs::hit_mob(
-            &self.ecs,
-            self.camera.position,
-            self.camera.forward(),
-            block_distance,
-        ) else {
+        let Some(mob) = self.aim().mob else {
             return false;
         };
         let key = self.mob_key(mob);
         if !key.as_deref().is_some_and(|k| self.trades.trades(k)) {
             return false;
         }
-        self.ui.screen = ui::Screen::Trade(mob);
-        self.ui.trade_selected = 0;
-        self.ui.inventory_open = true;
+        // L'écran d'échange ne s'ouvre que devant le joueur de la fenêtre (il devient une vue au
+        // lot 3).
+        if self.players.current_is_local() {
+            self.ui.screen = ui::Screen::Trade(mob);
+            self.ui.trade_selected = 0;
+            self.ui.inventory_open = true;
+        }
         true
     }
 
@@ -301,26 +204,15 @@ impl VoxelGame {
         self.forget_mod_menu();
         self.ui.browser.close();
         self.ui.split = None;
-        let loose = self
-            .players
-            .me_mut()
-            .inventory
-            .put_away(&self.content.items);
-        let at = player::body(&self.ecs, self.players.entity())
-            .position
-            .floor()
-            .as_ivec3()
-            + IVec3::Y;
-        for stack in loose {
-            self.drop_stack(at, stack);
-        }
+        // Le simulateur range la main et la grille d'artisanat (voir `intents.rs`).
+        self.send_now(crate::protocol::ClientMsg::CloseMenu);
         self.ui.inventory_open = false;
         self.ui.screen = ui::Screen::Inventory;
     }
 
     /// Un clic droit sur un levier, un bouton ou un répéteur.
     pub(crate) fn use_machine(&mut self) -> bool {
-        let Some(hit) = self.target else {
+        let Some(hit) = self.aim().hit else {
             return false;
         };
         let block = self.streamer().world().block(hit.block_pos);
@@ -353,15 +245,7 @@ impl VoxelGame {
         let Some(item) = self.players.me_mut().inventory.selected_item() else {
             return false;
         };
-        let block_distance = self
-            .target
-            .map_or(self.players.me_mut().gear.reach(), |hit| hit.distance);
-        let Some((mob, _)) = mobs::hit_mob(
-            &self.ecs,
-            self.camera.position,
-            self.camera.forward(),
-            block_distance,
-        ) else {
+        let Some(mob) = self.aim().mob else {
             return false;
         };
         let key = self.content.items.get(item).key.clone();
@@ -384,7 +268,7 @@ impl VoxelGame {
         if self.content.items.get(item).key != "core:fertilizer" {
             return false;
         }
-        let Some(hit) = self.target else {
+        let Some(hit) = self.aim().hit else {
             return false;
         };
         let block = self.streamer().world().block(hit.block_pos);
@@ -411,7 +295,7 @@ impl VoxelGame {
         {
             return false;
         }
-        let Some(hit) = self.target else {
+        let Some(hit) = self.aim().hit else {
             return false;
         };
         // On ne laboure que par le dessus du bloc.

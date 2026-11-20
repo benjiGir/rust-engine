@@ -37,16 +37,11 @@ impl VoxelGame {
 
     /// Le wagon visé, s'il est plus près que le bloc visé.
     pub(crate) fn aimed_cart(&self) -> Option<Entity> {
-        let block_distance = self
-            .target
+        let aim = self.aim();
+        let block_distance = aim
+            .hit
             .map_or(self.players.me().gear.reach(), |hit| hit.distance);
-        carts::hit_cart(
-            &self.ecs,
-            self.camera.position,
-            self.camera.forward(),
-            block_distance,
-        )
-        .map(|(e, _)| e)
+        carts::hit_cart(&self.ecs, aim.eye, aim.forward, block_distance).map(|(e, _)| e)
     }
 
     /// Un clic droit : poser un wagon sur un rail, atteler, monter ou ouvrir un wagon.
@@ -69,15 +64,15 @@ impl VoxelGame {
         if kind == CartKind::Minecart {
             self.ride(entity)
         } else {
-            self.ui.screen = ui::Screen::Cart(entity);
-            self.ui.inventory_open = true;
+            self.open_container_screen(ui::Screen::Cart(entity));
             true
         }
     }
 
     /// Pose le wagon tenu sur le rail visé.
     fn place_cart(&mut self, kind: CartKind) -> bool {
-        let Some(hit) = self.target else {
+        let aim = self.aim();
+        let Some(hit) = aim.hit else {
             return false;
         };
         if rail_at(&*self.streamer(), hit.block_pos).is_none() {
@@ -93,7 +88,7 @@ impl VoxelGame {
             self.toast("Un wagon est déjà là");
             return false;
         }
-        let look = self.camera.forward();
+        let look = aim.forward;
         if carts::place(&mut self.ecs, kind, hit.block_pos, look).is_none() {
             return false;
         }

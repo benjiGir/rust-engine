@@ -19,11 +19,12 @@ use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, bail};
 use crossbeam_channel::{Receiver, Sender};
-use engine_core::Context;
 use engine_voxel::BlockId;
 use glam::{IVec3, Vec3};
 
+use crate::intents::Outcome;
 use crate::player::{self, MoveMode, SPRINT_SPEED, WALK_SPEED};
+use crate::protocol::{ClientMsg, EntityRef};
 use crate::{Mode, VoxelGame};
 
 /// Le port par défaut (`VOXEL_CONTROL=1`).
@@ -33,7 +34,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-36 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin|select|ui|view|close ... | questpin id | screen quests [chapitre] | shape forme [n|all] | rebuild [all] | shaping | pieces x y z | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hold left|right|off | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin|select|ui|view|close ... | questpin id | screen quests [chapitre] | shape forme [n|all] | rebuild [all] | shaping | pieces x y z | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -180,8 +181,12 @@ pub enum Command {
     /// Un coup au joueur (armure et invulnérabilité comprises).
     /// Dégâts, et les points d'armure que ce coup contourne (perforation).
     Damage(f32, f32),
-    /// Manger tout de suite l'aliment tenu.
+    /// Manger l'aliment tenu : le bouton de repas est tenu le temps d'un repas (1,6 s de jeu).
     Eat,
+    /// Tenir un bouton de la souris sur ce qui est visé, comme si la souris était capturée :
+    /// `Some(false)` le gauche (miner, frapper), `Some(true)` le droit (utiliser, manger) ;
+    /// `None` les lâche.
+    Hold(Option<bool>),
     /// Les créatures proches : type, position, vie.
     Mobs,
     /// Frapper la créature (ou le wagon) visée (comme un clic gauche).
@@ -493,6 +498,15 @@ pub fn parse(line: &str) -> Result<Command> {
             })?)
         }
         "eat" => Command::Eat,
+        "hold" => {
+            count(&[1])?;
+            match args[0] {
+                "left" => Command::Hold(Some(false)),
+                "right" => Command::Hold(Some(true)),
+                "off" => Command::Hold(None),
+                other => bail!("hold : left, right ou off (pas « {other} »)"),
+            }
+        }
         "mobs" => Command::Mobs,
         "attack" => Command::Attack,
         "swing" => Command::Swing,
@@ -644,6 +658,19 @@ pub struct Remote {
     walk: Option<Walk>,
     /// Les `wait` en cours : le temps de jeu restant, et à qui répondre.
     waits: Vec<(f32, Request)>,
+    /// `eat` : le temps de jeu qu'il reste avant de lâcher le bouton de repas.
+    eat_release: Option<f32>,
+    /// `hold` : les boutons de la souris tenus par la commande.
+    pub(crate) hold: Option<Hold>,
+}
+
+/// Les boutons que `hold` tient.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Hold {
+    pub left: bool,
+    pub right: bool,
+    /// Le premier tour : le bouton vient d'être pressé (un clic, pas seulement tenu).
+    pub fresh: bool,
 }
 
 impl VoxelGame {
@@ -670,6 +697,13 @@ impl VoxelGame {
 
     /// Fait avancer les `wait` : ceux qui sont écoulés répondent avec l'état du jeu.
     pub(crate) fn update_remote(&mut self, dt: f32) {
+        if let Some(left) = &mut self.remote.eat_release {
+            *left -= dt;
+            if *left <= 0.0 {
+                self.remote.eat_release = None;
+                self.send_now(ClientMsg::Eat { held: false });
+            }
+        }
         if self.remote.waits.is_empty() {
             return;
         }
@@ -686,7 +720,7 @@ impl VoxelGame {
     }
 
     /// Exécute une commande et y répond (tout de suite, sauf `wait`).
-    pub(crate) fn run_command(&mut self, ctx: &mut Context, request: Request) {
+    pub(crate) fn run_command(&mut self, request: Request) {
         let _span = engine_trace::span("commande");
         log::debug!("commande : {}", request.line);
         let command = match parse(&request.line) {
@@ -697,14 +731,183 @@ impl VoxelGame {
             self.remote.waits.push((seconds, request));
             return;
         }
-        let json = match self.execute(ctx, command) {
+        let json = match self.execute(command) {
             Ok(json) => json,
             Err(err) => error(&format!("{err:#}")),
         };
         request.reply(json);
     }
 
-    pub(crate) fn execute(&mut self, ctx: &mut Context, command: Command) -> Result<String> {
+    /// Exécute une commande. Celles qui simulent le joueur (`use`, `attack`, `select`, `eat`,
+    /// `respawn`, `throw`, `place` sans coordonnées) fabriquent les mêmes messages que ses entrées ;
+    /// `break` et `place x y z bloc` passent par la console (`Command`), comme `/give` ou `/tp`.
+    pub(crate) fn execute(&mut self, command: Command) -> Result<String> {
+        match command {
+            Command::Break(pos) => {
+                let pos = match pos {
+                    Some(pos) => pos,
+                    None => self.aimed()?.block_pos,
+                };
+                self.through_console(format!("break {} {} {}", pos.x, pos.y, pos.z))
+            }
+            Command::Place(Some((pos, key))) => {
+                self.through_console(format!("place {} {} {} {key}", pos.x, pos.y, pos.z))
+            }
+            Command::Place(None) => {
+                self.require_playing("place")?;
+                self.outcome = Outcome::Nothing;
+                let aim = self.body_aim();
+                self.send_now(ClientMsg::Use {
+                    aim,
+                    sneaking: false,
+                });
+                match self.outcome {
+                    Outcome::Placed(pos) => Ok(format!("{{\"ok\":true,\"pos\":{}}}", ivec3(pos))),
+                    Outcome::Nothing => {
+                        bail!("place : impossible ici (rien en main, pas de place, pas de support)")
+                    }
+                    _ => Ok("{\"ok\":true,\"used\":true}".to_string()),
+                }
+            }
+            Command::Use => {
+                self.require_playing("use")?;
+                self.outcome = Outcome::Nothing;
+                let aim = self.body_aim();
+                self.send_now(ClientMsg::Use {
+                    aim,
+                    sneaking: false,
+                });
+                match self.outcome {
+                    Outcome::Placed(pos) => {
+                        Ok(format!("{{\"ok\":true,\"placed\":{}}}", ivec3(pos)))
+                    }
+                    Outcome::Nothing => bail!("use : rien à faire ici"),
+                    _ => Ok(ok()),
+                }
+            }
+            Command::Attack => {
+                self.require_playing("attack")?;
+                let aim = self.body_aim();
+                // Ce que le client dit viser : la créature, sinon le wagon, sous le regard.
+                let claimed = self.claimed_target(aim);
+                let entity =
+                    claimed.context("attack : aucune créature ni aucun wagon visé à portée")?;
+                self.outcome = Outcome::Nothing;
+                self.send_now(ClientMsg::Attack {
+                    aim,
+                    entity: EntityRef::new(entity),
+                });
+                match self.outcome {
+                    Outcome::Struck(strike) => Ok(format!(
+                        "{{\"ok\":true,\"damage\":{:.1},\"crit\":{},\"healed\":{:.2}}}",
+                        strike.damage, strike.crit, strike.healed
+                    )),
+                    Outcome::Punched => Ok(ok()),
+                    _ => bail!("attack : la créature vient d'être frappée (invulnérable)"),
+                }
+            }
+            Command::Select(slot) => {
+                self.require_playing("select")?;
+                self.send_now(ClientMsg::SelectSlot(slot.min(usize::from(u8::MAX)) as u8));
+                Ok(self.state_json())
+            }
+            Command::Eat => {
+                self.require_playing("eat")?;
+                // L'aliment en main, sinon le premier de l'inventaire.
+                let items = &self.content.items;
+                let is_food = |slot: &Option<crate::inventory::ItemStack>| {
+                    slot.is_some_and(|s| items.get(s.item).food.is_some())
+                };
+                let inventory = &self.players.me().inventory;
+                let index = if is_food(&inventory.slots[inventory.selected]) {
+                    inventory.selected
+                } else {
+                    inventory
+                        .slots
+                        .iter()
+                        .position(is_food)
+                        .context("eat : aucun aliment dans l'inventaire")?
+                };
+                if !self.players.me().hunger.hungry(&self.hunger_rules) {
+                    bail!("eat : rassasié");
+                }
+                if index != self.players.me().inventory.selected {
+                    self.send_now(ClientMsg::SelectSlot(index as u8));
+                }
+                self.send_now(ClientMsg::Eat { held: true });
+                // Le bouton reste tenu le temps d'un repas, puis il est lâché (`update_remote`).
+                self.remote.eat_release = Some(self.hunger_rules.eat_time + 0.15);
+                Ok(self.state_json())
+            }
+            Command::Hold(button) => {
+                self.require_playing("hold")?;
+                self.remote.hold = button.map(|right| Hold {
+                    left: !right,
+                    right,
+                    fresh: true,
+                });
+                Ok(ok())
+            }
+            Command::Respawn => {
+                if !matches!(self.mode, Mode::Dead(_)) {
+                    bail!("respawn : le joueur n'est pas mort");
+                }
+                self.send_now(ClientMsg::Respawn);
+                Ok(self.state_json())
+            }
+            Command::Swing => {
+                self.require_playing("swing")?;
+                self.hand.punch();
+                Ok(ok())
+            }
+            other => self.execute_inner(other),
+        }
+    }
+
+    /// Une ligne de console envoyée au simulateur dans un message `Command` ; la réponse JSON de la
+    /// commande revient par `command_reply`.
+    fn through_console(&mut self, line: String) -> Result<String> {
+        self.require_playing(line.split_whitespace().next().unwrap_or("commande"))?;
+        self.command_reply = None;
+        self.send_now(ClientMsg::Command(line));
+        self.command_reply
+            .take()
+            .and_then(|reply| reply.json)
+            .unwrap_or_else(|| Err(anyhow::anyhow!("la commande n'a pas répondu")))
+    }
+
+    fn require_playing(&self, name: &str) -> Result<()> {
+        if self.mode != Mode::Playing {
+            bail!(
+                "{name} : pas en jeu (menu ou pause) : lancer un monde, par exemple avec VOXEL_WORLD"
+            );
+        }
+        Ok(())
+    }
+
+    /// Ce que le regard désigne pour un coup : la créature, sinon le wagon, plus près que le bloc.
+    fn claimed_target(&self, aim: crate::protocol::Aim) -> Option<engine_ecs::Entity> {
+        let acting = self.resolve_aim(self.players.local_id(), aim)?;
+        let block_distance = acting
+            .hit
+            .map_or(self.players.me().gear.reach(), |h| h.distance);
+        acting.mob.or_else(|| {
+            crate::carts::hit_cart(&self.ecs, acting.eye, acting.forward, block_distance)
+                .map(|(entity, _)| entity)
+        })
+    }
+
+    /// Les commandes de la console : `break` et `place x y z bloc` s'exécutent ici, les autres
+    /// comme depuis `ctl`.
+    pub(crate) fn execute_from_console(&mut self, command: Command) -> Result<String> {
+        match command {
+            Command::Break(_) | Command::Place(Some(_)) => self.execute_inner(command),
+            other => self.execute(other),
+        }
+    }
+
+    /// Les commandes qui ne simulent pas une entrée du joueur (et celles de la console).
+    pub(crate) fn execute_inner(&mut self, command: Command) -> Result<String> {
         let playing = self.mode == Mode::Playing;
         let needs_world = !matches!(
             command,
@@ -739,6 +942,7 @@ impl VoxelGame {
                     self.players.entity(),
                     feet + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT,
                 );
+                self.forget_last_move();
                 Ok(self.state_json())
             }
             Command::Look(yaw, pitch) => {
@@ -806,13 +1010,6 @@ impl VoxelGame {
                     ivec3(pos)
                 ))
             }
-            Command::Place(None) => {
-                self.aimed()?;
-                let pos = self.place_at_target().context(
-                    "place : impossible ici (rien en main, pas de place, pas de support)",
-                )?;
-                Ok(format!("{{\"ok\":true,\"pos\":{}}}", ivec3(pos)))
-            }
             Command::Place(Some((pos, key))) => {
                 let block = self
                     .registry
@@ -870,18 +1067,6 @@ impl VoxelGame {
                     "{{\"ok\":true,\"given\":{},\"full\":{left}}}",
                     amount - left
                 ))
-            }
-            Command::Select(slot) => {
-                // Pour les essais : une case hors de la barre peut être tenue en main.
-                self.players.me_mut().inventory.selected = slot.min(
-                    self.players
-                        .me_mut()
-                        .inventory
-                        .slots
-                        .len()
-                        .saturating_sub(1),
-                );
-                Ok(self.state_json())
             }
             Command::Inventory => {
                 let items = &self.content.items;
@@ -1156,23 +1341,6 @@ impl VoxelGame {
                 let list: Vec<String> = mobs.into_iter().take(20).map(|(_, m)| m).collect();
                 Ok(format!("{{\"ok\":true,\"mobs\":[{}]}}", list.join(",")))
             }
-            Command::Use => {
-                if self.use_cart() || self.use_charm() || self.use_guide() {
-                    return Ok(ok());
-                }
-                let hit = self.aimed()?;
-                if self.use_door(hit.block_pos) {
-                    return Ok(ok());
-                }
-                if self.use_bed(hit.block_pos) {
-                    return Ok(self.state_json());
-                }
-                if self.open_container() || self.use_machine() || self.use_mod_item() {
-                    return Ok(ok());
-                }
-                let pos = self.place_at_target().context("use : rien à faire ici")?;
-                Ok(format!("{{\"ok\":true,\"placed\":{}}}", ivec3(pos)))
-            }
             Command::Summon(key) => {
                 let kind = self
                     .ecs
@@ -1300,81 +1468,6 @@ impl VoxelGame {
                 self.ui.options_events.push((kind, id, value));
                 Ok(ok())
             }
-            Command::Respawn => {
-                if !matches!(self.mode, Mode::Dead(_)) {
-                    bail!("respawn : le joueur n'est pas mort");
-                }
-                self.respawn();
-                Ok(self.state_json())
-            }
-            Command::Attack => {
-                let eye = player::eye(&self.ecs, self.players.entity(), 1.0);
-                let forward = self.camera.forward();
-                // Un wagon visé : un coup (le second le casse).
-                if crate::mobs::hit_mob(&self.ecs, eye, forward, self.players.me_mut().gear.reach())
-                    .is_none()
-                    && self.punch_cart()
-                {
-                    return Ok(ok());
-                }
-                let (mob, _) = crate::mobs::hit_mob(
-                    &self.ecs,
-                    eye,
-                    forward,
-                    self.players.me_mut().gear.reach(),
-                )
-                .context("attack : aucune créature ni aucun wagon visé à portée")?;
-                let strike = self
-                    .strike_mob(mob, forward)
-                    .context("attack : la créature vient d'être frappée (invulnérable)")?;
-                self.exert(self.hunger_rules.attack);
-                Ok(format!(
-                    "{{\"ok\":true,\"damage\":{:.1},\"crit\":{},\"healed\":{:.2}}}",
-                    strike.damage, strike.crit, strike.healed
-                ))
-            }
-            Command::Swing => {
-                self.hand.punch();
-                Ok(ok())
-            }
-            Command::Eat => {
-                // L'aliment en main, sinon le premier de l'inventaire.
-                let items = &self.content.items;
-                let is_food = |slot: &Option<crate::inventory::ItemStack>| {
-                    slot.is_some_and(|s| items.get(s.item).food.is_some())
-                };
-                let index = if is_food(
-                    &self.players.me().inventory.slots[self.players.me().inventory.selected],
-                ) {
-                    self.players.me_mut().inventory.selected
-                } else {
-                    self.players
-                        .me_mut()
-                        .inventory
-                        .slots
-                        .iter()
-                        .position(is_food)
-                        .context("eat : aucun aliment dans l'inventaire")?
-                };
-                if !self.players.me_mut().hunger.hungry(&self.hunger_rules) {
-                    bail!("eat : rassasié");
-                }
-                let slot = &mut self.players.me_mut().inventory.slots[index];
-                let Some(stack) = slot.as_mut() else {
-                    bail!("eat : case vide");
-                };
-                let food = items.get(stack.item).food.context("eat : pas un aliment")?;
-                stack.count -= 1;
-                if stack.count == 0 {
-                    *slot = None;
-                }
-                self.players.me_mut().hunger.eat(
-                    &self.hunger_rules,
-                    food.nutrition,
-                    food.saturation,
-                );
-                Ok(self.state_json())
-            }
             Command::Hunger(food) => {
                 self.players.me_mut().hunger.food = food.clamp(0.0, self.hunger_rules.max_food);
                 self.players.me_mut().hunger.saturation = self
@@ -1407,8 +1500,18 @@ impl VoxelGame {
                     capture.height
                 ))
             }
+            // Ces commandes simulent le joueur : `execute` les envoie en messages.
+            Command::Use
+            | Command::Attack
+            | Command::Select(_)
+            | Command::Eat
+            | Command::Hold(_)
+            | Command::Respawn
+            | Command::Swing
+            | Command::Place(None) => unreachable!("routées par `execute`"),
             Command::Quit => {
-                ctx.exit();
+                // L'application se ferme à la fin de l'image (voir `update`).
+                self.quit_at = Some(std::time::Instant::now());
                 Ok(ok())
             }
         }

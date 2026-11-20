@@ -287,6 +287,93 @@ persistance, sans fenêtre.
 - En solo, les messages sont appliqués **dans la même image** : aucun changement de ressenti.
 - `ctl` passe par les mêmes intentions. C'est un bon test : chaque commande d'action devient un message.
 
+#### Le lot 2 en détail (après le lot 1, `8e11220`)
+
+État du code :
+- `VoxelGame::update` (`main.rs` ~1 000-1 140) lit la souris et enchaîne directement les actions.
+  - Clic gauche : `hit_mob`, `strike_mob`, `punch_cart`, `mine(dt)`.
+  - Clic droit : `use_cart`, `use_ship`, `place_conduit_first`, `use_assembler`, `use_door`, `use_bed`, `open_container`,
+    `use_machine`, `trade_with_villager`, `feed_mob`, `use_hoe`, `use_fertilizer`, `use_charm`, `use_guide`,
+    `use_mod_item`, `place_at_target`.
+  - Bouton droit tenu : `update_eating`.
+- Toutes ces fonctions lisent `self.target` (le rayon de la fenêtre) et `self.camera`.
+- `main.rs` fait 2 481 lignes : ce lot doit **en sortir** du code, pas en ajouter.
+
+**Portée.** Ce lot couvre les actions **dans le monde** et les **clics de cases** de l'inventaire et des conteneurs.
+Les boutons des écrans (forge, enchantement, quêtes, guide, aventure, établi de taille...) restent en l'état : ils
+deviendront des vues au lot 3.
+
+**2a. Le protocole**
+
+- `games/voxel/src/protocol.rs` définit `ClientMsg`, avec `Serialize`/`Deserialize` pour être prêt pour `postcard` au lot 5.
+- Les variantes :
+  - `Move { position, velocity, yaw, pitch, on_ground, mode, step }` ;
+  - `Dig { phase: Start | Abort | Finish, pos, face }` ;
+  - `Attack { entity }` ;
+  - `Use { hand_held: bool, sneaking: bool }` (le clic droit) ;
+  - `Eat { held: bool }` ;
+  - `SelectSlot(u8)`, `Drop { all: bool }` ;
+  - `SlotClick { container, slot, button, shift }` ;
+  - `CloseMenu`, `Chat(String)`, `Command(String)`, `Respawn`.
+- Chaque message d'action porte la **visée** : `Aim { eye: Vec3, forward: Vec3 }`.
+- Le serveur **refait lui-même le lancer de rayon** à partir de `eye` et `forward` sur son monde. Il ne croit jamais un
+  bloc ou une créature que le client dirait viser. En solo, le résultat est le même que `self.target`.
+- `eye` est refusé s'il est à plus de 1,5 bloc de l'œil du joueur côté serveur.
+- Une entité est désignée par `EntityRef(u64)` (`Entity::to_bits`). Un identifiant réseau stable viendra au lot 3.
+
+**2b. Le côté qui agit : `handle(player, msg)`**
+
+- Un module `games/voxel/src/intents.rs` (ou `intents/`) contient `VoxelGame::handle(&mut self, player: PlayerId,
+  msg: ClientMsg)`.
+- Pendant le traitement, une **visée d'action** `self.acting: Option<ActingAim { player, eye, forward, hit: Option<RayHit>,
+  mob: Option<Entity> }>` remplace `self.target` et `self.camera` dans les fonctions `use_*`, `mine`, `strike_mob`,
+  `place_at_target`, etc. On fait passer ces fonctions par un accesseur (`self.aim()`), qui rend la visée d'action si elle
+  existe, sinon celle de la fenêtre.
+- L'état touché est celui de `self.players.get(player)`, jamais `me()` en dur, dans tout ce qui est appelé depuis `handle`.
+- **Minage**, comme Minecraft :
+  - le client fait avancer la fissure et le son localement (prédiction, même ressenti qu'aujourd'hui) ;
+  - il envoie `Dig Start`, puis `Finish` quand la fissure est complète ;
+  - le serveur accepte `Finish` si le bloc est le même qu'au `Start`, à portée, et si au moins 70 % du temps de minage
+    théorique s'est écoulé (en ticks fixes) ; sinon il refuse et renvoie l'état du bloc (au lot 3 ; ici un log).
+  - Le mode créatif ou le minage instantané passe directement.
+- **Mouvement** : la physique du joueur local reste où elle est. `Move` est contrôlé par `movement_check` (fonction pure,
+  testée) :
+  - vitesse horizontale au plus celle du mode, avec sprint, effets et marge ;
+  - pas de traversée d'un bloc plein entre deux positions ;
+  - chute ou vol selon le mode.
+
+  Un refus produit un `ServerMsg::Correct { position }` (le type `ServerMsg` est créé ici avec seulement `Correct`), que le
+  client applique. En solo, `Move` n'est vérifié que quand la variable `VOXEL_CHECK_MOVES=1` est mise, pour ne rien coûter
+  ni rien changer par défaut, et les tests l'appellent directement.
+- `SlotClick` passe par la logique existante (`inventory::click_slot`) sur l'inventaire du joueur `player` et sur le
+  conteneur ouvert **par ce joueur** : le conteneur ouvert passe dans `PlayerState`.
+
+**2c. Le côté qui lit les entrées**
+
+- Un nouveau module `games/voxel/src/play_input.rs` reçoit la chaîne d'entrées de `update` (souris, touches de la barre,
+  manger, jeter). Il ne fait plus que **fabriquer des messages** dans `self.outbox`.
+- `update` vide ensuite la file **dans la même image** : `for msg in outbox { self.handle(local, msg) }`. Aucun délai,
+  même ressenti.
+- Les retours locaux immédiats (bras qui frappe, son de coup, fissure) restent du côté client, déclenchés à l'envoi.
+- Les écrans egui qui déplacent des objets entre des cases (inventaire, coffre, sac, four) envoient `SlotClick` au lieu
+  d'appeler `click_slot` directement. Les autres écrans ne changent pas dans ce lot.
+- `ctl` : `break`, `place`, `use`, `attack`, `select`, `eat` et `respawn` passent par `ClientMsg` et `handle`, pas par un
+  chemin à part.
+
+**Tests**
+
+- `movement_check` : marche, sprint, vol, téléportation refusée, mur traversé refusé, chute acceptée.
+- Minage : `Finish` trop tôt refusé, à temps accepté, bloc changé entre-temps refusé, hors de portée refusé.
+- `handle` pour un **deuxième joueur** dans un test sans fenêtre, si `VoxelGame` peut s'en passer. Sinon, testez les
+  fonctions pures qu'il appelle, et dites-le.
+- Les tests existants passent sans changement.
+
+**Vérification en jeu**
+- monde `multitest` : casser, poser, coffre (déposer et prendre), porte, manger, frapper une créature, jeter un objet,
+  inventaire ;
+- les mêmes actions par `ctl` ;
+- `VOXEL_CHECK_MOVES=1` : marcher, sprinter, voler et tomber ne déclenchent aucune correction.
+
 ### Lot 3 : le client ne lit plus que ce qu'on lui envoie
 
 - **`ClientWorld`** : la réplique des chunks reçus. Le maillage, le terrain lointain, la visée (lancer de

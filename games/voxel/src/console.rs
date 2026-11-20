@@ -4,7 +4,7 @@
 //! Les commandes viennent de trois endroits :
 //! - **celles de la console** : `/help` (la liste) et `/mods` (ce que consomme chaque mod) ;
 //! - **celles du jeu**, les mêmes que `cargo xtask ctl` : `/give`, `/time`, `/weather`,
-//!   `/summon`, `/tp`, `/xp` ;
+//!   `/summon`, `/tp`, `/xp`, `/break`, `/place` ;
 //! - **celles des mods** : un script déclare `/nom` avec `register_command` et répond dans
 //!   `Mod::command`. Si deux mods ont la même commande, `/mod:nom` désigne la bonne.
 
@@ -17,6 +17,8 @@ use engine_render::egui::{self, Color32, RichText};
 
 use crate::VoxelGame;
 use crate::control;
+use crate::intents::CommandReply;
+use crate::protocol::ClientMsg;
 use crate::ui::Screen;
 
 /// Les lignes gardées, et combien de temps elles restent affichées console fermée.
@@ -52,6 +54,16 @@ const GAME_COMMANDS: &[(&str, &str, &str)] = &[
         "/travel <dimension> : changer de dimension (le monde est rechargé)",
     ),
     ("xp", "xp", "/xp <points> : gagner de l'expérience"),
+    (
+        "break",
+        "break",
+        "/break <x> <y> <z> : casser un bloc, sans visée ni délai",
+    ),
+    (
+        "place",
+        "place",
+        "/place <x> <y> <z> <bloc> : poser un bloc, sans visée",
+    ),
 ];
 
 #[derive(Debug, Default)]
@@ -88,7 +100,7 @@ impl VoxelGame {
             self.open_console();
         }
         for line in std::mem::take(&mut self.ui.console.submitted) {
-            self.run_console_line(ctx, &line);
+            self.run_console_line(&line);
         }
     }
 
@@ -103,21 +115,29 @@ impl VoxelGame {
         }
     }
 
-    /// Exécute une ligne : `/commande arguments` (la barre oblique est facultative).
-    pub(crate) fn run_console_line(&mut self, ctx: &mut Context, line: &str) {
+    /// Exécute une ligne : `/commande arguments` (la barre oblique est facultative). La ligne part
+    /// au simulateur dans un message `Command` ; la console affiche l'écho et la réponse.
+    pub(crate) fn run_console_line(&mut self, line: &str) {
         let line = line.trim().trim_start_matches('/').trim();
         if line.is_empty() {
             return;
         }
         self.chat(&format!("> /{line}"));
-        let (name, args) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
-        let (name, args) = (name.to_lowercase(), args.trim());
-        let reply = match name.as_str() {
-            "help" => self.console_help(),
-            "mods" => self.console_mods(),
-            _ => self.console_command(ctx, &name, args),
-        };
-        self.chat(&reply);
+        self.command_reply = None;
+        self.send_now(ClientMsg::Command(line.to_string()));
+        if let Some(reply) = self.command_reply.take() {
+            self.chat(&reply.text);
+        }
+    }
+
+    /// La réponse du simulateur à une ligne de console (`name` en minuscules).
+    pub(crate) fn console_reply(&mut self, name: &str, args: &str) -> CommandReply {
+        let text = |text: String| CommandReply { text, json: None };
+        match name {
+            "help" => text(self.console_help()),
+            "mods" => text(self.console_mods()),
+            _ => self.console_command(name, args),
+        }
     }
 
     fn console_help(&self) -> String {
@@ -161,12 +181,18 @@ impl VoxelGame {
     }
 
     /// Une commande du jeu ou d'un mod ; sinon une explication.
-    fn console_command(&mut self, ctx: &mut Context, name: &str, args: &str) -> String {
+    fn console_command(&mut self, name: &str, args: &str) -> CommandReply {
+        let say = |text: String| CommandReply { text, json: None };
         if let Some((_, ctl, _)) = GAME_COMMANDS.iter().find(|(n, _, _)| *n == name) {
             let line = format!("{ctl} {args}");
-            return match control::parse(&line).and_then(|c| self.execute(ctx, c)) {
+            let result = control::parse(&line).and_then(|c| self.execute_from_console(c));
+            let text = match &result {
                 Ok(_) => "fait".to_string(),
                 Err(err) => format!("Erreur : {err:#}"),
+            };
+            return CommandReply {
+                text,
+                json: Some(result),
             };
         }
         // Une commande de mod : `nom`, ou `mod:nom` pour lever une ambiguïté.
@@ -180,11 +206,11 @@ impl VoxelGame {
             .find(|(m, n, _)| n == wanted_name && wanted_mod.is_none_or(|w| w == m))
             .cloned();
         let Some((mod_id, command, _)) = found else {
-            return format!("Commande inconnue : /{name} (voir /help)");
+            return say(format!("Commande inconnue : /{name} (voir /help)"));
         };
         let (reply, actions) = self.mods.command(&mod_id, &command, args);
         self.apply_machine_actions(actions);
-        reply.unwrap_or_else(|| "fait".to_string())
+        say(reply.unwrap_or_else(|| "fait".to_string()))
     }
 
     /// Les lignes récentes, au-dessus de la barre d'objets (console fermée).

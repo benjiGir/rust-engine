@@ -90,6 +90,7 @@ mod guide_ui;
 mod hand;
 mod hand_model;
 mod hot_reload;
+mod intents;
 mod interact;
 mod item_ctl;
 mod launch;
@@ -108,14 +109,17 @@ mod mob_model;
 mod mobs;
 mod mod_menu;
 mod modding;
+mod movement;
 mod navigation;
 mod paired_play;
 mod persistence;
+mod play_input;
 mod player;
 mod player_api;
 mod players;
 mod potions;
 mod projectiles;
+mod protocol;
 mod quest_ctl;
 mod quest_play;
 mod quest_progress;
@@ -324,6 +328,24 @@ struct VoxelGame {
     hunger_rules: survival::HungerRules,
     /// `VOXEL_BENCH` : le benchmark reproductible (voir `bench.rs`).
     bench: Option<bench::Bench>,
+    /// Les intentions du joueur de la fenêtre, en attente d'être appliquées (voir `intents.rs`).
+    outbox: Vec<protocol::ClientMsg>,
+    /// La visée de l'action en cours de traitement, si `handle` en traite une.
+    acting: Option<intents::ActingAim>,
+    /// Les réponses du simulateur, en attente d'être appliquées par le client.
+    replies: Vec<(players::PlayerId, protocol::ServerMsg)>,
+    /// Ce que le dernier message a produit, pour `ctl`.
+    outcome: intents::Outcome,
+    /// La réponse du dernier message `Command`.
+    command_reply: Option<intents::CommandReply>,
+    /// `VOXEL_CHECK_MOVES=1` : le simulateur contrôle chaque mouvement du joueur local.
+    check_moves: bool,
+    /// Le numéro du pas fixe (pour les messages `Move`).
+    sim_step: u64,
+    /// La durée de la dernière image (le simulateur crédite la première image d'un minage).
+    frame_dt: f32,
+    /// Le dernier état du bouton de repas envoyé au simulateur.
+    eating_sent: bool,
 }
 
 /// Où en est le jeu : le menu principal (un monde de fond), le jeu, ou la pause.
@@ -826,6 +848,15 @@ impl VoxelGame {
             remote: control::Remote::default(),
             culling: culling::CaveCulling::from_env(),
             bench: bench::Bench::from_env(),
+            outbox: Vec::new(),
+            acting: None,
+            replies: Vec::new(),
+            outcome: intents::Outcome::Nothing,
+            command_reply: None,
+            check_moves: std::env::var("VOXEL_CHECK_MOVES").is_ok_and(|v| v == "1"),
+            sim_step: 0,
+            frame_dt: 0.0,
+            eating_sent: false,
         })
     }
 
@@ -844,6 +875,7 @@ impl VoxelGame {
             }
             Mode::Playing => {}
         }
+        self.sim_step += 1;
         // `VOXEL_CONTROL` : une marche commandée passe avant le clavier.
         let remote = self.remote_intent(ctx.fixed_dt);
         let input = &ctx.input;
@@ -892,11 +924,16 @@ impl VoxelGame {
         self.update_cart_blocks();
         self.update_vitals(ctx.fixed_dt);
         self.update_hunger(ctx.fixed_dt);
+        // Le simulateur compte le minage et le repas de chaque joueur (voir `intents.rs`).
+        self.tick_digs(ctx.fixed_dt);
+        self.tick_eating(ctx.fixed_dt);
         self.drop_mob_loot();
         self.update_adventure(ctx.fixed_dt);
         self.update_charms(ctx.fixed_dt);
         self.footsteps(ctx.fixed_dt);
         self.check_death();
+        // Le mouvement joué par la physique locale, contrôlé si `VOXEL_CHECK_MOVES=1`.
+        self.check_local_move();
     }
 
     /// Une étape des fluides tous les 6 pas (10 par seconde), dans un budget de temps.
@@ -924,6 +961,7 @@ impl VoxelGame {
     }
 
     fn update(&mut self, ctx: &mut Context, dt: f32) {
+        self.frame_dt = dt;
         // Les options attendent une touche : la prochaine pressée est la nouvelle
         // (Échap annule).
         let mut escape = ctx.input.key_pressed(KeyCode::Escape);
@@ -959,7 +997,7 @@ impl VoxelGame {
                 self.mouse_captured = false;
                 ctx.set_cursor_captured(false);
             }
-            self.players.me_mut().mining = None;
+            self.stop_mining();
         }
         if let Mode::Title(_) = self.mode {
             // Le survol du menu principal tourne lentement.
@@ -1065,81 +1103,10 @@ impl VoxelGame {
             }
         }
 
-        // Le bloc visé, depuis la caméra de la dernière image.
-        // Le `Ref` du streamer doit être rendu avant d'écrire dans `self.target` : on
-        // calcule d'abord dans une variable locale.
-        let target = raycast(
-            self.streamer().world(),
-            self.camera.position,
-            self.camera.forward(),
-            self.players.me().gear.reach(),
-        );
-        self.target = target;
-        // Le minage : le bouton gauche maintenu sur le même bloc.
-        let mining = self.mouse_captured && !click_used && ctx.input.mouse_held(MouseButton::Left);
-        self.players.me_mut().air_swing = false;
-        if !mining {
-            self.players.me_mut().mining = None;
-        }
-        if self.mouse_captured && !click_used {
-            if mining && !ctx.input.mouse_pressed(MouseButton::Left) {
-                self.mine(dt);
-            }
-            if ctx.input.mouse_pressed(MouseButton::Left) {
-                // Une créature devant le bloc visé ? On la frappe plutôt que de casser.
-                let block_distance = self
-                    .target
-                    .map_or(self.players.me_mut().gear.reach(), |hit| hit.distance);
-                match mobs::hit_mob(
-                    &self.ecs,
-                    self.camera.position,
-                    self.camera.forward(),
-                    block_distance,
-                ) {
-                    Some((mob, _)) => {
-                        if self.strike_mob(mob, self.camera.forward()).is_some() {
-                            self.exert(self.hunger_rules.attack);
-                        }
-                        self.hand.punch();
-                        if self.held_tool().is_some() {
-                            self.wear_held();
-                        }
-                        if let Some(audio) = &mut self.audio {
-                            audio.play("core:break_soft");
-                        }
-                    }
-                    None if self.punch_cart() => {}
-                    None => self.mine(dt),
-                }
-            }
-            // Rien à frapper ni à casser : le bras donne un coup dans le vide, tant que le bouton est tenu.
-            self.players.me_mut().air_swing = mining && self.players.me_mut().mining.is_none();
-            // Un clic droit : une porte, un lit, un conteneur, sinon poser.
-            let block_pos = self.target.map(|hit| hit.block_pos);
-            if ctx.input.mouse_pressed(MouseButton::Right)
-                && !self.use_cart()
-                && !self.use_ship()
-                && !((ctx.input.key_held(KeyCode::ShiftLeft)
-                    || ctx.input.key_held(KeyCode::ShiftRight))
-                    && self.place_conduit_first())
-                && !self.use_assembler()
-                && !block_pos.is_some_and(|pos| self.use_door(pos) || self.use_bed(pos))
-                && !self.open_container()
-                && !self.use_machine()
-                && !self.trade_with_villager()
-                && !self.feed_mob()
-                && !self.use_hoe()
-                && !self.use_fertilizer()
-                && !self.use_charm()
-                && !self.use_guide()
-                && !self.use_mod_item()
-            {
-                self.place_at_target();
-            }
-        }
-        // Manger : le bouton droit tenu avec un aliment en main.
-        let eating = self.mouse_captured && !click_used && ctx.input.mouse_held(MouseButton::Right);
-        self.players.me_mut().eat_progress = self.update_eating(eating, dt);
+        // Les entrées de la souris : le bloc visé, le minage, les coups, le clic droit, le repas.
+        // Elles ne font que fabriquer des messages, appliqués avant la fin de cette image
+        // (voir `play_input.rs` et `intents.rs`).
+        self.play_input(ctx, dt, click_used);
         if interactive {
             self.animate_hand(ctx, dt);
         }
@@ -1389,7 +1356,7 @@ impl Game for App {
         self.game().update(ctx, dt);
         if let (Some(control), Some(game)) = (&self.control, self.game.as_mut()) {
             for request in control.poll() {
-                game.run_command(ctx, request);
+                game.run_command(request);
             }
         }
         if let Some((start, step)) = &mut self.menu_demo {
@@ -1447,31 +1414,6 @@ fn project_root() -> PathBuf {
 }
 
 impl VoxelGame {
-    /// Direction voulue d'après les touches. Horizontale en marche ; en vol,
-    /// Espace et Maj ajoutent la verticale.
-    fn wish_direction(&self, ctx: &Context, vertical: bool) -> Vec3 {
-        let input = &ctx.input;
-        let keys = &self.settings.keys;
-        let mut bindings = vec![
-            (keys.key(Action::Forward), self.camera.forward_flat()),
-            (keys.key(Action::Back), -self.camera.forward_flat()),
-            (keys.key(Action::Right), self.camera.right()),
-            (keys.key(Action::Left), -self.camera.right()),
-        ];
-        if vertical {
-            bindings.push((keys.key(Action::Jump), Vec3::Y));
-            bindings.push((keys.key(Action::Descend), -Vec3::Y));
-        }
-        // Chaque touche ajoute une direction ; on somme puis on normalise.
-        // `normalize_or_zero` évite une division par zéro quand aucune touche n'est tenue.
-        bindings
-            .iter()
-            .filter(|(key, _)| input.key_held(*key))
-            .map(|(_, dir)| *dir)
-            .sum::<Vec3>()
-            .normalize_or_zero()
-    }
-
     /// Recharge ce qui a changé sur le disque. Une erreur est affichée dans les logs,
     /// et l'ancienne version reste en place : le jeu ne plante jamais pour un asset.
     fn reload(&mut self, changes: hot_reload::Changes) {
@@ -1534,47 +1476,8 @@ impl VoxelGame {
 
     /// Casse le bloc visé. Renvoie sa position si c'est fait.
     fn break_target(&mut self) -> Option<IVec3> {
-        let hit = self.target?;
+        let hit = self.aim().hit?;
         self.break_block(hit.block_pos).then_some(hit.block_pos)
-    }
-
-    /// Le minage, à chaque image où le bouton gauche est tenu : l'avancement grandit selon
-    /// la dureté du bloc et l'outil en main ; à 1, le bloc casse.
-    fn mine(&mut self, dt: f32) {
-        let Some(hit) = self.target else {
-            self.players.me_mut().mining = None;
-            return;
-        };
-        let pos = hit.block_pos;
-        let block = self.streamer().world().block(pos);
-        let tool = self.held_tool();
-        let Some(time) = engine_voxel::break_time(&self.mining_def(pos, block), tool.as_ref())
-        else {
-            self.players.me_mut().mining = None;
-            return; // Incassable.
-        };
-        let progress = match self.players.me_mut().mining {
-            Some((p, progress)) if p == pos => progress,
-            _ => 0.0,
-        };
-        // La vitesse de minage (Efficacité, affixes) est un attribut.
-        let time = time
-            / self
-                .players
-                .me_mut()
-                .gear
-                .value(attributes::Attribute::MiningSpeed);
-        let progress = if time <= 0.0 {
-            1.0
-        } else {
-            progress + dt / time
-        };
-        if progress >= 1.0 {
-            self.players.me_mut().mining = None;
-            self.break_block(pos);
-        } else {
-            self.players.me_mut().mining = Some((pos, progress));
-        }
     }
 
     /// L'objet en main s'use d'un point (Solidité peut l'épargner). `true` s'il se brise.
@@ -1675,7 +1578,8 @@ impl VoxelGame {
         if let Some(done) = self.place_shaped_piece() {
             return done;
         }
-        let hit = self.target?;
+        let aim = self.aim();
+        let hit = aim.hit?;
         let def = self.content.items.get(item);
         // Une graine plante son premier stade ; sinon l'objet pose son bloc.
         let block = def
@@ -1683,8 +1587,8 @@ impl VoxelGame {
             .or_else(|| def.plants.as_deref().and_then(|key| self.registry.id(key)))
             .or_else(|| def.places.as_deref().and_then(|key| self.registry.id(key)))?;
         // Un bloc à états (escalier, dalle, tuyau...) se pose selon le regard et la face visée.
-        let forward = self.camera.forward();
-        let hit_y = (self.camera.position + forward * hit.distance).y - hit.block_pos.y as f32;
+        let forward = aim.forward;
+        let hit_y = (aim.eye + forward * hit.distance).y - hit.block_pos.y as f32;
         let pos = hit.block_pos + hit.normal;
         if hit.normal == IVec3::ZERO {
             return None;
@@ -1692,7 +1596,9 @@ impl VoxelGame {
         if let Some(parts) = self.paired_placement(pos, block, forward) {
             self.place_pair(parts)?;
             self.players.me_mut().inventory.consume_selected();
-            self.hand.punch();
+            if self.players.current_is_local() {
+                self.hand.punch();
+            }
             return Some(pos);
         }
         let block = self
@@ -1718,7 +1624,9 @@ impl VoxelGame {
         let placed = self.edit(pos, block);
         if placed {
             self.players.me_mut().inventory.consume_selected();
-            self.hand.punch();
+            if self.players.current_is_local() {
+                self.hand.punch();
+            }
             // Des feuilles posées par le joueur ne se décomposent pas : une entité de bloc
             // les marque comme « posées ».
             // Un piston, un inverseur, un répéteur : ils visent où le joueur regarde.
@@ -1727,7 +1635,7 @@ impl VoxelGame {
                 .def(block)
                 .behavior
                 .as_deref()
-                .and_then(|b| engine_voxel::placement_state(b, self.camera.forward()))
+                .and_then(|b| engine_voxel::placement_state(b, forward))
             {
                 self.streamer_mut().set_block_entity(pos, Some(state));
             }
@@ -1786,7 +1694,7 @@ impl VoxelGame {
                     BlockBroken {
                         pos,
                         block: old,
-                        player: Some(self.players.local_id()),
+                        player: Some(self.players.current_id()),
                     },
                 );
             } else {
@@ -1795,7 +1703,7 @@ impl VoxelGame {
                     BlockPlaced {
                         pos,
                         block,
-                        player: Some(self.players.local_id()),
+                        player: Some(self.players.current_id()),
                     },
                 );
             }
@@ -2169,29 +2077,6 @@ impl VoxelGame {
                     .collect::<String>(),
             );
         }
-    }
-
-    /// Renvoie `true` si ce clic a servi à capturer la souris (il ne casse donc rien).
-    fn handle_mouse_capture(&mut self, ctx: &mut Context) -> bool {
-        let input = &ctx.input;
-        if !self.mouse_captured && input.mouse_pressed(MouseButton::Left) {
-            self.mouse_captured = true;
-            ctx.set_cursor_captured(true);
-            return true;
-        }
-        // Échap ne quitte jamais le jeu (on quitte par le menu) : elle rend seulement la souris.
-        if input.key_pressed(KeyCode::Escape) && self.mouse_captured {
-            self.mouse_captured = false;
-            ctx.set_cursor_captured(false);
-        }
-        false
-    }
-
-    fn look(&mut self, delta: Vec2) {
-        let sensitivity = MOUSE_SENSITIVITY * self.settings.mouse_sensitivity;
-        self.camera.yaw += delta.x * sensitivity;
-        self.camera.pitch = (self.camera.pitch - delta.y * sensitivity)
-            .clamp(-Camera::MAX_PITCH, Camera::MAX_PITCH);
     }
 
     /// Avance tout droit en suivant le relief, pour mesurer le chargement.

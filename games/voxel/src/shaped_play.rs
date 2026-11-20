@@ -52,7 +52,8 @@ impl VoxelGame {
 
     /// Le point visé, relatif à la case visée.
     fn aimed_point(&self, hit: &RayHit) -> Vec3 {
-        self.camera.position + self.camera.forward() * hit.distance - hit.block_pos.as_vec3()
+        let aim = self.aim();
+        aim.eye + aim.forward * hit.distance - hit.block_pos.as_vec3()
     }
 
     /// Un clic droit avec une pièce en main. `None` : ce n'est pas une pièce (la pose ordinaire
@@ -64,11 +65,12 @@ impl VoxelGame {
             self.toast("Cette pièce n'a pas de matière : taille-la à l'établi");
             return Some(None);
         };
-        let hit = self.target?;
+        let aim = self.aim();
+        let hit = aim.hit?;
         if hit.normal == IVec3::ZERO {
             return Some(None);
         }
-        let forward = self.camera.forward();
+        let forward = aim.forward;
         let point = self.aimed_point(&hit);
         // Une tranche sur une tranche : elle grandit.
         if kind.is_resizable()
@@ -216,7 +218,7 @@ impl VoxelGame {
             BlockPlaced {
                 pos,
                 block,
-                player: Some(self.players.local_id()),
+                player: Some(self.players.current_id()),
             },
         );
         self.target = None;
@@ -248,7 +250,7 @@ impl VoxelGame {
         let mut removed = Vec::new();
         match aimed {
             // La visée d'une pièce : une seule. Sans visée (une commande, une explosion) : tout.
-            Some(index) if self.target.is_some_and(|t| t.block_pos == pos) => {
+            Some(index) if self.aim().hit.is_some_and(|t| t.block_pos == pos) => {
                 removed.extend(shaped.remove_part(index));
             }
             _ => {
@@ -271,7 +273,7 @@ impl VoxelGame {
                 BlockBroken {
                     pos,
                     block: id,
-                    player: Some(self.players.local_id()),
+                    player: Some(self.players.current_id()),
                 },
             );
             if engine_voxel::can_harvest(&def, tool.as_ref()) {
@@ -312,7 +314,7 @@ impl VoxelGame {
         if shaped.link().is_some() {
             return Some(0);
         }
-        let hit = self.target.filter(|t| t.block_pos == pos)?;
+        let hit = self.aim().hit.filter(|t| t.block_pos == pos)?;
         shaped.part_hit(self.aimed_point(&hit), hit.normal.as_vec3())
     }
 

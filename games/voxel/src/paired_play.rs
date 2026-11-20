@@ -44,7 +44,7 @@ impl VoxelGame {
             BlockPlaced {
                 pos,
                 block,
-                player: Some(self.players.local_id()),
+                player: Some(self.players.current_id()),
             },
         );
         for (pos, _) in parts {

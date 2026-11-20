@@ -36,9 +36,14 @@ impl VoxelGame {
     /// L'état du joueur tel que les scripts le voient.
     pub(crate) fn player_snapshot(&self) -> PlayerSnapshot {
         let health = player::health(&self.ecs, self.players.entity());
+        // La visée de l'action en cours (un clic droit avec un objet de mod), sinon la caméra.
+        let (eye, look) = match self.acting {
+            Some(aim) => (aim.eye, aim.forward),
+            None => (self.camera.position, self.camera.forward()),
+        };
         PlayerSnapshot {
-            eye: self.camera.position,
-            look: self.camera.forward().normalize_or_zero(),
+            eye,
+            look: look.normalize_or_zero(),
             health: health.current,
             max_health: health.max,
             level: self.players.me().experience.level().0 as f32,
@@ -185,6 +190,7 @@ impl VoxelGame {
             velocity.0 = Vec3::ZERO;
         }
         self.camera.position = to + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT;
+        self.forget_last_move();
     }
 
     fn give_player_effect(&mut self, name: &str, seconds: f32, power: f32) {

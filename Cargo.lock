@@ -1595,6 +1595,7 @@ checksum = "627003914c6057c9c8f0832ee4f870b5a4f599d0cfa83f4072675114860cd0ff"
 dependencies = [
  "bytemuck",
  "mint",
+ "serde_core",
 ]
 
 [[package]]

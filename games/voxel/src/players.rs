@@ -74,6 +74,41 @@ pub struct PlayerState {
     pub air_swing: bool,
     /// L'avancement du repas en cours (0 à 1), pour la barre.
     pub eat_progress: Option<f32>,
+    /// Le bouton de repas est tenu (message `Eat`) : le simulateur mâche à chaque pas.
+    pub eating: bool,
+    /// Le conteneur ouvert par ce joueur (coffre, four, sac, wagon) : les clics de cases ne valent
+    /// que pour lui (voir `intents.rs`).
+    pub open: Option<OpenContainer>,
+    /// Le minage que le simulateur a vu commencer, et son avancement théorique (le contrôle du
+    /// message `Dig Finish`).
+    pub dig: Option<DigState>,
+    /// Le dernier mouvement accepté, pour contrôler le suivant (voir `movement.rs`).
+    pub last_move: Option<crate::movement::MoveSample>,
+}
+
+/// Un conteneur ouvert devant un joueur : ce que `SlotClick` peut viser en dehors de son inventaire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenContainer {
+    /// Un coffre (de n'importe quel palier), par la position du bloc qui porte l'inventaire (la
+    /// moitié gauche d'un grand coffre).
+    Chest(IVec3),
+    /// Un four ou un alambic.
+    Machine(IVec3),
+    /// Le contrôleur de stockage.
+    Controller(IVec3),
+    /// L'inventaire d'un wagon.
+    Cart(Entity),
+    /// Un sac à dos, par son numéro.
+    Bag(u32),
+}
+
+/// Le minage d'un joueur vu du simulateur : le bloc, et la part du temps de minage déjà écoulée
+/// (de 0 à 1, comptée en pas fixes avec l'outil tenu à chaque pas).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DigState {
+    pub pos: IVec3,
+    pub block: engine_voxel::BlockId,
+    pub progress: f32,
 }
 
 impl PlayerState {
@@ -103,6 +138,10 @@ impl PlayerState {
             mining: None,
             air_swing: false,
             eat_progress: None,
+            eating: false,
+            open: None,
+            dig: None,
+            last_move: None,
         }
     }
 
@@ -168,6 +207,9 @@ pub struct Players {
     list: Vec<PlayerState>,
     local: PlayerId,
     next_id: u32,
+    /// Le joueur dont le simulateur traite un message (voir `intents.rs`) : tant qu'il est là,
+    /// `me()` est lui, et plus le joueur de la fenêtre.
+    acting: Option<PlayerId>,
 }
 
 // Les arrivées et départs de joueurs ne servent encore qu'aux tests : le premier joueur distant
@@ -181,6 +223,7 @@ impl Players {
             next_id: id.0 + 1,
             local: id,
             list: vec![local],
+            acting: None,
         }
     }
 
@@ -195,17 +238,47 @@ impl Players {
         self.local
     }
 
-    /// Le joueur de la fenêtre.
+    /// Le joueur « courant » : celui dont `handle` traite un message, sinon celui de la fenêtre.
+    /// Tout ce que le simulateur appelle depuis un message agit donc sur le bon joueur sans le
+    /// recevoir en argument ; l'interface, qui ne tourne jamais pendant un message, voit le joueur
+    /// de la fenêtre.
     pub fn me(&self) -> &PlayerState {
-        self.get(self.local).expect("le joueur local existe")
+        self.get(self.current_id())
+            .expect("le joueur courant existe")
     }
 
     pub fn me_mut(&mut self) -> &mut PlayerState {
-        let local = self.local;
-        self.get_mut(local).expect("le joueur local existe")
+        let id = self.current_id();
+        self.get_mut(id).expect("le joueur courant existe")
     }
 
-    /// L'entité du joueur local (un raccourci qui n'emprunte que la table).
+    /// Le numéro du joueur courant (voir [`Players::me`]).
+    pub fn current_id(&self) -> PlayerId {
+        self.acting.unwrap_or(self.local)
+    }
+
+    /// Le joueur courant est celui de la fenêtre : les retours d'interface (bras, écran ouvert,
+    /// message) ne valent que pour lui.
+    pub fn current_is_local(&self) -> bool {
+        self.current_id() == self.local
+    }
+
+    /// Désigne le joueur courant ; renvoie le précédent, à rendre ensuite.
+    pub fn set_acting(&mut self, who: Option<PlayerId>) -> Option<PlayerId> {
+        std::mem::replace(&mut self.acting, who)
+    }
+
+    /// Le joueur de la fenêtre, quel que soit le message en cours.
+    pub fn local(&self) -> &PlayerState {
+        self.get(self.local).expect("le joueur local existe")
+    }
+
+    pub fn local_mut(&mut self) -> &mut PlayerState {
+        let id = self.local;
+        self.get_mut(id).expect("le joueur local existe")
+    }
+
+    /// L'entité du joueur courant (un raccourci qui n'emprunte que la table).
     pub fn entity(&self) -> Entity {
         self.me().entity
     }
@@ -257,7 +330,7 @@ impl Players {
     /// Les entités de tous les joueurs : le local en premier, puis les autres dans l'ordre d'arrivée.
     pub fn entities(&self) -> Vec<Entity> {
         let local = self.local;
-        std::iter::once(self.me().entity)
+        std::iter::once(self.local().entity)
             .chain(self.list.iter().filter(|p| p.id != local).map(|p| p.entity))
             .collect()
     }
@@ -430,6 +503,31 @@ mod tests {
             PlayerId(2),
             "un numéro n'est jamais réutilisé"
         );
+    }
+
+    #[test]
+    fn the_current_player_is_whoever_a_message_acts_for() {
+        let (_world, mut players, a, b) = two_player_world(
+            Vec3::new(5.0, 40.0, 5.0),
+            Vec3::new(0.0, 70.0, 0.0),
+            Vec3::new(30.0, 70.0, 0.0),
+        );
+        assert_eq!(players.current_id(), a);
+        assert!(players.current_is_local());
+        // Pendant le message d'un autre joueur, `me()` est lui ; le joueur local reste joignable.
+        let before = players.set_acting(Some(b));
+        assert_eq!(before, None);
+        assert_eq!(players.current_id(), b);
+        assert!(!players.current_is_local());
+        assert_eq!(players.me().id, b);
+        assert_eq!(players.local().id, a);
+        players.me_mut().eating = true;
+        assert!(players.get(b).unwrap().eating);
+        assert!(!players.get(a).unwrap().eating);
+        // Le message fini, on rend le précédent.
+        players.set_acting(before);
+        assert_eq!(players.me().id, a);
+        assert_eq!(players.entity(), players.local().entity);
     }
 
     #[test]

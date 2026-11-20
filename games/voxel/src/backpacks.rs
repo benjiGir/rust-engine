@@ -631,8 +631,7 @@ impl VoxelGame {
             self.toast("Plus aucun numéro de sac disponible");
             return false;
         };
-        self.ui.screen = crate::ui::Screen::Bag(number);
-        self.ui.inventory_open = true;
+        self.open_container_screen(crate::ui::Screen::Bag(number));
         true
     }
 

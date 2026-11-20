@@ -37,6 +37,7 @@ use glam::IVec3;
 use crate::VoxelGame;
 use crate::backpacks;
 use crate::inventory::{Click, ItemStack, Slot, click_slot_mult};
+use crate::players::OpenContainer;
 use crate::transfer::{self, Rules, Voids};
 use crate::ui::{Press, Screen, SlotRef};
 
@@ -361,29 +362,30 @@ impl VoxelGame {
 
     /// Le conteneur de l'écran ouvert, s'il en a un (c'est là que va un Maj + clic).
     pub(crate) fn open_target(&self) -> Option<Target> {
-        match self.ui.screen {
-            Screen::Chest(pos) => Some(Target::Block(pos)),
-            Screen::Bag(number) => Some(Target::Bag(number)),
-            Screen::Cart(cart) => self
+        match self.players.me().open? {
+            OpenContainer::Chest(pos) => Some(Target::Block(pos)),
+            OpenContainer::Bag(number) => Some(Target::Bag(number)),
+            OpenContainer::Cart(cart) => self
                 .ecs
                 .get::<crate::carts::Cart>(cart)
                 .filter(|c| c.kind != crate::carts::CartKind::Locomotive)
                 .map(|_| Target::Cart(cart)),
-            _ => None,
+            OpenContainer::Machine(_) | OpenContainer::Controller(_) => None,
         }
     }
 
     /// Le Maj + clic est-il possible ici ? (un conteneur ouvert, la main vide)
     pub(crate) fn quick_enabled(&self) -> bool {
         self.players.me().inventory.cursor.is_none()
-            && (self.open_target().is_some() || matches!(self.ui.screen, Screen::Controller(_)))
+            && (self.open_target().is_some()
+                || matches!(self.players.me().open, Some(OpenContainer::Controller(_))))
     }
 
     /// Maj + clic sur une case : toute la pile passe de l'autre côté. `false` si ce n'est pas
     /// une case que ce geste concerne (amélioration, filtre : un clic ordinaire s'en occupe).
     pub(crate) fn quick_move(&mut self, target: SlotRef) -> bool {
-        match (target, self.ui.screen) {
-            (SlotRef::Player(Slot::Main(slot)), Screen::Controller(pos)) => {
+        match (target, self.players.me().open) {
+            (SlotRef::Player(Slot::Main(slot)), Some(OpenContainer::Controller(pos))) => {
                 self.controller_deposit(pos, Some(slot));
                 true
             }
@@ -809,11 +811,12 @@ impl VoxelGame {
         if self.use_storage_item() {
             return true;
         }
-        let Some(hit) = self.target else { return false };
+        let Some(hit) = self.aim().hit else {
+            return false;
+        };
         // Un sac posé : son contenu, comme depuis l'inventaire.
         if let Some(number) = self.placed_bag_number(hit.block_pos) {
-            self.ui.screen = Screen::Bag(number);
-            self.ui.inventory_open = true;
+            self.open_container_screen(Screen::Bag(number));
             return true;
         }
         // Un grand coffre s'ouvre sur sa moitié gauche, qui garde l'inventaire.
@@ -853,14 +856,15 @@ impl VoxelGame {
         if let Screen::Chest(pos) = screen {
             self.resolve_chest_loot(pos);
         }
-        self.ui.screen = screen;
-        self.ui.inventory_open = true;
+        self.open_container_screen(screen);
         true
     }
 
     /// Le bloc visé s'ouvre-t-il (un clic droit avec un sac ne doit pas le voler) ?
     fn aimed_block_opens(&self) -> bool {
-        let Some(hit) = self.target else { return false };
+        let Some(hit) = self.aim().hit else {
+            return false;
+        };
         let block = self.streamer().world().block(hit.block_pos);
         let def = self.registry.def(block);
         matches!(
@@ -897,7 +901,9 @@ impl VoxelGame {
 
     /// Un kit sur un coffre : le bloc monte de palier, l'entité garde ses objets.
     fn use_kit(&mut self, kit: &str) -> bool {
-        let Some(hit) = self.target else { return false };
+        let Some(hit) = self.aim().hit else {
+            return false;
+        };
         let pos = hit.block_pos;
         let block = self.streamer().world().block(pos);
         let Some(tier) = self

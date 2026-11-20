@@ -429,7 +429,8 @@ impl VoxelGame {
         }
     }
 
-    /// Un bouton pressé sur une case : un clic, ou l'ouverture de « Diviser la pile ».
+    /// Un bouton pressé sur une case : un clic de case, ou l'ouverture de « Diviser la pile ».
+    /// Le clic part au simulateur (`SlotClick`, voir `intents.rs`) et s'applique tout de suite.
     /// Renvoie `true` si la case a pu changer.
     pub(crate) fn press_slot(
         &mut self,
@@ -437,15 +438,16 @@ impl VoxelGame {
         stack: Option<ItemStack>,
         press: Press,
     ) -> bool {
-        let click = match press {
-            Press::Primary => Click::Primary,
-            // Maj + clic : l'autre côté. Une case qui n'est pas concernée (amélioration, filtre,
-            // machine) se comporte comme un clic ordinaire.
-            Press::Quick if self.quick_move(target) => return true,
-            Press::Quick => Click::Primary,
-            Press::Secondary => Click::Secondary,
+        // Maj + clic : l'autre côté. Une case qui n'est pas concernée (amélioration, filtre,
+        // machine) se comporte comme un clic ordinaire (c'est le simulateur qui le décide).
+        let (click, shift) = match press {
+            Press::Primary => (Click::Primary, false),
+            Press::Quick => (Click::Primary, true),
+            Press::Secondary => (Click::Secondary, false),
             // Une pile en main : Maj + clic droit pose un objet, comme un clic droit.
-            Press::Split if self.players.me_mut().inventory.cursor.is_some() => Click::Secondary,
+            Press::Split if self.players.me().inventory.cursor.is_some() => {
+                (Click::Secondary, false)
+            }
             Press::Split => {
                 if let Some(stack) = stack.filter(|s| s.count > 1) {
                     self.ui.split = Some(Split {
@@ -456,11 +458,21 @@ impl VoxelGame {
                 return false;
             }
         };
-        self.click_target(target, click)
+        self.send_slot_click(target, click, shift);
+        true
+    }
+
+    /// Envoie un clic de case au simulateur.
+    fn send_slot_click(&mut self, target: SlotRef, click: Click, shift: bool) {
+        self.send_now(crate::protocol::ClientMsg::SlotClick {
+            slot: Self::slot_target_of(target),
+            button: click.into(),
+            shift,
+        });
     }
 
     /// Applique un clic à une case du joueur ou d'un conteneur.
-    fn click_target(&mut self, target: SlotRef, click: Click) -> bool {
+    pub(crate) fn click_target(&mut self, target: SlotRef, click: Click) -> bool {
         match target {
             SlotRef::Player(slot) => {
                 // Une gemme ou un sceau au curseur sur un objet : sertir, retirer, ajouter.
@@ -549,7 +561,7 @@ impl VoxelGame {
         match action {
             Some(true) => {
                 self.ui.split = None;
-                self.click_target(split.target, Click::Take(split.amount));
+                self.send_slot_click(split.target, Click::Take(split.amount), false);
             }
             Some(false) => self.ui.split = None,
             None => self.ui.split = Some(split),
@@ -722,7 +734,9 @@ impl VoxelGame {
                                         selected,
                                     ) == Some(Press::Primary)
                                     {
-                                        self.players.me_mut().inventory.selected = i;
+                                        self.send_now(crate::protocol::ClientMsg::SelectSlot(
+                                            i as u8,
+                                        ));
                                     }
                                 }
                             });

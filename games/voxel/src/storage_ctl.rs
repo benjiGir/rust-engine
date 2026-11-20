@@ -17,6 +17,7 @@ use anyhow::{Context as _, Result, bail};
 use glam::IVec3;
 
 use crate::VoxelGame;
+use crate::players::OpenContainer;
 use crate::storage_ui::Op;
 use crate::ui::Screen;
 
@@ -125,7 +126,7 @@ impl VoxelGame {
             }
             Command::Op(op) => {
                 // Le contrôleur n'a pas de cases : seuls Déposer et Maj + clic y ont un sens.
-                if let Screen::Controller(pos) = self.ui.screen {
+                if let Some(OpenContainer::Controller(pos)) = self.players.me().open {
                     match op {
                         Op::Deposit => self.controller_deposit(pos, None),
                         Op::QuickIn(slot) => self.controller_deposit(pos, Some(slot)),

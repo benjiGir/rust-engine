@@ -43,7 +43,7 @@ engine_inspect = { path = "crates/engine_inspect" }
 engine_inspect_derive = { path = "crates/engine_inspect_derive" }
 winit = "0.30.13"
 wgpu = "30.0.1"
-glam = { version = "0.34", features = ["bytemuck"] }
+glam = { version = "0.34", features = ["bytemuck", "serde"] }
 bytemuck = { version = "1.25", features = ["derive"] }
 pollster = "1.0"
 anyhow = "1.0"

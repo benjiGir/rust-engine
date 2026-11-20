@@ -37,7 +37,7 @@ impl ItemStack {
 }
 
 /// Une case quelque part : l'inventaire, l'armure, une grille d'artisanat.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Slot {
     Main(usize),
     Armor(usize),
@@ -71,7 +71,7 @@ impl Default for Inventory {
 }
 
 /// Ce que fait un clic sur une case.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Click {
     /// Clic gauche : prendre, poser, compléter ou échanger toute la pile.
     Primary,

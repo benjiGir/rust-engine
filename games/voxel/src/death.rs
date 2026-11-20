@@ -79,6 +79,8 @@ impl VoxelGame {
         self.players.me_mut().hunger = Hunger::new(&self.hunger_rules);
         self.players.me_mut().effects.clear();
         self.mode = Mode::Playing;
+        // Le jeu a déplacé le joueur : son prochain mouvement n'est pas à comparer à l'ancien.
+        self.forget_last_move();
         log::info!("réapparition en {feet}");
     }
 
@@ -199,7 +201,7 @@ impl VoxelGame {
             quit = button(ui, label);
         });
         if respawn {
-            self.respawn();
+            self.send_now(crate::protocol::ClientMsg::Respawn);
         } else if quit {
             self.request = Some(Request::Title);
         }

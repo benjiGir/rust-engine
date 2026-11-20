@@ -213,7 +213,8 @@ impl VoxelGame {
                 Ok(self.attributes_json())
             }
             Command::Throw => {
-                self.throw_selected();
+                let aim = self.body_aim();
+                self.send_now(crate::protocol::ClientMsg::Drop { aim, all: false });
                 Ok("{\"ok\":true}".to_string())
             }
         }

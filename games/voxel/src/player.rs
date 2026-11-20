@@ -20,7 +20,7 @@ pub const FLY_SPEED: f32 = 12.0;
 pub const FLY_SPRINT_FACTOR: f32 = 3.0;
 pub const PLAYER_HEALTH: f32 = 20.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MoveMode {
     Walk,
     Fly,

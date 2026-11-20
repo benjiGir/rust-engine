@@ -17,10 +17,11 @@ impl VoxelGame {
             // Le long du rayon, la première cellule de fluide.
             let found = {
                 let reach = self.players.me().gear.reach();
+                let aim = self.aim();
                 let streamer = self.streamer();
                 (1..(reach * 10.0) as i32)
                     .map(|k| {
-                        (self.camera.position + self.camera.forward() * (k as f32 * 0.1))
+                        (aim.eye + aim.forward * (k as f32 * 0.1))
                             .floor()
                             .as_ivec3()
                     })
@@ -50,7 +51,7 @@ impl VoxelGame {
             }
             self.hand.punch();
         } else {
-            let Some(hit) = self.target else { return };
+            let Some(hit) = self.aim().hit else { return };
             let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
                 return;
             };

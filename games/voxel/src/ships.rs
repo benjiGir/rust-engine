@@ -359,7 +359,8 @@ impl VoxelGame {
     /// Le bloc de structure visé, s'il est plus près que celui du monde.
     pub(crate) fn ship_hit(&self) -> Option<(GridId, engine_voxel::RayHit)> {
         let subs = self.mods.subgrids.borrow();
-        let (origin, direction) = (self.camera.position, self.camera.forward());
+        let aim = self.aim();
+        let (origin, direction) = (aim.eye, aim.forward);
         let mut best: Option<(GridId, engine_voxel::RayHit)> = None;
         for id in subs.ids() {
             let grid = subs.get(id).expect("identifiant connu").borrow();
@@ -375,7 +376,7 @@ impl VoxelGame {
                 best = Some((id, hit));
             }
         }
-        let world_distance = self.target.map_or(f32::MAX, |h| h.distance);
+        let world_distance = aim.hit.map_or(f32::MAX, |h| h.distance);
         best.filter(|(_, hit)| hit.distance < world_distance)
     }
 
@@ -431,7 +432,7 @@ impl VoxelGame {
 
     /// Un clic droit sur un assembleur du monde : la structure qui y est reliée s'en détache.
     pub(crate) fn use_assembler(&mut self) -> bool {
-        let Some(hit) = self.target else {
+        let Some(hit) = self.aim().hit else {
             return false;
         };
         let block = self.streamer().world().block(hit.block_pos);

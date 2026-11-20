@@ -297,7 +297,7 @@ impl VoxelGame {
         if !crate::mobs::damage_mob(&mut self.ecs, mob, dealt, from) {
             return None;
         }
-        let me = self.players.local_id();
+        let me = self.players.current_id();
         self.ecs.insert(mob, crate::players::LastHitBy(me));
         let healed = attributes::life_steal(dealt, steal);
         if healed > 0.0 {
