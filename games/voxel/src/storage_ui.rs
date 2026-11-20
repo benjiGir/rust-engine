@@ -471,7 +471,15 @@ impl VoxelGame {
         match self.ui.screen {
             Screen::Chest(pos) => {
                 let block = self.streamer().world().block(pos);
-                self.registry.def(block).name.clone()
+                let name = &self.registry.def(block).name;
+                if engine_voxel::double_chest::paired(&*self.streamer(), pos).is_some() {
+                    // « Coffre de fer » devient « Grand coffre de fer ».
+                    let mut chars = name.chars();
+                    let first = chars.next().map(|c| c.to_lowercase().to_string());
+                    format!("Grand {}{}", first.unwrap_or_default(), chars.as_str())
+                } else {
+                    name.clone()
+                }
             }
             Screen::Bag(number) => self
                 .backpacks
@@ -807,10 +815,12 @@ impl VoxelGame {
             self.ui.inventory_open = true;
             return true;
         }
-        let block = self.streamer().world().block(hit.block_pos);
+        // Un grand coffre s'ouvre sur sa moitié gauche, qui garde l'inventaire.
+        let opened = engine_voxel::double_chest::storage_pos(&*self.streamer(), hit.block_pos);
+        let block = self.streamer().world().block(opened);
         let def = self.registry.def(block);
         let screen = match def.behavior.as_deref() {
-            Some(b) if chest_layout(b).is_some() => Screen::Chest(hit.block_pos),
+            Some(b) if chest_layout(b).is_some() => Screen::Chest(opened),
             Some(CONTROLLER_KEY) => Screen::Controller(hit.block_pos),
             Some("core:furnace") => Screen::Furnace(hit.block_pos),
             Some("core:brewing_stand") => Screen::Brewing(hit.block_pos),
@@ -828,16 +838,13 @@ impl VoxelGame {
         if let Some(slots) = engine_voxel::container_slots(&self.registry, block) {
             let mut streamer = self.streamer_mut();
             if streamer
-                .block_entity(hit.block_pos)
+                .block_entity(opened)
                 .and_then(|e| e.caps.as_ref()?.inventory.as_ref())
                 .is_none()
             {
-                let mut entity = streamer
-                    .block_entity(hit.block_pos)
-                    .cloned()
-                    .unwrap_or_default();
+                let mut entity = streamer.block_entity(opened).cloned().unwrap_or_default();
                 entity.caps_mut().inventory = Some(engine_voxel::Inventory::new(slots));
-                streamer.set_block_entity(hit.block_pos, Some(entity));
+                streamer.set_block_entity(opened, Some(entity));
             }
         }
         // Les objets à affixes d'un coffre de structure sont tirés à la première ouverture.
@@ -916,6 +923,31 @@ impl VoxelGame {
         }
         self.toast(&format!("{} !", CHEST_TIERS[to].name));
         true
+    }
+
+    /// Une moitié de grand coffre qu'on casse ne garde que ses propres objets ; l'autre
+    /// redevient un coffre simple avec les siens.
+    pub(crate) fn split_chest(&mut self, pos: IVec3) -> Option<IVec3> {
+        engine_voxel::double_chest::split(&mut *self.streamer_mut(), pos)
+    }
+
+    /// Un coffre posé contre un coffre identique forme un grand coffre.
+    pub(crate) fn join_chest(&mut self, pos: IVec3) -> Option<IVec3> {
+        let registry = self.registry.clone();
+        let streamer = self.streamer();
+        let block = streamer.world().block(pos);
+        engine_voxel::double_chest::part(&registry, block)?;
+        // Un coffre de structure tire ses objets avant de rejoindre l'autre.
+        let neighbours: Vec<IVec3> = [IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z]
+            .iter()
+            .map(|d| pos + *d)
+            .filter(|&p| streamer.world().block(p) == block)
+            .collect();
+        drop(streamer);
+        for p in neighbours {
+            self.resolve_chest_loot(p);
+        }
+        engine_voxel::double_chest::merge(&mut *self.streamer_mut(), pos)
     }
 
     /// Ce qui tombe quand le bloc en `pos` change : ses objets, sans les filtres (cases fantômes).

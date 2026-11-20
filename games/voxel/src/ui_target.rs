@@ -121,10 +121,10 @@ impl VoxelGame {
                 (block, lines(block, caps), summary(block, caps))
             } else if let Some(hit) = self.target {
                 let s = self.streamer();
-                let block = s.world().block(hit.block_pos);
-                let caps = s
-                    .block_entity(hit.block_pos)
-                    .and_then(|e| e.caps.as_deref());
+                // La moitié droite d'un grand coffre montre l'inventaire de la gauche.
+                let pos = engine_voxel::double_chest::storage_pos(&*s, hit.block_pos);
+                let block = s.world().block(pos);
+                let caps = s.block_entity(pos).and_then(|e| e.caps.as_deref());
                 (block, lines(block, caps), summary(block, caps))
             } else {
                 return 12.0;

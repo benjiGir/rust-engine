@@ -1803,6 +1803,7 @@ impl VoxelGame {
         let old = self.streamer().world().block(pos);
         let partner = engine_voxel::paired_block::partner(&self.registry, pos, old)
             .filter(|&(p, expected)| old != block && self.streamer().world().block(p) == expected);
+        let half = (old != block).then(|| self.split_chest(pos)).flatten();
         // Un bloc à inventaire (coffre, four, machine de mod) lâche son contenu quand il change.
         let contents = if old != block {
             self.container_contents(pos)
@@ -1824,8 +1825,14 @@ impl VoxelGame {
             } else {
                 events::send(&self.ecs, BlockPlaced { pos, block });
             }
+            let joined = (!block.is_air()).then(|| self.join_chest(pos)).flatten();
             self.after_edit(pos);
-            if let Some((other, _)) = partner {
+            for other in partner
+                .map(|(p, _)| p)
+                .into_iter()
+                .chain(half)
+                .chain(joined)
+            {
                 self.after_edit(other);
             }
         }

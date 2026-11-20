@@ -177,8 +177,9 @@ pub fn chest_layout(behavior: &str) -> Option<Layout> {
 }
 
 /// La disposition des cases du bloc `block`, s'il est un coffre à paliers.
+/// Un grand coffre : double pour sa moitié gauche, aucune pour la droite (voir `double_chest`).
 pub fn layout_of(blocks: &BlockRegistry, block: crate::BlockId) -> Option<Layout> {
-    blocks.def(block).behavior.as_deref().and_then(chest_layout)
+    crate::double_chest::layout(blocks, block)
 }
 
 /// Le bloc est-il le contrôleur de stockage ?
@@ -268,20 +269,35 @@ pub fn upgrade_chest(grid: &mut (impl BlockAccess + ?Sized), pos: IVec3, to: usi
     if to <= from {
         return false;
     }
-    let facing = registry.def(grid.block(pos)).facing_turns();
-    let new_block = registry.variant(new_block, &[facing]);
+    // Un grand coffre monte en entier : ses deux moitiés gardent leur place.
+    let pos = crate::double_chest::storage_pos(grid, pos);
+    let other = crate::double_chest::paired(grid, pos);
+    let double = other.is_some();
+    let old_layout = layout_of(&registry, grid.block(pos));
     let mut entity = grid.block_entity(pos).cloned().unwrap_or_default();
-    let inventory = entity
-        .caps_mut()
-        .inventory
-        .get_or_insert_with(|| Inventory::new(CHEST_TIERS[from].layout.total()));
-    inventory.slots = relayout(
-        std::mem::take(&mut inventory.slots),
-        CHEST_TIERS[from].layout,
-        CHEST_TIERS[to].layout,
-    );
+    let changed =
+        |block: crate::BlockId| registry.variant(new_block, &registry.def(block).state_values);
     // Changer le bloc efface son état actif : on le remet aussitôt.
-    grid.set_block(pos, new_block);
+    let upgraded = changed(grid.block(pos));
+    grid.set_block(pos, upgraded);
+    let new_layout = layout_of(&registry, upgraded);
+    if let (Some(old), Some(new)) = (old_layout, new_layout) {
+        let inventory = entity
+            .caps_mut()
+            .inventory
+            .get_or_insert_with(|| Inventory::new(old.total()));
+        inventory.slots = if double {
+            let (old, new) = (CHEST_TIERS[from].layout, CHEST_TIERS[to].layout);
+            crate::double_chest::relayout_double(&inventory.slots, old, new)
+        } else {
+            relayout(std::mem::take(&mut inventory.slots), old, new)
+        };
+    }
+    if let Some(other) = other {
+        let kept = grid.block_entity(other).cloned();
+        grid.set_block(other, changed(grid.block(other)));
+        grid.set_block_entity(other, kept);
+    }
     grid.set_block_entity(pos, Some(entity))
 }
 
@@ -935,11 +951,7 @@ fn port_slots(registry: &BlockRegistry, block: crate::BlockId, giving: bool) -> 
             ports.inputs.clone()
         }),
         Some(_) => None,
-        None => def
-            .behavior
-            .as_deref()
-            .and_then(chest_layout)
-            .map(|l| l.main_range().collect()),
+        None => layout_of(registry, block).map(|l| l.main_range().collect()),
     }
 }
 
@@ -1037,7 +1049,12 @@ pub fn controller_members(grid: &(impl BlockAccess + ?Sized), origin: IVec3) -> 
             if far || !seen.insert(next) {
                 continue;
             }
-            if layout_of(&registry, grid.block(next)).is_none() {
+            let block = grid.block(next);
+            if layout_of(&registry, block).is_none() {
+                // La moitié droite d'un grand coffre relie aussi, sans inventaire à elle.
+                if crate::double_chest::part(&registry, block).is_some() {
+                    queue.push_back(next);
+                }
                 continue;
             }
             if members.len() >= CONTROLLER_MAX_CONTAINERS {

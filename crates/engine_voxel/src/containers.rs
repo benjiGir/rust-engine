@@ -360,7 +360,7 @@ pub fn register(
 pub fn container_slots(blocks: &BlockRegistry, block: BlockId) -> Option<usize> {
     match blocks.def(block).behavior.as_deref() {
         Some(b) if crate::storage::chest_layout(b).is_some() => {
-            crate::storage::chest_layout(b).map(|l| l.total())
+            crate::storage::layout_of(blocks, block).map(|l| l.total())
         }
         Some("core:cart_loader" | "core:cart_unloader") => Some(LOADER_SLOTS),
         Some("core:furnace" | "core:brewing_stand") => Some(3),

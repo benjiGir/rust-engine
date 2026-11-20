@@ -226,10 +226,7 @@ impl Networks {
             throughputs[i] = def.throughput;
             flows[i] = def.flow;
             ports[i] = def.ports.clone();
-            layouts[i] = def
-                .behavior
-                .as_deref()
-                .and_then(crate::storage::chest_layout);
+            layouts[i] = crate::storage::layout_of(registry, id);
             controllers[i] = def.behavior.as_deref() == Some(crate::storage::CONTROLLER_KEY);
         }
         Self {
@@ -463,6 +460,8 @@ impl Networks {
                 }
                 // La face de la machine tournée vers le conduit : l'opposée de `i`.
                 let face = Face::ALL[i ^ 1];
+                // La moitié droite d'un grand coffre échange par l'inventaire de la gauche.
+                let n = crate::double_chest::storage_pos(grid, n);
                 let Some(caps) = grid.block_entity(n).and_then(|e| e.caps.as_deref()) else {
                     continue;
                 };

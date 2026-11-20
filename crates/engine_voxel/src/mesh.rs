@@ -1059,6 +1059,17 @@ fn model_boxes(
             }
         });
         for (piece, b) in pieces.iter().enumerate() {
+            // La moitié d'un grand coffre n'a pas de paroi à la jointure.
+            let joint = match piece {
+                1 => b.min.x <= 0.0,
+                2 => b.max.x >= 1.0,
+                3 => b.min.z <= 0.0,
+                4 => b.max.z >= 1.0,
+                _ => false,
+            };
+            if body.is_some() && joint {
+                continue;
+            }
             for face in Face::ALL {
                 let a = face.axis;
                 let on_edge = if face.positive {
@@ -1161,6 +1172,9 @@ fn chest_walls(body: BlockBox) -> [BlockBox; 5] {
     let (a, b) = (body.min, body.max);
     let t = ((b - a).min_element() * 0.25).min(1.0 / 16.0);
     let floor = a.y + t;
+    // À la jointure d'un grand coffre, l'avant et le dos vont jusqu'au bord (pas de paroi de côté).
+    let x0 = if a.x <= 0.0 { a.x } else { a.x + t };
+    let x1 = if b.x >= 1.0 { b.x } else { b.x - t };
     [
         BlockBox {
             min: a,
@@ -1175,12 +1189,12 @@ fn chest_walls(body: BlockBox) -> [BlockBox; 5] {
             max: b,
         },
         BlockBox {
-            min: Vec3::new(a.x + t, floor, a.z),
-            max: Vec3::new(b.x - t, b.y, a.z + t),
+            min: Vec3::new(x0, floor, a.z),
+            max: Vec3::new(x1, b.y, a.z + t),
         },
         BlockBox {
-            min: Vec3::new(a.x + t, floor, b.z - t),
-            max: Vec3::new(b.x - t, b.y, b.z),
+            min: Vec3::new(x0, floor, b.z - t),
+            max: Vec3::new(x1, b.y, b.z),
         },
     ]
 }

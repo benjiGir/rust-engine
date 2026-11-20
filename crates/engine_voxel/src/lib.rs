@@ -27,6 +27,7 @@ mod crafting;
 pub mod density_graph;
 mod dimension;
 pub mod door;
+pub mod double_chest;
 mod edited_surface;
 mod far;
 mod far_props;

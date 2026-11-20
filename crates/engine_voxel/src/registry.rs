@@ -309,6 +309,10 @@ pub enum StateKind {
     Axis,
     /// Pivote autour du montant nord-ouest. Les boîtes fermées ont une profondeur de 3/16.
     DoorOpen,
+    /// Un coffre seul, ou une moitié de grand coffre (voir `double_chest.rs`) : la moitié
+    /// gauche (vue de face, côté +X du modèle) ou droite. Les boîtes d'une moitié s'étirent
+    /// jusqu'à la jointure ; la serrure se partage entre les deux. Toujours après `Facing4`.
+    ChestPart,
 }
 
 /// Le sens d'un conduit à sens unique : la direction de son état d'orientation (`north` : -Z,
@@ -339,6 +343,7 @@ impl StateKind {
             Self::Half => "half",
             Self::Axis => "axis",
             Self::DoorOpen => "open",
+            Self::ChestPart => "part",
         }
     }
 
@@ -349,6 +354,7 @@ impl StateKind {
             Self::Half => &["bottom", "top"],
             Self::Axis => &["y", "x", "z"],
             Self::DoorOpen => &["false", "true"],
+            Self::ChestPart => &["single", "left", "right"],
         }
     }
 
@@ -906,6 +912,11 @@ impl BlockRegistry {
                     entry.id,
                 );
             }
+            ensure!(
+                !entry.states.contains(&StateKind::ChestPart) || entry.lid.is_some(),
+                "{origin} : « {} » : ChestPart exige un couvercle (lid) et les états [Facing4, ChestPart]",
+                entry.id,
+            );
             if let Some(rotation) = &entry.rotation
                 && (boxes.is_empty()
                     || !rotation.speed.is_finite()
@@ -928,7 +939,9 @@ impl BlockRegistry {
                         && lid.hinge.1 <= 16
                         && entry.rotation.is_none()
                         && entry.glazing.is_none()
-                        && (entry.states.is_empty() || entry.states == [StateKind::Facing4]),
+                        && (entry.states.is_empty()
+                            || entry.states == [StateKind::Facing4]
+                            || entry.states == [StateKind::Facing4, StateKind::ChestPart]),
                     "{origin} : « {} » : corps, pièces ou charnière du couvercle invalides",
                     entry.id
                 );
@@ -1035,7 +1048,12 @@ impl BlockRegistry {
             self.defs.push(def);
             // Ces orientations sont ajoutées après les anciens blocs et variantes,
             // afin que leur arrivée ne décale aucun identifiant existant.
-            if oriented && entry.states == [StateKind::Facing4] {
+            if oriented
+                && matches!(
+                    entry.states.as_slice(),
+                    [StateKind::Facing4] | [StateKind::Facing4, StateKind::ChestPart]
+                )
+            {
                 directional.push(id);
             } else {
                 self.add_variants(id)?;
@@ -1084,6 +1102,28 @@ impl BlockRegistry {
                     .join(",")
             );
             let full = format!("{key}{suffix}");
+            // Un état ajouté en dernier garde lisibles les sauvegardes d'avant : sa première
+            // valeur répond aussi au nom sans lui (`core:chest[facing=east]`).
+            let id = if index == 0 {
+                base
+            } else {
+                BlockId(self.defs.len() as u16)
+            };
+            for kept in (1..states.len()).rev() {
+                if values[kept] != 0 {
+                    break;
+                }
+                let short = format!(
+                    "{key}[{}]",
+                    states[..kept]
+                        .iter()
+                        .zip(&values)
+                        .map(|(s, &v)| format!("{}={}", s.name(), s.values()[v as usize]))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+                self.by_key.entry(short).or_insert(id);
+            }
             if index == 0 {
                 // La base est sa propre première variante, joignable aussi par son nom complet.
                 self.defs[base.0 as usize].flow = flow_of(&states, &values, template.directed);
@@ -1102,6 +1142,15 @@ impl BlockRegistry {
             def.boxes = template
                 .boxes
                 .iter()
+                .map(|&b| {
+                    // La moitié d'un grand coffre se dessine dans le repère du modèle, avant
+                    // d'être tournée.
+                    states
+                        .iter()
+                        .zip(&values)
+                        .find(|(s, _)| **s == StateKind::ChestPart)
+                        .map_or(b, |(_, &v)| crate::double_chest::half_box(b, v))
+                })
                 .map(|b| {
                     b.mapped(|c| {
                         states
@@ -1223,7 +1272,7 @@ impl BlockRegistry {
                         0
                     }
                 }
-                StateKind::DoorOpen => 0,
+                StateKind::DoorOpen | StateKind::ChestPart => 0,
             })
             .collect();
         self.variant(block, &values)

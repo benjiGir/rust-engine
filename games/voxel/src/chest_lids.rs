@@ -30,7 +30,8 @@ impl Transition {
 
 #[derive(Default)]
 pub(crate) struct ChestLids {
-    open: Option<IVec3>,
+    /// Le coffre ouvert : une position, ou les deux moitiés d'un grand coffre.
+    open: Vec<IVec3>,
     transitions: Vec<Transition>,
 }
 
@@ -52,21 +53,21 @@ impl ChestLids {
         });
     }
 
-    fn update(&mut self, target: Option<IVec3>, now: f32) -> (bool, bool) {
+    fn update(&mut self, target: &[IVec3], now: f32) -> (bool, bool) {
         self.transitions
             .retain(|lid| lid.goal != 0.0 || lid.angle(now) > 0.0);
         if self.open == target {
             return (false, false);
         }
-        let closing = self.open;
-        if let Some(pos) = closing {
+        let closing = std::mem::take(&mut self.open);
+        for &pos in &closing {
             self.retarget(pos, 0.0, now);
         }
-        if let Some(pos) = target {
+        for &pos in target {
             self.retarget(pos, OPEN_ANGLE, now);
         }
-        self.open = target;
-        (closing.is_some(), target.is_some())
+        self.open = target.to_vec();
+        (!closing.is_empty(), !target.is_empty())
     }
 
     fn sample(&self, now: f32) -> [[f32; 4]; MAX_LIDS] {
@@ -90,8 +91,12 @@ impl VoxelGame {
                 .lid
                 .is_some()
         });
+        // Les deux couvercles d'un grand coffre s'ouvrent ensemble.
+        let other =
+            target.and_then(|pos| engine_voxel::double_chest::paired(&*self.streamer(), pos));
+        let targets: Vec<IVec3> = target.into_iter().chain(other).collect();
         let now = self.renderer.time;
-        let (closing, opening) = self.chest_lids.update(target, now);
+        let (closing, opening) = self.chest_lids.update(&targets, now);
         if let Some(audio) = &mut self.audio {
             if closing {
                 audio.play(audio::CHEST_CLOSE);
@@ -112,19 +117,31 @@ mod tests {
     fn opening_and_closing_follow_the_menu_and_reverse_smoothly() {
         let pos = IVec3::new(1, 70, -4);
         let mut lids = ChestLids::default();
-        assert_eq!(lids.update(Some(pos), 0.0), (false, true));
-        assert_eq!(lids.update(Some(pos), 0.1), (false, false));
+        assert_eq!(lids.update(&[pos], 0.0), (false, true));
+        assert_eq!(lids.update(&[pos], 0.1), (false, false));
         let angle = lids.sample(0.1)[0][3];
         assert!(angle > 0.0 && angle < OPEN_ANGLE);
-        assert_eq!(lids.update(None, 0.1), (true, false));
+        assert_eq!(lids.update(&[], 0.1), (true, false));
         assert_eq!(lids.sample(0.1)[0][3], angle);
         let closing = lids.sample(0.15)[0][3];
         assert!(closing < angle);
-        assert_eq!(lids.update(Some(pos), 0.15), (false, true));
+        assert_eq!(lids.update(&[pos], 0.15), (false, true));
         assert_eq!(lids.sample(0.15)[0][3], closing);
         assert_eq!(lids.sample(1.0)[0][3], OPEN_ANGLE);
-        assert_eq!(lids.update(None, 1.0), (true, false));
-        assert_eq!(lids.update(None, 2.0), (false, false));
+        assert_eq!(lids.update(&[], 1.0), (true, false));
+        assert_eq!(lids.update(&[], 2.0), (false, false));
+        assert_eq!(lids.sample(2.0), [[0.0; 4]; MAX_LIDS]);
+    }
+
+    #[test]
+    fn both_halves_of_a_large_chest_open_and_close_together() {
+        let (a, b) = (IVec3::new(0, 64, 0), IVec3::new(1, 64, 0));
+        let mut lids = ChestLids::default();
+        assert_eq!(lids.update(&[a, b], 0.0), (false, true));
+        let open = lids.sample(1.0);
+        assert_eq!((open[0][3], open[1][3]), (OPEN_ANGLE, OPEN_ANGLE));
+        assert_eq!(lids.update(&[], 1.0), (true, false));
+        assert_eq!(lids.update(&[], 2.0), (false, false));
         assert_eq!(lids.sample(2.0), [[0.0; 4]; MAX_LIDS]);
     }
 }

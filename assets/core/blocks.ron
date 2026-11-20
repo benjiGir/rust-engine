@@ -520,7 +520,7 @@
         behavior: "core:chest",
         sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
-        states: [Facing4],
+        states: [Facing4, ChestPart],
         lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
     ),
     // La terre labourée (phase O6) : la houe la crée ; l'eau à 4 blocs la garde humide.
@@ -1248,7 +1248,7 @@
         behavior: "core:copper_chest",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 3.0, tool: Pickaxe,
-        states: [Facing4],
+        states: [Facing4, ChestPart],
         lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
     ),
     (
@@ -1263,7 +1263,7 @@
         behavior: "core:iron_chest",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 3.0, tool: Pickaxe,
-        states: [Facing4],
+        states: [Facing4, ChestPart],
         lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
     ),
     (
@@ -1278,7 +1278,7 @@
         behavior: "core:gold_chest",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 3.0, tool: Pickaxe,
-        states: [Facing4],
+        states: [Facing4, ChestPart],
         lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
     ),
     (
@@ -1293,7 +1293,7 @@
         behavior: "core:sapphire_chest",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 3.0, tool: Pickaxe,
-        states: [Facing4],
+        states: [Facing4, ChestPart],
         lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
     ),
     (
