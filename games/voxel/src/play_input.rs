@@ -9,7 +9,7 @@
 //! chez le client, le simulateur compte son propre temps et vérifie `Dig Finish`.
 
 use super::*;
-use crate::protocol::{ClientMsg, DigPhase, EntityRef};
+use crate::protocol::{ClientMsg, DigPhase};
 
 impl VoxelGame {
     /// Direction voulue d'après les touches. Horizontale en marche ; en vol,
@@ -197,25 +197,26 @@ impl VoxelGame {
     }
 
     /// Le bouton gauche vient d'être pressé : une créature ou un wagon devant le bloc visé est
-    /// frappé, sinon on commence à casser.
+    /// frappé, sinon on commence à casser. La cible est choisie dans la réplique des entités (ce que
+    /// le joueur voit) ; le simulateur revérifie.
     fn press_attack(&mut self, dt: f32) {
-        let aim = self.aim();
         let message_aim = self.window_aim();
-        if let Some(mob) = aim.mob {
+        if let Some(id) = self.window_entity() {
             self.send(ClientMsg::Attack {
                 aim: message_aim,
-                entity: EntityRef::new(mob),
+                entity: id,
             });
-            // Les retours immédiats restent ici : le bras frappe, le coup résonne.
-            self.hand.punch();
-            if let Some(audio) = &mut self.audio {
-                audio.play("core:break_soft");
+            // Les retours immédiats restent ici : le bras frappe, le coup résonne (sur une créature).
+            let mob =
+                self.view.entities.get(id).is_some_and(|view| {
+                    matches!(view.kind, crate::entities::EntityKind::Mob { .. })
+                });
+            if mob {
+                self.hand.punch();
+                if let Some(audio) = &mut self.audio {
+                    audio.play("core:break_soft");
+                }
             }
-        } else if let Some(cart) = self.aimed_cart() {
-            self.send(ClientMsg::Attack {
-                aim: message_aim,
-                entity: EntityRef::new(cart),
-            });
         } else {
             self.predict_mining(dt);
         }

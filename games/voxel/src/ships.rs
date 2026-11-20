@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 
 use engine_ecs::{Entity, World as Ecs};
-use engine_voxel::{GridId, GridPos, Grids, ShipInput, SubGrid, SubGrids, step_ship};
+use engine_voxel::{GridId, GridPos, Grids, ShipInput, SubGrid, step_ship};
 
 use super::*;
 use crate::components::{Collider, OnGrid, Transform};
@@ -206,8 +206,8 @@ impl GridMeshes {
 
     /// Met les maillages à jour : remaille ce qui a changé, retire ce qui a disparu, et place
     /// chaque maillage selon la transformation actuelle de sa structure.
-    pub fn sync(&mut self, renderer: &mut Renderer, subs: &SubGrids) {
-        let live = subs.ids();
+    pub fn sync(&mut self, renderer: &mut Renderer, grids: &[&SubGrid]) {
+        let live: Vec<GridId> = grids.iter().map(|grid| grid.id).collect();
         let gone: Vec<GridId> = self
             .built
             .keys()
@@ -221,8 +221,8 @@ impl GridMeshes {
                 }
             }
         }
-        for id in live {
-            let grid = subs.get(id).expect("identifiant connu").borrow();
+        for grid in grids {
+            let id = grid.id;
             let stale = self
                 .built
                 .get(&id)
@@ -233,11 +233,11 @@ impl GridMeshes {
                         renderer.remove_mesh(mesh);
                     }
                 }
-                self.built.insert(id, build(renderer, &grid));
+                self.built.insert(id, build(renderer, grid));
             }
             if let Some(built) = self.built.get(&id) {
                 for &(origin, mesh) in &built.chunks {
-                    let (world_origin, bounds) = place(&grid, origin);
+                    let (world_origin, bounds) = place(grid, origin);
                     renderer.set_mesh_transform(mesh, world_origin, grid.yaw, bounds);
                 }
             }
@@ -495,6 +495,7 @@ mod tests {
     use crate::components::Velocity;
     use crate::mobs::tests::sim_at;
     use crate::mobs::{MobRegistry, spawn_mob};
+    use engine_voxel::SubGrids;
 
     /// Un pont de 6 × 6 planches, avec douze ballons qui le tiennent en l'air (la portance
     /// égale le poids : il flotte sans monter ni tomber), loin au-dessus du terrain.

@@ -9,7 +9,6 @@
 use std::sync::Arc;
 
 use engine_ecs::World;
-use engine_render::CubeInstance;
 use glam::Vec3;
 use serde::Deserialize;
 
@@ -23,9 +22,6 @@ use crate::shared::StreamerExt as _;
 const GRAVITY: f32 = 12.0;
 /// Un projectile qui n'a rien touché disparaît après ce temps.
 const LIFETIME: f32 = 5.0;
-/// Sa taille (un cube), pour le dessin.
-const SIZE: f32 = 0.22;
-
 /// L'attaque à distance d'une créature (`ranged` dans `entities.ron`).
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -189,19 +185,6 @@ pub fn fly(world: &mut World) {
     for entity in gone {
         world.commands().despawn(entity);
     }
-}
-
-/// Les projectiles à dessiner, interpolés entre deux pas.
-pub fn instances(world: &World, alpha: f32, out: &mut Vec<CubeInstance>) {
-    world
-        .query::<(&Transform, &PreviousPosition, &Projectile)>()
-        .for_each(|_, (transform, previous, projectile)| {
-            out.push(CubeInstance::new(
-                previous.0.lerp(transform.position, alpha),
-                Vec3::splat(SIZE),
-                projectile.color,
-            ));
-        });
 }
 
 /// Une créature qui tire s'arrête à portée si elle voit le joueur (sinon elle approche).

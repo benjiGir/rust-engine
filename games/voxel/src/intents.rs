@@ -17,10 +17,11 @@
 //!   70 % du temps de minage théorique s'est écoulé.
 
 use super::*;
+use crate::entities::{NetId, NetIds};
 use crate::gear::Strike;
 use crate::movement::{MoveLimits, MoveRefusal, MoveSample, movement_check};
 use crate::players::{DigState, OpenContainer, PlayerId};
-use crate::protocol::{Aim, ClickButton, ClientMsg, DigPhase, EntityRef, ServerMsg, SlotTarget};
+use crate::protocol::{Aim, ClickButton, ClientMsg, DigPhase, ServerMsg, SlotTarget};
 use crate::ui::{Screen, SlotRef};
 
 /// De combien l'œil annoncé par le client peut s'écarter de l'œil du joueur côté simulateur.
@@ -144,6 +145,7 @@ pub(crate) fn dig_refusal(
 pub(crate) fn slot_ref_for(
     state: &crate::players::PlayerState,
     slot: SlotTarget,
+    entity_of: &dyn Fn(NetId) -> Option<Entity>,
 ) -> Option<SlotRef> {
     let open = state.open;
     match slot {
@@ -162,7 +164,8 @@ pub(crate) fn slot_ref_for(
         )
         .then_some(SlotRef::Container(pos, index)),
         SlotTarget::Cart { cart, index } => {
-            let cart = cart.entity();
+            // Un numéro inconnu (ou d'une entité morte) ne désigne rien.
+            let cart = entity_of(cart)?;
             (open == Some(OpenContainer::Cart(cart))).then_some(SlotRef::Cart(cart, index))
         }
         SlotTarget::Bag { number, index } => {
@@ -180,15 +183,20 @@ impl VoxelGame {
         }
         let eye = self.camera.position;
         let forward = self.camera.forward();
-        let reach = self.players.me().gear.reach();
-        let block_distance = self.target.map_or(reach, |hit| hit.distance);
         ActingAim {
             player: self.players.current_id(),
             eye,
             forward,
             hit: self.target,
-            mob: mobs::hit_mob(&self.ecs, eye, forward, block_distance).map(|(mob, _)| mob),
+            // La fenêtre choisit ce qu'elle frappe dans sa réplique (voir `window_entity`) ; le simulateur
+            // refait sa propre visée à chaque message.
+            mob: None,
         }
+    }
+
+    /// L'entité que retrouve le serveur sous ce numéro, si elle existe encore.
+    pub(crate) fn server_entity(&self, id: NetId) -> Option<Entity> {
+        self.ecs.get_resource::<NetIds>()?.entity(&self.ecs, id)
     }
 
     /// La visée de la fenêtre, telle qu'elle part dans un message.
@@ -302,7 +310,13 @@ impl VoxelGame {
                 aim, phase, pos, ..
             } => self.handle_dig(player, aim, phase, pos),
             ClientMsg::Attack { aim, entity } => {
-                self.with_aim(player, aim, |game| game.handle_attack(entity.entity()));
+                // Un numéro que le serveur ne connaît pas (ou d'une entité morte) est refusé.
+                match self.server_entity(entity) {
+                    Some(claimed) => {
+                        self.with_aim(player, aim, |game| game.handle_attack(claimed));
+                    }
+                    None => log::debug!("coup refusé : {entity:?} est inconnu"),
+                }
             }
             ClientMsg::Use { aim, sneaking } => {
                 self.with_aim(player, aim, |game| game.handle_use(sneaking));
@@ -649,7 +663,7 @@ impl VoxelGame {
 
     /// La case désignée par un message, si le joueur courant peut la toucher.
     fn slot_ref(&self, slot: SlotTarget) -> Option<SlotRef> {
-        slot_ref_for(self.players.me(), slot)
+        slot_ref_for(self.players.me(), slot, &|id| self.server_entity(id))
     }
 
     /// Ouvre l'écran d'un conteneur pour le joueur courant. L'interface ne s'ouvre que pour le
@@ -702,12 +716,12 @@ impl VoxelGame {
     }
 
     /// La case de l'interface, telle qu'elle part dans un message.
-    pub(crate) fn slot_target_of(target: SlotRef) -> SlotTarget {
+    pub(crate) fn slot_target_of(&self, target: SlotRef) -> SlotTarget {
         match target {
             SlotRef::Player(slot) => SlotTarget::Player(slot),
             SlotRef::Container(pos, index) => SlotTarget::Block { pos, index },
             SlotRef::Cart(cart, index) => SlotTarget::Cart {
-                cart: EntityRef::new(cart),
+                cart: self.ecs.get::<NetId>(cart).map_or(NetId(0), |id| *id),
                 index,
             },
             SlotRef::Bag(number, index) => SlotTarget::Bag { number, index },
@@ -907,6 +921,7 @@ mod tests {
         let chest = IVec3::new(5, 64, 5);
         let mut a = guest(0);
         let b = guest(1);
+        let none = |_: NetId| None;
         a.open = Some(OpenContainer::Chest(chest));
         let on_chest = SlotTarget::Block {
             pos: chest,
@@ -914,42 +929,48 @@ mod tests {
         };
         // A a ouvert le coffre ; B non : le même message ne vaut que pour A.
         assert_eq!(
-            slot_ref_for(&a, on_chest),
+            slot_ref_for(&a, on_chest, &none),
             Some(SlotRef::Container(chest, 3))
         );
-        assert_eq!(slot_ref_for(&b, on_chest), None);
+        assert_eq!(slot_ref_for(&b, on_chest, &none), None);
         // Un autre coffre que celui qu'A a ouvert est refusé.
         let elsewhere = SlotTarget::Block {
             pos: IVec3::new(9, 64, 9),
             index: 0,
         };
-        assert_eq!(slot_ref_for(&a, elsewhere), None);
+        assert_eq!(slot_ref_for(&a, elsewhere, &none), None);
         // Chacun clique ses propres cases ; une case qui n'existe pas est refusée.
         let own = SlotTarget::Player(inventory::Slot::Main(4));
         assert_eq!(
-            slot_ref_for(&b, own),
+            slot_ref_for(&b, own, &none),
             Some(SlotRef::Player(inventory::Slot::Main(4)))
         );
         let beyond = SlotTarget::Player(inventory::Slot::Main(9999));
-        assert_eq!(slot_ref_for(&b, beyond), None);
+        assert_eq!(slot_ref_for(&b, beyond, &none), None);
         // Les sacs et les wagons de même.
         a.open = Some(OpenContainer::Bag(12));
         let bag = SlotTarget::Bag {
             number: 12,
             index: 1,
         };
-        assert_eq!(slot_ref_for(&a, bag), Some(SlotRef::Bag(12, 1)));
-        assert_eq!(slot_ref_for(&b, bag), None);
+        assert_eq!(slot_ref_for(&a, bag, &none), Some(SlotRef::Bag(12, 1)));
+        assert_eq!(slot_ref_for(&b, bag, &none), None);
         let cart = Entity {
             index: 4,
             generation: 2,
         };
         a.open = Some(OpenContainer::Cart(cart));
         let on_cart = SlotTarget::Cart {
-            cart: EntityRef::new(cart),
+            cart: NetId(31),
             index: 0,
         };
-        assert_eq!(slot_ref_for(&a, on_cart), Some(SlotRef::Cart(cart, 0)));
-        assert_eq!(slot_ref_for(&b, on_cart), None);
+        let known = |id: NetId| (id == NetId(31)).then_some(cart);
+        assert_eq!(
+            slot_ref_for(&a, on_cart, &known),
+            Some(SlotRef::Cart(cart, 0))
+        );
+        assert_eq!(slot_ref_for(&b, on_cart, &known), None);
+        // Un numéro que le serveur ne connaît pas ne désigne aucun wagon.
+        assert_eq!(slot_ref_for(&a, on_cart, &none), None);
     }
 }

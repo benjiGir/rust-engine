@@ -8,7 +8,6 @@ use std::sync::Arc;
 use crate::shared::StreamerExt;
 use anyhow::{Context as _, Result, bail};
 use engine_ecs::{Entity, World};
-use engine_render::CubeInstance;
 use engine_voxel::{BlockRegistry, ChunkStreamer, PlayerBody, ray_aabb};
 use glam::{IVec3, Vec2, Vec3};
 use serde::Deserialize;
@@ -962,80 +961,6 @@ pub fn animate(world: &mut World) {
         });
 }
 
-/// Les boîtes à dessiner pour toutes les créatures, interpolées entre deux pas.
-pub fn instances(world: &World, alpha: f32) -> Vec<CubeInstance> {
-    let registry = world.resource::<Arc<MobRegistry>>().clone();
-    let shared = world.streamer();
-    let streamer = shared.borrow();
-    let mut out = Vec::new();
-    world
-        .query::<(&Transform, &PreviousPosition, &Mob)>()
-        .for_each(|entity, (transform, previous, mob)| {
-            let Some(def) = registry.get(mob.kind) else {
-                return;
-            };
-            let position = previous.0.lerp(transform.position, alpha);
-            // La lumière au milieu de la créature, pour qu'elle soit sombre dans une grotte.
-            let (sky, block) = streamer
-                .world()
-                .light((position + Vec3::Y * 0.5).floor().as_ivec3());
-            let hurt = world.has::<Hurt>(entity);
-            let scale = if world.has::<crate::components::Baby>(entity) {
-                crate::breeding::BABY_SCALE
-            } else {
-                1.0
-            };
-            let elite = world.get::<crate::elites::Elite>(entity).map(|e| e.clone());
-            // Le faisceau d'un envahisseur, visible de loin.
-            if let Some(elite) = elite.as_ref().filter(|e| e.invader) {
-                out.extend(crate::elites::beam(
-                    position,
-                    elite,
-                    alpha + transform.position.x,
-                ));
-            }
-            let (c, s) = (transform.yaw.cos(), transform.yaw.sin());
-            let anim = world
-                .get::<MobAnim>(entity)
-                .map_or_else(MobAnim::default, |a| *a);
-            let coat = world
-                .get::<crate::sheep_colors::SheepCoat>(entity)
-                .map(|c| *c);
-            for (part, mut cube) in def.parts.iter().zip(crate::mob_model::instances(
-                &def.parts,
-                anim.phase,
-                anim.stride,
-                anim.look,
-            )) {
-                let local = Vec3::from_array(cube.center);
-                cube.center = (position
-                    + Vec3::new(
-                        local.x * c - local.z * s,
-                        local.y,
-                        local.x * s + local.z * c,
-                    ) * scale)
-                    .to_array();
-                cube.size = (Vec3::from_array(cube.size) * scale).to_array();
-                cube.yaw += transform.yaw;
-                cube.swing[1] *= scale;
-                let mut color = Vec3::from_array(cube.color);
-                if let Some(coat) = coat {
-                    color *= coat.tint_part(part);
-                }
-                if let Some(elite) = &elite {
-                    color = crate::elites::tinted(color, elite);
-                }
-                if hurt {
-                    color = color.lerp(Vec3::new(1.0, 0.1, 0.1), 0.6);
-                }
-                cube.color = color.to_array();
-                cube.light = [sky as f32 / 15.0, block as f32 / 15.0];
-                out.push(cube);
-            }
-        });
-    out
-}
-
 /// Nombre de créatures par type (pour l'inspecteur).
 pub fn census(world: &World) -> HashMap<u32, usize> {
     let mut counts = HashMap::new();
@@ -1086,9 +1011,9 @@ pub(crate) mod tests {
             Some(SheepCoat(0)),
         )
         .unwrap();
-        let plain = instances(&world, 1.0);
+        let plain = crate::entity_render::support::boxes(&mut world, 1.0);
         world.insert(mob, SheepCoat(3));
-        let dyed = instances(&world, 1.0);
+        let dyed = crate::entity_render::support::boxes(&mut world, 1.0);
         for ((part, a), b) in registry
             .get(kind)
             .unwrap()
@@ -1648,7 +1573,7 @@ pub(crate) mod tests {
         let walking = *world.get::<MobAnim>(mob).unwrap();
         assert!(walking.stride > 0.8, "il marche : {}", walking.stride);
         // Les pattes ont un balancement, en diagonale (deux de chaque signe).
-        let boxes = instances(&world, 1.0);
+        let boxes = crate::entity_render::support::boxes(&mut world, 1.0);
         let swings: Vec<f32> = boxes
             .iter()
             .map(|b| b.swing[0])
@@ -1690,7 +1615,7 @@ pub(crate) mod tests {
         let look = world.get::<MobAnim>(mob).unwrap().look;
         assert!((look - 0.78).abs() < 0.15, "tête tournée de {look}");
         // La tête pivote avec ses boîtes : leur lacet change, pas celui du corps.
-        let boxes = instances(&world, 1.0);
+        let boxes = crate::entity_render::support::boxes(&mut world, 1.0);
         assert!(
             boxes.iter().any(|b| (b.yaw - look).abs() < 0.01),
             "une boîte de tête tournée"

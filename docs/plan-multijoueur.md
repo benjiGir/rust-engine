@@ -484,6 +484,117 @@ note.
 - `VOXEL_PIPELINE=1` mesure maintenant la réplique (chunk reçu → maillé → envoyé).
 - Les menus (conteneurs, four...) lisent encore les blocs actifs du serveur : ils deviennent des vues au 3d.
 
+##### 3b en détail (après 3a, `bd836e3`)
+
+**But.** La fenêtre ne lit plus l'ECS du serveur pour dessiner les entités : créatures, objets au sol, wagons,
+projectiles, sous-grilles (bateaux, contraptions) et autres joueurs. Le serveur les décrit par messages ; le client tient
+une **réplique d'entités** avec seulement ce que le rendu demande.
+
+État du code :
+- `render` (`main.rs`) construit les instances avec `mobs::instances`, `projectiles::instances`, `carts::instances` et
+  `drops::instances`, qui lisent l'ECS du serveur (`Transform`, `PreviousPosition`, `Mob`, `Hurt`, `Elite`,
+  `MobAnim`...) ;
+- `ships::GridMeshes::sync` lit `mods.subgrids` ;
+- `play_input` choisit la créature frappée avec `mobs::hit_mob(&self.ecs, ...)`.
+
+**Côté serveur**
+
+- **`NetId(u32)`** est un composant posé sur toute entité répliquée par un compteur du serveur, jamais réutilisé dans une
+  partie. `EntityRef` du protocole devient un `NetId` : le client désigne ce qu'il voit, le serveur retrouve l'entité
+  et revalide comme aujourd'hui.
+- **Un suivi par joueur** (`EntityTracker`) garde les entités envoyées. Une entité est vue si elle est dans un chunk
+  envoyé à ce joueur et à moins de N blocs de lui (portée par sorte : créatures 80, objets 48, projectiles 64, wagons et
+  grilles 128).
+- **Les messages**
+  - `Spawn { id, kind, position, yaw, ... }`. Le `kind` décrit l'apparence :
+    - `Mob { key, variant (couleur du mouton, bébé...), elite, held }` ;
+    - `Item { stack }` ;
+    - `Cart { kind, contents }` ;
+    - `Projectile { kind }` ;
+    - `Grid { id, blocks: Arc<...> }` ;
+    - `Player { name }`.
+  - `Despawn(id)`.
+  - `Moves(Vec<{ id, position, yaw, anim }>)` : l'animation (`MobAnim` : phase, foulée, regard, coup de bras) est calculée
+    par le serveur et envoyée.
+  - `EntityState { id, hurt, held, variant... }` : les changements d'apparence.
+  - Pour une grille : sa transformation, et ses blocs quand ils changent.
+- **Cadence** : un `Moves` tous les `interval` pas fixes, seulement pour ce qui a bougé.
+  - `interval = 1` sur le lien en mémoire (solo, 60 Hz, **identique à aujourd'hui**) ;
+  - `interval = 3` (20 Hz) prévu pour le TCP au lot 5. La valeur est un réglage du suivi, testé avec les deux valeurs.
+
+**Côté client**
+
+- **`ClientEntities`** contient, pour chaque `NetId` :
+  - la vue (sorte et apparence) ;
+  - les deux derniers échantillons de position ;
+  - l'animation.
+
+  L'interpolation se fait entre ces deux échantillons avec `alpha`, rapporté à l'intervalle. Avec `interval = 1`, c'est
+  exactement l'interpolation `PreviousPosition` actuelle.
+- **Le rendu lit la réplique** :
+  - `instances` des créatures, projectiles, wagons et objets (des fonctions qui prennent la vue, plus l'ECS du serveur) ;
+  - `GridMeshes::sync` ;
+  - les autres joueurs : modèle `skin.rs` et nom au-dessus de la tête.
+- **La créature frappée** est choisie dans la réplique (ce que le joueur voit). Le serveur revalide.
+- Le joueur local n'est pas dans la réplique : sa propre prédiction, et la main en première personne, ne changent pas.
+- **Pour tester les autres joueurs sans réseau** : une commande `ctl ghost [nom] [x y z]` ajoute un joueur serveur sans
+  fenêtre, immobile, et `ctl ghost remove` le retire. Il est vu, visé par les créatures et dessiné avec son nom.
+
+**Tests**
+- Le suivi :
+  - `Spawn` quand l'entité entre dans la portée, `Despawn` à la sortie ou à la mort ;
+  - `Moves` seulement pour ce qui a bougé, et à la cadence (1 et 3) ;
+  - deux joueurs suivent des ensembles indépendants.
+- La réplique : interpolation identique à `PreviousPosition` quand `interval = 1`, et correcte à mi-chemin quand
+  `interval = 3`.
+- Les `NetId` sont uniques et un `NetId` inconnu est refusé par le serveur.
+- Les tests existants passent.
+
+**En jeu** (`multitest`, `VOXEL_SAVES` du scratchpad) :
+- créatures qui marchent, regardent et s'animent ;
+- un mouton tondu change de couleur ;
+- un objet jeté puis ramassé ;
+- un wagon qui roule ;
+- une flèche (squelette ou arc) ;
+- un bateau assemblé qui bouge ;
+- frapper une créature ;
+- un fantôme (`ctl ghost`) visible avec son nom, poursuivi par un rôdeur ;
+- des captures avant/après au même endroit avec des créatures ;
+- `cargo xtask bench` comparé à `bd836e3`.
+
+**Réalisé (3b).** Écarts au plan :
+- **`EntityRef` disparaît** : `Attack` et `SlotTarget::Cart` portent un `NetId`. Le serveur le retrouve
+  (`NetIds::entity`), refuse un numéro inconnu ou d'une entité morte, puis revérifie sa propre visée comme au lot 2.
+- **`Tick(u64)`** ouvre les messages d'entités de chaque pas : la réplique date ses échantillons de position du pas
+  fixe du serveur et dessine au temps `pas - interval + alpha`. Avec `interval = 1` c'est l'interpolation
+  `PreviousPosition` d'avant ; avec 3, un glissement sur trois pas. Une entité immobile n'envoie rien : à la
+  première pose reçue, l'échantillon de départ est l'ancienne pose reculée d'un intervalle.
+- **`Spawn { id, kind, pose, look }`** : `kind` (`Mob { kind }`, `Item { stack }`, `Cart { kind }`,
+  `Projectile { color }`, `Grid { id }`, `Player { name }`) ne change pas ; `Pose` (position, lacet, inclinaison,
+  phase, ampleur et regard de la créature) voyage dans `Moves` ; `Look` (blessée, petit, couleur de toison,
+  teinte d'élite, boîte de la créature) dans `EntityState`. Le numéro de créature est celui du registre (`u32`),
+  pas sa clé texte : au réseau (lot 5), la table des numéros de la poignée de main le traduira. Les contenus de
+  wagon ne sont pas envoyés (le dessin ne les lit pas).
+- **Les structures mobiles** n'ont pas d'entité ECS : le serveur leur donne un `NetId` à part. Leurs blocs partent
+  dans `GridBlocks { id, grid: GridSnapshot }` (un `Arc<SubGrid>` copié quand la révision change, `#[serde(skip)]`
+  comme les chunks) ; leur pose dans `Moves`. Elles sont vues à 128 blocs sans exiger leur colonne.
+- **Chaque entité est vue si sa colonne a été envoyée** (`ChunkSender::has_column`) : les chunks vides ne sont
+  jamais envoyés, donc le chunk exact ne convient pas à une créature en plein ciel. Une entité déjà vue sort à
+  sa portée plus 4 blocs (marge), pas à la portée exacte.
+- **Le modèle d'un autre joueur** n'est pas dans `skin.rs` (c'est la palette de l'interface) : `entity_render.rs`
+  construit un corps de huit boîtes qui marche comme une créature, avec une marche déduite des déplacements.
+  Le nom est dessiné par egui au-dessus de la tête.
+- **La cible frappée** vient de la réplique (`ClientEntities::hit` : la créature la plus proche, sinon le wagon,
+  avant le bloc visé), pour la fenêtre et pour `ctl attack`. La fiche de la cible (`ui_target.rs`) lit encore
+  la vie et le nom d'élite dans l'ECS du serveur : ils viendront par messages au 3c.
+- **`ctl ghost`** : `ghost [nom] [x y z]`, `ghost remove [nom]`, `ghost list`. Le fantôme est un `PlayerState`
+  (`ghost: true`) jamais sauvegardé, qui garde toute sa vie. Les créatures le visent s'il est le plus proche.
+- **`VOXEL_ENTITY_INTERVAL=3`** essaie la cadence du réseau en jeu.
+- Pas de tonte de mouton dans le jeu : le changement de couleur d'un mouton est testé par `EntityState`
+  (réplique), pas en jeu.
+- Les attributs de rendu restent du contenu et non de l'état : `entity_render` lit encore le registre des
+  créatures dans l'ECS (`Arc<MobRegistry>`) ; la table de numéros du lot 5 le remplacera.
+
 ### Lot 4 : le serveur intégré sur son thread
 
 - `VoxelServer` est construit **sur** son thread, avec ses `Rc` internes. Seuls les messages traversent.

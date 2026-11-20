@@ -30,7 +30,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use engine_ecs::{Entity, World};
-use engine_render::CubeInstance;
 use engine_voxel::{
     Derail, Drive, GRAVITY, Inventory, ItemRegistry, ItemStack, PlayerBody, Rail, RailKind,
     RailMotion, SavedCart, SavedRail, Smelting, rail_at, ray_aabb,
@@ -63,7 +62,7 @@ const HALF_WIDTH: f32 = 0.5;
 const HEIGHT: f32 = 0.85;
 
 /// Les sortes de wagons.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum CartKind {
     Minecart,
     Chest,
@@ -1128,18 +1127,9 @@ pub fn load_saved(world: &mut World, carts: &[SavedCart]) {
 
 // ----- Dessin -----
 
-/// Un lacet entre deux valeurs, par le plus court chemin.
-fn lerp_angle(a: f32, b: f32, t: f32) -> f32 {
-    let mut d = (b - a).rem_euclid(std::f32::consts::TAU);
-    if d > std::f32::consts::PI {
-        d -= std::f32::consts::TAU;
-    }
-    a + d * t
-}
-
 /// Les boîtes d'un wagon : (décalage local, taille, couleur plus ou moins claire). Le décalage est
 /// dans le repère du wagon : x vers l'avant, y vers le haut, z sur le côté.
-fn parts(kind: CartKind) -> Vec<(Vec3, Vec3, Vec3)> {
+pub(crate) fn parts(kind: CartKind) -> Vec<(Vec3, Vec3, Vec3)> {
     let (body, dark) = kind.paint();
     let wheel = Vec3::new(0.13, 0.13, 0.15);
     let mut out = vec![
@@ -1227,50 +1217,6 @@ fn parts(kind: CartKind) -> Vec<(Vec3, Vec3, Vec3)> {
             ));
         }
     }
-    out
-}
-
-/// Les boîtes de tous les wagons, interpolées entre deux pas.
-pub fn instances(world: &World, alpha: f32) -> Vec<CubeInstance> {
-    let shared = world.streamer();
-    let streamer = shared.borrow();
-    let mut out = Vec::new();
-    world
-        .query::<(&Transform, &PreviousPosition, &Cart)>()
-        .for_each(|_, (transform, previous, cart)| {
-            let position = previous.0.lerp(transform.position, alpha);
-            let yaw = lerp_angle(cart.previous_yaw, cart.yaw, alpha);
-            let pitch = cart.previous_pitch + (cart.pitch - cart.previous_pitch) * alpha;
-            let (sky, block) = streamer
-                .world()
-                .light((position + Vec3::Y * 0.5).floor().as_ivec3());
-            let (cp, sp) = (pitch.cos(), pitch.sin());
-            let (cy, sy) = (yaw.cos(), yaw.sin());
-            // Un wagon qui vient d'être frappé rougit un instant.
-            let flash = if cart.hurt > 0.0 { 0.45 } else { 0.0 };
-            for (offset, size, color) in parts(cart.kind) {
-                let tilted = Vec3::new(
-                    offset.x * cp - offset.y * sp,
-                    offset.x * sp + offset.y * cp,
-                    offset.z,
-                );
-                let rotated = Vec3::new(
-                    tilted.x * cy - tilted.z * sy,
-                    tilted.y,
-                    tilted.x * sy + tilted.z * cy,
-                );
-                out.push(
-                    CubeInstance::new(
-                        position + rotated,
-                        size,
-                        color.lerp(Vec3::new(1.0, 0.15, 0.1), flash),
-                    )
-                    .with_yaw(yaw)
-                    .with_swing(pitch, 0.0)
-                    .with_light(sky as f32 / 15.0, block as f32 / 15.0),
-                );
-            }
-        });
     out
 }
 

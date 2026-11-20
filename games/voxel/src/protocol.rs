@@ -13,11 +13,11 @@
 
 use std::sync::Arc;
 
-use engine_ecs::Entity;
 use engine_voxel::Chunk;
 use glam::{IVec3, Vec3};
 use serde::{Deserialize, Serialize};
 
+use crate::entities::{EntityKind, GridSnapshot, Look, NetId, Pose};
 use crate::inventory::{Click, Slot};
 use crate::player::MoveMode;
 
@@ -26,24 +26,6 @@ use crate::player::MoveMode;
 pub struct Aim {
     pub eye: Vec3,
     pub forward: Vec3,
-}
-
-/// Une entité désignée dans un message. Un identifiant réseau stable viendra avec l'envoi des
-/// entités au client : d'ici là, c'est l'entité de l'ECS (numéro et génération).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EntityRef(pub u64);
-
-impl EntityRef {
-    pub fn new(entity: Entity) -> Self {
-        Self(u64::from(entity.generation) << 32 | u64::from(entity.index))
-    }
-
-    pub fn entity(self) -> Entity {
-        Entity {
-            index: self.0 as u32,
-            generation: (self.0 >> 32) as u32,
-        }
-    }
 }
 
 /// Où en est le minage d'un bloc.
@@ -68,7 +50,7 @@ pub enum SlotTarget {
         index: usize,
     },
     Cart {
-        cart: EntityRef,
+        cart: NetId,
         index: usize,
     },
     Bag {
@@ -127,10 +109,12 @@ pub enum ClientMsg {
         pos: IVec3,
         face: IVec3,
     },
-    /// Un coup de poing ou d'arme sur une créature ou un wagon.
+    /// Un coup de poing ou d'arme sur une créature ou un wagon que le client voit : le simulateur
+    /// retrouve l'entité par son numéro (un numéro inconnu est refusé) et revérifie que c'est bien
+    /// ce qu'il voit sous le regard.
     Attack {
         aim: Aim,
-        entity: EntityRef,
+        entity: NetId,
     },
     /// Le clic droit : le simulateur enchaîne les usages (wagon, porte, lit, conteneur, machine,
     /// habitant, houe, charme...) puis pose le bloc tenu. `sneaking` : Maj est tenu.
@@ -171,14 +155,43 @@ pub enum ClientMsg {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServerMsg {
     /// Un mouvement refusé (ou un déplacement imposé) : le client place le joueur ici.
-    Correct { position: Vec3 },
+    Correct {
+        position: Vec3,
+    },
     /// Un chunk hors de portée : le client l'oublie.
     Unload(IVec3),
+    /// Le pas fixe du serveur auquel appartiennent les messages d'entités qui suivent : le client
+    /// interpole les poses d'après ce compteur (voir `client_entities.rs`).
+    Tick(u64),
+    /// Une entité entre dans la portée du joueur (voir `entities.rs`).
+    Spawn {
+        id: NetId,
+        kind: EntityKind,
+        pose: Pose,
+        look: Look,
+    },
+    Despawn(NetId),
+    /// Les poses de ce qui a bougé, toutes les `interval` pas fixes.
+    Moves(Vec<(NetId, Pose)>),
+    /// L'apparence d'une entité a changé (blessée, petit qui grandit...).
+    EntityState {
+        id: NetId,
+        look: Look,
+    },
     // Les variantes `serde(skip)` sont à la fin : elles décalent les numéros de variantes qui les suivent.
     /// Un chunk que le client n'avait pas, avec sa lumière et ses blocs actifs. Le serveur envoie des
     /// colonnes entières, éclairées (voir `engine_voxel::ChunkSender`).
     #[serde(skip)]
-    Chunk { pos: IVec3, chunk: Arc<Chunk> },
+    Chunk {
+        pos: IVec3,
+        chunk: Arc<Chunk>,
+    },
+    /// Les blocs d'une structure mobile (bateau, contraption), à sa première vue et quand ils changent.
+    #[serde(skip)]
+    GridBlocks {
+        id: NetId,
+        grid: GridSnapshot,
+    },
     /// Un chunk que le client a déjà et qui a changé : le chunk d'aujourd'hui, avec les positions des
     /// blocs posés ou cassés (`edits`, remaillés dans l'image), ou `remesh` pour un changement qui
     /// peut attendre (lumière, machine). Ni l'un ni l'autre : des données seules, sans remaillage.
@@ -194,15 +207,6 @@ pub enum ServerMsg {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn entity_ref_round_trips() {
-        let entity = Entity {
-            index: 7,
-            generation: 3,
-        };
-        assert_eq!(EntityRef::new(entity).entity(), entity);
-    }
 
     #[test]
     fn messages_survive_postcard() {
@@ -249,6 +253,45 @@ mod tests {
         let unload = ServerMsg::Unload(IVec3::new(1, -2, 3));
         let bytes = postcard::to_stdvec(&unload).unwrap();
         assert_eq!(postcard::from_bytes::<ServerMsg>(&bytes).unwrap(), unload);
+        // Les messages d'entités sont prêts pour le réseau.
+        let pose = Pose {
+            position: Vec3::new(1.0, 2.0, 3.0),
+            yaw: 0.5,
+            ..Pose::default()
+        };
+        let entity_messages = vec![
+            ServerMsg::Tick(42),
+            ServerMsg::Spawn {
+                id: NetId(7),
+                kind: EntityKind::Player {
+                    name: "Alice".into(),
+                },
+                pose,
+                look: Look::default(),
+            },
+            ServerMsg::Spawn {
+                id: NetId(8),
+                kind: EntityKind::Item {
+                    stack: crate::inventory::ItemStack::new(engine_voxel::ItemId(3), 2),
+                },
+                pose,
+                look: Look::default(),
+            },
+            ServerMsg::Moves(vec![(NetId(7), pose)]),
+            ServerMsg::EntityState {
+                id: NetId(7),
+                look: Look {
+                    hurt: true,
+                    coat: Some(3),
+                    ..Look::default()
+                },
+            },
+            ServerMsg::Despawn(NetId(7)),
+        ];
+        for message in entity_messages {
+            let bytes = postcard::to_stdvec(&message).unwrap();
+            assert_eq!(postcard::from_bytes::<ServerMsg>(&bytes).unwrap(), message);
+        }
     }
 
     #[test]

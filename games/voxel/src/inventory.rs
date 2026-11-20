@@ -18,7 +18,7 @@ use engine_voxel::{
 pub const HOTBAR: usize = 9;
 pub const SLOTS: usize = 36;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ItemStack {
     pub item: ItemId,
     pub count: u32,

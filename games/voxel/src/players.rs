@@ -84,6 +84,8 @@ pub struct PlayerState {
     pub dig: Option<DigState>,
     /// Le dernier mouvement accepté, pour contrôler le suivant (voir `movement.rs`).
     pub last_move: Option<crate::movement::MoveSample>,
+    /// Un joueur du serveur sans fenêtre (`ctl ghost`, voir `ghosts.rs`) : il n'est jamais sauvegardé.
+    pub ghost: bool,
 }
 
 /// Un conteneur ouvert devant un joueur : ce que `SlotClick` peut viser en dehors de son inventaire.
@@ -142,6 +144,7 @@ impl PlayerState {
             open: None,
             dig: None,
             last_move: None,
+            ghost: false,
         }
     }
 

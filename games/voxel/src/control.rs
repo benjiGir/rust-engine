@@ -24,7 +24,7 @@ use glam::{IVec3, Vec3};
 
 use crate::intents::Outcome;
 use crate::player::{self, MoveMode, SPRINT_SPEED, WALK_SPEED};
-use crate::protocol::{ClientMsg, EntityRef};
+use crate::protocol::ClientMsg;
 use crate::{Mode, VoxelGame};
 
 /// Le port par défaut (`VOXEL_CONTROL=1`).
@@ -34,7 +34,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-36 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hold left|right|off | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin|select|ui|view|close ... | questpin id | screen quests [chapitre] | shape forme [n|all] | rebuild [all] | shaping | pieces x y z | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hold left|right|off | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin|select|ui|view|close ... | questpin id | screen quests [chapitre] | shape forme [n|all] | rebuild [all] | shaping | pieces x y z | ghost [nom] [x y z] | ghost remove [nom] | ghost list | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -222,6 +222,8 @@ pub enum Command {
     Quests(crate::quest_ctl::Command),
     /// Les commandes des formes : tailler, reconstituer, lire une case (voir `shape_ctl.rs`).
     Shapes(crate::shape_ctl::Command),
+    /// Les joueurs fantômes : ajouter, retirer, lister (voir `ghosts.rs`).
+    Ghosts(crate::ghosts::Command),
     /// Les commandes de l'enchantement avancé : stats de table, livres, bibliothèque (voir `enchant_ctl.rs`).
     Enchanting(crate::enchant_ctl::Command),
     /// Les textes affichés (avec leur position en points), pour viser un bouton.
@@ -631,7 +633,12 @@ pub fn parse(line: &str) -> Result<Command> {
                             Some(command) => Command::Quests(command?),
                             None => match crate::shape_ctl::parse(other, &args) {
                                 Some(command) => Command::Shapes(command?),
-                                None => bail!("commande inconnue « {other} » (voir `help`)"),
+                                None => match crate::ghosts::parse(other, &args) {
+                                    Some(command) => Command::Ghosts(command?),
+                                    None => {
+                                        bail!("commande inconnue « {other} » (voir `help`)")
+                                    }
+                                },
                             },
                         },
                     },
@@ -789,14 +796,11 @@ impl VoxelGame {
                 self.require_playing("attack")?;
                 let aim = self.body_aim();
                 // Ce que le client dit viser : la créature, sinon le wagon, sous le regard.
-                let claimed = self.claimed_target(aim);
-                let entity =
-                    claimed.context("attack : aucune créature ni aucun wagon visé à portée")?;
+                let entity = self
+                    .claimed_target(aim)
+                    .context("attack : aucune créature ni aucun wagon visé à portée")?;
                 self.outcome = Outcome::Nothing;
-                self.send_now(ClientMsg::Attack {
-                    aim,
-                    entity: EntityRef::new(entity),
-                });
+                self.send_now(ClientMsg::Attack { aim, entity });
                 match self.outcome {
                     Outcome::Struck(strike) => Ok(format!(
                         "{{\"ok\":true,\"damage\":{:.1},\"crit\":{},\"healed\":{:.2}}}",
@@ -885,16 +889,16 @@ impl VoxelGame {
         Ok(())
     }
 
-    /// Ce que le regard désigne pour un coup : la créature, sinon le wagon, plus près que le bloc.
-    fn claimed_target(&self, aim: crate::protocol::Aim) -> Option<engine_ecs::Entity> {
+    /// Ce que le regard désigne pour un coup : la créature, sinon le wagon, plus près que le bloc. Comme
+    /// la fenêtre, `ctl` choisit dans ce que le client voit (la réplique des entités).
+    fn claimed_target(&self, aim: crate::protocol::Aim) -> Option<crate::entities::NetId> {
         let acting = self.resolve_aim(self.players.local_id(), aim)?;
         let block_distance = acting
             .hit
             .map_or(self.players.me().gear.reach(), |h| h.distance);
-        acting.mob.or_else(|| {
-            crate::carts::hit_cart(&self.ecs, acting.eye, acting.forward, block_distance)
-                .map(|(entity, _)| entity)
-        })
+        self.view
+            .entities
+            .hit(acting.eye, acting.forward, block_distance)
     }
 
     /// Les commandes de la console : `break` et `place x y z bloc` s'exécutent ici, les autres
@@ -1426,6 +1430,7 @@ impl VoxelGame {
             Command::Enchanting(command) => self.enchant_command(command),
             Command::Quests(command) => self.quest_command(command),
             Command::Shapes(command) => self.shape_command(command),
+            Command::Ghosts(command) => self.ghost_command(command),
             Command::Mods => {
                 let disabled = self.mods.disabled();
                 let rows: Vec<String> = self
@@ -1639,7 +1644,7 @@ fn error(message: &str) -> String {
     format!("{{\"ok\":false,\"error\":{}}}", json_str(message))
 }
 
-fn vec3(v: Vec3) -> String {
+pub(crate) fn vec3(v: Vec3) -> String {
     format!("[{:.3},{:.3},{:.3}]", v.x, v.y, v.z)
 }
 

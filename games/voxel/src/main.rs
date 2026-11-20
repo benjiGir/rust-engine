@@ -60,6 +60,7 @@ mod charm_play;
 mod charms;
 mod chest_lids;
 mod chest_preview;
+mod client_entities;
 mod client_world;
 mod components;
 mod console;
@@ -79,6 +80,8 @@ mod enchant_library;
 mod enchant_table;
 mod enchant_ui;
 mod enchanting;
+mod entities;
+mod entity_render;
 mod events;
 mod far_terrain;
 mod forge_tables;
@@ -86,6 +89,7 @@ mod forge_ui;
 mod gear;
 mod gem_sockets;
 mod gems;
+mod ghosts;
 mod guide;
 mod guide_ui;
 mod hand;
@@ -881,6 +885,7 @@ impl VoxelGame {
                 player::set_intent(&self.ecs, self.players.entity(), Vec3::ZERO, false);
                 self.schedule.run(Stage::FixedUpdate, &mut self.ecs);
                 self.step_fluids();
+                self.replicate_entities();
                 return;
             }
             Mode::Playing => {}
@@ -945,6 +950,8 @@ impl VoxelGame {
         self.check_death();
         // Le mouvement joué par la physique locale, contrôlé si `VOXEL_CHECK_MOVES=1`.
         self.check_local_move();
+        // Fin du pas : chaque joueur reçoit ce qui a changé parmi les entités.
+        self.replicate_entities();
     }
 
     /// Une étape des fluides tous les 6 pas (10 par seconde), dans un budget de temps.
@@ -1172,20 +1179,26 @@ impl VoxelGame {
         self.camera.position = player::eye(&self.ecs, self.players.entity(), alpha);
         // Le vent dans les feuilles suit le temps réel depuis le lancement.
         self.renderer.time = self.started.elapsed().as_secs_f32();
-        let mut mob_boxes = mobs::instances(&self.ecs, alpha);
-        projectiles::instances(&self.ecs, alpha, &mut mob_boxes);
-        mob_boxes.extend(carts::instances(&self.ecs, alpha));
+        // Les entités viennent de la réplique du client : créatures, autres joueurs, projectiles,
+        // wagons et objets au sol (voir `entity_render.rs`).
+        self.view.entities.begin_frame(alpha);
+        let mobs = self.ecs.resource::<Arc<MobRegistry>>().clone();
+        let mut mob_boxes = Vec::new();
+        entity_render::draw(
+            &self.view.entities,
+            &entity_render::DrawEnv {
+                mobs: &mobs,
+                items: &self.content.items,
+                blocks: &self.registry,
+                world: self.view.world(),
+                alpha,
+                time: self.renderer.time,
+            },
+            &mut mob_boxes,
+        );
         self.weather.instances(&mut mob_boxes);
         self.water_fx
             .instances(self.camera.position, &mut mob_boxes);
-        // Les objets au sol : leurs modèles et textures, en rotation.
-        mob_boxes.extend(drops::instances(
-            &self.ecs,
-            &self.content.items,
-            &self.registry,
-            alpha,
-            self.renderer.time,
-        ));
         self.draw_conduit_contents(&mut mob_boxes);
         self.direction_hint(&mut mob_boxes);
         self.renderer
@@ -1241,10 +1254,9 @@ impl VoxelGame {
         self.ui.handle_output(&ctx.window, platform);
         self.update_chest_lids();
 
-        {
-            let subs = self.mods.subgrids.borrow();
-            self.grid_meshes.sync(&mut self.renderer, &subs);
-        }
+        // Les structures mobiles (bateaux, contraptions) viennent aussi de la réplique.
+        self.grid_meshes
+            .sync(&mut self.renderer, &self.view.entities.grids());
         self.update_visibility(self.renderer.aspect());
         let start = Instant::now();
         let result = self.renderer.render(&self.camera, Some(ui_frame));
@@ -1480,7 +1492,7 @@ impl VoxelGame {
             self.block_textures = assets::load_textures(&self.registry);
             self.renderer.set_block_textures(&self.block_textures);
             self.ui.clear_icons();
-            drops::clear_models(&self.ecs);
+            self.view.entities.clear_models();
             self.conduit_fx.clear_models();
             self.hand
                 .reload_assets(hand::ArmColors::load(&assets_dir()));

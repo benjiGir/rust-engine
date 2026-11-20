@@ -48,8 +48,9 @@ pub fn rotate_y(v: Vec3, yaw: f32) -> Vec3 {
     Vec3::new(v.x * c - v.z * s, v.y, v.x * s + v.z * c)
 }
 
-/// Une structure détachée du monde.
-#[derive(Debug)]
+/// Une structure détachée du monde. Copier la structure est peu coûteux : les chunks sont des `Arc`
+/// (le serveur en envoie une copie au client chaque fois que ses blocs changent).
+#[derive(Debug, Clone)]
 pub struct SubGrid {
     pub id: GridId,
     world: World,

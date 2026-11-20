@@ -153,7 +153,7 @@ impl VoxelGame {
         let Some(store) = self.dims.meta_store.clone().or_else(|| self.store.clone()) else {
             return;
         };
-        for player in self.players.iter() {
+        for player in self.players.iter().filter(|p| !p.ghost) {
             if let Err(err) = store.save_player(&uuid_name(player.uuid), &self.player_file(player))
             {
                 log::error!("sauvegarde du joueur {} : {err:#}", player.name);

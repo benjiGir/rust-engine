@@ -312,6 +312,7 @@ impl VoxelGame {
             // Au menu principal et à l'écran de mort, ni barre d'objets ni vie.
             if self.mode == crate::Mode::Playing && !self.ui.inventory_open {
                 self.draw_hud(ui.ctx());
+                self.draw_name_tags(ui.ctx());
                 self.draw_pinned_quests(ui.ctx());
             }
             self.draw_toast(ui.ctx());
@@ -464,7 +465,7 @@ impl VoxelGame {
     /// Envoie un clic de case au simulateur.
     fn send_slot_click(&mut self, target: SlotRef, click: Click, shift: bool) {
         self.send_now(crate::protocol::ClientMsg::SlotClick {
-            slot: Self::slot_target_of(target),
+            slot: self.slot_target_of(target),
             button: click.into(),
             shift,
         });

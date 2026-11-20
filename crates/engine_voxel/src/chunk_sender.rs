@@ -79,6 +79,12 @@ impl ChunkSender {
             .is_some_and(|layers| layers.contains(&chunk.y))
     }
 
+    /// Ce joueur a reçu la colonne `(x, z)` (au moins un de ses chunks). Les chunks vides ne sont
+    /// jamais envoyés : une entité en plein ciel se situe par sa colonne, pas par son chunk.
+    pub fn has_column(&self, column: IVec2) -> bool {
+        self.sent.contains_key(&column)
+    }
+
     /// Un pas : ce qu'il faut envoyer au joueur dont le corps est dans le chunk `player`, d'après le
     /// monde du serveur et les changements de ce pas (`changes`, communs à tous les joueurs). Les
     /// messages sont ajoutés à `out`, dans l'ordre : libérations, changements, chunks neufs.

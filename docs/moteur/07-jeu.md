@@ -67,6 +67,7 @@ mindmap
       water_fx / conduit_fx
       far_terrain / culling
       client_world (réplique du monde)
+      client_entities / entity_render (réplique des entités)
     Outils
       control (ctl)
       bench / screenshots / stress
@@ -80,6 +81,8 @@ mindmap
 |---|---|
 | `player.rs` | le joueur est une entité ECS comme les créatures (`Transform`, `Velocity`, `Collider`, `Health`, `Player`) |
 | `players.rs` | `PlayerState` (tout ce qui appartient à un joueur : inventaire, survie, faim, équipement, effets, aventure, quêtes, lit...) et la table `Players`, dont le joueur local est celui de la fenêtre. Les créatures visent le joueur **le plus proche** (`mobs::player_spots`) ; les événements (`BlockBroken`, `PlayerDamaged`...) portent le `PlayerId` qui les cause |
+| `entities.rs`, `client_entities.rs`, `entity_render.rs` | la réplique des entités : `NetId`, suivi par joueur (`Spawn`, `Moves`...), interpolation, dessin des créatures, objets, wagons, projectiles, structures mobiles et autres joueurs (voir `03-monde.md`) |
+| `ghosts.rs` | `ctl ghost` : des joueurs serveur sans fenêtre, pour tester les autres joueurs |
 | `inventory.rs` | 9 cases de barre, 27 de réserve, 4 d'armure, la grille d'artisanat |
 | `survival.rs` | ce qui blesse (chute, noyade, feu, lave, faim) et l'armure qui protège ; tout passe par `Vitals`, testable sans fenêtre |
 | `attributes.rs`, `gear.rs` | des **attributs** (dégâts, armure, vitesse, portée...) calculés depuis l'objet en main, l'armure et les effets |

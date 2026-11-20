@@ -296,6 +296,48 @@ eau, vent, lumière du bras) lit la réplique (`VoxelGame::view_world`) ; la phy
 machines, les fluides, les actions des joueurs (`handle`) et les outils de débogage `ctl` lisent le
 serveur (`VoxelGame::streamer`).
 
+### Les entités vues par le client
+
+Les créatures, objets au sol, wagons, projectiles, structures mobiles et autres joueurs suivent le même
+modèle (multijoueur, sous-lot 3b). Le rendu ne lit plus leur ECS : il lit une **réplique d'entités**.
+
+```mermaid
+flowchart LR
+    subgraph Serveur["Serveur (ECS)"]
+        ids["NetIds::assign\nun NetId par entité"]
+        collect["collect()\nsorte, pose, apparence"]
+    end
+    subgraph Suivi["EntityTracker (un par joueur)"]
+        step["portée par sorte,\ncolonne reçue,\ncadence interval"]
+    end
+    subgraph Client["ClientEntities"]
+        views["deux échantillons\npar entité"]
+        draw["entity_render::draw"]
+    end
+    ids --> collect --> step
+    step -- "Tick, Spawn, Despawn,\nMoves, EntityState,\nGridBlocks" --> views --> draw
+```
+
+- **`NetId`** : un numéro du serveur, jamais réutilisé dans une partie, posé comme composant sur chaque entité
+  répliquée. Le client désigne ce qu'il voit par ce numéro (`ClientMsg::Attack`, les cases d'un wagon) ; le
+  serveur le retrouve (`NetIds::entity`), refuse un numéro inconnu ou mort, et revérifie sa propre visée.
+- **Le suivi** (`entities.rs`) envoie `Spawn` quand une entité entre dans la portée du joueur (créatures 80
+  blocs, objets 48, projectiles 64, wagons, structures et joueurs 128), dans une colonne que son client a reçue ;
+  `Despawn` quand elle sort (4 blocs de marge) ou meurt ; `Moves` pour ce qui a bougé, tous les `interval` pas
+  fixes ; `EntityState` quand l'apparence change (blessure, petit qui grandit, couleur de toison) ;
+  `GridBlocks` pour les blocs d'une structure mobile, quand sa révision change. `interval` vaut 1 sur le
+  lien en mémoire (60 Hz, comme avant) et 3 (20 Hz) sera la valeur du réseau ; `VOXEL_ENTITY_INTERVAL=3` l'essaie.
+- **L'interpolation** (`client_entities.rs`) : la réplique garde les deux derniers échantillons de chaque
+  entité, datés du pas fixe du serveur (`ServerMsg::Tick`), et dessine au temps `pas - interval + alpha`. Avec
+  `interval = 1`, c'est exactement l'interpolation entre `PreviousPosition` et la position qu'avait le rendu ;
+  avec 3, la pose glisse d'un échantillon à l'autre en trois pas. Un autre joueur marche d'après ses
+  déplacements (le serveur n'envoie que sa pose).
+- **Le dessin** (`entity_render.rs`) lit la réplique et le monde que voit la fenêtre (la lumière). La
+  créature ou le wagon visé est choisi dans la réplique (`ClientEntities::hit`).
+- **`ctl ghost [nom] [x y z]`** ajoute un joueur serveur sans fenêtre (`ghosts.rs`), vu des autres comme
+  une entité `Player`, dessiné avec son nom ; `ctl ghost remove` le retire. Il sert à voir un autre
+  joueur avant le réseau.
+
 ## Modifier le monde
 
 Casser ou poser passe par `VoxelGame::edit` (jeu) puis `ChunkStreamer::set_block` (moteur) :

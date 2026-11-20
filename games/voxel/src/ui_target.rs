@@ -18,12 +18,16 @@ impl VoxelGame {
             self.target
                 .map_or(self.players.me_mut().gear.reach(), |h| h.distance)
         });
-        let mob = crate::mobs::hit_mob(
-            &self.ecs,
-            self.camera.position,
-            self.camera.forward(),
-            block_distance,
-        );
+        // Ce qui est visé vient de la réplique des entités ; la fiche, elle, lit encore l'ECS du serveur
+        // (vie, nom d'élite : ils viendront par messages au sous-lot 3c).
+        let aimed = self
+            .view
+            .entities
+            .hit(self.camera.position, self.camera.forward(), block_distance)
+            .and_then(|id| self.server_entity(id));
+        let mob = aimed
+            .filter(|&e| self.ecs.has::<Mob>(e))
+            .map(|entity| (entity, 0.0));
         let mut item = None;
         let mut preview = None;
         let fluids = self.view_world().fluids().cloned();
@@ -44,7 +48,7 @@ impl VoxelGame {
             Some(crate::chest_preview::summarize(&inventory.slots, main))
         };
         let cart = if mob.is_none() {
-            self.aimed_cart().filter(|&c| {
+            aimed.filter(|&c| {
                 self.ecs
                     .get::<crate::carts::Cart>(c)
                     .is_some_and(|cart| cart.kind.slots() > 1)
