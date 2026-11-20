@@ -1,5 +1,7 @@
 // Montage et niveaux dans src/sounds.rs ; provenance détaillée dans sources.json.
 [
+    (name: "chest_open", source: "kenney-rpg/doorOpen_1.wav", kind: Effect, lowpass: Some(6500.0)),
+    (name: "chest_close", source: "kenney-rpg/doorClose_2.wav", kind: Effect, lowpass: Some(5500.0)),
     (name: "step_soft", source: "kenney/footstep_grass_000.wav", kind: Effect, lowpass: Some(7500.0)),
     (name: "step_soft_1", source: "kenney/footstep_grass_001.wav", kind: Effect, lowpass: Some(7500.0)),
     (name: "step_soft_2", source: "kenney/footstep_grass_002.wav", kind: Effect, lowpass: Some(7500.0)),

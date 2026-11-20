@@ -1,6 +1,6 @@
 //! Assemblages, rivets et surfaces usinées ; les motifs respectent les UV des boîtes.
 use super::draw::{COPPER, Canvas, INK, IRON, SLATE, WOOD, mix, noise, seed, shade};
-use super::{terrain, wood};
+use super::wood;
 
 fn metal(base: [u8; 3], name: &str) -> Canvas {
     let mut c = Canvas::new(base);
@@ -12,81 +12,6 @@ fn metal(base: [u8; 3], name: &str) -> Canvas {
                 y,
                 shade(base, 0.95 + n * 0.1 + if y % 7 == 0 { 0.025 } else { 0.0 }),
             );
-        }
-    }
-    c
-}
-
-fn chest(name: &str) -> Canvas {
-    let vault = name.starts_with("vault");
-    let base = if vault { SLATE } else { WOOD };
-    let band = if name.starts_with("iron") {
-        IRON
-    } else if name.starts_with("gold") {
-        [191, 153, 64]
-    } else if name.starts_with("sapphire") {
-        [84, 146, 179]
-    } else {
-        COPPER
-    };
-    let mut c = if vault {
-        metal(base, name)
-    } else {
-        wood::planks(base, 721)
-    };
-    for x in [4, 24] {
-        c.panel([x, 2, 4, 28], shade(band, 0.85));
-        for y in [5, 25] {
-            c.bolt(x + 1, y, band);
-        }
-    }
-    if name.ends_with("side") {
-        c.rect([2, 10, 28, 2], INK);
-        c.line((2, 12), (29, 12), shade(base, 1.3));
-        c.panel([12, 8, 8, 8], band);
-        c.rect([15, 11, 2, 3], INK);
-        c.put(15, 10, shade(band, 1.55));
-        if vault {
-            c.ellipse((16.0, 19.0), (6.0, 6.0), INK);
-            c.ellipse((16.0, 19.0), (4.7, 4.7), band);
-            for (a, b) in [((12, 19), (20, 19)), ((16, 15), (16, 23))] {
-                c.line(a, b, INK);
-            }
-            c.bolt(16, 19, IRON);
-        }
-    } else {
-        for y in [3, 28] {
-            c.line((8, y), (23, y), shade(band, 0.7));
-        }
-    }
-    c
-}
-
-fn furnace(name: &str) -> Canvas {
-    let mut c = terrain::rock("cobblestone");
-    if name.ends_with("front") || name.ends_with("side") {
-        c.panel([5, 1, 22, 12], shade(SLATE, 0.65));
-        for x in [9, 14, 19, 24] {
-            c.rect([x, 4, 2, 7], INK);
-            c.line((x + 1, 4), (x + 1, 9), shade(IRON, 0.65));
-        }
-        c.panel([6, 14, 20, 16], shade(IRON, 0.65));
-        c.rect([7, 15, 18, 14], [77, 58, 45]);
-        c.line((7, 15), (24, 15), COPPER);
-        // Même fenêtre UV que le classique : 4..11 / 8..13 en seizièmes.
-        c.rect([8, 16, 16, 12], [27, 31, 35]);
-        c.line((8, 27), (23, 27), [51, 46, 40]);
-        for (x, y) in [(4, 14), (27, 14), (4, 29), (27, 29)] {
-            c.bolt(x, y, IRON);
-        }
-    } else {
-        c.panel([3, 3, 26, 26], SLATE);
-        for y in [9, 15, 21] {
-            c.line((7, y), (24, y), INK);
-            c.line((7, y + 1), (24, y + 1), shade(IRON, 0.9));
-        }
-        for (x, y) in [(4, 4), (26, 4), (4, 26), (26, 26)] {
-            c.bolt(x, y, COPPER);
         }
     }
     c
@@ -229,11 +154,7 @@ fn industrial(name: &str) -> Canvas {
 }
 
 pub(super) fn draw(name: &str) -> Option<Canvas> {
-    Some(if name.contains("chest_") || name.starts_with("vault_") {
-        chest(name)
-    } else if name.starts_with("furnace_") || name.starts_with("alloy_furnace_") {
-        furnace(name)
-    } else if name.starts_with("bed_") {
+    Some(if name.starts_with("bed_") {
         bed(name)
     } else if name.starts_with("workbench_") {
         let mut c = wood::planks(WOOD, 746);

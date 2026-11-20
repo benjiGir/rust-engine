@@ -227,6 +227,7 @@ fn prepare(root: &Path, recipe: &Recipe) -> Result<Clip> {
     }
     Ok(clip)
 }
+
 fn wav_bytes(clip: &Clip) -> Vec<u8> {
     let size = (clip.samples.len() * 2) as u32;
     let channels = clip.channels as u16;

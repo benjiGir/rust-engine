@@ -41,6 +41,7 @@ struct InstanceIn {
     @location(8) cutout: u32,
     @location(9) uv_min: vec3<f32>,
     @location(10) uv_max: vec3<f32>,
+    @location(11) ends: vec2<u32>,
 };
 
 struct VertexOut {
@@ -72,6 +73,8 @@ fn vs_main(vertex: VertexIn, instance: InstanceIn) -> VertexOut {
     } else if n.x > 0.5 {
         out.uv = vec2<f32>(p.z, 1.0 - p.y);
     } else {
+        let layer = select(instance.ends.x, instance.ends.y, vertex.normal.z > 0.0);
+        out.texture = select(out.texture, layer, layer != 0u);
         out.uv = vec2<f32>(p.x, 1.0 - p.y);
     }
     return out;

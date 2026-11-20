@@ -50,7 +50,15 @@ pub const MUSIC_TRACKS: &[&str] = &[
     "core:music_cave",
 ];
 /// Les sons de l'enchantement, de l'alambic et des potions.
-pub const UI_SOUNDS: &[&str] = &["core:enchant", "core:bubbles", "core:gulp"];
+pub const CHEST_OPEN: &str = "core:chest_open";
+pub const CHEST_CLOSE: &str = "core:chest_close";
+pub const UI_SOUNDS: &[&str] = &[
+    "core:enchant",
+    "core:bubbles",
+    "core:gulp",
+    CHEST_OPEN,
+    CHEST_CLOSE,
+];
 
 /// Les réglages, lus dans l'environnement.
 #[derive(Debug, Clone, Copy, PartialEq)]

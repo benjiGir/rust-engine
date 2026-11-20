@@ -672,5 +672,23 @@
     "license": "CC0-1.0",
     "original": "012_Sirens_in_Darkness_0.mp3",
     "conversion_filter": "loudnorm=I=-23:TP=-3:LRA=11,afade=t=in:d=1.5; Vorbis (ffmpeg natif) q6 44100 stereo"
+  },
+  {
+    "file": "kenney-rpg/doorOpen_1.wav",
+    "sha256": "e7b6d41159fc35fe94401e8feb4dc9859a0d071841a4c2bdbfd24cbeacf73fee",
+    "author": "Kenney",
+    "page": "https://kenney.nl/assets/rpg-audio",
+    "license": "CC0-1.0",
+    "original": "Audio/doorOpen_1.ogg",
+    "conversion_filter": "Extrait 30 à 510 ms, PCM 16 bits à 44100 Hz (ffmpeg)"
+  },
+  {
+    "file": "kenney-rpg/doorClose_2.wav",
+    "sha256": "f15116cf63f48930312316a1c29f465154b599ee1c01f70b710405107475600e",
+    "author": "Kenney",
+    "page": "https://kenney.nl/assets/rpg-audio",
+    "license": "CC0-1.0",
+    "original": "Audio/doorClose_2.ogg",
+    "conversion_filter": "Extrait 0 à 460 ms, PCM 16 bits à 44100 Hz (ffmpeg)"
   }
 ]

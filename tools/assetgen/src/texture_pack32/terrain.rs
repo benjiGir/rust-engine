@@ -79,6 +79,7 @@ fn turf() -> Canvas {
         }
     }
     c.periodic(true);
+    crate::textures::ground_top_edges(&mut c.0, 32);
     c
 }
 
@@ -137,7 +138,7 @@ pub(super) fn rock(name: &str) -> Canvas {
     c
 }
 
-fn stone() -> Canvas {
+pub(super) fn stone() -> Canvas {
     let slate = [127, 131, 135];
     let quartz = [163, 158, 146];
     let mut canvas = Canvas::new(slate);
@@ -165,48 +166,6 @@ fn stone() -> Canvas {
         }
     }
     canvas
-}
-
-fn ore(name: &str) -> Canvas {
-    let mut c = rock("stone");
-    let metal = match name {
-        "coal_ore" => [47, 51, 54],
-        "copper_ore" => [185, 116, 70],
-        "iron_ore" => [181, 161, 135],
-        "gold_ore" => [212, 174, 76],
-        "sapphire_ore" => [74, 138, 189],
-        "jade_ore" | "malachite_ore" => [75, 160, 110],
-        "cinnabar_ore" => [186, 74, 64],
-        _ => [136, 109, 160],
-    };
-    for i in 0..7 {
-        let h = hash(i, 0, seed(name));
-        let (cx, cy) = ((h % 29) as i32, ((h >> 10) % 29) as i32);
-        for dy in -3i32..=3 {
-            for dx in -4i32..=4 {
-                if dx.abs() + dy.abs() * 2 > 5 + (i % 2) as i32 {
-                    continue;
-                }
-                let (x, y) = ((cx + dx).rem_euclid(31), (cy + dy + dx / 3).rem_euclid(31));
-                let edge = dx.abs() + dy.abs() * 2;
-                let factor = if edge >= 5 {
-                    0.46
-                } else if dy < 0 {
-                    1.28
-                } else if dx > 0 {
-                    0.76
-                } else {
-                    1.0
-                };
-                c.put(x, y, shade(metal, factor));
-                if name == "copper_ore" && i % 3 == 0 && dy > 0 {
-                    c.put(x, y, [67, 119, 103]);
-                }
-            }
-        }
-    }
-    c.periodic(true);
-    c
 }
 
 fn granular(name: &str) -> Canvas {
@@ -310,20 +269,6 @@ pub(super) fn draw(source: &[Pixel], name: &str) -> Option<Canvas> {
             canvas
         }
         "dirt" | "coarse_dirt" | "farmland_dry" | "farmland_wet" => earth(name),
-        "grass_side" | "podzol_side" => {
-            let mut c = earth("dirt");
-            let top = turf();
-            for x in 0..32 {
-                let h = hash((x % 31) as usize / 3, 0, 728);
-                let bottom = 5 + (h % 5) as i32;
-                for y in 0..bottom {
-                    c.put(x, y, rgb(top.at(x, y)));
-                }
-                c.put(x, bottom, [75, 98, 43]);
-            }
-            c.periodic(false);
-            c
-        }
         "podzol_top" => {
             let mut c = earth("dirt");
             for i in 0..25 {
@@ -333,6 +278,7 @@ pub(super) fn draw(source: &[Pixel], name: &str) -> Option<Canvas> {
                 c.line((x + 1, y), (x + 4, y + 2), [71, 67, 34]);
             }
             c.periodic(true);
+            crate::textures::ground_top_edges(&mut c.0, 32);
             c
         }
         "stone" => stone(),
@@ -340,7 +286,6 @@ pub(super) fn draw(source: &[Pixel], name: &str) -> Option<Canvas> {
         | "sandstone_top" | "crypt_brick" => rock(name),
         "sand" | "red_sand" | "snow" | "ice" | "gravel" | "clay" | "terracotta"
         | "terracotta_dark" | "terracotta_pale" => granular(name),
-        n if n.ends_with("_ore") => ore(name),
         n if n.ends_with("_leaves") => leaves(source, name),
         "cactus_side" => {
             let mut c = Canvas::new([83, 121, 67]);

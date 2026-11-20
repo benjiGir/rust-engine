@@ -28,7 +28,12 @@ Cette planche utilise le thème et les images du jeu, avec un rendu CPU sans fen
 L'herbe et la terre utilisent un grain périodique : leurs pixels de bord se raccordent
 après réduction de palette. Le dessus de l'herbe reçoit en plus une faible variation
 continue dans le shader, sur plusieurs blocs et sans rupture entre quads greedy.
-Le bord végétal latéral se raccorde horizontalement, sans contour sombre systématique.
+La bordure latérale de l’herbe reprend la texture du dessus et partage sa teinte de biome.
+Le podzol prolonge son tapis d’aiguilles brunes sur les côtés. Sous ces deux bordures,
+le même grain de terre se poursuit jusqu’aux blocs voisins, en 16 × 16 et en 32 × 32.
+La [planche du raccord](visual/23-raccord-herbe.png) compare les textures avant et après
+en 16 × 16 en haut et en 32 × 32 en bas. Chaque rangée juxtapose deux blocs d’herbe
+teintés comme en savane, un bloc de podzol et un bloc de terre.
 La pierre, le sable, la neige, la glace, les écorces striées et les feuillages
 emploient aussi un grain périodique dans `textures/nature.rs`. Les cinq essences
 partagent la construction des cernes et des fibres, avec leurs couleurs propres.
@@ -36,7 +41,12 @@ La pierre de base a un gris ardoise avec de petites inclusions minérales. Le pa
 32 × 32 dessine des feuillets interrompus et des pores plus fins. La
 [planche de la pierre](visual/20-pierre.png) montre quatre blocs de large dans chaque
 pack, avec le 16 × 16 en haut et le 32 × 32 en bas, avant à gauche et après à droite.
-Les minerais forment de petites veines fragmentées dans la pierre bleutée.
+Les seize minerais reprennent le grain de la pierre jusque sur leurs arêtes.
+Les filons suivent les plans de la roche, et les éclats plus diffus autour des
+concentrations atténuent la transition. La [planche des raccords](visual/24-minerais-pierre.png)
+juxtapose chaque minerai à la pierre, avant puis après, en 16 × 16 en haut et 32 × 32
+en bas. La [planche des minerais v3](visual/22-minerais.png) retrace leur premier
+dessin en 32 × 32 et celui de leurs objets.
 
 Les portes de bois ont des planches huilées et des ferrures cuivrées. Les portes de fer
 ont des panneaux brossés et des rivets. Chaque matériau existe en panneau plein et en
@@ -44,6 +54,13 @@ version vitrée. Le haut de la version vitrée encadre un carreau translucide. L
 prend deux cases et tourne sur un montant. Les textures sont dessinées dans les deux packs.
 La [planche des portes](visual/21-portes.png) montre les quatre modèles fermés
 en 16 × 16 en haut et en 32 × 32 en bas.
+
+La bouche du four occupe la façade. Les côtés montrent la maçonnerie et le dos
+porte une grille d’aération. Le cerclage du four et les cadres des machines
+prolongent leur dessus sur les faces verticales. Les coffres ont un joint à la
+hauteur du couvercle et des ferrures qui passent du dessus à l’avant et au dos.
+Le couvercle s’ouvre sur un intérieur creux, avec deux prises de porte du pack
+RPG Audio de Kenney adaptées au coffre.
 
 ## Objets lâchés
 

@@ -31,8 +31,10 @@ fn render(parts: &[(&BlockDef, Vec3)], textures: &[Vec<u8>], scale: f32) -> Vec<
                 .map(move |(i, b)| (def, offset, b, def.glazing == Some(i)))
         })
         .collect();
-    let direction = Vec3::new(-1.0, -0.82, -1.0).normalize();
-    let right = Vec3::new(1.0, 0.0, -1.0).normalize();
+    let front = parts.iter().any(|(def, _)| def.has_end_textures());
+    let z = if front { 1.0 } else { -1.0 };
+    let direction = Vec3::new(-1.0, -0.82, z).normalize();
+    let right = Vec3::new(-z, 0.0, -1.0).normalize();
     let up = right.cross(direction).normalize();
     for y in 0..ICON_SIZE {
         for x in 0..ICON_SIZE {
@@ -58,12 +60,12 @@ fn render(parts: &[(&BlockDef, Vec3)], textures: &[Vec<u8>], scale: f32) -> Vec<
                 } else {
                     2
                 };
-                let (uv, face, shade) = match axis {
-                    1 => ([p.x, p.z], 0, 1.0),
-                    0 => ([p.z, 1.0 - p.y], 1, 0.84),
-                    _ => ([p.x, 1.0 - p.y], 1, 0.65),
+                let (uv, shade) = match axis {
+                    1 => ([p.x, p.z], 1.0),
+                    0 => ([p.z, 1.0 - p.y], 0.84),
+                    _ => ([p.x, 1.0 - p.y], 0.65),
                 };
-                let texture = def.face_textures[face] as usize;
+                let texture = def.face_texture(axis, direction[axis] < 0.0) as usize;
                 let mut texel = texture
                     .checked_sub(1)
                     .and_then(|i| textures.get(i))

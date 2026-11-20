@@ -29,7 +29,7 @@ use glam::{IVec3, Vec3};
 use crate::biome::{BiomeId, BiomeRegistry};
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
-use crate::registry::{BlockDef, BlockRegistry, RotationAxis, Shape, Tint};
+use crate::registry::{BlockBox, BlockDef, BlockRegistry, RotationAxis, Shape, Tint};
 use crate::world::World;
 
 mod binary;
@@ -56,7 +56,8 @@ pub(crate) const WATER_DEPTH_LIMIT: i32 = 4;
 pub struct MeshVertex {
     /// Position dans le chunk, en 1/1024 de bloc à partir de -8 (voir
     /// [`MeshVertex::local_position`]) : les coins entiers restent exacts, donc pas de
-    /// fente entre deux faces voisines. Le 4e nombre est l'index du bloc animé (pivot).
+    /// fente entre deux faces voisines. Le 4e nombre est le pivot d'un bloc animé ou
+    /// la couche du masque de teinte d'une face herbeuse.
     pub position: [u16; 4],
     /// Normale, de -127 à 127 par axe ; w : vitesse de rotation × 8 (rad/s).
     pub normal: [i8; 4],
@@ -152,6 +153,8 @@ pub const FLAG_TURN_SHIFT: u32 = 23;
 pub const FLAG_MODEL_UV: u32 = 1 << 25;
 /// Correction de la largeur du montant dans les UV d'un battant ouvert.
 pub const FLAG_DOOR_OPEN: u32 = 1 << 26;
+/// Pièce mobile du couvercle d'un coffre.
+pub const FLAG_CHEST_LID: u32 = 1 << 27;
 /// Les bits de la couche de texture dans [`MeshVertex::texture`].
 pub const TEXTURE_MASK: u32 = 0xFFFF;
 
@@ -216,6 +219,12 @@ impl ChunkMesh {
             .iter()
             .map(|v| {
                 let p = self.world_position(v);
+                if v.texture & FLAG_CHEST_LID != 0 {
+                    return (
+                        p - Vec3::new(0.25, 0.25, 0.25),
+                        p + Vec3::new(0.25, 1.0, 0.25),
+                    );
+                }
                 if v.texture & FLAG_ROTATE == 0 {
                     return (p, p);
                 }
@@ -298,7 +307,9 @@ impl ChunkMesh {
                 ],
                 look.texture | look.flags,
             );
-            self.vertices.last_mut().expect("sommet ajouté").light[3] = depth;
+            let vertex = self.vertices.last_mut().expect("sommet ajouté");
+            vertex.light[3] = depth;
+            vertex.position[3] = look.side_tint;
         }
         // Un quad se coupe en deux triangles par une diagonale. Si l'éclairage varie
         // d'un coin à l'autre, le choix de la diagonale se voit : on coupe selon la
@@ -379,6 +390,7 @@ struct FaceLook {
     block: BlockId,
     color: [f32; 4],
     texture: u32,
+    side_tint: u16,
     flags: u32,
     translucent: bool,
     corners: [CornerLight; 4],
@@ -688,25 +700,12 @@ impl Neighbourhood {
             }
         });
         // Dessus, côtés ou dessous.
-        let texture = match (face.axis, face.positive) {
-            (1, true) => def.face_textures[0],
-            (1, false) => def.face_textures[2],
-            _ => def.face_textures[1],
-        };
+        let texture = def.face_texture(face.axis, face.positive);
         // Une face texturée prend les couleurs de sa texture : la couleur du registre ne
         // sert plus que de repli pour les blocs sans texture.
         let rgb = if texture == 0 { def.color } else { [1.0; 3] };
-        // La teinte du biome : pour l'herbe, seulement le dessus (les côtés montrent la terre).
-        let tinted = match def.tint {
-            Tint::Grass => face.axis == 1 && face.positive,
-            Tint::Foliage | Tint::Water => true,
-            Tint::None => false,
-        };
-        let tint = if tinted {
-            self.tint(def.tint, p.x, p.z)
-        } else {
-            [1.0; 3]
-        };
+        let (tint_kind, side_tint) = face_tint(def, face);
+        let tint = self.tint(tint_kind, p.x, p.z);
         // Un fluide : la hauteur de chaque coin du haut, moyenne des cellules qui le
         // partagent (pas de marche ni de trou entre deux cellules voisines).
         let drops = if def.liquid {
@@ -749,10 +748,11 @@ impl Neighbourhood {
         FaceLook {
             block,
             texture,
+            side_tint,
             drops,
             // Une feuille opaque : ses trous sont remplis, plus découpés.
             flags: fire
-                | if def.tint == Tint::Grass && face.axis == 1 && face.positive {
+                | if tint_kind == Tint::Grass {
                     FLAG_GROUND
                 } else {
                     0
@@ -772,6 +772,17 @@ impl Neighbourhood {
             corners,
             water_depth,
         }
+    }
+}
+
+/// Le dessous de l'herbe garde la couleur de la terre. Les côtés ne reçoivent la
+/// couleur du biome que si leur texture fournit un masque.
+fn face_tint(def: &BlockDef, face: Face) -> (Tint, u16) {
+    match def.tint {
+        Tint::Grass if face.axis == 1 && face.positive => (Tint::Grass, 0),
+        Tint::Grass if face.axis != 1 && def.side_tint != 0 => (Tint::Grass, def.side_tint),
+        Tint::Grass => (Tint::None, 0),
+        tint => (tint, 0),
     }
 }
 
@@ -891,6 +902,8 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                     } else if crate::bed::is_part(&hood.registry, block) {
                         flags |=
                             FLAG_MODEL_UV | (u32::from(def.state_values[0]) << FLAG_TURN_SHIFT);
+                    } else if def.has_end_textures() || def.lid.is_some() {
+                        flags |= FLAG_MODEL_UV | (u32::from(def.facing_turns()) << FLAG_TURN_SHIFT);
                     }
                     model_boxes(hood, mesh, def, p, base, color, flags);
                     continue;
@@ -993,7 +1006,8 @@ fn rail_quad(def: &BlockDef, shape: crate::RailShape) -> (u32, u32, ([Vec3; 4], 
 impl Neighbourhood {
     /// Le masque de feu dépend de la machine, quelle que soit sa géométrie.
     fn furnace_fire(&self, p: IVec3, def: &BlockDef, face: Face) -> u32 {
-        if face.axis != 1
+        let front = [IVec3::NEG_Z, IVec3::X, IVec3::Z, IVec3::NEG_X][def.facing_turns() as usize];
+        if face.normal() == front
             && def.behavior.as_deref() == Some("core:furnace")
             && self.chunks[13]
                 .as_ref()
@@ -1025,90 +1039,150 @@ fn model_boxes(
     let (solid, windows) = shell.as_ref().map_or((boxes.as_ref(), &[][..]), |s| {
         (s.rails.as_slice(), s.windows.as_slice())
     });
+    let chest_body = def.lid.as_ref().map(|lid| chest_walls(solid[lid.body]));
     for (box_index, b) in solid.iter().chain(windows).enumerate() {
         let pane = def.glazing == Some(box_index);
         let glass = pane || box_index >= solid.len();
+        let body = def.lid.as_ref().filter(|lid| lid.body == box_index);
+        let lid = def
+            .lid
+            .as_ref()
+            .filter(|lid| lid.boxes.contains(&box_index));
+        let pieces = if body.is_some() {
+            chest_body.as_ref().unwrap().as_slice()
+        } else {
+            std::slice::from_ref(b)
+        };
         let rotation = def.rotation.as_ref().filter(|r| {
             shell.is_none() && {
                 box_index < def.boxes.len() && (r.boxes.is_empty() || r.boxes.contains(&box_index))
             }
         });
-        for face in Face::ALL {
-            let a = face.axis;
-            let on_edge = if face.positive {
-                b.max[a] >= 1.0
-            } else {
-                b.min[a] <= 0.0
-            };
-            let (neighbour, sky, light) = hood.cell(p + face.normal());
-            if rotation.is_none() && on_edge && !hood.registry.is_transparent(neighbour) {
-                continue;
-            }
-            // Le bloc plein est noir de l'intérieur : la lumière est celle de l'air à côté.
-            let vertex_light = [
-                sky.max(own_sky) as f32 / 15.0,
-                light.max(own_light) as f32 / 15.0,
-                1.0,
-            ];
-            let layer = match (a, face.positive) {
-                (1, true) => def.face_textures[0],
-                (1, false) => def.face_textures[2],
-                _ => def.face_textures[1],
-            };
-            let (u, v) = face.tangents();
-            let (u, v) = (u.as_vec3(), v.as_vec3());
-            let mut origin = b.min;
-            if face.positive {
-                origin[a] = b.max[a];
-            }
-            let du = u * (b.max - b.min).dot(u);
-            let dv = v * (b.max - b.min).dot(v);
-            let corners = if face.positive {
-                [origin, origin + du, origin + du + dv, origin + dv]
-            } else {
-                [origin, origin + dv, origin + du + dv, origin + du]
-            };
-            let start = mesh.vertices.len() as u32;
-            let normal = face.normal().as_vec3().to_array();
-            for corner in corners {
-                mesh.push_vertex(
-                    base + corner,
-                    normal,
-                    if pane {
-                        crate::door::GLAZING_COLOR
-                    } else if glass {
-                        [0.35, 0.5, 0.46, 0.14]
-                    } else {
-                        color
-                    },
-                    vertex_light,
-                    if glass {
-                        0
-                    } else {
-                        layer | flags | hood.furnace_fire(p, def, face)
-                    },
-                );
-                if let Some(rotation) = rotation {
-                    let vertex = mesh.vertices.last_mut().expect("sommet ajouté");
-                    vertex.texture |= FLAG_ROTATE;
-                    vertex.position[3] =
-                        Chunk::index(p.x as usize, p.y as usize, p.z as usize) as u16;
-                    vertex.normal[3] = (rotation.speed * 8.0).round() as i8;
-                    vertex.light[3] = match rotation.axis {
-                        RotationAxis::X => 0,
-                        RotationAxis::Y => 1,
-                        RotationAxis::Z => 2,
-                    };
+        for (piece, b) in pieces.iter().enumerate() {
+            for face in Face::ALL {
+                let a = face.axis;
+                let on_edge = if face.positive {
+                    b.max[a] >= 1.0
+                } else {
+                    b.min[a] <= 0.0
+                };
+                let (neighbour, sky, light) = hood.cell(p + face.normal());
+                if rotation.is_none()
+                    && lid.is_none()
+                    && on_edge
+                    && !hood.registry.is_transparent(neighbour)
+                {
+                    continue;
                 }
+                // Le bloc plein est noir de l'intérieur : la lumière est celle de l'air à côté.
+                let vertex_light = [
+                    sky.max(own_sky) as f32 / 15.0,
+                    light.max(own_light) as f32 / 15.0,
+                    1.0,
+                ];
+                let layer = if let Some(body) = body.filter(|_| {
+                    face.normal()
+                        == [IVec3::Y, IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z][piece]
+                }) {
+                    body.inside
+                } else if let Some(lid) =
+                    lid.filter(|lid| box_index == lid.boxes[0] && a == 1 && !face.positive)
+                {
+                    lid.inside
+                } else {
+                    def.face_texture(a, face.positive)
+                };
+                let (u, v) = face.tangents();
+                let (u, v) = (u.as_vec3(), v.as_vec3());
+                let mut origin = b.min;
+                if face.positive {
+                    origin[a] = b.max[a];
+                }
+                let du = u * (b.max - b.min).dot(u);
+                let dv = v * (b.max - b.min).dot(v);
+                let corners = if face.positive {
+                    [origin, origin + du, origin + du + dv, origin + dv]
+                } else {
+                    [origin, origin + dv, origin + du + dv, origin + du]
+                };
+                let start = mesh.vertices.len() as u32;
+                let normal = face.normal().as_vec3().to_array();
+                for corner in corners {
+                    mesh.push_vertex(
+                        base + corner,
+                        normal,
+                        if pane {
+                            crate::door::GLAZING_COLOR
+                        } else if glass {
+                            [0.35, 0.5, 0.46, 0.14]
+                        } else {
+                            color
+                        },
+                        vertex_light,
+                        if glass {
+                            0
+                        } else {
+                            layer | flags | hood.furnace_fire(p, def, face)
+                        },
+                    );
+                    if let Some(rotation) = rotation {
+                        let vertex = mesh.vertices.last_mut().expect("sommet ajouté");
+                        vertex.texture |= FLAG_ROTATE;
+                        vertex.position[3] =
+                            Chunk::index(p.x as usize, p.y as usize, p.z as usize) as u16;
+                        vertex.normal[3] = (rotation.speed * 8.0).round() as i8;
+                        vertex.light[3] = match rotation.axis {
+                            RotationAxis::X => 0,
+                            RotationAxis::Y => 1,
+                            RotationAxis::Z => 2,
+                        };
+                    }
+                    if let Some(lid) = lid {
+                        let vertex = mesh.vertices.last_mut().unwrap();
+                        vertex.texture |= FLAG_CHEST_LID;
+                        vertex.position[3] =
+                            Chunk::index(p.x as usize, p.y as usize, p.z as usize) as u16;
+                        vertex.normal[3] = lid.hinge.0 as i8;
+                        vertex.light[3] = lid.hinge.1;
+                    }
+                }
+                let list = if glass || def.alpha < 1.0 {
+                    &mut mesh.translucent_indices
+                } else {
+                    &mut mesh.indices
+                };
+                list.extend([0, 1, 2, 0, 2, 3].map(|i| start + i));
             }
-            let list = if glass || def.alpha < 1.0 {
-                &mut mesh.translucent_indices
-            } else {
-                &mut mesh.indices
-            };
-            list.extend([0, 1, 2, 0, 2, 3].map(|i| start + i));
         }
     }
+}
+
+fn chest_walls(body: BlockBox) -> [BlockBox; 5] {
+    let (a, b) = (body.min, body.max);
+    let t = ((b - a).min_element() * 0.25).min(1.0 / 16.0);
+    let floor = a.y + t;
+    [
+        BlockBox {
+            min: a,
+            max: Vec3::new(b.x, floor, b.z),
+        },
+        BlockBox {
+            min: Vec3::new(a.x, floor, a.z),
+            max: Vec3::new(a.x + t, b.y, b.z),
+        },
+        BlockBox {
+            min: Vec3::new(b.x - t, floor, a.z),
+            max: b,
+        },
+        BlockBox {
+            min: Vec3::new(a.x + t, floor, a.z),
+            max: Vec3::new(b.x - t, b.y, a.z + t),
+        },
+        BlockBox {
+            min: Vec3::new(a.x + t, floor, b.z - t),
+            max: Vec3::new(b.x - t, b.y, b.z),
+        },
+    ]
 }
 
 /// Décalage (de -1 à 1 sur chaque axe) du voisin numéro `i` (0 à 26).
@@ -1340,11 +1414,11 @@ mod tests {
     }
 
     #[test]
-    fn furnace_fire_only_marks_the_sides_of_a_burning_furnace_even_after_reload() {
+    fn furnace_fire_follows_the_front_of_a_burning_furnace_after_reload() {
         let mut world = World::new();
+        let registry = world.registry().clone();
         let furnace = id("core:furnace");
         let hot = IVec3::new(2, 3, 2);
-        world.set_block(hot, furnace);
         world.set_block(IVec3::new(5, 3, 2), furnace);
         let mut entity = crate::BlockEntity::default();
         crate::FurnaceState {
@@ -1354,29 +1428,36 @@ mod tests {
         }
         .write(&mut entity);
         let saved = postcard::to_stdvec(&entity).unwrap();
-        let loaded = postcard::from_bytes(&saved).unwrap();
-        world
-            .chunk_mut(IVec3::ZERO)
-            .set_block_entity(2, 3, 2, Some(loaded));
-        for mesh in [
-            mesh_greedy(&world, IVec3::ZERO),
-            mesh_culled(&world, IVec3::ZERO),
-        ] {
-            let fire: Vec<_> = mesh
-                .vertices
-                .iter()
-                .filter(|v| v.texture & FLAG_FURNACE_FIRE != 0)
-                .collect();
-            // Le four a désormais un corps, une corniche et des pieds : chaque
-            // boîte porte ses faces latérales, avec les mêmes UV de bouche.
-            assert!(!fire.is_empty());
-            for normal in [Vec3::X, -Vec3::X, Vec3::Z, -Vec3::Z] {
-                assert!(fire.iter().any(|v| v.normal() == normal));
+        for (turns, (axis, positive, normal)) in [
+            (2, false, -Vec3::Z),
+            (0, true, Vec3::X),
+            (2, true, Vec3::Z),
+            (0, false, -Vec3::X),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let facing = registry.variant(furnace, &[turns as u8]);
+            world.set_block(hot, facing);
+            let loaded = postcard::from_bytes(&saved).unwrap();
+            world
+                .chunk_mut(IVec3::ZERO)
+                .set_block_entity(2, 3, 2, Some(loaded));
+            let front = registry.def(facing).face_texture(axis, positive);
+            for mesher in [mesh_greedy, mesh_culled, mesh_binary] {
+                let mesh = mesher(&world, IVec3::ZERO);
+                let fire: Vec<_> = mesh
+                    .vertices
+                    .iter()
+                    .filter(|v| v.texture & FLAG_FURNACE_FIRE != 0)
+                    .collect();
+                assert!(!fire.is_empty());
+                assert!(fire.iter().all(|v| {
+                    v.normal() == normal
+                        && (v.texture & TEXTURE_MASK) == front
+                        && v.local_position().x <= 3.0
+                }));
             }
-            assert!(
-                fire.iter()
-                    .all(|v| v.normal().y == 0.0 && v.local_position().x <= 3.0)
-            );
         }
         world.chunk_mut(IVec3::ZERO).set_block_entity(2, 3, 2, None);
         assert!(
@@ -1385,6 +1466,35 @@ mod tests {
                 .iter()
                 .all(|v| v.texture & FLAG_FURNACE_FIRE == 0)
         );
+    }
+
+    #[test]
+    fn chest_mesh_separates_the_lid_and_keeps_the_hinge_at_a_chunk_edge() {
+        let mut world = World::new();
+        let registry = world.registry().clone();
+        let chest = registry.variant(id("core:chest"), &[1]);
+        let pos = IVec3::new(31, 31, 31);
+        world.set_block(pos, chest);
+        let mesh = mesh_binary(&world, IVec3::ZERO);
+        let lid = registry.def(chest).lid.as_ref().unwrap();
+        let moving: Vec<_> = mesh
+            .vertices
+            .iter()
+            .filter(|v| v.texture & FLAG_CHEST_LID != 0)
+            .collect();
+        assert_eq!(moving.len(), 24 * lid.boxes.len());
+        for vertex in moving {
+            assert_eq!(vertex.position[3], Chunk::index(31, 31, 31) as u16);
+            assert_eq!(vertex.normal[3] as u8, lid.hinge.0);
+            assert_eq!(vertex.light[3], lid.hinge.1);
+            assert_eq!((vertex.texture >> FLAG_TURN_SHIFT) & 3, 1);
+        }
+        assert!(
+            mesh.vertices
+                .iter()
+                .any(|v| v.texture == lid.inside | FLAG_MODEL_UV | (1 << FLAG_TURN_SHIFT))
+        );
+        assert!(mesh.bounds().unwrap().1.y > 32.0);
     }
 
     fn terrain(chunks: i32) -> World {
@@ -1642,6 +1752,33 @@ mod tests {
         let greedy = mesh_greedy(&world, IVec3::ZERO);
         // Le dessus reste en deux quads : pierre et herbe n'ont pas la même couleur.
         assert_eq!(quads_facing(&greedy, Vec3::Y).len(), 2);
+    }
+
+    #[test]
+    fn grass_border_uses_its_top_tint_in_all_meshers() {
+        let mut world = World::new();
+        let biomes = Arc::new(BiomeRegistry::builtin(world.registry()).unwrap());
+        let savanna = biomes.id("core:savanna").unwrap();
+        world.set_biomes(biomes);
+        world.set_block(IVec3::splat(12), grass());
+        world
+            .chunk_mut(IVec3::ZERO)
+            .set_biomes(vec![savanna.0; CHUNK_SIZE * CHUNK_SIZE]);
+        let hood = Neighbourhood::from_world(&world, IVec3::ZERO).unwrap();
+        let mask = world.registry().def(grass()).side_tint;
+        assert_ne!(mask, 0);
+        for mesher in [Mesher::Culling, Mesher::Greedy, Mesher::Binary] {
+            let mesh = mesher.mesh(&hood);
+            let top = quads_facing(&mesh, Vec3::Y)[0][0].color;
+            assert_ne!(top, [255; 4]);
+            for vertex in mesh.vertices {
+                let normal = vertex.normal();
+                let side = normal.y == 0.0;
+                assert_eq!(vertex.position[3], if side { mask } else { 0 });
+                assert_eq!(vertex.color, if normal.y < 0.0 { [255; 4] } else { top });
+                assert_eq!(vertex.texture & FLAG_GROUND != 0, normal.y >= 0.0);
+            }
+        }
     }
 
     #[test]

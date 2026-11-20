@@ -7,7 +7,8 @@ original de plusieurs transpositions d'une cloche enregistrée. Aucun son Minecr
 
 | Source et auteur | Utilisation | Licence |
 | --- | --- | --- |
-| [Impact Sounds — Kenney](https://kenney.nl/assets/impact-sounds) | Pas sur herbe, pierre, bois et neige ; poses et casses ; cloche du carillon | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| [Impact Sounds — Kenney](https://kenney.nl/assets/impact-sounds) | Pas sur herbe, pierre, bois et neige, poses et casses, cloche du carillon | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| [RPG Audio — Kenney](https://kenney.nl/assets/rpg-audio) | Ouverture et fermeture des coffres, extraits de `doorOpen_1.ogg` et `doorClose_2.ogg` | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | [Nature Sounds Pack — Antoine Goumain / Antoinemax](https://opengameart.org/content/nature-sounds-pack) | Sol meuble, extérieur, tonnerre et grondement filtré | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | [Forest Ambience — TinyWorlds](https://opengameart.org/content/forest-ambience) | Extrait d'oiseaux | CC0 1.0 |
 | [Crickets Ambient Noise — Ted Kerr / Wolfgang_](https://opengameart.org/content/crickets-ambient-noise-loopable) | Boucle nocturne | CC0 1.0 |

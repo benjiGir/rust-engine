@@ -10,6 +10,7 @@ mod detail;
 mod draw;
 mod fixtures;
 mod items;
+mod minerals;
 mod terrain;
 mod wood;
 
@@ -74,7 +75,12 @@ fn mean(pixels: &[Pixel], channel: usize) -> f64 {
 }
 /// Le dessin peut changer complètement tout en restant accordé aux teintes de repli
 /// et du terrain lointain. On cale sa moyenne linéaire, jamais ses anciens motifs.
-fn harmonize(canvas: &mut draw::Canvas, source: &[Pixel]) {
+fn harmonize(
+    canvas: &mut draw::Canvas,
+    source: &[Pixel],
+    trim: Option<crate::machine_faces::Trim>,
+) {
+    let in_trim = |index| trim.is_some_and(|trim| trim.contains(index, SIDE));
     for channel in 0..3 {
         let target = mean(source, channel);
         let count = canvas.0.iter().filter(|p| p[3] > 0).count().max(1) as f64;
@@ -85,8 +91,12 @@ fn harmonize(canvas: &mut draw::Canvas, source: &[Pixel]) {
             let actual = canvas
                 .0
                 .iter()
-                .filter(|p| p[3] > 0)
-                .map(|p| linear(quantize(p[channel] as i32 + bias)))
+                .enumerate()
+                .filter(|(_, p)| p[3] > 0)
+                .map(|(i, p)| {
+                    let delta = if in_trim(i) { 0 } else { bias };
+                    linear(quantize(p[channel] as i32 + delta))
+                })
                 .sum::<f64>()
                 / count;
             let error = (actual - target).abs();
@@ -99,17 +109,37 @@ fn harmonize(canvas: &mut draw::Canvas, source: &[Pixel]) {
                 high = bias - 1;
             }
         }
-        for p in canvas.0.iter_mut().filter(|p| p[3] > 0) {
-            p[channel] = quantize(p[channel] as i32 + best.1);
+        for (i, p) in canvas.0.iter_mut().enumerate() {
+            if p[3] > 0 && !in_trim(i) {
+                p[channel] = quantize(p[channel] as i32 + best.1);
+            }
         }
     }
 }
 fn refine(source: &[Pixel], name: &str, item: bool) -> Vec<Pixel> {
+    if !item && let Some(pixels) = crate::machine_faces::draw(name, SIDE) {
+        // La même palette sur tout le meuble conserve la couleur des jonctions.
+        let mut pixels: Vec<_> = pixels
+            .into_iter()
+            .map(crate::textures::finish_pixel)
+            .collect();
+        crate::machine_faces::join_trim(name, &mut pixels, SIDE);
+        return pixels;
+    }
+    if !item && let Some(ore) = crate::ore_veins::ORES.iter().find(|ore| ore.name == name) {
+        // Fixer la teinte de la roche avant d'ajouter le filon. Une balance globale
+        // après composition décalerait aussi les pixels de pierre aux raccords.
+        let mut stone = terrain::stone();
+        harmonize(&mut stone, &crate::textures::stone_pixels(), None);
+        ore.paint(&mut stone.0, SIDE);
+        return stone.finish();
+    }
     let mut image = if item {
         crate::fauna_items::draw(name, 32)
             .map(draw::Canvas)
             .or_else(|| crate::magic_items::draw(name, 32).map(draw::Canvas))
             .or_else(|| accessories::item(name))
+            .or_else(|| minerals::item(name))
             .or_else(|| items::draw(source, name))
     } else {
         crate::creature_skins::draw(name, 32)
@@ -122,8 +152,38 @@ fn refine(source: &[Pixel], name: &str, item: bool) -> Vec<Pixel> {
             .or_else(|| detail::plant(source, name))
     }
     .unwrap_or_else(|| detail::accessory(source, name, item));
-    harmonize(&mut image, source);
+    let trim = if item {
+        None
+    } else {
+        crate::machine_faces::join_trim(name, &mut image.0, SIDE)
+    };
+    harmonize(&mut image, source, trim);
     image.finish()
+}
+
+fn refine_core_ground(dir: &Path, name: &str) -> Result<Option<Vec<Pixel>>> {
+    let (top, podzol) = match name {
+        "grass_side" => ("grass_top", false),
+        "podzol_side" => ("podzol_top", true),
+        "grass_side_tint" => {
+            let mut mask = vec![[0; 4]; SIDE * SIDE];
+            crate::textures::grass_side_tint(&mut mask, SIDE);
+            return Ok(Some(mask));
+        }
+        _ => return Ok(None),
+    };
+    let read_refined = |name| -> Result<_> {
+        let (size, pixels) = read(&dir.join(format!("{name}.png")))?;
+        Ok(if size == SIDE {
+            pixels
+        } else {
+            refine(&pixels, name, false)
+        })
+    };
+    // Composer avec les couleurs finales des deux matériaux, après harmonisation.
+    let mut side = read_refined("dirt")?;
+    crate::textures::ground_side(&mut side, &read_refined(top)?, SIDE, podzol);
+    Ok(Some(side))
 }
 
 pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
@@ -145,7 +205,7 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
             if !dir.is_dir() {
                 continue;
             }
-            let mut sources: Vec<_> = fs::read_dir(dir)?
+            let mut sources: Vec<_> = fs::read_dir(&dir)?
                 .filter_map(|e| e.ok().map(|e| e.path()))
                 .filter(|p| p.extension().is_some_and(|e| e == "png"))
                 .collect();
@@ -153,7 +213,14 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
             for source in sources {
                 let name = source.file_stem().unwrap().to_string_lossy();
                 let (size, pixels) = read(&source)?;
-                let pixels = if size == 32 {
+                let ground = if namespace == "core" && kind == "textures" {
+                    refine_core_ground(&dir, &name)?
+                } else {
+                    None
+                };
+                let pixels = if let Some(ground) = ground {
+                    ground
+                } else if size == SIDE {
                     pixels
                 } else {
                     refine(&pixels, &name, kind == "items")
@@ -181,6 +248,128 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn case_edges_and_lid_bands_align_in_both_texture_packs() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for pack in ["", "texture_packs/earth-copper-32"] {
+            for (folder, top, front, side, back, rim) in [
+                (
+                    "assets/core/textures",
+                    "chest_top",
+                    "chest_side",
+                    "chest_side_panel",
+                    "chest_back_panel",
+                    2,
+                ),
+                (
+                    "assets/core/textures",
+                    "iron_chest_top",
+                    "iron_chest_side",
+                    "iron_chest_side_panel",
+                    "iron_chest_back_panel",
+                    2,
+                ),
+                (
+                    "assets/core/textures",
+                    "furnace_top",
+                    "furnace_front",
+                    "furnace_side_panel",
+                    "furnace_back_panel",
+                    0,
+                ),
+            ] {
+                let load = |name: &str| {
+                    read(&root.join(pack).join(folder).join(format!("{name}.png"))).unwrap()
+                };
+                let (size, top_pixels) = load(top);
+                let (_, front_pixels) = load(front);
+                let (_, side_pixels) = load(side);
+                let (_, back_pixels) = load(back);
+                let scale = size / 16;
+                for y in 0..size {
+                    let corners = [scale, 14 * scale].map(|x| x + y * size);
+                    for index in corners {
+                        assert_eq!(
+                            front_pixels[index], side_pixels[index],
+                            "{front} {size}, angle"
+                        );
+                        assert_eq!(
+                            back_pixels[index], side_pixels[index],
+                            "{back} {size}, angle"
+                        );
+                    }
+                }
+                let line = rim * scale * size;
+                let section = line + rim * scale..line + (16 - rim) * scale;
+                assert_eq!(
+                    top_pixels[section.clone()],
+                    front_pixels[section],
+                    "{front} {size}, bord supérieur"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ore_veins_preserve_the_host_stone_and_its_edges_in_both_packs() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for directory in [
+            "assets/core/textures",
+            "texture_packs/earth-copper-32/assets/core/textures",
+        ] {
+            let dir = root.join(directory);
+            let (size, stone) = read(&dir.join("stone.png")).unwrap();
+            for ore in &crate::ore_veins::ORES {
+                let (ore_size, pixels) = read(&dir.join(format!("{}.png", ore.name))).unwrap();
+                assert_eq!(ore_size, size);
+                for i in 0..size {
+                    for edge in [i, i + size * (size - 1), i * size, i * size + size - 1] {
+                        assert_eq!(pixels[edge], stone[edge], "{} {size}, raccord", ore.name);
+                    }
+                }
+                let altered = pixels.iter().zip(&stone).filter(|(a, b)| a != b).count();
+                assert!(
+                    (size / 2..size * size / 5).contains(&altered),
+                    "{} {size}, couverture du gisement : {altered}",
+                    ore.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn grass_and_podzol_wrap_over_all_four_edges_in_both_packs() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for directory in [
+            "assets/core/textures",
+            "texture_packs/earth-copper-32/assets/core/textures",
+        ] {
+            let load =
+                |name: &str| read(&root.join(directory).join(format!("{name}.png"))).unwrap();
+            let (size, dirt) = load("dirt");
+            let (_, mask) = load("grass_side_tint");
+            for (name, podzol) in [("grass", false), ("podzol", true)] {
+                let (_, top) = load(&format!("{name}_top"));
+                let (_, side) = load(&format!("{name}_side"));
+                for x in 0..size {
+                    for edge in [x, x + size * (size - 1), x * size, x * size + size - 1] {
+                        assert_eq!(side[x], top[edge], "{name} {size}, arête du dessus");
+                    }
+                    let depth = crate::textures::ground_cover_depth(x, size, podzol);
+                    for y in 0..size {
+                        let i = x + y * size;
+                        assert_eq!(side[i], if y < depth { top[i] } else { dirt[i] });
+                        assert_eq!(side[y * size], side[y * size + size - 1]);
+                        if !podzol {
+                            assert_eq!(mask[i][3], if y < depth { 255 } else { 0 });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn main_materials_change_the_drawing_even_after_removing_fine_grain() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

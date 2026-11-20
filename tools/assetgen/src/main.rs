@@ -9,7 +9,9 @@
 mod creature_skins;
 mod doors;
 mod fauna_items;
+mod machine_faces;
 mod magic_items;
+mod ore_veins;
 mod sounds;
 mod texture_pack32;
 mod textures;

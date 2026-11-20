@@ -57,6 +57,7 @@ mod cart_play;
 mod carts;
 mod charm_play;
 mod charms;
+mod chest_lids;
 mod chest_preview;
 mod components;
 mod console;
@@ -309,6 +310,7 @@ struct VoxelGame {
     hot_reload: Option<hot_reload::HotReload>,
     /// `None` si le son est coupé ou sans carte son.
     audio: Option<audio::Audio>,
+    chest_lids: chest_lids::ChestLids,
     /// Distance marchée depuis le dernier bruit de pas.
     step_distance: f32,
     was_in_liquid: bool,
@@ -814,6 +816,7 @@ impl VoxelGame {
             started: Instant::now(),
             hot_reload: start_hot_reload(),
             audio,
+            chest_lids: chest_lids::ChestLids::default(),
             step_distance: 0.0,
             was_in_liquid: false,
             quit_at: env_parse::<u64>("VOXEL_QUIT_AFTER")
@@ -1261,6 +1264,7 @@ impl VoxelGame {
         let (ui_frame, platform) = self.build_ui(raw);
         self.flush_mod_ui();
         self.ui.handle_output(&ctx.window, platform);
+        self.update_chest_lids();
 
         {
             let subs = self.mods.subgrids.borrow();

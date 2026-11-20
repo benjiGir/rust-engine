@@ -96,6 +96,15 @@ La même forme sert au dessin, à la **collision** (le joueur marche sur la moit
 et passe sous une dalle haute) et à la **sélection** (le rayon passe à côté d'une dalle).
 La texture est coupée, pas étirée : une dalle montre la moitié de sa texture.
 
+Un cube avec `tint: Grass` peut déclarer `textures.side_tint` en plus de `top`, `side`
+et `bottom`. C’est le nom d’un PNG dont l’alpha dose la teinte du biome sur les côtés.
+Pour l’herbe, le masque est opaque sur la végétation et transparent sur la terre.
+
+Le champ `textures` accepte `front` pour la façade nord et `back` pour le dos sud.
+Les deux peuvent être omis et reprennent alors `side`. Avec `states: [Facing4]`, la
+façade, le dos et le dessin du modèle suivent l’orientation de pose. Les variantes
+ainsi ajoutées sont numérotées après les autres blocs au chargement du jeu.
+
 ```ron
 (id: "example:ruby_stairs", name: "Escalier de rubis", color: (0.7, 0.05, 0.12), texture: "ruby",
  boxes: [(from: (0, 0, 0), to: (16, 8, 16)), (from: (0, 8, 0), to: (16, 16, 8))],
@@ -270,6 +279,13 @@ Les textures suivent la pièce et les limites de rendu couvrent toute son orbite
 Cette animation est décorative : elle tourne en continu, indépendamment de la vitesse
 du réseau cinétique ; collision et sélection conservent les boîtes de repos. Elle ne
 se combine pas avec `sway`. Les arbres et engrenages de Mécanique en donnent un exemple.
+
+Un conteneur peut déclarer un couvercle avec `lid: (body: 0, boxes: [1, 2], hinge: (10, 15), inside: "chest_inside")`.
+`body` désigne la boîte rendue creuse et `boxes` les pièces mobiles. `hinge` donne la
+hauteur et la profondeur de la charnière en seizièmes dans le modèle orienté nord.
+`inside` est la texture des parois internes. L’ouverture de son inventaire ou de son
+menu de mod déclenche l’animation et les sons du coffre. La collision conserve les
+boîtes fermées.
 
 Le four (`behavior: "core:furnace"`) a aussi un effet de flammes dans la bouche de
 `furnace_front.png` : il s'affiche uniquement si `FurnaceState::burning()` vaut vrai.

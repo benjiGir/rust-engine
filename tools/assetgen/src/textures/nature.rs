@@ -1,5 +1,5 @@
 //! Matières périodiques, cernes et fibres sans cadre systématique au bord des blocs.
-use super::{Image, SIZE, STONE, periodic_noise, scale, seamless_ground, texel_hash};
+use super::{Image, SIZE, periodic_noise, scale, seamless_ground};
 
 pub(super) fn stone() -> Image {
     let base = [0.51, 0.52, 0.53];
@@ -80,28 +80,6 @@ pub(super) fn mineral(kind: &str) -> Image {
                 ),
             );
         }
-    }
-    image
-}
-
-pub(super) fn ore(color: [f32; 3], seed: u64) -> Image {
-    let mut image = mineral("stone");
-    // Des veines fragmentées, avec une disposition différente selon le gisement.
-    for (i, (cx, cy)) in [(2, 3), (9, 2), (5, 9), (11, 11)].into_iter().enumerate() {
-        let x = cx + (texel_hash(i, 0, seed) % 2) as usize;
-        let y = cy + (texel_hash(i, 1, seed) % 2) as usize;
-        let vertical = texel_hash(i, 2, seed).is_multiple_of(2);
-        for (dx, dy, shade) in [
-            (0, 0, 1.2),
-            (1, 0, 1.02),
-            (1, 1, 0.9),
-            (2, 1, 0.78),
-            (3, 1, 0.85),
-        ] {
-            let (dx, dy) = if vertical { (dy, dx) } else { (dx, dy) };
-            image.set(x + dx, y + dy, scale(color, shade));
-        }
-        image.set(x, y + 2, scale(STONE, 0.78));
     }
     image
 }

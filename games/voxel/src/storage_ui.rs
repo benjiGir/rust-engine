@@ -814,7 +814,9 @@ impl VoxelGame {
             Some(CONTROLLER_KEY) => Screen::Controller(hit.block_pos),
             Some("core:furnace") => Screen::Furnace(hit.block_pos),
             Some("core:brewing_stand") => Screen::Brewing(hit.block_pos),
-            _ if def.key == "core:workbench" => Screen::Workbench,
+            _ if self.registry.def(self.registry.base(block)).key == "core:workbench" => {
+                Screen::Workbench
+            }
             Some(crate::enchant_library::BEHAVIOR) => Screen::Library(hit.block_pos),
             _ if def.key == "core:enchanting_table" => Screen::Enchant(hit.block_pos),
             _ if def.key == "core:simple_anvil" => Screen::Anvil,
@@ -858,7 +860,7 @@ impl VoxelGame {
                 || b == CONTROLLER_KEY
                 || b == "core:furnace"
                 || b == "core:brewing_stand"
-        ) || def.key == "core:workbench"
+        ) || self.registry.def(self.registry.base(block)).key == "core:workbench"
             || def.key == "core:enchanting_table"
             || def.key == "core:simple_anvil"
             || def.behavior.as_deref() == Some(crate::enchant_library::BEHAVIOR)

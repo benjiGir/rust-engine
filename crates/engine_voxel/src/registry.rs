@@ -66,6 +66,11 @@ pub struct BlockDef {
     /// Couche de texture de chaque face : dessus, côtés, dessous.
     /// 0 = pas de texture (la couleur seule).
     pub face_textures: [u32; 3],
+    // Façade au nord et dos au sud dans le repère du modèle.
+    end_textures: [Option<u32>; 2],
+    pub lid: Option<ChestLid>,
+    /// Couche du masque alpha de teinte des côtés d’un cube herbeux (0 = aucun masque).
+    pub side_tint: u16,
     /// Sons du bloc (identifiants namespacés, par exemple `core:step_soft`).
     pub sounds: BlockSounds,
     /// Le comportement du bloc s'il est actif (une machine) : `core:lamp`, `example:breaker`...
@@ -200,6 +205,41 @@ pub struct InventoryPorts {
 pub struct BlockBox {
     pub min: Vec3,
     pub max: Vec3,
+}
+
+impl BlockDef {
+    pub fn facing_turns(&self) -> u8 {
+        self.states
+            .iter()
+            .zip(&self.state_values)
+            .find_map(|(state, &value)| (*state == StateKind::Facing4).then_some(value))
+            .unwrap_or(0)
+    }
+
+    pub fn has_end_textures(&self) -> bool {
+        self.end_textures.iter().any(Option::is_some)
+    }
+
+    pub fn face_texture(&self, axis: usize, positive: bool) -> u32 {
+        if axis == 1 {
+            return self.face_textures[if positive { 0 } else { 2 }];
+        }
+        let side = self.face_textures[1];
+        if !self.has_end_textures() {
+            return side;
+        }
+        let direction = match (axis, positive) {
+            (2, false) => 0,
+            (0, true) => 1,
+            (2, true) => 2,
+            _ => 3,
+        };
+        match (direction + 4 - self.facing_turns()) % 4 {
+            0 => self.end_textures[0].unwrap_or(side),
+            2 => self.end_textures[1].unwrap_or(side),
+            _ => side,
+        }
+    }
 }
 
 /// Axe dans le repère du bloc, avant ses états d'orientation.
@@ -368,7 +408,7 @@ pub enum Shape {
 pub enum Tint {
     #[default]
     None,
-    /// La couleur de l'herbe du biome (le dessus de l'herbe, les herbes hautes).
+    /// La couleur de l'herbe du biome (le dessus, les côtés masqués, les herbes hautes).
     Grass,
     /// La couleur du feuillage du biome (les feuilles).
     Foliage,
@@ -399,6 +439,30 @@ struct FaceTextures {
     top: String,
     side: String,
     bottom: String,
+    #[serde(default)]
+    front: Option<String>,
+    #[serde(default)]
+    back: Option<String>,
+    #[serde(default)]
+    side_tint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChestLid {
+    pub body: usize,
+    pub boxes: Vec<usize>,
+    /// Hauteur et profondeur de la charnière au nord, en seizièmes.
+    pub hinge: (u8, u8),
+    pub inside: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LidEntry {
+    body: usize,
+    boxes: Vec<usize>,
+    hinge: (u8, u8),
+    inside: String,
 }
 
 /// Un bloc tel qu'écrit dans un fichier `blocks.ron`.
@@ -434,6 +498,8 @@ struct BlockFileEntry {
     /// ... ou une par face.
     #[serde(default)]
     textures: Option<FaceTextures>,
+    #[serde(default)]
+    lid: Option<LidEntry>,
     #[serde(default)]
     sounds: BlockSounds,
     #[serde(default)]
@@ -546,6 +612,9 @@ impl BlockRegistry {
             light_emission: 0,
             light_opacity: 0,
             face_textures: [0; 3],
+            end_textures: [None; 2],
+            lid: None,
+            side_tint: 0,
             sounds: BlockSounds::default(),
             behavior: None,
             fluid: None,
@@ -639,7 +708,12 @@ impl BlockRegistry {
     /// donné** : `(espace de noms, dossier)`. L'ordre fixe les numéros des blocs.
     pub fn load_mods(assets_dir: &Path, mods: &[(String, PathBuf)]) -> Result<Self> {
         let mut registry = Self::empty();
-        registry.add_file(CORE_NAMESPACE, &assets_dir.join("core").join("blocks.ron"))?;
+        let mut directional = Vec::new();
+        registry.add_file(
+            CORE_NAMESPACE,
+            &assets_dir.join("core").join("blocks.ron"),
+            &mut directional,
+        )?;
         for (namespace, dir) in mods {
             if namespace == CORE_NAMESPACE {
                 bail!(
@@ -649,14 +723,22 @@ impl BlockRegistry {
             }
             let file = dir.join("blocks.ron");
             if file.exists() {
-                registry.add_file(namespace, &file)?;
+                registry.add_file(namespace, &file, &mut directional)?;
             }
             // Sinon : un mod sans nouveaux blocs.
+        }
+        for id in directional {
+            registry.add_variants(id)?;
         }
         Ok(registry)
     }
 
-    fn add_file(&mut self, namespace: &str, path: &Path) -> Result<()> {
+    fn add_file(
+        &mut self,
+        namespace: &str,
+        path: &Path,
+        directional: &mut Vec<BlockId>,
+    ) -> Result<()> {
         let source = std::fs::read_to_string(path)
             .with_context(|| format!("lecture de {}", path.display()))?;
         // Le dossier qui contient `blocks.ron` contient aussi `textures/` et `sounds/`.
@@ -664,11 +746,26 @@ impl BlockRegistry {
             self.asset_dirs
                 .insert(namespace.to_string(), dir.to_path_buf());
         }
-        self.add_source(namespace, &source, &path.display().to_string())
+        self.read_source(namespace, &source, &path.display().to_string(), directional)
     }
 
     /// Ajoute les blocs décrits par `source` (texte RON). `origin` sert aux messages d'erreur.
     pub fn add_source(&mut self, namespace: &str, source: &str, origin: &str) -> Result<()> {
+        let mut directional = Vec::new();
+        self.read_source(namespace, source, origin, &mut directional)?;
+        for id in directional {
+            self.add_variants(id)?;
+        }
+        Ok(())
+    }
+
+    fn read_source(
+        &mut self,
+        namespace: &str,
+        source: &str,
+        origin: &str,
+        directional: &mut Vec<BlockId>,
+    ) -> Result<()> {
         // `IMPLICIT_SOME` : un champ facultatif s'écrit `light_opacity: 2`
         // au lieu de `light_opacity: Some(2)`, plus simple pour les auteurs de mods.
         let options = ron::Options::default()
@@ -706,6 +803,12 @@ impl BlockRegistry {
                 Some(names) => names.map(|name| self.texture_layer(&qualify(&name, namespace))),
                 None => [0; 3],
             };
+            let ends = entry.textures.as_ref().map_or([None; 2], |faces| {
+                [faces.front.as_deref(), faces.back.as_deref()]
+            });
+            let oriented = ends.iter().any(Option::is_some);
+            let end_textures =
+                ends.map(|name| name.map(|name| self.texture_layer(&qualify(name, namespace))));
             let q = |name: &Option<String>| name.as_ref().map(|n| qualify(n, namespace));
             let sounds = BlockSounds {
                 step: q(&entry.sounds.step),
@@ -816,6 +919,44 @@ impl BlockRegistry {
                 );
             }
             let model = !boxes.is_empty();
+            let lid = if let Some(lid) = entry.lid {
+                ensure!(
+                    lid.body < boxes.len()
+                        && !lid.boxes.is_empty()
+                        && lid.boxes.iter().all(|&i| i < boxes.len() && i != lid.body)
+                        && lid.hinge.0 <= 16
+                        && lid.hinge.1 <= 16
+                        && entry.rotation.is_none()
+                        && entry.glazing.is_none()
+                        && (entry.states.is_empty() || entry.states == [StateKind::Facing4]),
+                    "{origin} : « {} » : corps, pièces ou charnière du couvercle invalides",
+                    entry.id
+                );
+                Some(ChestLid {
+                    body: lid.body,
+                    boxes: lid.boxes,
+                    hinge: lid.hinge,
+                    inside: self.texture_layer(&qualify(&lid.inside, namespace)),
+                })
+            } else {
+                None
+            };
+            let side_tint =
+                if let Some(mask) = entry.textures.as_ref().and_then(|f| f.side_tint.as_deref()) {
+                    ensure!(
+                        entry.tint == Tint::Grass
+                            && entry.shape == Shape::Cube
+                            && !model
+                            && entry.rail.is_none()
+                            && !entry.liquid,
+                        "{origin} : « {} » : `side_tint` exige un cube avec `tint: Grass`",
+                        entry.id
+                    );
+                    u16::try_from(self.texture_layer(&qualify(mask, namespace)))
+                        .context("trop de couches de textures")?
+                } else {
+                    0
+                };
             // Par défaut, un bloc transparent laisse passer la lumière, un opaque l'arrête.
             // Une forme à boîtes se juge sur `solid` : une dalle pleine arrête la lumière.
             let light_opacity = entry.light_opacity.unwrap_or(if model {
@@ -840,6 +981,9 @@ impl BlockRegistry {
                 light_emission: entry.light_emission,
                 light_opacity,
                 face_textures,
+                end_textures,
+                lid,
+                side_tint,
                 sounds,
                 behavior: entry.behavior.as_ref().map(|b| qualify(b, namespace)),
                 fluid: entry.fluid.as_ref().map(|f| qualify(f, namespace)),
@@ -889,7 +1033,13 @@ impl BlockRegistry {
             };
             self.by_key.insert(def.key.clone(), id);
             self.defs.push(def);
-            self.add_variants(id)?;
+            // Ces orientations sont ajoutées après les anciens blocs et variantes,
+            // afin que leur arrivée ne décale aucun identifiant existant.
+            if oriented && entry.states == [StateKind::Facing4] {
+                directional.push(id);
+            } else {
+                self.add_variants(id)?;
+            }
         }
         Ok(())
     }
@@ -1401,12 +1551,15 @@ pub(crate) mod tests {
         let ruby = registry
             .id("example:ruby_slab")
             .expect("le bloc du mod est chargé");
-        // Core d'abord : les blocs des mods viennent après ceux de base (et l'air), qui gardent
-        // leur numéro.
+        // Les variantes directionnelles ajoutées aux machines passent après les mods.
+        // Les blocs et variantes déjà enregistrés conservent ainsi leur numéro.
         let builtin = BlockRegistry::builtin();
-        let core_blocks = builtin.len();
-        assert!(ruby.0 as usize >= core_blocks);
-        assert_eq!(registry.id("core:stone"), builtin.id("core:stone"));
+        let first_new = builtin.id("core:workbench[facing=east]").unwrap();
+        assert!(ruby.0 >= first_new.0);
+        for (id, def) in builtin.iter().take(first_new.0 as usize) {
+            assert_eq!(registry.id(&def.key), Some(id));
+        }
+        assert!(registry.id("core:workbench[facing=east]").unwrap().0 > ruby.0);
         assert!(registry.def(ruby).placeable);
         assert!(registry.placeable().any(|id| id == ruby));
     }
@@ -1541,6 +1694,45 @@ pub(crate) mod tests {
         write(root.join("assets/core/blocks.ron"), "[]");
         write(root.join("mods/core/blocks.ron"), "[]");
         assert!(BlockRegistry::load(&root.join("assets"), Some(&root.join("mods"))).is_err());
+    }
+
+    #[test]
+    fn new_machine_facings_leave_existing_core_and_mod_ids_in_place() {
+        let root = temp_dir("directional-machines");
+        write(
+            root.join("mods/check/blocks.ron"),
+            r#"[(id: "check:marker", name: "M", color: (0.0, 0.0, 0.0))]"#,
+        );
+        let core = root.join("assets/core/blocks.ron");
+        let front = r#"(id: "core:machine", name: "M", color: (0.0, 0.0, 0.0),
+            boxes: [(from: (1, 1, 1), to: (15, 12, 15))],
+            textures: (top: "top", side: "side", bottom: "base", front: "front", back: "back")"#;
+        let rotator = r#"(id: "core:slab", name: "S", color: (0.0, 0.0, 0.0),
+            boxes: [(from: (0, 0, 0), to: (16, 8, 16))], states: [Half])"#;
+        let load = |states| {
+            write(core.clone(), &format!("[{front}{states}), {rotator}]"));
+            BlockRegistry::load(&root.join("assets"), Some(&root.join("mods"))).unwrap()
+        };
+        let old = load("");
+        let new = load(", states: [Facing4]");
+        for (id, def) in old.iter() {
+            assert_eq!(new.id(&def.key), Some(id));
+        }
+        let base = new.id("core:machine").unwrap();
+        let east = new.placement_variant(base, Vec3::NEG_X, IVec3::Y, 0.5);
+        assert_eq!(new.def(east).facing_turns(), 1);
+        assert_eq!(
+            new.def(east).face_texture(0, true),
+            new.def(base).face_texture(2, false)
+        );
+        assert_eq!(
+            new.def(east).face_texture(0, false),
+            new.def(base).face_texture(2, true)
+        );
+        assert_ne!(
+            new.def(east).face_texture(0, false),
+            new.def(east).face_texture(2, true)
+        );
     }
 
     #[test]

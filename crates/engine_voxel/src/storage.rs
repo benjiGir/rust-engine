@@ -268,6 +268,8 @@ pub fn upgrade_chest(grid: &mut (impl BlockAccess + ?Sized), pos: IVec3, to: usi
     if to <= from {
         return false;
     }
+    let facing = registry.def(grid.block(pos)).facing_turns();
+    let new_block = registry.variant(new_block, &[facing]);
     let mut entity = grid.block_entity(pos).cloned().unwrap_or_default();
     let inventory = entity
         .caps_mut()
@@ -1255,9 +1257,11 @@ mod tests {
         slots[0] = stack("core:stone", 64);
         slots[26] = stack("core:coal", 12);
         slots[CHEST_TIERS[0].layout.main] = stack(Upgrade::Compact.key(), 1);
-        put_block(&mut grid, pos, blocks.id("core:chest").unwrap(), slots);
+        let north = blocks.id("core:chest").unwrap();
+        put_block(&mut grid, pos, blocks.variant(north, &[1]), slots);
         assert!(upgrade_chest(&mut grid, pos, 2));
-        assert_eq!(grid.block(pos), blocks.id("core:iron_chest").unwrap());
+        let iron = blocks.id("core:iron_chest").unwrap();
+        assert_eq!(grid.block(pos), blocks.variant(iron, &[1]));
         let after = slots_of(&grid, pos);
         let layout = CHEST_TIERS[2].layout;
         assert_eq!(after.len(), layout.total(), "les cases s'agrandissent");

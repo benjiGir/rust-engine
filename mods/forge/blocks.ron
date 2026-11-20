@@ -2,7 +2,7 @@
 [
     // Le four à alliages : trois cases d'entrée, du combustible, une sortie. Il brûle du charbon.
     (
-        id: "forge:alloy_furnace", name: "Four à alliages", color: (0.0738, 0.1097, 0.1281),
+        id: "forge:alloy_furnace", name: "Four à alliages", color: (0.08507, 0.08249, 0.08248),
         boxes: [
             (from: (1, 0, 1), to: (5, 2, 5)),
             (from: (11, 0, 1), to: (15, 2, 5)),
@@ -12,13 +12,14 @@
             (from: (2, 13, 2), to: (14, 15, 14)),
             (from: (5, 15, 5), to: (11, 16, 11)),
         ],
-        textures: (top: "alloy_furnace_top", side: "alloy_furnace_side", bottom: "alloy_furnace_top"),
+        textures: (top: "alloy_furnace_top", side: "alloy_furnace_side_panel", bottom: "alloy_furnace_side_panel", front: "alloy_furnace_side", back: "alloy_furnace_back_panel"),
         behavior: "alloy_furnace",
         // Un réseau d'objets remplit les trois entrées et vide la sortie (pas le combustible).
         ports: (inputs: [0, 1, 2], outputs: [4]),
         light_emission: 4,
         hardness: 3.0, tool: Pickaxe,
         sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
+        states: [Facing4],
     ),
     // L'enclume : deux cases, un marteau, une sortie. On choisit la pièce à forger par un bouton.
     (

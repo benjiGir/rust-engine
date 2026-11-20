@@ -94,24 +94,29 @@ impl Image {
         );
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
-        let bytes: Vec<u8> = self
-            .pixels
-            .iter()
-            .flat_map(|&pixel| finish_pixel(pixel))
-            .collect();
+        let mut pixels = self.pixels.map(finish_pixel);
+        if path
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|dir| dir == "textures")
+            && let Some(name) = path.file_stem().and_then(|stem| stem.to_str())
+        {
+            crate::machine_faces::join_trim(name, &mut pixels, SIZE);
+        }
+        let bytes: Vec<u8> = pixels.into_iter().flatten().collect();
         encoder.write_header()?.write_image_data(&bytes)?;
         Ok(())
     }
 }
 
-fn texel_hash(x: usize, y: usize, seed: u64) -> u64 {
+pub(crate) fn texel_hash(x: usize, y: usize, seed: u64) -> u64 {
     let mut n = seed ^ (x as u64).wrapping_mul(0x9e37_79b9) ^ (y as u64).wrapping_mul(0x85eb_ca6b);
     n = (n ^ (n >> 16)).wrapping_mul(0x7feb_352d);
     n ^ (n >> 15)
 }
 
 /// Même palette pour le terrain, les objets et les machines. L'alpha est conservé.
-fn finish_pixel([r, g, b, a]: [u8; 4]) -> [u8; 4] {
+pub(crate) fn finish_pixel([r, g, b, a]: [u8; 4]) -> [u8; 4] {
     if a == 0 {
         return [0; 4];
     }
@@ -190,7 +195,42 @@ fn seamless_ground(base: [f32; 3], seed: u64, contrast: f32) -> Image {
 }
 
 fn grass_top() -> Image {
-    seamless_ground(GRASS, 1, 0.075)
+    let mut image = seamless_ground(GRASS, 1, 0.075);
+    ground_top_edges(&mut image.pixels, SIZE);
+    image
+}
+
+/// La même bordure sur les quatre arêtes du dessus, avec une seule texture latérale.
+pub(crate) fn ground_top_edges(pixels: &mut [[u8; 4]], size: usize) {
+    for i in 0..size {
+        let edge = pixels[i];
+        pixels[i * size] = edge;
+        pixels[i * size + size - 1] = edge;
+        pixels[(size - 1) * size + i] = edge;
+    }
+}
+
+pub(crate) fn ground_cover_depth(x: usize, size: usize, podzol: bool) -> usize {
+    let phase = (x % (size - 1)) as f32 / (size - 1) as f32 * std::f32::consts::TAU;
+    let depth = if podzol { 2.5 } else { 3.0 };
+    ((depth + phase.cos() * 0.6 + (phase * 3.0).cos() * 0.55) * size as f32 / 16.0).round() as usize
+}
+
+pub(crate) fn ground_side(base: &mut [[u8; 4]], top: &[[u8; 4]], size: usize, podzol: bool) {
+    for x in 0..size {
+        for y in 0..ground_cover_depth(x, size, podzol) {
+            base[x + y * size] = top[x + y * size];
+        }
+    }
+}
+
+pub(crate) fn grass_side_tint(pixels: &mut [[u8; 4]], size: usize) {
+    for x in 0..size {
+        for y in 0..ground_cover_depth(x, size, false) {
+            // Seul l'alpha est lu par le shader.
+            pixels[x + y * size] = [132, 132, 132, 255];
+        }
+    }
 }
 
 fn dirt() -> Image {
@@ -342,20 +382,16 @@ fn piston_head() -> Image {
 /// Le côté de l'herbe : de la terre, avec une bordure d'herbe irrégulière en haut.
 fn grass_side() -> Image {
     let mut image = dirt();
-    let top = grass_top();
-    for x in 0..SIZE {
-        let t = x as f32 / (SIZE - 1) as f32 * std::f32::consts::TAU;
-        let depth = (3.0 + t.cos() * 0.6 + (t * 3.0).cos() * 0.55).round() as usize;
-        for y in 0..depth {
-            image.pixels[x + y * SIZE] = top.pixels[x + y * SIZE];
-        }
-        image.set(x, depth, scale(DIRT, 0.94));
-    }
+    ground_side(&mut image.pixels, &grass_top().pixels, SIZE, false);
     image
 }
 
 fn stone() -> Image {
     nature::stone()
+}
+
+pub(crate) fn stone_pixels() -> [[u8; 4]; SIZE * SIZE] {
+    stone().pixels.map(finish_pixel)
 }
 
 const PODZOL: [f32; 3] = [0.47, 0.31, 0.17];
@@ -375,19 +411,14 @@ fn podzol_top() -> Image {
             }
         }
     }
+    ground_top_edges(&mut image.pixels, SIZE);
     image
 }
 
 /// Le côté du podzol : de la terre, avec une bordure d'aiguilles en haut.
 fn podzol_side() -> Image {
     let mut image = dirt();
-    let top = podzol_top();
-    for x in 0..SIZE {
-        let depth = 2 + (texel_hash(x, 0, 1703) % 2) as usize;
-        for y in 0..depth {
-            image.pixels[x + y * SIZE] = top.pixels[x + y * SIZE];
-        }
-    }
+    ground_side(&mut image.pixels, &podzol_top().pixels, SIZE, true);
     image
 }
 
@@ -791,11 +822,6 @@ fn lava() -> Image {
         }
     }
     image
-}
-
-/// Un minerai : de la pierre (ou de la pierre profonde) et des grains colorés en amas.
-fn ore(color: [f32; 3], seed: u64) -> Image {
-    nature::ore(color, seed)
 }
 
 // ----- La végétation (phase O2) -----
@@ -1353,22 +1379,6 @@ fn workbench_side() -> Image {
     workstations::draw("workbench_side")
 }
 
-fn furnace_front() -> Image {
-    workstations::draw("furnace_front")
-}
-
-fn furnace_top() -> Image {
-    workstations::draw("furnace_top")
-}
-
-fn chest_side() -> Image {
-    workstations::draw("chest_side")
-}
-
-fn chest_top() -> Image {
-    workstations::draw("chest_top")
-}
-
 /// Le dessus du lit : le matelas, un oreiller pâle en haut, le cadre en bois.
 fn bed_top() -> Image {
     workstations::draw("bed_top")
@@ -1385,6 +1395,11 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
     let textures: Vec<(PathBuf, Image)> = vec![
         (core.join("grass_top.png"), grass_top()),
         (core.join("grass_side.png"), grass_side()),
+        (core.join("grass_side_tint.png"), {
+            let mut mask = Image::transparent();
+            grass_side_tint(&mut mask.pixels, SIZE);
+            mask
+        }),
         (core.join("dirt.png"), dirt()),
         (core.join("podzol_top.png"), podzol_top()),
         (core.join("podzol_side.png"), podzol_side()),
@@ -1420,23 +1435,6 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("sandstone_top.png"), sandstone_top()),
         (core.join("ice.png"), ice()),
         (core.join("lava.png"), lava()),
-        (core.join("coal_ore.png"), ore([0.12, 0.12, 0.12], 50)),
-        (core.join("iron_ore.png"), ore([0.82, 0.68, 0.55], 51)),
-        (core.join("copper_ore.png"), ore([0.85, 0.5, 0.3], 52)),
-        (core.join("gold_ore.png"), ore([0.98, 0.85, 0.25], 53)),
-        (core.join("cinnabar_ore.png"), ore([0.85, 0.12, 0.12], 54)),
-        (core.join("malachite_ore.png"), ore([0.2, 0.7, 0.45], 55)),
-        (core.join("sapphire_ore.png"), ore([0.3, 0.5, 1.0], 56)),
-        (core.join("jade_ore.png"), ore([0.4, 0.9, 0.6], 57)),
-        // Les minerais de la génération v3.
-        (core.join("tin_ore.png"), ore([0.58, 0.64, 0.7], 58)),
-        (core.join("lead_ore.png"), ore([0.42, 0.45, 0.6], 59)),
-        (core.join("silver_ore.png"), ore([0.92, 0.93, 0.97], 60)),
-        (core.join("nickel_ore.png"), ore([0.78, 0.76, 0.55], 61)),
-        (core.join("diamond_ore.png"), ore([0.45, 0.95, 0.95], 62)),
-        (core.join("ruby_ore.png"), ore([0.9, 0.1, 0.2], 63)),
-        (core.join("emerald_ore.png"), ore([0.15, 0.85, 0.4], 64)),
-        (core.join("quartz_ore.png"), ore([1.0, 0.88, 0.78], 65)),
         (core.join("oak_log.png"), log_side([0.42, 0.31, 0.18], 90)),
         (
             core.join("oak_log_top.png"),
@@ -1693,10 +1691,6 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (core.join("volcanic_rock.png"), volcanic_rock()),
         (core.join("workbench_top.png"), workbench_top()),
         (core.join("workbench_side.png"), workbench_side()),
-        (core.join("furnace_front.png"), furnace_front()),
-        (core.join("furnace_top.png"), furnace_top()),
-        (core.join("chest_side.png"), chest_side()),
-        (core.join("chest_top.png"), chest_top()),
         (core.join("bed_top.png"), bed_top()),
         (core.join("bed_side.png"), bed_side()),
         (
@@ -1715,6 +1709,18 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
         (root.join("mods/example/textures/ruby.png"), ruby()),
     ];
     let mut textures = textures;
+    textures.extend(crate::machine_faces::NAMES.iter().map(|&name| {
+        let pixels = crate::machine_faces::draw(name, SIZE)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        (core.join(format!("{name}.png")), Image { pixels })
+    }));
+    textures.extend(crate::ore_veins::ORES.iter().map(|ore| {
+        let mut image = stone();
+        ore.paint(&mut image.pixels, SIZE);
+        (core.join(format!("{}.png", ore.name)), image)
+    }));
     textures.extend(crate::doors::TEXTURES.into_iter().map(|name| {
         let pixels = crate::doors::draw(name, SIZE).unwrap().try_into().unwrap();
         (core.join(format!("{name}.png")), Image { pixels })

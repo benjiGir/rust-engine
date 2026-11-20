@@ -63,6 +63,7 @@ pub struct CubeInstance {
     /// vers l'avant, +x, avec un angle positif) et la hauteur du pivot au-dessus du centre de la
     /// boîte (une patte pivote par la hanche, en haut).
     pub swing: [f32; 2],
+    pub ends: [u32; 2],
 }
 
 impl CubeInstance {
@@ -80,6 +81,7 @@ impl CubeInstance {
             uv_min: [0.0; 3],
             uv_max: [1.0; 3],
             swing: [0.0; 2],
+            ends: [0; 2],
         }
     }
 
@@ -99,10 +101,16 @@ impl CubeInstance {
         opacity: f32,
     ) -> Self {
         self.textures = textures;
+        self.ends = [textures[1]; 2];
         self.uv_min = min.to_array();
         self.uv_max = max.to_array();
         self.cutout = u32::from(cutout);
         self.opacity = opacity;
+        self
+    }
+
+    pub fn with_ends(mut self, front: u32, back: u32) -> Self {
+        self.ends = [front, back];
         self
     }
 
@@ -130,6 +138,7 @@ pub struct HandInstance {
     pub cutout: u32,
     pub uv_min: [f32; 3],
     pub uv_max: [f32; 3],
+    pub ends: [u32; 2],
 }
 
 impl HandInstance {
@@ -141,6 +150,7 @@ impl HandInstance {
             cutout: 0,
             uv_min: [0.0; 3],
             uv_max: [1.0; 3],
+            ends: [0; 2],
         }
     }
 
@@ -154,6 +164,7 @@ impl HandInstance {
             cutout: part.cutout,
             uv_min: part.uv_min,
             uv_max: part.uv_max,
+            ends: part.ends,
             ..Self::new(model, part.color)
         }
     }
@@ -280,6 +291,7 @@ struct CameraUniform {
     sun_color: [f32; 4],
     /// Immersion, altitude de la surface, couverture nuageuse, ciel dynamique actif.
     water: [f32; 4],
+    chest_lids: [[f32; 4]; 4],
 }
 
 pub struct Renderer {
@@ -331,6 +343,8 @@ pub struct Renderer {
     pub underwater: f32,
     /// L'altitude de la surface au-dessus de la caméra, quand elle est sous l'eau.
     pub water_surface: f32,
+    /// Position du bloc (xyz) et angle d'ouverture (w) des couvercles animés.
+    pub chest_lids: [[f32; 4]; 4],
     pub sun: Sun,
     /// Le ciel procédural des mondes avec un cycle jour/nuit.
     pub sky: Option<Sky>,
@@ -463,7 +477,7 @@ impl Renderer {
                 attributes: &wgpu::vertex_attr_array![
                     2 => Float32x3, 3 => Float32x3, 4 => Float32x3, 5 => Float32, 6 => Float32x2,
                     7 => Float32, 8 => Uint32x3, 9 => Uint32, 10 => Float32x3, 11 => Float32x3,
-                    12 => Float32x2
+                    12 => Float32x2, 13 => Uint32x2
                 ],
             }),
         ];
@@ -570,7 +584,7 @@ impl Renderer {
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &wgpu::vertex_attr_array![
                     2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4,
-                    7 => Uint32x3, 8 => Uint32, 9 => Float32x3, 10 => Float32x3
+                    7 => Uint32x3, 8 => Uint32, 9 => Float32x3, 10 => Float32x3, 11 => Uint32x2
                 ],
             }),
         ];
@@ -633,6 +647,7 @@ impl Renderer {
             fog: None,
             underwater: 0.0,
             water_surface: 0.0,
+            chest_lids: [[0.0; 4]; 4],
             sun: Sun::default(),
             sky: None,
             sky_pass,
@@ -1027,6 +1042,7 @@ impl Renderer {
                 self.sky.map_or(0.0, |sky| sky.overcast),
                 if self.sky.is_some() { 1.0 } else { 0.0 },
             ],
+            chest_lids: self.chest_lids,
         };
         let frustum = Frustum::from_view_proj(view_proj);
         if let Some(timer) = &mut self.gpu_timer {

@@ -21,7 +21,7 @@
 // - shape (Cube) : Cube, Cross (deux panneaux en X : plantes) ou Flat (un panneau au sol) ;
 // - cutout (false) : les pixels transparents de la texture sont découpés (feuilles, plantes) ;
 // - tint (None) : Grass, Foliage ou Water, la couleur de l'herbe, du feuillage ou de l'eau du biome
-//   (pour un cube, Grass ne teinte que le dessus) ;
+//   (pour un cube, Grass teinte le dessus et les côtés là où `textures.side_tint` est opaque) ;
 // - sway (false) : se balance au vent ;
 // - hardness (1) : la dureté, en secondes de minage à la main (-1 : incassable) ;
 // - tool : l'outil qui va le plus vite (Pickaxe, Axe, Shovel, Hoe, Sword, Shears) ;
@@ -38,9 +38,9 @@
 // L'ordre compte : il fixe les identifiants numériques (1, 2, 3...) de cette partie.
 [
     (
-        id: "core:grass", name: "Herbe", color: (0.1861, 0.3623, 0.0918),
-        textures: (top: "grass_top", side: "grass_side", bottom: "dirt"),
-        // Le dessus prend la couleur de l'herbe du biome ; elle gagne la terre voisine.
+        id: "core:grass", name: "Herbe", color: (0.18444, 0.35896, 0.09066),
+        textures: (top: "grass_top", side: "grass_side", bottom: "dirt", side_tint: "grass_side_tint"),
+        // Le dessus et la bordure prennent la couleur de l'herbe du biome.
         tint: Grass, behavior: "core:grass",
         sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
         hardness: 0.6, tool: Shovel,
@@ -97,7 +97,7 @@
     // jeu) ou fourni par le script d'un mod.
     // Une horloge : elle émet un signal qui s'allume et s'éteint toutes les 0,5 s.
     (
-        id: "core:clock", name: "Horloge", color: (0.4388, 0.3630, 0.2623), texture: "clock",
+        id: "core:clock", name: "Horloge", color: (0.4388, 0.3630, 0.2623), textures: (top: "machine_frame", side: "machine_side_panel", bottom: "machine_frame", front: "clock", back: "machine_back_panel"),
         boxes: [
             (from: (3, 0, 4), to: (13, 2, 12)),
             (from: (2, 2, 5), to: (14, 14, 11)),
@@ -184,47 +184,47 @@
     ),
     // Les minerais : où et combien, voir `ores.ron`.
     (
-        id: "core:coal_ore", name: "Minerai de charbon", color: (0.1865, 0.2269, 0.2352), texture: "coal_ore",
+        id: "core:coal_ore", name: "Minerai de charbon", color: (0.19505, 0.20285, 0.21002), texture: "coal_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 1, xp: (0, 2),
     ),
     (
-        id: "core:iron_ore", name: "Minerai de fer", color: (0.2328, 0.2575, 0.2534), texture: "iron_ore",
+        id: "core:iron_ore", name: "Minerai de fer", color: (0.23675, 0.22985, 0.22611), texture: "iron_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 2, xp: (1, 2),
     ),
     (
-        id: "core:copper_ore", name: "Minerai de cuivre", color: (0.2317, 0.2412, 0.2393), texture: "copper_ore",
+        id: "core:copper_ore", name: "Minerai de cuivre", color: (0.23783, 0.21221, 0.20871), texture: "copper_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 2, xp: (0, 1),
     ),
     (
-        id: "core:gold_ore", name: "Minerai d'or", color: (0.2461, 0.2740, 0.2372), texture: "gold_ore",
+        id: "core:gold_ore", name: "Minerai d'or", color: (0.26458, 0.24442, 0.21076), texture: "gold_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 3, xp: (1, 3),
     ),
     // Un minerai rouge (cinabre) : il donnera la poudre des circuits.
     (
-        id: "core:cinnabar_ore", name: "Minerai de cinabre", color: (0.2309, 0.2269, 0.2347), texture: "cinnabar_ore",
+        id: "core:cinnabar_ore", name: "Minerai de cinabre", color: (0.22411, 0.20698, 0.21213), texture: "cinnabar_ore",
         light_emission: 3,
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 3, xp: (1, 3),
     ),
     // Un minerai vert, pour les enchantements à venir.
     (
-        id: "core:malachite_ore", name: "Minerai de malachite", color: (0.1875, 0.2562, 0.2449), texture: "malachite_ore",
+        id: "core:malachite_ore", name: "Minerai de malachite", color: (0.19998, 0.22482, 0.22289), texture: "malachite_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 2, xp: (2, 5),
     ),
     // La gemme bleue, rare et profonde.
     (
-        id: "core:sapphire_ore", name: "Minerai de saphir", color: (0.1913, 0.2407, 0.2928), texture: "sapphire_ore",
+        id: "core:sapphire_ore", name: "Minerai de saphir", color: (0.19837, 0.21369, 0.24819), texture: "sapphire_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 3, xp: (3, 7),
     ),
     // Un minerai rare des montagnes.
     (
-        id: "core:jade_ore", name: "Minerai de jade", color: (0.1972, 0.2790, 0.2568), texture: "jade_ore",
+        id: "core:jade_ore", name: "Minerai de jade", color: (0.20857, 0.23316, 0.22690), texture: "jade_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 3, xp: (3, 7),
     ),
@@ -457,7 +457,7 @@
     ),
     // L'établi : un clic droit ouvre la grille d'artisanat 3 × 3.
     (
-        id: "core:workbench", name: "Établi", color: (0.3059, 0.1794, 0.0874),
+        id: "core:workbench", name: "Établi", color: (0.22169, 0.10953, 0.05292),
         boxes: [
             (from: (0, 12, 0), to: (16, 16, 16)),
             (from: (1, 0, 1), to: (4, 12, 4)),
@@ -468,14 +468,15 @@
             (from: (12, 3, 4), to: (15, 5, 12)),
             (from: (4, 9, 1), to: (12, 12, 4)),
         ],
-        textures: (top: "workbench_top", side: "workbench_side", bottom: "oak_planks"),
+        textures: (top: "workbench_top", side: "bench_side_panel", bottom: "oak_planks", front: "workbench_side", back: "bench_back_panel"),
         sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
+        states: [Facing4],
     ),
     // Le four : il fond les minerais. Son état (entrée, combustible, sortie) est dans
     // l'entité du bloc.
     (
-        id: "core:furnace", name: "Four", color: (0.0770, 0.1146, 0.1330),
+        id: "core:furnace", name: "Four", color: (0.07611, 0.08141, 0.08407),
         boxes: [
             (from: (1, 2, 1), to: (15, 14, 15)),
             (from: (0, 14, 0), to: (16, 16, 16)),
@@ -484,10 +485,11 @@
             (from: (1, 0, 12), to: (4, 2, 15)),
             (from: (12, 0, 12), to: (15, 2, 15)),
         ],
-        textures: (top: "furnace_top", side: "furnace_front", bottom: "furnace_top"),
+        textures: (top: "furnace_top", side: "furnace_side_panel", bottom: "furnace_side_panel", front: "furnace_front", back: "furnace_back_panel"),
         behavior: "core:furnace",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.5, tool: Pickaxe, tier: 1,
+        states: [Facing4],
     ),
     // Objet du lit et forme ancienne, gardée pour les lits déjà dans les sauvegardes.
     (
@@ -507,17 +509,19 @@
         hardness: 0.6, tool: Axe,
     ),
     (
-        id: "core:chest", name: "Coffre", color: (0.2484, 0.1214, 0.0594),
+        id: "core:chest", name: "Coffre", color: (0.18074, 0.08395, 0.03776),
         boxes: [
             (from: (1, 1, 1), to: (15, 10, 15)),
             (from: (1, 10, 1), to: (15, 13, 15)),
             (from: (2, 13, 2), to: (14, 14, 14)),
             (from: (6, 8, 0), to: (10, 12, 1)),
         ],
-        textures: (top: "chest_top", side: "chest_side", bottom: "chest_top"),
+        textures: (top: "chest_top", side: "chest_side_panel", bottom: "chest_inside", front: "chest_side", back: "chest_back_panel"),
         behavior: "core:chest",
         sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.0, tool: Axe,
+        states: [Facing4],
+        lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
     ),
     // La terre labourée (phase O6) : la houe la crée ; l'eau à 4 blocs la garde humide.
     (
@@ -943,7 +947,7 @@
         hardness: 1.5, tool: Pickaxe,
     ),
     (
-        id: "core:battery", name: "Batterie", color: (0.0897, 0.1246, 0.1335), textures: (top: "machine_frame", side: "battery", bottom: "machine_frame"),
+        id: "core:battery", name: "Batterie", color: (0.12334, 0.12203, 0.11270), textures: (top: "machine_frame", side: "machine_side_panel", bottom: "machine_frame", front: "battery", back: "machine_back_panel"),
         boxes: [
             (from: (2, 0, 2), to: (14, 12, 14)),
             (from: (2, 12, 2), to: (14, 13, 14)),
@@ -953,6 +957,7 @@
         behavior: "core:battery",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5, tool: Pickaxe,
+        states: [Facing4],
     ),
     (
         id: "core:power_lamp", name: "Lampe électrique", color: (0.2073, 0.1801, 0.1239), texture: "power_lamp",
@@ -981,7 +986,7 @@
         hardness: 0.5, tool: Pickaxe,
     ),
     (
-        id: "core:pump", name: "Pompe", color: (0.0897, 0.1246, 0.1335), textures: (top: "machine_frame", side: "pump", bottom: "machine_frame"),
+        id: "core:pump", name: "Pompe", color: (0.10105, 0.12299, 0.12199), textures: (top: "machine_frame", side: "machine_side_panel", bottom: "machine_frame", front: "pump", back: "machine_back_panel"),
         boxes: [
             (from: (1, 0, 1), to: (15, 2, 15)),
             (from: (3, 2, 3), to: (13, 10, 13)),
@@ -993,9 +998,10 @@
         behavior: "core:pump",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5, tool: Pickaxe,
+        states: [Facing4],
     ),
     (
-        id: "core:tank", name: "Réservoir", color: (0.1214, 0.1755, 0.1364), texture: "tank",
+        id: "core:tank", name: "Réservoir", color: (0.11501, 0.15916, 0.12761), textures: (top: "machine_frame", side: "machine_side_panel", bottom: "machine_frame", front: "tank", back: "machine_back_panel"),
         boxes: [
             (from: (2, 0, 2), to: (14, 2, 14)),
             (from: (1, 2, 3), to: (15, 13, 13)),
@@ -1007,9 +1013,10 @@
         behavior: "core:tank",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5, tool: Pickaxe,
+        states: [Facing4],
     ),
     (
-        id: "core:filler", name: "Remplisseur", color: (0.0897, 0.1246, 0.1335), textures: (top: "machine_frame", side: "filler", bottom: "machine_frame"),
+        id: "core:filler", name: "Remplisseur", color: (0.09763, 0.12197, 0.12042), textures: (top: "machine_frame", side: "machine_side_panel", bottom: "machine_frame", front: "filler", back: "machine_back_panel"),
         boxes: [
             (from: (1, 0, 1), to: (15, 3, 15)),
             (from: (2, 3, 11), to: (5, 14, 14)),
@@ -1020,9 +1027,10 @@
         behavior: "core:filler",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5, tool: Pickaxe,
+        states: [Facing4],
     ),
     (
-        id: "core:motor", name: "Moteur électrique", color: (0.0897, 0.1246, 0.1335), textures: (top: "machine_frame", side: "motor", bottom: "machine_frame"),
+        id: "core:motor", name: "Moteur électrique", color: (0.09648, 0.11318, 0.11473), textures: (top: "machine_frame", side: "machine_side_panel", bottom: "machine_frame", front: "motor", back: "machine_back_panel"),
         boxes: [
             (from: (0, 0, 2), to: (16, 2, 14)),
             (from: (2, 2, 3), to: (14, 11, 13)),
@@ -1034,9 +1042,10 @@
         behavior: "core:motor",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 1.5, tool: Pickaxe,
+        states: [Facing4],
     ),
     (
-        id: "core:fan", name: "Ventilateur", color: (0.2316, 0.2662, 0.2704), texture: "fan",
+        id: "core:fan", name: "Ventilateur", color: (0.19633, 0.22959, 0.23080), textures: (top: "machine_frame", side: "machine_side_panel", bottom: "machine_frame", front: "fan", back: "machine_back_panel"),
         boxes: [
             (from: (2, 0, 5), to: (14, 2, 11)),
             (from: (6, 2, 7), to: (10, 6, 10)),
@@ -1054,7 +1063,7 @@
         hardness: 1.5, tool: Pickaxe,
     ),
     (
-        id: "core:fan_on", name: "Ventilateur (en marche)", color: (0.2424, 0.2716, 0.2712), texture: "fan_on", placeable: false,
+        id: "core:fan_on", name: "Ventilateur (en marche)", color: (0.20714, 0.23505, 0.23164), textures: (top: "machine_frame", side: "machine_side_panel", bottom: "machine_frame", front: "fan_on", back: "machine_back_panel"), placeable: false,
         boxes: [
             (from: (2, 0, 5), to: (14, 2, 11)),
             (from: (6, 2, 7), to: (10, 6, 10)),
@@ -1075,7 +1084,7 @@
     // et la repose ; le ballon la porte, l'hélice la pousse (elle tourne grâce à un arbre), la barre
     // la dirige. Voir engine_voxel/src/subgrid.rs et ship.rs.
     (
-        id: "core:assembler", name: "Assembleur", color: (0.0897, 0.1246, 0.1335), textures: (top: "machine_frame", side: "assembler", bottom: "machine_frame"),
+        id: "core:assembler", name: "Assembleur", color: (0.11164, 0.14883, 0.15400), textures: (top: "machine_frame", side: "machine_side_panel", bottom: "machine_frame", front: "assembler", back: "machine_back_panel"),
         boxes: [
             (from: (0, 0, 0), to: (16, 3, 16)),
             (from: (1, 3, 1), to: (4, 13, 4)),
@@ -1089,6 +1098,7 @@
         
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 2.0,
+        states: [Facing4],
     ),
     (
         id: "core:balloon", name: "Ballon", color: (0.4188, 0.2087, 0.1065), texture: "balloon",
@@ -1142,7 +1152,7 @@
     // Les sols des biomes : podzol des vieilles forêts, terre grossière des pays secs, sable rouge
     // et terre cuite (en strates) des plateaux arides.
     (
-        id: "core:podzol", name: "Podzol", color: (0.1943, 0.0845, 0.0309),
+        id: "core:podzol", name: "Podzol", color: (0.19436, 0.08417, 0.03084),
         textures: (top: "podzol_top", side: "podzol_side", bottom: "dirt"),
         sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
         hardness: 0.5, tool: Shovel,
@@ -1209,16 +1219,16 @@
     // Le chargeur remplit le wagon coffre ou trémie arrêté sur un rail voisin ; le déchargeur le
     // vide. Chacun a neuf cases, branchables aux tuyaux d'objets, et émet un signal une fois fini.
     (
-        id: "core:cart_loader", name: "Chargeur de wagon", color: (0.1596, 0.1302, 0.0856),
-        textures: (top: "cart_loader_top", side: "cart_loader_side", bottom: "cart_loader_top"),
+        id: "core:cart_loader", name: "Chargeur de wagon", color: (0.15516, 0.13267, 0.08681),
+        textures: (top: "cart_loader_top", side: "machine_side_panel", bottom: "machine_frame", front: "cart_loader_side", back: "machine_back_panel"),
         behavior: "core:cart_loader",
         ports: (inputs: [0, 1, 2, 3, 4, 5, 6, 7, 8], outputs: []),
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 2.0, tool: Pickaxe,
     ),
     (
-        id: "core:cart_unloader", name: "Déchargeur de wagon", color: (0.0778, 0.1326, 0.1054),
-        textures: (top: "cart_unloader_top", side: "cart_unloader_side", bottom: "cart_unloader_top"),
+        id: "core:cart_unloader", name: "Déchargeur de wagon", color: (0.07354, 0.13525, 0.10604),
+        textures: (top: "cart_unloader_top", side: "machine_side_panel", bottom: "machine_frame", front: "cart_unloader_side", back: "machine_back_panel"),
         behavior: "core:cart_unloader",
         ports: (inputs: [], outputs: [0, 1, 2, 3, 4, 5, 6, 7, 8]),
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
@@ -1227,60 +1237,68 @@
     // Le stockage (voir docs/plan-stockage.md) : coffres à paliers (mêmes boîtes que le coffre,
     // 27 cases et 1 amélioration au départ, jusqu'à 108 et 5), contrôleur, blocs de métal.
     (
-        id: "core:copper_chest", name: "Coffre de cuivre", color: (0.4405, 0.1721, 0.0654),
+        id: "core:copper_chest", name: "Coffre de cuivre", color: (0.26093, 0.09739, 0.04537),
         boxes: [
             (from: (1, 1, 1), to: (15, 10, 15)),
             (from: (1, 10, 1), to: (15, 13, 15)),
             (from: (2, 13, 2), to: (14, 14, 14)),
             (from: (6, 8, 0), to: (10, 12, 1)),
         ],
-        textures: (top: "copper_chest_top", side: "copper_chest_side", bottom: "copper_chest_top"),
+        textures: (top: "copper_chest_top", side: "copper_chest_side_panel", bottom: "chest_inside", front: "copper_chest_side", back: "copper_chest_back_panel"),
         behavior: "core:copper_chest",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 3.0, tool: Pickaxe,
+        states: [Facing4],
+        lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
     ),
     (
-        id: "core:iron_chest", name: "Coffre de fer", color: (0.3287, 0.4155, 0.4179),
+        id: "core:iron_chest", name: "Coffre de fer", color: (0.14902, 0.22082, 0.21916),
         boxes: [
             (from: (1, 1, 1), to: (15, 10, 15)),
             (from: (1, 10, 1), to: (15, 13, 15)),
             (from: (2, 13, 2), to: (14, 14, 14)),
             (from: (6, 8, 0), to: (10, 12, 1)),
         ],
-        textures: (top: "iron_chest_top", side: "iron_chest_side", bottom: "iron_chest_top"),
+        textures: (top: "iron_chest_top", side: "iron_chest_side_panel", bottom: "chest_inside", front: "iron_chest_side", back: "iron_chest_back_panel"),
         behavior: "core:iron_chest",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 3.0, tool: Pickaxe,
+        states: [Facing4],
+        lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
     ),
     (
-        id: "core:gold_chest", name: "Coffre d'or", color: (0.7408, 0.4865, 0.0520),
+        id: "core:gold_chest", name: "Coffre d'or", color: (0.32832, 0.18665, 0.03984),
         boxes: [
             (from: (1, 1, 1), to: (15, 10, 15)),
             (from: (1, 10, 1), to: (15, 13, 15)),
             (from: (2, 13, 2), to: (14, 14, 14)),
             (from: (6, 8, 0), to: (10, 12, 1)),
         ],
-        textures: (top: "gold_chest_top", side: "gold_chest_side", bottom: "gold_chest_top"),
+        textures: (top: "gold_chest_top", side: "gold_chest_side_panel", bottom: "chest_inside", front: "gold_chest_side", back: "gold_chest_back_panel"),
         behavior: "core:gold_chest",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 3.0, tool: Pickaxe,
+        states: [Facing4],
+        lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
     ),
     (
-        id: "core:sapphire_chest", name: "Coffre de saphir", color: (0.0567, 0.1674, 0.5515),
+        id: "core:sapphire_chest", name: "Coffre de saphir", color: (0.04446, 0.10258, 0.25705),
         boxes: [
             (from: (1, 1, 1), to: (15, 10, 15)),
             (from: (1, 10, 1), to: (15, 13, 15)),
             (from: (2, 13, 2), to: (14, 14, 14)),
             (from: (6, 8, 0), to: (10, 12, 1)),
         ],
-        textures: (top: "sapphire_chest_top", side: "sapphire_chest_side", bottom: "sapphire_chest_top"),
+        textures: (top: "sapphire_chest_top", side: "sapphire_chest_side_panel", bottom: "chest_inside", front: "sapphire_chest_side", back: "sapphire_chest_back_panel"),
         behavior: "core:sapphire_chest",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 3.0, tool: Pickaxe,
+        states: [Facing4],
+        lid: (body: 0, boxes: [1, 2, 3], hinge: (10, 15), inside: "chest_inside"),
     ),
     (
-        id: "core:storage_controller", name: "Contrôleur de stockage", color: (0.1385, 0.1301, 0.1144),
-        textures: (top: "storage_controller_top", side: "storage_controller_side", bottom: "storage_controller_top"),
+        id: "core:storage_controller", name: "Contrôleur de stockage", color: (0.13101, 0.12401, 0.10695),
+        textures: (top: "storage_controller_top", side: "machine_side_panel", bottom: "machine_frame", front: "storage_controller_side", back: "machine_back_panel"),
         behavior: "core:storage_controller",
         sounds: (step: "step_metal", break: "break_metal", place: "place_metal"),
         hardness: 3.0, tool: Pickaxe,
@@ -1710,42 +1728,42 @@
     // ----- Les minerais de la génération v3 : étain, plomb, argent, nickel (métaux à fondre), diamant,
     // rubis, émeraude, quartz. Absents des mondes v1 (`v3_only` dans ores.ron).
     (
-        id: "core:tin_ore", name: "Minerai d'étain", color: (0.33, 0.34, 0.33), texture: "tin_ore",
+        id: "core:tin_ore", name: "Minerai d'étain", color: (0.22202, 0.23792, 0.25318), texture: "tin_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 2, xp: (0, 2),
     ),
     (
-        id: "core:lead_ore", name: "Minerai de plomb", color: (0.25, 0.26, 0.30), texture: "lead_ore",
+        id: "core:lead_ore", name: "Minerai de plomb", color: (0.20331, 0.21060, 0.22227), texture: "lead_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 2, xp: (0, 2),
     ),
     (
-        id: "core:silver_ore", name: "Minerai d'argent", color: (0.42, 0.43, 0.45), texture: "silver_ore",
+        id: "core:silver_ore", name: "Minerai d'argent", color: (0.24538, 0.25311, 0.25931), texture: "silver_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 3, xp: (1, 3),
     ),
     (
-        id: "core:nickel_ore", name: "Minerai de nickel", color: (0.36, 0.37, 0.31), texture: "nickel_ore",
+        id: "core:nickel_ore", name: "Minerai de nickel", color: (0.22387, 0.22679, 0.21806), texture: "nickel_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 3, xp: (1, 3),
     ),
     (
-        id: "core:diamond_ore", name: "Minerai de diamant", color: (0.30, 0.42, 0.44), texture: "diamond_ore",
+        id: "core:diamond_ore", name: "Minerai de diamant", color: (0.20312, 0.25792, 0.26817), texture: "diamond_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 3, xp: (4, 8),
     ),
     (
-        id: "core:ruby_ore", name: "Minerai de rubis", color: (0.36, 0.20, 0.21), texture: "ruby_ore",
+        id: "core:ruby_ore", name: "Minerai de rubis", color: (0.23277, 0.19733, 0.20836), texture: "ruby_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 3, xp: (3, 7),
     ),
     (
-        id: "core:emerald_ore", name: "Minerai d'émeraude", color: (0.22, 0.36, 0.27), texture: "emerald_ore",
+        id: "core:emerald_ore", name: "Minerai d'émeraude", color: (0.19948, 0.23158, 0.21971), texture: "emerald_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 3, xp: (3, 7),
     ),
     (
-        id: "core:quartz_ore", name: "Minerai de quartz", color: (0.46, 0.45, 0.43), texture: "quartz_ore",
+        id: "core:quartz_ore", name: "Minerai de quartz", color: (0.25248, 0.24903, 0.24166), texture: "quartz_ore",
         sounds: (step: "step_hard", break: "break_hard", place: "place_hard"),
         hardness: 3.0, tool: Pickaxe, tier: 2, xp: (1, 3),
     ),

@@ -416,22 +416,10 @@ fn cube_look(s: &Scratch, hood: &Neighbourhood, p: IVec3, face: Face, block: Blo
             ao,
         }
     });
-    let texture = match (face.axis, face.positive) {
-        (1, true) => def.face_textures[0],
-        (1, false) => def.face_textures[2],
-        _ => def.face_textures[1],
-    };
+    let texture = def.face_texture(face.axis, face.positive);
     let rgb = if texture == 0 { def.color } else { [1.0; 3] };
-    let tinted = match def.tint {
-        Tint::Grass => face.axis == 1 && face.positive,
-        Tint::Foliage | Tint::Water => true,
-        Tint::None => false,
-    };
-    let tint = if tinted {
-        hood.tint(def.tint, p.x, p.z)
-    } else {
-        [1.0; 3]
-    };
+    let (tint_kind, side_tint) = face_tint(def, face);
+    let tint = hood.tint(tint_kind, p.x, p.z);
     let kind = s.kind(block);
     let fire = if kind.furnace {
         hood.furnace_fire(p, def, face)
@@ -447,10 +435,11 @@ fn cube_look(s: &Scratch, hood: &Neighbourhood, p: IVec3, face: Face, block: Blo
     FaceLook {
         block,
         texture,
+        side_tint,
         drops: [0; 4],
         water_depth: [0; 4],
         flags: fire
-            | if def.tint == Tint::Grass && face.axis == 1 && face.positive {
+            | if tint_kind == Tint::Grass {
                 FLAG_GROUND
             } else {
                 0

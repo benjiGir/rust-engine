@@ -1,7 +1,7 @@
 //! Menuiserie, maçonnerie et cuivre : dessins adaptés aux coordonnées des boîtes.
 use std::path::{Path, PathBuf};
 
-use super::{COPPER, INK, IRON, Image, STONE, planks, scale};
+use super::{COPPER, INK, IRON, Image, planks, scale};
 
 pub(super) fn rect(image: &mut Image, area: [usize; 4], color: [f32; 3]) {
     let [x0, y0, x1, y1] = area;
@@ -13,41 +13,20 @@ pub(super) fn rect(image: &mut Image, area: [usize; 4], color: [f32; 3]) {
 }
 
 pub(super) fn draw(kind: &str) -> Image {
+    if let Some(pixels) = crate::machine_faces::draw(kind, super::SIZE) {
+        return Image {
+            pixels: pixels.try_into().unwrap(),
+        };
+    }
     let wood = [0.52, 0.37, 0.25];
     let slate = [0.28, 0.35, 0.38];
     let linen = [0.85, 0.82, 0.68];
     let sage = [0.32, 0.49, 0.43];
     let mut image = match kind {
-        "chest_top" | "chest_side" | "workbench_top" | "workbench_side" | "bed_side" => {
-            planks(wood, 116)
-        }
+        "workbench_top" | "workbench_side" | "bed_side" => planks(wood, 116),
         _ => Image::filled(slate).noise(slate, 0.06, 412),
     };
     match kind {
-        "chest_side" | "chest_top" | "vault_side" | "vault_top" => {
-            let vault = kind.starts_with("vault");
-            if vault {
-                image = Image::filled(slate).noise(slate, 0.05, 416);
-            }
-            for x in [2, 12] {
-                rect(&mut image, [x, 1, x + 2, 15], scale(COPPER, 0.72));
-                rect(&mut image, [x, 2, x + 1, 14], COPPER);
-                for y in [3, 12] {
-                    image.set(x, y, IRON);
-                }
-            }
-            if kind.ends_with("side") {
-                rect(&mut image, [1, 5, 15, 6], INK);
-                rect(&mut image, [6, 4, 10, 8], COPPER);
-                image.set(7, 6, INK);
-                if vault {
-                    rect(&mut image, [5, 5, 11, 11], scale(IRON, 0.65));
-                    rect(&mut image, [7, 4, 9, 12], COPPER);
-                    rect(&mut image, [4, 7, 12, 9], COPPER);
-                    rect(&mut image, [7, 7, 9, 9], INK);
-                }
-            }
-        }
         "workbench_top" => {
             rect(&mut image, [2, 2, 14, 14], [0.69, 0.54, 0.36]);
             rect(&mut image, [3, 3, 13, 4], INK);
@@ -70,31 +49,6 @@ pub(super) fn draw(kind: &str) -> Image {
                 for y in [2, 11] {
                     image.set(x, y, COPPER);
                 }
-            }
-        }
-        "furnace_front" | "alloy_furnace_side" => {
-            image = super::cobblestone();
-            rect(&mut image, [2, 0, 14, 2], slate);
-            rect(&mut image, [4, 3, 12, 6], INK);
-            for x in [5, 8, 11] {
-                rect(&mut image, [x, 3, x + 1, 6], scale(IRON, 0.65));
-            }
-            rect(&mut image, [3, 7, 13, 8], COPPER);
-            rect(&mut image, [3, 14, 13, 15], scale(STONE, 0.6));
-            // L'animation GPU reste exactement dans x=4..11, y=8..13.
-            rect(&mut image, [4, 8, 12, 14], INK);
-            if kind.starts_with("alloy") {
-                rect(&mut image, [5, 10, 11, 13], [0.64, 0.25, 0.09]);
-                rect(&mut image, [6, 11, 10, 13], [0.91, 0.57, 0.18]);
-            }
-        }
-        "furnace_top" | "alloy_furnace_top" => {
-            for i in 1..15 {
-                image.set(i, 1, scale(IRON, 0.7));
-                image.set(1, i, scale(IRON, 0.7));
-            }
-            if kind.starts_with("alloy") {
-                rect(&mut image, [6, 6, 10, 10], INK);
             }
         }
         "bed_top" => {
@@ -237,10 +191,13 @@ pub(super) fn mod_textures(root: &Path) -> Vec<(PathBuf, Image)> {
         ("magie", "rune_table"),
         ("forge", "anvil_top"),
         ("forge", "anvil_side"),
-        ("forge", "alloy_furnace_top"),
-        ("forge", "alloy_furnace_side"),
     ]
     .into_iter()
+    .chain(
+        crate::machine_faces::FORGE_FACES
+            .iter()
+            .map(|&name| ("forge", name)),
+    )
     .map(|(namespace, kind)| {
         (
             root.join(format!("mods/{namespace}/textures/{kind}.png")),

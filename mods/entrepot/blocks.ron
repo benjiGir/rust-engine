@@ -5,7 +5,7 @@
 [
     // Le grand coffre : 54 cases. Comme un coffre, il sert de tampon aux réseaux d'objets.
     (
-        id: "entrepot:vault", name: "Grand coffre", color: (0.1286, 0.1125, 0.1100),
+        id: "entrepot:vault", name: "Grand coffre", color: (0.09563, 0.11306, 0.10808),
         boxes: [
             (from: (0, 0, 0), to: (16, 2, 16)),
             (from: (1, 2, 1), to: (15, 14, 15)),
@@ -14,16 +14,18 @@
             (from: (7, 4, 0), to: (9, 12, 1)),
             (from: (4, 7, 0), to: (12, 9, 1)),
         ],
-        textures: (top: "vault_top", side: "vault_side", bottom: "vault_top"),
+        textures: (top: "vault_top", side: "core:vault_side_panel", bottom: "vault_top", front: "vault_side", back: "core:vault_back_panel"),
         behavior: "vault",
         hardness: 2.5, tool: Axe,
         sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
+        states: [Facing4],
+        lid: (body: 1, boxes: [2], hinge: (14, 15), inside: "core:chest_inside"),
     ),
     // Le trieur : la case 0 est son modèle (on y dépose un exemplaire de l'objet voulu), les 8
     // autres reçoivent ce qui arrive des conduits. Seul l'objet du modèle entre ; sans modèle,
     // tout entre. Un grand coffre voisin lui donne ce qui correspond.
     (
-        id: "entrepot:sorter", name: "Trieur", color: (0.0953, 0.1233, 0.1299),
+        id: "entrepot:sorter", name: "Trieur", color: (0.07911, 0.11272, 0.12017),
         boxes: [
             (from: (1, 0, 1), to: (15, 2, 15)),
             (from: (2, 2, 2), to: (14, 10, 14)),
@@ -32,16 +34,17 @@
             (from: (0, 5, 5), to: (2, 9, 11)),
             (from: (14, 5, 5), to: (16, 9, 11)),
         ],
-        textures: (top: "sorter_top", side: "sorter_side", bottom: "sorter_top"),
+        textures: (top: "sorter_top", side: "core:machine_side_panel", bottom: "sorter_top", front: "sorter_side", back: "core:machine_back_panel"),
         behavior: "sorter",
         ports: (inputs: [1, 2, 3, 4, 5, 6, 7, 8], filter: 0),
         hardness: 2.5, tool: Pickaxe,
         sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
+        states: [Facing4],
     ),
     // La moissonneuse : récolte les cultures mûres autour d'elle (au même niveau, à 3 blocs) et
     // les replante. Elle garde la récolte dans ses 9 cases, d'où les conduits la retirent.
     (
-        id: "entrepot:harvester", name: "Moissonneuse", color: (0.1742, 0.1858, 0.1405),
+        id: "entrepot:harvester", name: "Moissonneuse", color: (0.14046, 0.16008, 0.12534),
         boxes: [
             (from: (1, 0, 3), to: (4, 4, 13)),
             (from: (12, 0, 3), to: (15, 4, 13)),
@@ -54,16 +57,17 @@
             (from: (10, 1, 0), to: (11, 3, 4)),
             (from: (13, 1, 0), to: (14, 3, 4)),
         ],
-        textures: (top: "harvester_top", side: "harvester_side", bottom: "harvester_top"),
+        textures: (top: "harvester_top", side: "core:machine_side_panel", bottom: "harvester_top", front: "harvester_side", back: "core:machine_back_panel"),
         behavior: "harvester",
         ports: (outputs: [0, 1, 2, 3, 4, 5, 6, 7, 8]),
         hardness: 2.0, tool: Axe,
         sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
+        states: [Facing4],
     ),
     // La foreuse : alimentée (un levier voisin suffit), elle creuse un puits droit sous elle,
     // un bloc à la fois, et garde ce qu'elle trouve dans ses 9 cases.
     (
-        id: "entrepot:drill", name: "Foreuse", color: (0.1555, 0.1513, 0.1439),
+        id: "entrepot:drill", name: "Foreuse", color: (0.13208, 0.14253, 0.13883),
         boxes: [
             (from: (0, 0, 0), to: (3, 14, 3)),
             (from: (13, 0, 0), to: (16, 14, 3)),
@@ -74,10 +78,11 @@
             (from: (6, 4, 6), to: (10, 9, 10)),
             (from: (7, 0, 7), to: (9, 4, 9)),
         ],
-        textures: (top: "drill_top", side: "drill_side", bottom: "drill_top"),
+        textures: (top: "drill_top", side: "core:machine_side_panel", bottom: "drill_top", front: "drill_side", back: "core:machine_back_panel"),
         behavior: "drill",
         ports: (outputs: [0, 1, 2, 3, 4, 5, 6, 7, 8]),
         hardness: 3.0, tool: Pickaxe,
         sounds: (step: "core:step_metal", break: "core:break_metal", place: "core:place_metal"),
+        states: [Facing4],
     ),
 ]

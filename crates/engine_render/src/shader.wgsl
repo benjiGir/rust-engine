@@ -34,6 +34,7 @@ struct InstanceIn {
     @location(11) uv_max: vec3<f32>,
     // x : angle de balancement (autour de l'axe latéral z), y : hauteur du pivot au-dessus du centre.
     @location(12) swing: vec2<f32>,
+    @location(13) ends: vec2<u32>,
 };
 
 struct VertexOut {
@@ -87,6 +88,8 @@ fn vs_main(vertex: VertexIn, instance: InstanceIn) -> VertexOut {
     } else if abs(vertex.normal.x) > 0.5 {
         out.uv = vec2<f32>(p.z, 1.0 - p.y);
     } else {
+        let layer = select(instance.ends.x, instance.ends.y, vertex.normal.z > 0.0);
+        out.texture = select(out.texture, layer, layer != 0u);
         out.uv = vec2<f32>(p.x, 1.0 - p.y);
     }
     out.cutout = instance.cutout;

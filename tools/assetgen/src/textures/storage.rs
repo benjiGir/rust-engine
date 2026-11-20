@@ -22,32 +22,6 @@ pub(super) const TIERS: [(&str, [f32; 3]); 4] = [
     ("sapphire", SAPPHIRE),
 ];
 
-/// Un coffre à paliers : un corps de métal en lattes, des sangles plus sombres, une serrure claire.
-fn chest(color: [f32; 3], side: bool, seed: u64) -> Image {
-    let mut image = Image::filled(color).noise(color, 0.07, seed);
-    for y in [5, 11] {
-        rect(&mut image, [0, y, 16, y + 1], scale(color, 0.78));
-    }
-    rect(&mut image, [0, 0, 16, 1], scale(color, 1.12));
-    for x in [2, 12] {
-        rect(&mut image, [x, 1, x + 2, 15], scale(color, 0.62));
-        rect(&mut image, [x, 2, x + 1, 14], scale(color, 0.85));
-        for y in [3, 12] {
-            image.set(x, y, scale(color, 1.3));
-        }
-    }
-    if side {
-        rect(&mut image, [1, 5, 15, 6], INK);
-        rect(&mut image, [6, 4, 10, 8], [0.92, 0.9, 0.8]);
-        rect(&mut image, [7, 5, 9, 7], scale(INK, 1.4));
-        image.set(7, 7, INK);
-    } else {
-        rect(&mut image, [1, 1, 15, 2], scale(color, 0.7));
-        rect(&mut image, [1, 14, 15, 15], scale(color, 0.7));
-    }
-    image
-}
-
 /// Un bloc plein de métal (ou de charbon) : un biseau clair en haut à gauche, sombre en bas à
 /// droite, et des reflets en petits groupes.
 fn metal_block(color: [f32; 3], seed: u64) -> Image {
@@ -366,16 +340,7 @@ fn placed_backpack_top(color: [f32; 3], seed: u64) -> Image {
 /// Toutes les textures de blocs et icônes d'objets du stockage.
 pub(super) fn generate(textures: &Path, items: &Path) -> Vec<(PathBuf, Image)> {
     let mut out = Vec::new();
-    for (n, (name, color)) in TIERS.iter().enumerate() {
-        let seed = 940 + n as u64;
-        out.push((
-            textures.join(format!("{name}_chest_top.png")),
-            chest(*color, false, seed),
-        ));
-        out.push((
-            textures.join(format!("{name}_chest_side.png")),
-            chest(*color, true, seed),
-        ));
+    for (name, color) in &TIERS {
         out.push((items.join(format!("{name}_kit.png")), kit(*color, false)));
         if *name != "copper" {
             out.push((

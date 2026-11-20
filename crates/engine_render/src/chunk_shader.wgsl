@@ -14,6 +14,7 @@ struct Camera {
     sun_color: vec4<f32>,
     // Immersion, altitude de la surface, couverture nuageuse et ciel dynamique actif.
     water: vec4<f32>,
+    chest_lids: array<vec4<f32>, 4>,
 };
 
 @group(0) @binding(0)
@@ -60,6 +61,7 @@ const FLAG_WATER: u32 = 4194304u;   // 1 << 22 : eau libre, animée
 const TURN_SHIFT: u32 = 23u;        // 2 bits : quarts de tour de la texture (les rails)
 const FLAG_MODEL_UV: u32 = 1u << 25u;
 const FLAG_DOOR_OPEN: u32 = 1u << 26u;
+const FLAG_CHEST_LID: u32 = 1u << 27u;
 const TEXTURE_MASK: u32 = 65535u;
 
 struct VertexOut {
@@ -75,6 +77,7 @@ struct VertexOut {
     @location(6) tex_position: vec3<f32>,
     @location(7) tex_normal: vec3<f32>,
     @location(8) water_depth: f32,
+    @location(9) @interpolate(flat) side_tint: u32,
 };
 
 // Fait tourner un vecteur autour de l'axe vertical (même convention que `rotate_y` côté jeu).
@@ -111,6 +114,28 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
         }
     }
     var normal = vertex.normal.xyz;
+    if (vertex.texture & FLAG_CHEST_LID) != 0u {
+        let index = vertex.position.w;
+        let block = vec3<f32>(f32(index & 31u), f32(index >> 10u), f32((index >> 5u) & 31u));
+        for (var slot = 0u; slot < 4u; slot++) {
+            let lid = camera.chest_lids[slot];
+            if lid.w != 0.0 && all(vertex.origin.xyz + block == lid.xyz) {
+                let turns = (vertex.texture >> TURN_SHIFT) & 3u;
+                var axis = vec3<f32>(1.0, 0.0, 0.0);
+                let hinge_y = round(vertex.normal.w * 127.0) / 16.0;
+                let hinge_z = round(vertex.light.w * 255.0) / 16.0;
+                var offset = vec3<f32>(0.0, 0.0, hinge_z - 0.5);
+                for (var turn = 0u; turn < turns; turn++) {
+                    axis = vec3<f32>(-axis.z, axis.y, axis.x);
+                    offset = vec3<f32>(-offset.z, offset.y, offset.x);
+                }
+                let pivot = block + vec3<f32>(0.5, hinge_y, 0.5) + offset;
+                local = pivot + rotate_axis(local - pivot, axis, lid.w);
+                normal = rotate_axis(normal, axis, lid.w);
+                break;
+            }
+        }
+    }
     if (vertex.texture & FLAG_ROTATE) != 0u {
         let index = vertex.position.w;
         let pivot = vec3<f32>(f32(index & 31u), f32(index >> 10u), f32((index >> 5u) & 31u)) + vec3<f32>(0.5);
@@ -148,6 +173,7 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
     out.water_depth = vertex.light.w * 4.0;
     out.texture = vertex.texture & TEXTURE_MASK;
     out.flags = vertex.texture & ~TEXTURE_MASK;
+    out.side_tint = vertex.position.w;
     return out;
 }
 
@@ -342,7 +368,12 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         let b = fract(sin(dot(cell + vec2<f32>(1.0, 0.0), vec2<f32>(127.1, 311.7))) * 43758.5453);
         let c = fract(sin(dot(cell + vec2<f32>(0.0, 1.0), vec2<f32>(127.1, 311.7))) * 43758.5453);
         let d = fract(sin(dot(cell + vec2<f32>(1.0), vec2<f32>(127.1, 311.7))) * 43758.5453);
-        albedo = vec4<f32>(albedo.rgb * (0.96 + 0.08 * mix(mix(a, b, u.x), mix(c, d, u.x), u.y)), albedo.a);
+        let variation = 0.96 + 0.08 * mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+        var cover = 1.0;
+        if in.side_tint != 0u {
+            cover = textureSampleGrad(block_textures, block_sampler, uv, in.side_tint, dx, dy).a;
+        }
+        albedo = vec4<f32>(texel.rgb * mix(vec3<f32>(1.0), in.color.rgb * variation, cover), albedo.a);
     }
     if (in.flags & FLAG_CUTOUT) != 0u {
         albedo.a = in.color.a;

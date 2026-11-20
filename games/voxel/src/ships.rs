@@ -388,7 +388,9 @@ impl VoxelGame {
         let (block, behavior) = {
             let subs = self.mods.subgrids.borrow();
             let grid = subs.get(id).expect("identifiant connu").borrow();
-            let def = self.registry.def(grid.world().block(hit.block_pos));
+            let def = self
+                .registry
+                .def(self.registry.base(grid.world().block(hit.block_pos)));
             (def.key.clone(), def.behavior.clone())
         };
         match block.as_str() {
@@ -433,7 +435,7 @@ impl VoxelGame {
             return false;
         };
         let block = self.streamer().world().block(hit.block_pos);
-        if self.registry.def(block).key != "core:assembler" {
+        if self.registry.def(self.registry.base(block)).key != "core:assembler" {
             return false;
         }
         match self.assemble(hit.block_pos) {

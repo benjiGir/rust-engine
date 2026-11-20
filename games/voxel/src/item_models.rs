@@ -63,6 +63,7 @@ fn block_parts(
                 },
             )
             .with_surface(block.face_textures, b.min, b.max, block.cutout, block.alpha)
+            .with_ends(block.face_texture(2, false), block.face_texture(2, true))
         })
         .collect()
 }
