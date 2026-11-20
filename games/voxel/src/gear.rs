@@ -333,6 +333,9 @@ impl VoxelGame {
         if let Err(err) = item_data::save_if_dirty(root.dir()) {
             log::error!("sauvegarde des fiches d'objets : {err:#}");
         }
+        if let Err(err) = crate::shape_materials::save_if_dirty(root.dir()) {
+            log::error!("sauvegarde des matériaux des formes : {err:#}");
+        }
     }
 }
 

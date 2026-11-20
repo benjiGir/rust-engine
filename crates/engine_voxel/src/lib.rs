@@ -56,6 +56,7 @@ mod raycast;
 mod recipe_index;
 mod registry;
 mod save;
+pub mod shaped;
 mod ship;
 mod storage;
 mod streaming;

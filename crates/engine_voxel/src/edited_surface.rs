@@ -76,6 +76,18 @@ impl ChunkSurface {
                     if id.is_air() {
                         continue;
                     }
+                    // Une case de formes pleine à plus de moitié compte comme un sol, avec la
+                    // couleur de son matériau principal.
+                    if crate::shaped::is_shaped_block(registry.def(id)) {
+                        if let Some(block) =
+                            crate::shaped::ground_block(registry, chunk.block_entity(x, y, z))
+                        {
+                            tops[x + z * size] = y as i8;
+                            blocks[x + z * size] = block;
+                            break;
+                        }
+                        continue;
+                    }
                     let solid = *ground
                         .entry(id)
                         .or_insert_with(|| is_ground(registry.def(id)));

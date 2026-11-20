@@ -48,6 +48,10 @@ enum Scene {
     Chest,
     /// L'échange avec un habitant (un fermier), de l'or et du blé dans l'inventaire.
     Trade,
+    /// Les formes : une rangée de pièces taillées dans le monde, puis l'écran de l'établi de taille
+    /// (voir `shapes_scene.rs`).
+    Shapes,
+    ShapingTable,
     Inspector,
     Machines,
     /// Au-dessus d'un biome (son identifiant).
@@ -143,7 +147,7 @@ const fn fluid(name: &'static str, which: FluidShot) -> Shot {
     }
 }
 
-const SHOTS: [Shot; 63] = [
+const SHOTS: [Shot; 65] = [
     Shot {
         name: "1-midi",
         time: 0.5,
@@ -203,6 +207,16 @@ const SHOTS: [Shot; 63] = [
         name: "8e-echange",
         time: 0.45,
         scene: Scene::Trade,
+    },
+    Shot {
+        name: "8f-formes",
+        time: 0.45,
+        scene: Scene::Shapes,
+    },
+    Shot {
+        name: "8g-etabli-de-taille",
+        time: 0.45,
+        scene: Scene::ShapingTable,
     },
     Shot {
         name: "9-inspecteur",
@@ -367,6 +381,7 @@ impl VoxelGame {
                         | Scene::Furnace
                         | Scene::Chest
                         | Scene::Trade
+                        | Scene::ShapingTable
                 );
                 self.ui.screen = crate::ui::Screen::Inventory;
                 // Le bras n'apparaît que dans ses propres captures.
@@ -479,18 +494,18 @@ impl VoxelGame {
     }
 
     /// Les scènes sont décrites autour de (0, 0) : on les place au point d'apparition.
-    fn origin(&self) -> IVec3 {
+    pub(crate) fn origin(&self) -> IVec3 {
         IVec3::new(self.spawn.x, 0, self.spawn.z)
     }
 
     /// La hauteur du sol, en coordonnées de scène.
-    fn ground(&self, x: i32, z: i32) -> i32 {
+    pub(crate) fn ground(&self, x: i32, z: i32) -> i32 {
         let o = self.origin();
         self.streamer().generator().column(o.x + x, o.z + z).height
     }
 
     /// Pose un bloc, en coordonnées de scène.
-    fn put(&mut self, pos: IVec3, block: BlockId) -> bool {
+    pub(crate) fn put(&mut self, pos: IVec3, block: BlockId) -> bool {
         let pos = pos + self.origin();
         self.streamer_mut().set_block(pos, block)
     }
@@ -569,9 +584,13 @@ impl VoxelGame {
                     -22.0,
                 )
             }
-            Scene::Inventory | Scene::Workbench | Scene::Furnace | Scene::Chest | Scene::Trade => {
-                (Vec3::new(0.5, spawn + 20.0, 0.5), 45.0, -20.0)
-            }
+            Scene::Inventory
+            | Scene::Workbench
+            | Scene::Furnace
+            | Scene::Chest
+            | Scene::Trade
+            | Scene::ShapingTable => (Vec3::new(0.5, spawn + 20.0, 0.5), 45.0, -20.0),
+            Scene::Shapes => self.shapes_viewpoint(),
             // À hauteur d'homme, face au paysage.
             Scene::Fluid(which) => {
                 let (x, z) = which.spot();
@@ -718,6 +737,8 @@ impl VoxelGame {
                 }
             }
             Scene::Machines => self.build_machines(),
+            Scene::Shapes => self.build_shapes(),
+            Scene::ShapingTable => self.build_shaping_screen(),
             Scene::Inventory | Scene::Workbench | Scene::Furnace | Scene::Chest | Scene::Trade => {
                 self.build_screen(scene);
             }

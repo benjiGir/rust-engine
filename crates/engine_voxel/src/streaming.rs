@@ -669,8 +669,13 @@ impl ChunkStreamer {
         if !matches!(self.slots.get(&chunk), Some(Slot::Generated(_))) {
             return false;
         }
-        if crate::connections::ports(self.block_entity(pos).and_then(|e| e.caps.as_deref()))
-            != crate::connections::ports(entity.as_ref().and_then(|e| e.caps.as_deref()))
+        // Les formes d'une case de formes sont dessinées : un autre contenu, un autre maillage.
+        let reshaped =
+            crate::shaped::is_shaped_block(self.world.registry().def(self.world.block(pos)))
+                && self.block_entity(pos).map(|e| &e.data) != entity.as_ref().map(|e| &e.data);
+        if reshaped
+            || crate::connections::ports(self.block_entity(pos).and_then(|e| e.caps.as_deref()))
+                != crate::connections::ports(entity.as_ref().and_then(|e| e.caps.as_deref()))
         {
             self.invalidate_block_visuals(pos);
         }

@@ -1,7 +1,8 @@
 //! Miniatures isométriques des blocs, calculées une fois et mises en cache par l'UI.
 //! Les boîtes du modèle restent visibles : une dalle ou un engrenage n'est pas un cube.
 
-use engine_voxel::{BlockBox, BlockDef, BlockId, BlockRegistry};
+use engine_voxel::shaped::{Piece, PieceKind, Shaped};
+use engine_voxel::{BlockBox, BlockDef, BlockId, BlockRegistry, Face};
 use glam::Vec3;
 
 pub const ICON_SIZE: usize = 32;
@@ -13,6 +14,47 @@ pub fn block_icon(blocks: &BlockRegistry, block: BlockId, textures: &[Vec<u8>]) 
     } else {
         render(&[(blocks.def(block), Vec3::ZERO)], textures, 17.0)
     }
+}
+
+/// La miniature d'une pièce taillée : la forme de la pièce, avec les textures de son matériau.
+#[allow(
+    dead_code,
+    reason = "les exemples qui reprennent ce fichier ne taillent rien"
+)]
+pub fn piece_icon(
+    blocks: &BlockRegistry,
+    material: BlockId,
+    kind: PieceKind,
+    textures: &[Vec<u8>],
+) -> Vec<u8> {
+    let piece = match kind {
+        PieceKind::Layer => Piece::Layer {
+            face: Face::NegY,
+            offset: 0,
+            thickness: 2,
+        },
+        PieceKind::Slab => Piece::Layer {
+            face: Face::NegY,
+            offset: 0,
+            thickness: 8,
+        },
+        PieceKind::SlopeLayer | PieceKind::Slope => Piece::Slope {
+            facing: 0,
+            ceiling: false,
+            level: if kind == PieceKind::Slope { 16 } else { 6 },
+        },
+        PieceKind::Micro => Piece::Micro {
+            cells: engine_voxel::shaped::micro_mask(1, 0, 1, 2),
+        },
+        PieceKind::Nano => Piece::Micro {
+            cells: engine_voxel::shaped::micro_mask(1, 0, 2, 1),
+        },
+    };
+    let mut shaped = Shaped::new();
+    let _ = shaped.try_add(piece, "icon");
+    let mut def = blocks.def(material).clone();
+    def.boxes = shaped.boxes();
+    render(&[(&def, Vec3::ZERO)], textures, 17.0)
 }
 
 fn render(parts: &[(&BlockDef, Vec3)], textures: &[Vec<u8>], scale: f32) -> Vec<u8> {
@@ -138,6 +180,34 @@ mod tests {
                     .any(|p| p[channel] > 100 && p[(channel + 1) % 3] == 0)
             );
         }
+    }
+
+    #[test]
+    fn a_piece_icon_has_the_shape_of_the_piece_and_the_texture_of_its_material() {
+        let registry = engine_voxel::BlockRegistry::builtin();
+        let textures = vec![[200, 30, 30, 255].repeat(256)];
+        let stone = registry.id("core:stone").unwrap();
+        let covered = |kind| {
+            piece_icon(&registry, stone, kind, &textures)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|p| p[3] == 255)
+                .count()
+        };
+        let (layer, slab, slope, micro, nano) = (
+            covered(PieceKind::Layer),
+            covered(PieceKind::Slab),
+            covered(PieceKind::Slope),
+            covered(PieceKind::Micro),
+            covered(PieceKind::Nano),
+        );
+        assert!(layer > 0 && layer < slab, "{layer} {slab}");
+        assert!(slab < slope + 200);
+        assert!(
+            nano > 0 && nano < micro && micro < slab * 3,
+            "{nano} {micro}"
+        );
     }
 
     #[test]

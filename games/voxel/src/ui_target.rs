@@ -135,6 +135,9 @@ impl VoxelGame {
                 .selected_item()
                 .and_then(|id| self.content.items.get(id).tool);
             let mut card = ui_info::block(def, held.as_ref());
+            if let Some(hit) = self.target.filter(|_| ship.is_none()) {
+                self.describe_shaped(&mut card, &hit);
+            }
             item = self.content.items.of_block(self.registry.base(block));
             card.lines.extend(caps);
             preview = found;

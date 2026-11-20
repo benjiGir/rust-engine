@@ -1627,8 +1627,8 @@ pub(crate) mod tests {
         assert!(!registry.is_solid(BlockId::AIR) && registry.is_transparent(BlockId::AIR));
         assert_eq!(
             registry.placeable().count(),
-            155,
-            "quatre portes constructibles, les moitiés hautes et états ouverts restent internes ; huit minerais v3"
+            156,
+            "quatre portes constructibles, les moitiés hautes et états ouverts restent internes ; huit minerais v3 ; l'établi de taille (la case de formes ne se pose pas)"
         );
         let water = registry.id("core:water").unwrap();
         assert!(registry.def(water).liquid && registry.is_translucent(water));

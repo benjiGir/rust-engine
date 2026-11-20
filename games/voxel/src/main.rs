@@ -53,6 +53,7 @@ mod backpacks;
 mod bench;
 mod book_play;
 mod breeding;
+mod bucket_play;
 mod cart_play;
 mod carts;
 mod charm_play;
@@ -122,6 +123,11 @@ mod quests;
 mod recipe_browser;
 mod screenshots;
 mod settings;
+mod shape_ctl;
+mod shape_materials;
+mod shaped_play;
+mod shapes_scene;
+mod shaping_ui;
 mod shared;
 mod sheep_colors;
 mod ships;
@@ -728,6 +734,10 @@ impl VoxelGame {
                 .as_ref()
                 .map_or_else(Default::default, |s| item_data::ItemStore::load(s.dir())),
         );
+        // Les matériaux des pièces taillées du monde ouvert (voir `shape_materials.rs`).
+        shape_materials::replace_all(dims.meta_store.as_ref().map_or_else(Default::default, |s| {
+            shape_materials::Palette::load(s.dir())
+        }));
         let vitals = survival::Vitals::new(&survival);
         let mut hunger = survival::Hunger::new(&hunger_rules);
         let mut bed = None;
@@ -1535,7 +1545,8 @@ impl VoxelGame {
         let pos = hit.block_pos;
         let block = self.streamer().world().block(pos);
         let tool = self.held_tool();
-        let Some(time) = engine_voxel::break_time(self.registry.def(block), tool.as_ref()) else {
+        let Some(time) = engine_voxel::break_time(&self.mining_def(pos, block), tool.as_ref())
+        else {
             self.mining = None;
             return; // Incassable.
         };
@@ -1574,6 +1585,10 @@ impl VoxelGame {
     /// Casse le bloc en `pos` : il lâche son butin (selon l'outil), l'outil s'use, et les
     /// blocs qui en dépendaient (une fleur dessus, du sable) suivent.
     fn break_block(&mut self, pos: IVec3) -> bool {
+        // Une case de formes perd une pièce à la fois (voir `shaped_play.rs`).
+        if let Some(done) = self.break_shaped_piece(pos) {
+            return done;
+        }
         let block = self.streamer().world().block(pos);
         let def = self.registry.def(block).clone();
         if def.hardness < 0.0 {
@@ -1643,6 +1658,10 @@ impl VoxelGame {
             self.use_bucket(item);
             return None;
         }
+        // Une pièce taillée : elle s'ajoute à une case de formes (voir `shaped_play.rs`).
+        if let Some(done) = self.place_shaped_piece() {
+            return done;
+        }
         let hit = self.target?;
         let def = self.content.items.get(item);
         // Une graine plante son premier stade ; sinon l'objet pose son bloc.
@@ -1703,80 +1722,6 @@ impl VoxelGame {
             }
         }
         placed.then_some(pos)
-    }
-
-    /// Le seau : vide, il prend le fluide de la première cellule visée ; plein, il le
-    /// reverse dans la cellule devant le bloc visé. La quantité transférée est celle de
-    /// la cellule (jusqu'à un bloc) : elle est gardée dans l'objet (son champ `damage`).
-    fn use_bucket(&mut self, item: engine_voxel::ItemId) {
-        let items = self.content.items.clone();
-        let key = items.get(item).key.clone();
-        let slot = self.inventory.selected;
-        if key == "core:bucket" {
-            // Le long du rayon, la première cellule de fluide.
-            let found = {
-                let streamer = self.streamer();
-                (1..(self.gear.reach() * 10.0) as i32)
-                    .map(|k| {
-                        (self.camera.position + self.camera.forward() * (k as f32 * 0.1))
-                            .floor()
-                            .as_ivec3()
-                    })
-                    .find(|&p| self.fluids.kind_of(streamer.world().block(p)).is_some())
-            };
-            let Some(pos) = found else { return };
-            let Some((kind, amount)) = self.fluids.take(&mut self.world.borrow_mut(), pos) else {
-                return;
-            };
-            let fluid = self.fluids.kinds()[kind].key.clone();
-            let Some(full) = items.id(&format!("{fluid}_bucket")) else {
-                return;
-            };
-            self.inventory.consume_selected();
-            let filled = inventory::ItemStack {
-                item: full,
-                count: 1,
-                damage: amount as u32,
-            };
-            if self.inventory.slots[slot].is_none() {
-                self.inventory.slots[slot] = Some(filled);
-            } else if self.inventory.add_stack(filled, &items) > 0 {
-                self.drop_stack(pos, filled);
-            }
-            if let Some(audio) = &mut self.audio {
-                audio.play(audio::SPLASH);
-            }
-            self.hand.punch();
-        } else {
-            let Some(hit) = self.target else { return };
-            let Some(stack) = self.inventory.selected_stack() else {
-                return;
-            };
-            let fluid_key = key.trim_end_matches("_bucket");
-            let Some(kind) = self.fluids.kinds().iter().position(|k| k.key == fluid_key) else {
-                return;
-            };
-            let pos = hit.block_pos + hit.normal;
-            let poured =
-                self.fluids
-                    .pour(&mut self.world.borrow_mut(), pos, kind, stack.damage as i32);
-            if poured == 0 {
-                return;
-            }
-            let left = stack.damage as i32 - poured;
-            self.inventory.slots[slot] = Some(if left > 0 {
-                inventory::ItemStack {
-                    damage: left as u32,
-                    ..stack
-                }
-            } else {
-                inventory::ItemStack::new(items.id("core:bucket").unwrap_or(item), 1)
-            });
-            if let Some(audio) = &mut self.audio {
-                audio.play(audio::SPLASH);
-            }
-            self.hand.punch();
-        }
     }
 
     /// Une créature occupe-t-elle ce bloc ?

@@ -832,6 +832,7 @@ impl VoxelGame {
             _ if def.key == "core:simple_anvil" => Screen::Anvil,
             _ if def.key == "core:salvage_table" => Screen::Salvage,
             _ if def.key == "core:reforge_table" => Screen::Reforge,
+            _ if def.key == crate::shaping_ui::TABLE => Screen::Shaping,
             _ => return false,
         };
         // Un conteneur ancien (ou posé par un mod) n'a peut-être pas encore son inventaire.
@@ -874,6 +875,7 @@ impl VoxelGame {
             || def.behavior.as_deref() == Some(crate::backpack_block::BEHAVIOR)
             || def.key == "core:salvage_table"
             || def.key == "core:reforge_table"
+            || def.key == crate::shaping_ui::TABLE
     }
 
     /// Le kit en main sur un coffre, ou le sac en main (hors d'un bloc qui s'ouvre).

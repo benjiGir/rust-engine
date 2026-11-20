@@ -143,7 +143,7 @@ impl World {
             |p| self.block(p),
             |p| {
                 let (chunk, [x, y, z]) = Self::split(p);
-                self.chunk(chunk)?.block_entity(x, y, z)?.caps.as_deref()
+                self.chunk(chunk)?.block_entity(x, y, z)
             },
         )
     }
@@ -160,9 +160,11 @@ impl World {
         (origin + min, origin + max)
     }
 
-    /// Sur un conduit, le contour suit la pièce visée plutôt que le vide entre ses bras.
+    /// Sur un conduit ou une case de formes, le contour suit la pièce visée plutôt que le vide entre
+    /// ses bras ou la case entière.
     pub fn selection_bounds(&self, pos: IVec3, hit: Vec3) -> (Vec3, Vec3) {
-        if self.registry.def(self.block(pos)).connections.is_some() {
+        let def = self.registry.def(self.block(pos));
+        if def.connections.is_some() || crate::shaped::is_shaped_block(def) {
             let origin = pos.as_vec3();
             let local = hit - origin;
             if let Some(b) = self.block_boxes(pos).iter().min_by(|a, b| {

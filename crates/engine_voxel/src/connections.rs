@@ -4,7 +4,10 @@ use std::{borrow::Cow, fmt};
 use glam::{IVec3, Vec3};
 use serde::Deserialize;
 
-use crate::{BlockBox, BlockDef, BlockId, BlockRegistry, Capabilities, FACINGS, Face, NetworkKind};
+use crate::{
+    BlockBox, BlockDef, BlockEntity, BlockId, BlockRegistry, Capabilities, FACINGS, Face,
+    NetworkKind,
+};
 
 /// Dimensions en seizièmes de bloc, indépendantes de la sorte et du canal du réseau.
 #[derive(Debug, Deserialize)]
@@ -111,9 +114,18 @@ pub(crate) fn boxes_at<'a>(
     registry: &'a BlockRegistry,
     pos: IVec3,
     block: impl Fn(IVec3) -> BlockId,
-    caps: impl Fn(IVec3) -> Option<&'a Capabilities>,
+    entity: impl Fn(IVec3) -> Option<&'a BlockEntity>,
 ) -> Cow<'a, [BlockBox]> {
+    let caps = |p: IVec3| entity(p).and_then(|e| e.caps.as_deref());
     let def = registry.def(block(pos));
+    // Une case de formes : ses boîtes viennent de son contenu. Sans contenu lisible, elle garde
+    // sa boîte pleine.
+    if crate::shaped::is_shaped_block(def) {
+        return match entity(pos).and_then(|e| crate::shaped::Shaped::boxes_of(&e.data)) {
+            Some(boxes) if !boxes.is_empty() => Cow::Owned(boxes),
+            _ => Cow::Borrowed(&def.boxes),
+        };
+    }
     if let Some(shape) = &def.connections {
         let mut mask = 0;
         for face in Face::ALL {

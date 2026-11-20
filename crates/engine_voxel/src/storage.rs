@@ -499,6 +499,12 @@ pub fn stack_limit(items: Option<&ItemRegistry>, item: &str, damage: u32, mult: 
     if damage != 0 { base } else { base * mult }
 }
 
+/// Une pile de cet objet et de ce `damage` s'empile-t-elle avec ses pareilles ? Les piles neuves
+/// oui ; ce qui est usé ou enchanté non, sauf les pièces taillées, dont le `damage` est le matériau.
+fn merges(item: &str, damage: u32) -> bool {
+    damage == 0 || crate::shaped::stacks_by_damage(item)
+}
+
 /// Comment ranger : sur les piles du même objet seulement, ou aussi dans les cases vides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fill {
@@ -517,7 +523,7 @@ pub fn room_in(
     let mut room = 0;
     for &i in indices {
         match slots.get(i) {
-            Some(Some(s)) if damage == 0 && s.damage == 0 && s.item == item => {
+            Some(Some(s)) if s.damage == damage && s.item == item && merges(item, damage) => {
                 room += limit.saturating_sub(s.count);
             }
             Some(None) => room += limit,
@@ -539,13 +545,13 @@ pub fn put_in(
     fill: Fill,
 ) -> u32 {
     let mut left = count;
-    if damage == 0 {
+    if merges(item, damage) {
         for &i in indices {
             if left == 0 {
                 break;
             }
             if let Some(Some(s)) = slots.get_mut(i)
-                && s.damage == 0
+                && s.damage == damage
                 && s.item == item
             {
                 let n = left.min(limit.saturating_sub(s.count));
@@ -1223,6 +1229,39 @@ pub fn controller_take(
 mod tests {
     use super::*;
     use crate::chunk::BlockEntity;
+
+    #[test]
+    fn carved_pieces_stack_by_material_in_containers() {
+        let mut slots = vec![None; 4];
+        let indices = [0, 1, 2, 3];
+        let put = |slots: &mut Vec<Option<ItemStack>>, damage: u32, count: u32| {
+            put_in(
+                slots,
+                &indices,
+                "core:shape_slab",
+                damage,
+                count,
+                64,
+                Fill::Any,
+            )
+        };
+        assert_eq!(put(&mut slots, 1, 50), 50);
+        assert_eq!(put(&mut slots, 1, 30), 30);
+        assert_eq!(slots[0].as_ref().map(|s| s.count), Some(64));
+        assert_eq!(slots[1].as_ref().map(|s| s.count), Some(16));
+        assert_eq!(put(&mut slots, 2, 5), 5);
+        assert_eq!(slots[2].as_ref().map(|s| (s.damage, s.count)), Some((2, 5)));
+        assert_eq!(room_in(&slots, &indices, "core:shape_slab", 1, 64), 48 + 64);
+        // Un outil usé ne se mêle à rien.
+        let mut tools = vec![None; 2];
+        put_in(&mut tools, &[0, 1], "core:iron_pickaxe", 7, 1, 1, Fill::Any);
+        put_in(&mut tools, &[0, 1], "core:iron_pickaxe", 7, 1, 1, Fill::Any);
+        assert!(
+            tools
+                .iter()
+                .all(|s| s.as_ref().is_some_and(|s| s.count == 1))
+        );
+    }
 
     fn stack(item: &str, count: u32) -> Option<ItemStack> {
         Some(ItemStack {

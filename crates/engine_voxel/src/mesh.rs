@@ -33,6 +33,7 @@ use crate::registry::{BlockBox, BlockDef, BlockRegistry, RotationAxis, Shape, Ti
 use crate::world::World;
 
 mod binary;
+mod shaped;
 
 const SIZE: i32 = CHUNK_SIZE as i32;
 /// La lumière moyenne d'un coin est gardée en entier, de 0 à 60 (4 × 15) :
@@ -352,6 +353,14 @@ impl Face {
         Self { axis, positive }
     }
 
+    /// La face dont la normale (alignée sur un axe) est `n`.
+    fn of_normal(n: Vec3) -> Face {
+        let axis = (0..3)
+            .max_by(|&a, &b| n[a].abs().total_cmp(&n[b].abs()))
+            .unwrap_or(1);
+        Face::new(axis, n[axis] > 0.0)
+    }
+
     fn normal(self) -> IVec3 {
         let mut n = IVec3::ZERO;
         n[self.axis] = if self.positive { 1 } else { -1 };
@@ -430,15 +439,16 @@ pub struct Neighbourhood {
 }
 
 impl Neighbourhood {
-    fn caps(&self, p: IVec3) -> Option<&crate::Capabilities> {
+    fn entity(&self, p: IVec3) -> Option<&crate::BlockEntity> {
         let offset = p.div_euclid(IVec3::splat(SIZE));
         let q = p.rem_euclid(IVec3::splat(SIZE));
-        self.chunks[index_of(offset)]
-            .as_ref()?
-            .block_entity(q.x as usize, q.y as usize, q.z as usize)?
-            .caps
-            .as_deref()
+        self.chunks[index_of(offset)].as_ref()?.block_entity(
+            q.x as usize,
+            q.y as usize,
+            q.z as usize,
+        )
     }
+
     /// Prend des copies des `Arc` du chunk et de ses voisins (aucun bloc n'est copié).
     /// `None` si le chunk lui-même n'existe pas.
     pub fn from_world(world: &World, chunk_pos: IVec3) -> Option<Self> {
@@ -866,6 +876,12 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                     continue;
                 }
                 let p = IVec3::new(x, y, z);
+                // Une case de formes : ses pièces, avec les textures de leurs matériaux.
+                if crate::shaped::is_shaped_block(def) {
+                    let entity = center.block_entity(x as usize, y as usize, z as usize);
+                    shaped::mesh_cell(hood, mesh, p, origin, entity);
+                    continue;
+                }
                 let (_, sky, light) = hood.cell(p);
                 let tint = hood.tint(def.tint, x, z);
                 let rgb = if def.face_textures[1] == 0 {
@@ -1034,7 +1050,8 @@ fn model_boxes(
     flags: u32,
 ) {
     let (_, own_sky, own_light) = hood.cell(p);
-    let boxes = crate::connections::boxes_at(&hood.registry, p, |p| hood.get(p), |p| hood.caps(p));
+    let boxes =
+        crate::connections::boxes_at(&hood.registry, p, |p| hood.get(p), |p| hood.entity(p));
     let shell = crate::conduit_shell(def, &boxes);
     let (solid, windows) = shell.as_ref().map_or((boxes.as_ref(), &[][..]), |s| {
         (s.rails.as_slice(), s.windows.as_slice())

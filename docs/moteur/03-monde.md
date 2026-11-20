@@ -114,6 +114,43 @@ Les **capacités** sont des conteneurs génériques communs à tous les mods, à
 face** elle échange (`Sides`, 6 bits) et offre `insert` / `extract` avec un mode simulation (« combien
 accepterais-tu ? »).
 
+### Les formes : une case de pièces
+
+Un seul bloc du registre, `core:shaped` (`shaped.rs`), sert à toutes les formes : couches de 1 à 16
+seizièmes, pentes à 16 niveaux (quatre orientations, retournées au plafond), microblocs sur une grille
+4 × 4 × 4. Son contenu est dans son entité de bloc (`BlockEntity::data`), pas dans des variantes : aucun
+bloc à déclarer par matériau, et n'importe quel cube plein (du jeu ou d'un mod) peut être taillé
+(`is_shapeable`).
+
+```rust
+pub enum Piece {
+    Layer { face: Face, offset: u8, thickness: u8 }, // une tranche collée à une face
+    Slope { facing: u8, ceiling: bool, level: u8 },  // un plan incliné, côté haut vers `facing`
+    Micro { cells: u64 },                            // des cellules de 1/64 de bloc
+}
+pub struct Part { pub piece: Piece, pub material: u8 }   // indice dans `materials`
+pub struct Shaped { pub materials: Vec<String>, pub parts: Vec<Part> }
+```
+
+- **Une pièce, un matériau** : `materials` est une liste d'identifiants **texte** (`core:oak_planks`), jamais
+  de numéros de blocs. Au plus 16 matériaux et 32 pièces par case. Le format (`encode` / `decode`) commence par
+  un octet de version ; un matériau que le registre ne connaît plus garde son nom et se dessine en
+  `core:unknown`.
+- **L'occupation** (`occupancy`) : 16 × 16 × 16 bits, calculée à la demande. `try_add` refuse un recouvrement et
+  fusionne ce qui se touche (même matériau) : une couche s'épaissit, une pente monte de niveau, des
+  microblocs se réunissent.
+- **Les boîtes** (`boxes`) : couches et microblocs en boîtes, pentes en escalier de seizièmes (au plus 16
+  boîtes). `connections::boxes_at` les lit dans l'entité : la physique (la marche automatique de 0,6 monte une
+  pente en marchant), le lancer de rayon et le contour de visée suivent donc la pièce.
+- **La simplification** (`store`) : une case vide redevient de l'air, une case pleine d'un seul matériau le vrai
+  bloc de ce matériau.
+- **Les structures mobiles** : une case de formes tourne avec le vaisseau qui se repose (`Shaped::turned`).
+- **Le terrain lointain** compte une case de formes pleine à plus de moitié comme un sol, avec la couleur de
+  son matériau principal.
+
+Côté jeu, une pièce qu'on tient est un objet (`core:shape_slab`...) dont le `damage` est le **numéro du
+matériau** dans la palette du monde (`materials.ron`) : voir `games/voxel/src/shape_materials.rs` et `07-jeu.md`.
+
 ### Les grilles
 
 Un bloc se désigne par `GridPos { grid, pos }`, pas seulement par ses coordonnées : `GridId::WORLD` est

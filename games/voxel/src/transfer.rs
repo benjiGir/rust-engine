@@ -73,8 +73,8 @@ impl<'a> Rules<'a> {
     }
 }
 
-fn same_pile(a: &ItemStack, b: &ItemStack) -> bool {
-    a.item == b.item && a.damage == 0 && b.damage == 0
+fn same_pile(rules: &Rules, a: &ItemStack, b: &ItemStack) -> bool {
+    crate::inventory::stackable(rules.items, a, b)
 }
 
 /// Range la pile `stack` dans ces cases ; renvoie combien d'objets sont rangés.
@@ -92,7 +92,7 @@ fn put(
             break;
         }
         if let Some(Some(s)) = to.get_mut(i)
-            && same_pile(s, &stack)
+            && same_pile(rules, s, &stack)
         {
             let n = left.min(limit.saturating_sub(s.count));
             s.count += n;
@@ -237,7 +237,7 @@ pub fn sort(slots: &mut [Option<ItemStack>], idx: &[usize], rules: &Rules) {
     for stack in stacks {
         let limit = rules.limit(stack.item, stack.damage);
         if let Some(last) = merged.last_mut()
-            && same_pile(last, &stack)
+            && same_pile(rules, last, &stack)
             && last.count < limit
         {
             let n = stack.count.min(limit - last.count);

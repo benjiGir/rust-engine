@@ -166,6 +166,28 @@
             ],
         ),
         (
+            id: "core:shaping",
+            title: "Tailler les blocs",
+            icon: "shaping_table",
+            pages: [
+                (
+                    title: "L'établi de taille",
+                    text: "Un lingot de fer et trois planches donnent l'établi de taille. Un clic droit l'ouvre : pose un bloc dans la case (bois, pierre, verre, laine, minerai, bloc d'un mod... tout cube plein), puis clique une forme pour récupérer des pièces. Maj + clic taille toute la pile.\n\nUn bloc donne 16 couches, 2 dalles, 16 couches de pente, 2 pentes, 8 microblocs ou 64 grains. Les pièces gardent le matériau du bloc : « dalle de chêne », « pente de pierre ». Pour refaire un bloc plein, remets les pièces dans la case : un bouton les reconstitue.",
+                    items: ["shaping_table", "shape_slab", "shape_slope", "shape_micro"],
+                ),
+                (
+                    title: "Poser et empiler",
+                    text: "Une pièce se pose d'un clic droit sur un bloc. Une couche ou une dalle se colle à la face visée ; une pente monte vers l'endroit où tu regardes (retournée sous un plafond) ; un microbloc se pose sur le point visé.\n\nSur une pièce déjà posée, vise sa face : la pièce suivante s'y ajoute dans la même case. Des couches de même matière s'épaississent jusqu'au bloc plein, des couches de pente montent la pente niveau par niveau, et chaque pièce peut avoir sa matière : une dalle de chêne sur une dalle de pierre.",
+                    items: ["shape_layer", "shape_slope_layer", "shape_nano"],
+                ),
+                (
+                    title: "Casser une pièce",
+                    text: "Le clic gauche retire la pièce que tu vises, pas la case entière : elle se transforme en pièces (une couche de 5 seizièmes rend 5 couches). Plus la pièce est petite, plus elle se casse vite. Quand la case est pleine d'une seule matière, elle redevient un vrai bloc ; quand elle est vide, de l'air.",
+                    items: [],
+                ),
+            ],
+        ),
+        (
             id: "core:circuits",
             title: "Les circuits",
             icon: "lever",

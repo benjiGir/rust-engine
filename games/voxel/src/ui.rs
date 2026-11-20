@@ -36,7 +36,8 @@ pub struct GameUi {
     /// Un menu (principal, pause) est ouvert : egui reçoit les clics.
     pub menu_open: bool,
     /// Une icône par objet, créée au premier affichage.
-    icons: HashMap<ItemId, TextureHandle>,
+    /// (objet, matériau) : le matériau n'est non nul que pour les pièces taillées.
+    icons: HashMap<(ItemId, u32), TextureHandle>,
     /// La fenêtre « Diviser la pile » (Maj + clic droit), si elle est ouverte.
     pub split: Option<Split>,
     /// L'offre choisie dans l'écran d'échange avec un habitant.
@@ -131,6 +132,8 @@ pub enum Screen {
     Salvage,
     /// La table de réforge (voir `forge_ui.rs`).
     Reforge,
+    /// L'établi de taille (voir `shaping_ui.rs`).
+    Shaping,
     /// Les paliers du monde (voir `tiers_ui.rs`).
     Tiers,
     /// Le Guide du voyageur (voir `guide_ui.rs`).
@@ -226,9 +229,25 @@ impl GameUi {
         blocks: &BlockRegistry,
         textures: &[Vec<u8>],
     ) -> egui::TextureId {
+        self.icon_of(item, 0, items, blocks, textures)
+    }
+
+    /// Comme [`GameUi::icon`], pour une pile : une pièce taillée est dessinée avec les textures de
+    /// son matériau (`damage`), mise en cache par (pièce, matériau).
+    pub(super) fn icon_of(
+        &mut self,
+        item: ItemId,
+        damage: u32,
+        items: &ItemRegistry,
+        blocks: &BlockRegistry,
+        textures: &[Vec<u8>],
+    ) -> egui::TextureId {
         let ctx = self.ctx.clone();
+        let piece = crate::shape_materials::kind_of(items.get(item))
+            .zip(crate::shape_materials::key_of(damage).and_then(|key| blocks.id(&key)));
+        let variant = if piece.is_some() { damage } else { 0 };
         self.icons
-            .entry(item)
+            .entry((item, variant))
             .or_insert_with(|| {
                 let def = items.get(item);
                 let mut size = TEXTURE_SIZE as usize;
@@ -236,8 +255,12 @@ impl GameUi {
                     let [r, g, b] = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
                     [r, g, b, 255].repeat(size * size)
                 };
-                let pixels = match &def.icon {
-                    Icon::Block(block) => {
+                let pixels = match (&def.icon, piece) {
+                    (_, Some((kind, material))) => {
+                        size = crate::item_art::ICON_SIZE;
+                        crate::item_art::piece_icon(blocks, material, kind, textures)
+                    }
+                    (Icon::Block(block), None) => {
                         let id = *block;
                         let block = blocks.def(id);
                         if matches!(
@@ -254,7 +277,7 @@ impl GameUi {
                             }
                         }
                     }
-                    Icon::Texture(key) => blocks
+                    (Icon::Texture(key), None) => blocks
                         .asset_path(key, "items", "png")
                         .and_then(|path| crate::assets::load_png(&path).ok())
                         .unwrap_or_else(|| plain(def.color)),
@@ -262,7 +285,11 @@ impl GameUi {
                 let size = engine_render::texture_side(&pixels).unwrap_or(size as u32) as usize;
                 let image = egui::ColorImage::from_rgba_unmultiplied([size, size], &pixels);
                 // `NEAREST` : des pixels nets, le style pixel art.
-                ctx.load_texture(def.key.clone(), image, TextureOptions::NEAREST)
+                ctx.load_texture(
+                    format!("{}#{variant}", def.key),
+                    image,
+                    TextureOptions::NEAREST,
+                )
             })
             .id()
     }
@@ -357,6 +384,11 @@ impl VoxelGame {
             }
             let def = self.content.items.get(stack.item);
             let mut card = crate::ui_info::item(def, stack.count, stack.damage);
+            if let Some(name) =
+                crate::shape_materials::piece_name(&self.registry, def, stack.damage)
+            {
+                card.name = name;
+            }
             card.lines
                 .extend(crate::backpacks::card_lines(&def.key, stack.damage));
             crate::ui_info::hover(response, &card);
@@ -366,8 +398,9 @@ impl VoxelGame {
 
     /// L'icône, la quantité et la barre d'usure d'une pile.
     fn paint_stack(&mut self, painter: &egui::Painter, rect: egui::Rect, stack: ItemStack) {
-        let icon = self.ui.icon(
+        let icon = self.ui.icon_of(
             stack.item,
+            stack.damage,
             &self.content.items,
             &self.registry,
             &self.block_textures,
@@ -389,7 +422,7 @@ impl VoxelGame {
     }
 
     /// Une case de l'inventaire du joueur (ou de son armure, de sa grille).
-    fn slot_widget(&mut self, ui: &mut egui::Ui, slot: Slot, highlighted: bool) {
+    pub(crate) fn slot_widget(&mut self, ui: &mut egui::Ui, slot: Slot, highlighted: bool) {
         let stack = *self.inventory.slot_mut(slot);
         if let Some(press) = self.stack_widget(ui, stack, highlighted) {
             self.press_slot(SlotRef::Player(slot), stack, press);
@@ -690,9 +723,17 @@ impl VoxelGame {
                             .as_ref()
                             .and_then(crate::affixes::display_rarity)
                             .map_or(skin::TEXT, |r| crate::forge_ui::rarity_color(&data, r));
+                        let item = self.content.items.get(held.item);
                         let name = sheet
                             .and_then(|s| s.name)
-                            .unwrap_or_else(|| self.content.items.get(held.item).name.clone());
+                            .or_else(|| {
+                                crate::shape_materials::piece_name(
+                                    &self.registry,
+                                    item,
+                                    held.damage,
+                                )
+                            })
+                            .unwrap_or_else(|| item.name.clone());
                         ui.label(egui::RichText::new(name).color(color));
                     }
                 });
@@ -797,6 +838,7 @@ impl VoxelGame {
             Screen::Library(_) => "Bibliothèque d'enchantements".to_string(),
             Screen::Salvage => "Table de récupération".to_string(),
             Screen::Reforge => "Table de réforge".to_string(),
+            Screen::Shaping => "Établi de taille".to_string(),
             Screen::Tiers => "Paliers du monde".to_string(),
             Screen::Guide => "Guide du voyageur".to_string(),
             Screen::Console | Screen::Quests => String::new(),
@@ -848,6 +890,7 @@ impl VoxelGame {
                     Screen::Library(pos) => self.library_panel(ui, pos),
                     Screen::Salvage => self.salvage_panel(ui),
                     Screen::Reforge => self.reforge_panel(ui),
+                    Screen::Shaping => self.shaping_panel(ui),
                     Screen::Tiers => self.tiers_panel(ui),
                     Screen::Guide => self.guide_panel(ui),
                     Screen::Mod(pos) => self.mod_panel(ui, pos),

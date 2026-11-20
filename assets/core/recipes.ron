@@ -23,6 +23,8 @@
         // L'aventure : les tables du butin et les sceaux des gemmes.
         (pattern: ["ii", "pp"], key: {"i": "iron_ingot", "p": "#planks"}, result: ("salvage_table", 1)),
         (pattern: ["gsg", "###"], key: {"g": "gold_ingot", "s": "sapphire", "#": "cobblestone"}, result: ("reforge_table", 1)),
+        // Les formes : l'établi de taille.
+        (pattern: ["ip", "pp"], key: {"i": "iron_ingot", "p": "#planks"}, result: ("shaping_table", 1)),
         (pattern: ["d", "i"], key: {"d": "gem_dust", "i": "iron_ingot"}, result: ("seal_unsocket", 1)),
         (pattern: ["dg"], key: {"d": "gem_dust", "g": "gold_ingot"}, result: ("seal_socket", 1)),
         // L'enchantement avancé : livres et tomes, étagères, bibliothèque, enclume, charmes de potion.

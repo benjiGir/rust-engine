@@ -104,6 +104,17 @@ coffres, wagons coffres, sacs et contrôleur ; Déposer, Compléter, Tout prendr
 à dos améliorables), `chest_lids.rs` (les couvercles suivent l'écran ouvert), `carts.rs` / `cart_play.rs`
 (wagons), `ships.rs` (assembler un vaisseau, le piloter), `paired_play.rs` (lits et portes).
 
+### Les formes (couches, pentes, microblocs)
+
+L'**établi de taille** (`shaping_ui.rs`) transforme un bloc plein en pièces : couche, dalle, couche de pente, pente,
+microbloc, grain (`engine_voxel::shaped::PieceKind`, six objets `core:shape_*`). Le matériau d'une pièce est le
+`damage` de sa pile : un numéro de la **palette du monde** (`materials.ron`, `shape_materials.rs`), attribué au
+premier usage et jamais réutilisé. Les piles de même pièce et même matériau s'empilent (c'est la seule exception à
+« seules les piles neuves s'empilent », voir `inventory::stackable` et `storage.rs`). `shaped_play.rs` pose une pièce
+dans la case visée (ou la voisine), la retire pièce par pièce et décrit la visée ; `shape_ctl.rs` donne les commandes
+`shape`, `rebuild`, `shaping`, `pieces`. L'icône d'une pile de pièces est dessinée avec les textures de son matériau
+(`item_art::piece_icon`, en cache par pièce et matériau).
+
 ### La progression
 
 | Système | Modules | Données |

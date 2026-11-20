@@ -1268,6 +1268,18 @@
                     guide: "core:storage",
                 ),
                 (
+                    id: "core:storage/shaping",
+                    title: "Tailler la pierre",
+                    subtitle: "Des dalles, des pentes, des microblocs",
+                    text: "Un lingot de fer et trois planches font l'établi de taille. Pose-le, clic droit, mets-y un bloc : tu récupères des couches, des dalles, des pentes ou des microblocs de la même matière, à poser pièce par pièce. Garde une pente pour la suite : on y monte en marchant.",
+                    x: 9.0, y: 7.5, shape: Hexagon,
+                    optional: true,
+                    after: ["core:metal/ingot"],
+                    tasks: [Place(block: "shaping_table")],
+                    rewards: [Item(item: "oak_planks", count: 8), Xp(10)],
+                    guide: "core:shaping",
+                ),
+                (
                     id: "core:storage/bag",
                     icon: "backpack_leather",
                     title: "Un sac posé au sol",

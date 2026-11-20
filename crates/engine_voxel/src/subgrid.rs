@@ -468,6 +468,9 @@ pub fn land(streamer: &mut ChunkStreamer, grid: &SubGrid) -> Result<Vec<IVec3>, 
                 && let Some(f) = entity.data.first_mut()
             {
                 *f = rotate_facing(*f, k);
+            } else if crate::shaped::is_shaped_block(registry.def(block)) {
+                // Une case de formes tourne avec la structure : faces, pentes, microblocs.
+                entity.data = crate::shaped::Shaped::turned_data(&entity.data, k);
             }
             streamer.set_block_entity(target, Some(entity));
         }

@@ -191,6 +191,22 @@ sans passage par le script.
 lumière est arrêtée par défaut s'il est `solid`, et passe sinon (`light_opacity` pour régler).
 Les créatures le traitent encore comme un cube plein.
 
+## Les blocs taillables
+
+Le jeu sait **tailler** les cubes en pièces (couches, dalles, pentes, microblocs) à l'établi de taille : aucun bloc
+à déclarer, un mod n'a rien à faire. Un bloc se taille s'il est :
+
+- un **cube** (`shape: Cube`, donc sans `boxes`, ni `rail`, ni `connections`), solide ou transparent (le verre), pas
+  un liquide ;
+- **sans comportement** (`behavior`) ni état (`states`) : une machine, un coffre, l'herbe, les feuilles ne se
+  taillent pas ;
+- **posable** (`placeable`, c'est-à-dire avec son objet).
+
+Les pièces taillées gardent l'**identifiant texte** de leur matériau (`example:ruby`) : si le mod est retiré, la case
+reste lisible et se dessine avec le bloc inconnu jusqu'à son retour. Un mod peut lire et écrire une case de formes avec
+les fonctions de bloc existantes (`BlockEntity::data`, voir `docs/moteur/03-monde.md`) ; rien de plus n'est exposé
+pour l'instant.
+
 ## Les raccords automatiques des conduits
 
 Un conduit peut calculer sa forme à partir de ses voisins, sans `states` ni nouveaux

@@ -56,6 +56,23 @@ Trois mailleurs coexistent (`mesh.rs`), avec le même résultat pour les deux de
    visibles, puis on fusionne. Les feuilles, l'eau, le verre passent par la voie complète ; les plantes,
    dalles, escaliers, rails et modèles par leurs propres routines.
 
+### Les formes et les pentes
+
+Une case `core:shaped` passe par la routine des modèles (`plants()`), qui la confie à `mesh/shaped.rs` :
+le mailleur lit son entité (le `Neighbourhood` donne accès aux entités des chunks voisins) et produit, pièce
+par pièce, des faces avec **les textures du matériau** (la teinte de biome, la découpe, la passe translucide
+du verre sont gardées).
+
+- **Couches et microblocs** : des boîtes, comme un modèle. Une face est omise si elle est cachée : contre
+  une autre pièce **opaque** de la case (l'occupation au seizième) ou contre un voisin opaque (un cube, ou une
+  autre case de formes dont la tranche voisine est pleine).
+- **Pentes** : un vrai plan incliné (un quad dont la normale penche), le mur du bord haut, le dessous et **deux
+  triangles** de côté. Le shader tire ses UV de la position selon l'axe dominant de la normale : une pente à 45°
+  ou moins se texture comme un dessus, **sans changer le shader**. La collision, elle, suit l'escalier de
+  seizièmes de la pente.
+- **Lumière** : celle de la cellule d'à côté (comme les modèles), sans occlusion ambiante fine. Une case de
+  formes laisse passer la lumière, même pleine de deux matériaux (fuite connue).
+
 ### La lumière de chaque coin
 
 Chaque sommet porte sa lumière, **lissée** :

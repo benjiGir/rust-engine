@@ -131,9 +131,15 @@ fn spared(damage: u32, roll: f32) -> bool {
     level > 0 && roll < f32::from(level) / f32::from(level + 1)
 }
 
-/// Deux piles qui peuvent n'en faire qu'une : même objet, neuves.
-fn stackable(a: &ItemStack, b: &ItemStack) -> bool {
-    a.item == b.item && a.damage == 0 && b.damage == 0
+/// Deux piles qui peuvent n'en faire qu'une : même objet, neuves. Des pièces taillées s'empilent
+/// aussi quand leur matériau (le `damage`) est le même.
+pub(crate) fn stackable(items: &ItemRegistry, a: &ItemStack, b: &ItemStack) -> bool {
+    a.item == b.item && a.damage == b.damage && merges(items, a.item, a.damage)
+}
+
+/// Une pile de cet objet et de ce `damage` s'empile-t-elle avec ses pareilles ?
+pub(crate) fn merges(items: &ItemRegistry, item: ItemId, damage: u32) -> bool {
+    damage == 0 || engine_voxel::shaped::stacks_by_damage(&items.get(item).key)
 }
 
 /// Prend jusqu'à `n` objets de la case, dans la main vide ou dans la pile tenue s'il
@@ -147,7 +153,7 @@ fn take(
     let Some(stack) = slot.as_mut() else { return };
     let moved = match cursor {
         None => n.min(stack.count),
-        Some(held) if stackable(held, stack) => {
+        Some(held) if stackable(items, held, stack) => {
             let room = items.get(held.item).max_stack.saturating_sub(held.count);
             n.min(stack.count).min(room)
         }
@@ -185,7 +191,8 @@ fn place_one(
             *slot = Some(ItemStack { count: 1, ..*held });
         }
         Some(stack)
-            if stackable(stack, held) && stack.count < items.get(stack.item).max_stack * mult =>
+            if stackable(items, stack, held)
+                && stack.count < items.get(stack.item).max_stack * mult =>
         {
             stack.count += 1;
         }
@@ -207,9 +214,7 @@ fn click_whole(
 ) {
     match (slot.as_mut(), cursor.as_mut()) {
         // Même objet, empilable : on complète la pile de la case.
-        (Some(stack), Some(held))
-            if stack.item == held.item && held.damage == 0 && stack.damage == 0 =>
-        {
+        (Some(stack), Some(held)) if stackable(items, stack, held) => {
             let max = items.get(stack.item).max_stack * mult;
             let moved = held.count.min(max.saturating_sub(stack.count));
             stack.count += moved;
@@ -241,9 +246,9 @@ impl Inventory {
     pub fn add_stack(&mut self, stack: ItemStack, items: &ItemRegistry) -> u32 {
         let max = items.get(stack.item).max_stack.max(1);
         let mut count = stack.count;
-        if stack.damage == 0 {
+        if merges(items, stack.item, stack.damage) {
             for slot in self.slots.iter_mut().flatten() {
-                if slot.item == stack.item && slot.damage == 0 && slot.count < max {
+                if slot.item == stack.item && slot.damage == stack.damage && slot.count < max {
                     let moved = count.min(max - slot.count);
                     slot.count += moved;
                     count -= moved;
@@ -762,6 +767,56 @@ mod tests {
             "il casse à la dernière utilisation"
         );
         assert!(inv.selected_stack().is_none());
+    }
+
+    #[test]
+    fn carved_pieces_stack_by_material_but_worn_tools_do_not() {
+        let items = items();
+        let (slab, pickaxe) = (
+            id(&items, "core:shape_slab"),
+            id(&items, "core:iron_pickaxe"),
+        );
+        let piece = |material: u32, count: u32| ItemStack {
+            item: slab,
+            count,
+            damage: material,
+        };
+        let mut inv = Inventory::default();
+        assert_eq!(inv.add_stack(piece(1, 40), &items), 0);
+        assert_eq!(inv.add_stack(piece(1, 40), &items), 0);
+        // Deux piles de la même dalle de pierre : 64 + 16, pas 40 + 40.
+        assert_eq!(inv.slots[0], Some(piece(1, 64)));
+        assert_eq!(inv.slots[1], Some(piece(1, 16)));
+        // Un autre matériau ne s'y mêle pas.
+        inv.add_stack(piece(2, 3), &items);
+        assert_eq!(inv.slots[2], Some(piece(2, 3)));
+        // À la souris : une pile de dalles de chêne se pose sur les dalles de chêne, pas sur la pierre.
+        inv.cursor = Some(piece(2, 5));
+        inv.click(Slot::Main(0), &items, Click::Primary);
+        // Un autre matériau ne fusionne pas : les deux piles s'échangent, comme deux objets différents.
+        assert_eq!(inv.cursor, Some(piece(1, 64)));
+        assert_eq!(inv.slots[0], Some(piece(2, 5)));
+        inv.click(Slot::Main(0), &items, Click::Primary);
+        assert_eq!(inv.cursor, Some(piece(2, 5)));
+        inv.click(Slot::Main(2), &items, Click::Primary);
+        assert_eq!(inv.slots[2], Some(piece(2, 8)));
+        assert!(inv.cursor.is_none());
+        // Un outil usé reste seul.
+        let worn = ItemStack {
+            item: pickaxe,
+            count: 1,
+            damage: 5,
+        };
+        inv.add_stack(worn, &items);
+        inv.add_stack(worn, &items);
+        assert_eq!(
+            inv.slots
+                .iter()
+                .flatten()
+                .filter(|s| s.item == pickaxe)
+                .count(),
+            2
+        );
     }
 
     #[test]

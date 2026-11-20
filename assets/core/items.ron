@@ -178,6 +178,15 @@
         (id: "core:seal_unsocket", name: "Sceau de retrait", category: Material, color: (0.5776, 0.1022, 0.1022), icon: "seal_unsocket", max_stack: 16),
         (id: "core:seal_socket", name: "Sceau d'emplacement", category: Material, color: (0.1022, 0.3050, 0.7157), icon: "seal_socket", max_stack: 16),
         // L'enchantement avancé (phase 3) : livres, tomes et charmes de potion (voir enchantments.ron, charms.ron).
+        // Les formes : six sortes de pièces, taillées à l'établi de taille (voir docs/plan-formes.md). Le matériau
+        // est le `damage` de la pile (un numéro de la palette `materials.ron` du monde) ; l'icône est
+        // dessinée avec les textures du matériau. Les piles de même matériau s'empilent.
+        (id: "core:shape_layer", name: "Couche", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_layer"),
+        (id: "core:shape_slab", name: "Dalle", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_slab"),
+        (id: "core:shape_slope_layer", name: "Couche de pente", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_slope_layer"),
+        (id: "core:shape_slope", name: "Pente", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_slope"),
+        (id: "core:shape_micro", name: "Microbloc", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_micro"),
+        (id: "core:shape_nano", name: "Grain", category: Block, color: (0.4, 0.4, 0.42), icon: "shape_nano"),
         (id: "core:guide", name: "Guide du voyageur", category: Material, color: (0.1200, 0.2600, 0.1400), icon: "guide", max_stack: 1),
         (id: "core:book", name: "Livre", category: Material, color: (0.2200, 0.1000, 0.0600), icon: "book", max_stack: 16),
         (id: "core:enchanted_book", name: "Livre enchanté", category: Material, color: (0.3000, 0.1400, 0.5200), icon: "enchanted_book", max_stack: 1),
