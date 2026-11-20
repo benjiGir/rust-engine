@@ -146,7 +146,12 @@ impl VoxelGame {
     /// Le livre chargé et le numéro d'une quête.
     fn quest_lookup(&mut self, id: &str) -> Result<(Arc<Quests>, usize)> {
         self.open_quests();
-        let quests = self.quest_book.quests().context("quêtes pas chargées")?;
+        let quests = self
+            .players
+            .me_mut()
+            .quest_book
+            .quests()
+            .context("quêtes pas chargées")?;
         let index = quests
             .index(id)
             .with_context(|| format!("quête inconnue « {id} » (voir `quests`)"))?;
@@ -159,7 +164,12 @@ impl VoxelGame {
             Command::List(filter) => self.quest_list(filter.as_deref()),
             Command::Done(id) => {
                 let (quests, index) = self.quest_lookup(&id)?;
-                let forced = self.quest_book.progress_mut()?.force_done(&quests, index);
+                let forced = self
+                    .players
+                    .me_mut()
+                    .quest_book
+                    .progress_mut()?
+                    .force_done(&quests, index);
                 if forced {
                     self.announce_quests(&quests, &[index]);
                 }
@@ -188,7 +198,12 @@ impl VoxelGame {
                             .position(|t| matches!(t, Task::Check))
                     })
                     .context("quest check : cette quête n'a pas de case à cocher")?;
-                let checked = self.quest_book.progress_mut()?.check(&quests, index, task);
+                let checked = self
+                    .players
+                    .me_mut()
+                    .quest_book
+                    .progress_mut()?
+                    .check(&quests, index, task);
                 self.refresh_quests();
                 Ok(format!("{{\"ok\":true,\"checked\":{checked}}}"))
             }
@@ -208,6 +223,8 @@ impl VoxelGame {
             Command::Choose(id, reward, option) => {
                 let (quests, index) = self.quest_lookup(&id)?;
                 let chosen = self
+                    .players
+                    .me_mut()
                     .quest_book
                     .progress_mut()?
                     .choose(&quests, index, reward, option);
@@ -224,7 +241,11 @@ impl VoxelGame {
                 if let Some(id) = &id {
                     self.quest_lookup(id)?;
                 }
-                self.quest_book.progress_mut()?.reset(id.as_deref());
+                self.players
+                    .me_mut()
+                    .quest_book
+                    .progress_mut()?
+                    .reset(id.as_deref());
                 self.sync_quests_done();
                 Ok("{\"ok\":true}".into())
             }
@@ -247,13 +268,18 @@ impl VoxelGame {
             }
             Command::Pin(id) => {
                 self.quest_lookup(&id)?;
-                let changed = self.quest_book.progress_mut()?.toggle_pin(&id);
+                let changed = self
+                    .players
+                    .me_mut()
+                    .quest_book
+                    .progress_mut()?
+                    .toggle_pin(&id);
                 if !changed {
                     bail!("questpin : trois quêtes épinglées au plus");
                 }
                 Ok(format!(
                     "{{\"ok\":true,\"pinned\":{}}}",
-                    self.quest_book.pinned_json()
+                    self.players.me_mut().quest_book.pinned_json()
                 ))
             }
         }
@@ -261,8 +287,15 @@ impl VoxelGame {
 
     /// L'état des quêtes : celles d'un chapitre, une seule, ou toutes.
     fn quest_list(&mut self, filter: Option<&str>) -> Result<String> {
-        let quests = self.quest_book.quests().context("quêtes pas chargées")?;
+        let quests = self
+            .players
+            .me_mut()
+            .quest_book
+            .quests()
+            .context("quêtes pas chargées")?;
         let progress = self
+            .players
+            .me_mut()
             .quest_book
             .progress()
             .context("quêtes pas chargées")?
@@ -273,7 +306,7 @@ impl VoxelGame {
             Some(id) => match quests.chapter(id) {
                 Some(chapter) => {
                     // Le dernier chapitre regardé : le livre s'y rouvrira (phase 2).
-                    if let Ok(progress) = self.quest_book.progress_mut() {
+                    if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
                         progress.set_last_chapter(id);
                     }
                     chapter.quests.clone()
@@ -335,7 +368,7 @@ impl VoxelGame {
             "{{\"ok\":true,\"pending\":{},\"unknown\":[{}],\"pinned\":{},\"chapters\":[{}],\"quests\":[{}]}}",
             progress.pending(&quests).len(),
             unknown.join(","),
-            self.quest_book.pinned_json(),
+            self.players.me_mut().quest_book.pinned_json(),
             chapters.join(","),
             rows.join(",")
         ))

@@ -75,7 +75,7 @@ pub fn parse(name: &str, args: &[&str]) -> Option<Result<Command>> {
 impl VoxelGame {
     /// Exécute une commande des formes ; renvoie la réponse JSON.
     pub(crate) fn shape_command(&mut self, command: Command) -> Result<String> {
-        let slot = Slot::Main(self.inventory.selected);
+        let slot = Slot::Main(self.players.me_mut().inventory.selected);
         match command {
             Command::Shape(kind, all, blocks) => {
                 let mut pieces = 0;
@@ -91,8 +91,9 @@ impl VoxelGame {
             }
             Command::Open => {
                 // Le bloc tenu passe dans la case d'entrée (le reste de la grille revient à la fermeture).
-                if let Some(stack) = self.inventory.slots[self.inventory.selected].take() {
-                    let before = self.inventory.craft[0].replace(stack);
+                let me = self.players.me_mut();
+                if let Some(stack) = me.inventory.slots[me.inventory.selected].take() {
+                    let before = me.inventory.craft[0].replace(stack);
                     if let Some(old) = before {
                         self.give_or_drop(old);
                     }

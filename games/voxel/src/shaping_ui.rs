@@ -36,7 +36,7 @@ enum Input {
 
 impl VoxelGame {
     fn shaping_input(&self) -> Input {
-        let Some(stack) = self.inventory.craft[0] else {
+        let Some(stack) = self.players.me().inventory.craft[0] else {
             return Input::Empty;
         };
         let def = self.content.items.get(stack.item);
@@ -172,7 +172,7 @@ impl VoxelGame {
     /// Taille des blocs de `slot` en pièces de la sorte `kind` : un bloc, ou toute la pile. `Err`
     /// dit pourquoi rien n'est fait.
     pub(crate) fn carve(&mut self, slot: Slot, kind: PieceKind, all: bool) -> Result<u32, String> {
-        let Some(stack) = *self.inventory.slot_mut(slot) else {
+        let Some(stack) = *self.players.me_mut().inventory.slot_mut(slot) else {
             return Err("rien à tailler".into());
         };
         let def = self.content.items.get(stack.item);
@@ -190,10 +190,11 @@ impl VoxelGame {
             count: blocks * kind.per_block(),
             damage: shape_materials::number_of(&key),
         };
-        *self.inventory.slot_mut(slot) = (stack.count > blocks).then_some(ItemStack {
-            count: stack.count - blocks,
-            ..stack
-        });
+        *self.players.me_mut().inventory.slot_mut(slot) =
+            (stack.count > blocks).then_some(ItemStack {
+                count: stack.count - blocks,
+                ..stack
+            });
         self.give_or_drop(made);
         if let Some(audio) = &mut self.audio {
             audio.play("core:place_hard");
@@ -203,7 +204,7 @@ impl VoxelGame {
 
     /// Refait des blocs pleins avec les pièces de `slot` : un bloc, ou tous ceux que la pile permet.
     pub(crate) fn rebuild(&mut self, slot: Slot, all: bool) -> Result<u32, String> {
-        let Some(stack) = *self.inventory.slot_mut(slot) else {
+        let Some(stack) = *self.players.me_mut().inventory.slot_mut(slot) else {
             return Err("rien à reconstituer".into());
         };
         let kind = shape_materials::kind_of(self.content.items.get(stack.item))
@@ -220,7 +221,7 @@ impl VoxelGame {
         }
         let blocks = if all { possible } else { 1 };
         let left = stack.count - blocks * kind.per_block();
-        *self.inventory.slot_mut(slot) = (left > 0).then_some(ItemStack {
+        *self.players.me_mut().inventory.slot_mut(slot) = (left > 0).then_some(ItemStack {
             count: left,
             ..stack
         });

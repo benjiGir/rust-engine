@@ -241,6 +241,8 @@ impl VoxelGame {
                             ..
                         } if !done => {
                             let carried: u32 = self
+                                .players
+                                .me()
                                 .inventory
                                 .slots
                                 .iter()

@@ -659,7 +659,7 @@ impl VoxelGame {
             SPRINT_SPEED
         } else {
             WALK_SPEED
-        } * self.gear.move_speed();
+        } * self.players.me_mut().gear.move_speed();
         let intent = (direction * speed, walk.jump);
         walk.seconds -= dt;
         if walk.seconds <= 0.0 {
@@ -736,7 +736,7 @@ impl VoxelGame {
             Command::Goto(feet) => {
                 player::set_eye(
                     &self.ecs,
-                    self.player,
+                    self.players.entity(),
                     feet + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT,
                 );
                 Ok(self.state_json())
@@ -751,7 +751,7 @@ impl VoxelGame {
                 Ok(self.state_json())
             }
             Command::LookAt(point) => {
-                let eye = player::eye(&self.ecs, self.player, 1.0);
+                let eye = player::eye(&self.ecs, self.players.entity(), 1.0);
                 let direction = (point - eye).normalize_or_zero();
                 if direction == Vec3::ZERO {
                     bail!("lookat : le point est déjà dans l'œil");
@@ -765,7 +765,7 @@ impl VoxelGame {
                 Ok(self.state_json())
             }
             Command::Walk(walk) => {
-                if player::mode(&self.ecs, self.player) == MoveMode::Fly {
+                if player::mode(&self.ecs, self.players.entity()) == MoveMode::Fly {
                     bail!("walk : en vol, utiliser goto ou `mode walk`");
                 }
                 self.remote.walk = Some(walk);
@@ -861,7 +861,11 @@ impl VoxelGame {
                     .items
                     .id(&key)
                     .with_context(|| format!("give : objet inconnu « {key} »"))?;
-                let left = self.inventory.add(item, amount, &self.content.items);
+                let left = self
+                    .players
+                    .me_mut()
+                    .inventory
+                    .add(item, amount, &self.content.items);
                 Ok(format!(
                     "{{\"ok\":true,\"given\":{},\"full\":{left}}}",
                     amount - left
@@ -869,12 +873,21 @@ impl VoxelGame {
             }
             Command::Select(slot) => {
                 // Pour les essais : une case hors de la barre peut être tenue en main.
-                self.inventory.selected = slot.min(self.inventory.slots.len().saturating_sub(1));
+                self.players.me_mut().inventory.selected = slot.min(
+                    self.players
+                        .me_mut()
+                        .inventory
+                        .slots
+                        .len()
+                        .saturating_sub(1),
+                );
                 Ok(self.state_json())
             }
             Command::Inventory => {
                 let items = &self.content.items;
                 let slots: Vec<String> = self
+                    .players
+                    .me_mut()
                     .inventory
                     .slots
                     .iter()
@@ -892,13 +905,13 @@ impl VoxelGame {
                     .collect();
                 Ok(format!(
                     "{{\"ok\":true,\"selected\":{},\"slots\":[{}]}}",
-                    self.inventory.selected + 1,
+                    self.players.me_mut().inventory.selected + 1,
                     slots.join(",")
                 ))
             }
             Command::Mode(mode) => {
-                if player::mode(&self.ecs, self.player) != mode {
-                    player::toggle_mode(&mut self.ecs, self.player);
+                if player::mode(&self.ecs, self.players.entity()) != mode {
+                    player::toggle_mode(&mut self.ecs, self.players.entity());
                 }
                 self.remote.walk = None;
                 Ok(self.state_json())
@@ -1000,7 +1013,7 @@ impl VoxelGame {
                         .cart_by_id(id)
                         .with_context(|| format!("ride : pas de wagon {id}"))?,
                     None => {
-                        let feet = player::body(&self.ecs, self.player).position;
+                        let feet = player::body(&self.ecs, self.players.entity()).position;
                         let mut best: Option<(f32, engine_ecs::Entity)> = None;
                         self.ecs
                             .query::<(&crate::components::Transform, &crate::carts::Cart)>()
@@ -1076,7 +1089,7 @@ impl VoxelGame {
                 ))
             }
             Command::Structures(radius) => {
-                let feet = player::body(&self.ecs, self.player).position;
+                let feet = player::body(&self.ecs, self.players.entity()).position;
                 let streamer = self.streamer();
                 let generator = streamer.generator();
                 let list: Vec<String> = generator
@@ -1123,7 +1136,7 @@ impl VoxelGame {
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .clone();
                 let mut mobs: Vec<(f32, String)> = Vec::new();
-                let eye = player::eye(&self.ecs, self.player, 1.0);
+                let eye = player::eye(&self.ecs, self.players.entity(), 1.0);
                 self.ecs
                     .query::<(&crate::components::Transform, &crate::components::Health, &crate::components::Mob)>()
                     .for_each(|_, (transform, health, mob)| {
@@ -1166,7 +1179,7 @@ impl VoxelGame {
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .id(&key)
                     .with_context(|| format!("summon : créature inconnue « {key} »"))?;
-                let feet = player::body(&self.ecs, self.player).position;
+                let feet = player::body(&self.ecs, self.players.entity()).position;
                 let at = feet + self.camera.forward_flat() * 3.0;
                 crate::mobs::spawn_mob(&mut self.ecs, kind, at).context("summon : impossible")?;
                 Ok(format!("{{\"ok\":true,\"pos\":{}}}", vec3(at)))
@@ -1295,16 +1308,22 @@ impl VoxelGame {
                 Ok(self.state_json())
             }
             Command::Attack => {
-                let eye = player::eye(&self.ecs, self.player, 1.0);
+                let eye = player::eye(&self.ecs, self.players.entity(), 1.0);
                 let forward = self.camera.forward();
                 // Un wagon visé : un coup (le second le casse).
-                if crate::mobs::hit_mob(&self.ecs, eye, forward, self.gear.reach()).is_none()
+                if crate::mobs::hit_mob(&self.ecs, eye, forward, self.players.me_mut().gear.reach())
+                    .is_none()
                     && self.punch_cart()
                 {
                     return Ok(ok());
                 }
-                let (mob, _) = crate::mobs::hit_mob(&self.ecs, eye, forward, self.gear.reach())
-                    .context("attack : aucune créature ni aucun wagon visé à portée")?;
+                let (mob, _) = crate::mobs::hit_mob(
+                    &self.ecs,
+                    eye,
+                    forward,
+                    self.players.me_mut().gear.reach(),
+                )
+                .context("attack : aucune créature ni aucun wagon visé à portée")?;
                 let strike = self
                     .strike_mob(mob, forward)
                     .context("attack : la créature vient d'être frappée (invulnérable)")?;
@@ -1324,19 +1343,23 @@ impl VoxelGame {
                 let is_food = |slot: &Option<crate::inventory::ItemStack>| {
                     slot.is_some_and(|s| items.get(s.item).food.is_some())
                 };
-                let index = if is_food(&self.inventory.slots[self.inventory.selected]) {
-                    self.inventory.selected
+                let index = if is_food(
+                    &self.players.me().inventory.slots[self.players.me().inventory.selected],
+                ) {
+                    self.players.me_mut().inventory.selected
                 } else {
-                    self.inventory
+                    self.players
+                        .me_mut()
+                        .inventory
                         .slots
                         .iter()
                         .position(is_food)
                         .context("eat : aucun aliment dans l'inventaire")?
                 };
-                if !self.hunger.hungry(&self.hunger_rules) {
+                if !self.players.me_mut().hunger.hungry(&self.hunger_rules) {
                     bail!("eat : rassasié");
                 }
-                let slot = &mut self.inventory.slots[index];
+                let slot = &mut self.players.me_mut().inventory.slots[index];
                 let Some(stack) = slot.as_mut() else {
                     bail!("eat : case vide");
                 };
@@ -1345,13 +1368,21 @@ impl VoxelGame {
                 if stack.count == 0 {
                     *slot = None;
                 }
-                self.hunger
-                    .eat(&self.hunger_rules, food.nutrition, food.saturation);
+                self.players.me_mut().hunger.eat(
+                    &self.hunger_rules,
+                    food.nutrition,
+                    food.saturation,
+                );
                 Ok(self.state_json())
             }
             Command::Hunger(food) => {
-                self.hunger.food = food.clamp(0.0, self.hunger_rules.max_food);
-                self.hunger.saturation = self.hunger.saturation.min(self.hunger.food);
+                self.players.me_mut().hunger.food = food.clamp(0.0, self.hunger_rules.max_food);
+                self.players.me_mut().hunger.saturation = self
+                    .players
+                    .me_mut()
+                    .hunger
+                    .saturation
+                    .min(self.players.me_mut().hunger.food);
                 Ok(self.state_json())
             }
             Command::Culling(enabled) => {
@@ -1385,12 +1416,12 @@ impl VoxelGame {
 
     /// Le bloc visé, recalculé maintenant (la commande a pu tourner la tête).
     pub(crate) fn aimed(&mut self) -> Result<engine_voxel::RayHit> {
-        let eye = player::eye(&self.ecs, self.player, 1.0);
+        let eye = player::eye(&self.ecs, self.players.entity(), 1.0);
         let hit = engine_voxel::raycast(
             self.streamer().world(),
             eye,
             self.camera.forward(),
-            self.gear.reach(),
+            self.players.me().gear.reach(),
         );
         self.target = hit;
         hit.context("aucun bloc visé à portée")
@@ -1404,14 +1435,14 @@ impl VoxelGame {
             Mode::Paused(_) => "paused",
             Mode::Dead(_) => "dead",
         };
-        let feet = player::body(&self.ecs, self.player).position;
+        let feet = player::body(&self.ecs, self.players.entity()).position;
         // L'état de la physique est dans le `Collider` (le `PlayerBody` est recréé).
         let collider = self
             .ecs
-            .get::<crate::Collider>(self.player)
+            .get::<crate::Collider>(self.players.entity())
             .map(|c| *c)
             .unwrap_or_default();
-        let health = player::health(&self.ecs, self.player);
+        let health = player::health(&self.ecs, self.players.entity());
         let streamer = self.streamer();
         let generator = streamer.generator();
         // Le biome là où l'on est : celui d'une grotte souterraine, sinon celui de la colonne.
@@ -1433,14 +1464,17 @@ impl VoxelGame {
             ),
             None => "null".into(),
         };
-        let selected = match self.inventory.selected_stack() {
+        let selected = match self.players.me().inventory.selected_stack() {
             Some(stack) => format!(
                 "{{\"slot\":{},\"item\":{},\"count\":{}}}",
-                self.inventory.selected + 1,
+                self.players.me().inventory.selected + 1,
                 json_str(&self.content.items.get(stack.item).key),
                 stack.count
             ),
-            None => format!("{{\"slot\":{},\"item\":null}}", self.inventory.selected + 1),
+            None => format!(
+                "{{\"slot\":{},\"item\":null}}",
+                self.players.me().inventory.selected + 1
+            ),
         };
         let stats = streamer.stats();
         format!(
@@ -1452,7 +1486,7 @@ impl VoxelGame {
 \"survival\":{{\"air\":{:.2},\"burning\":{:.2},\"protection\":{},\
 \"food\":{:.2},\"saturation\":{:.2},\"exhaustion\":{:.3},\"bed\":{},\"death\":{},\"xp\":{},\"level\":{}}}}}",
             // Les mêmes mots que la commande `mode`.
-            match player::mode(&self.ecs, self.player) {
+            match player::mode(&self.ecs, self.players.entity()) {
                 MoveMode::Walk => "walk",
                 MoveMode::Fly => "fly",
             },
@@ -1477,19 +1511,19 @@ impl VoxelGame {
             self.last_render.meshes_total,
             self.last_render.triangles,
             self.culling.enabled,
-            self.vitals.air,
-            self.vitals.burning,
-            self.inventory.protection(&self.content.items),
-            self.hunger.food,
-            self.hunger.saturation,
-            self.hunger.exhaustion,
-            self.bed.map_or("null".into(), ivec3),
+            self.players.me().vitals.air,
+            self.players.me().vitals.burning,
+            self.players.me().inventory.protection(&self.content.items),
+            self.players.me().hunger.food,
+            self.players.me().hunger.saturation,
+            self.players.me().hunger.exhaustion,
+            self.players.me().bed.map_or("null".into(), ivec3),
             match &self.mode {
                 Mode::Dead(message) => json_str(message),
                 _ => "null".into(),
             },
-            self.experience.points,
-            self.experience.level().0,
+            self.players.me().experience.points,
+            self.players.me().experience.level().0,
         )
     }
 }

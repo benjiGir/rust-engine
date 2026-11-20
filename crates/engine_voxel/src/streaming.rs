@@ -82,6 +82,9 @@ use crate::save::{ChunkToSave, SaveReport, SaveStore, UnknownBlocks};
 use crate::transfer::TransferBudget;
 use crate::world::World;
 
+mod views;
+pub use views::View;
+
 /// Les réglages du chargement.
 #[derive(Debug, Clone)]
 pub struct StreamingConfig {
@@ -253,8 +256,14 @@ pub struct ChunkStreamer {
     /// Colonnes et chunks peut-être prêts (on vérifie au moment de lancer).
     light_candidates: HashSet<IVec2>,
     mesh_candidates: HashSet<IVec3>,
-    /// Le chunk du joueur lors du dernier tri.
+    /// Le chunk de la vue principale lors du dernier tri : celle qui est maillée et dessinée (voir
+    /// [`View`]).
     centre: Option<IVec3>,
+    /// Les chunks des autres vues, qui chargent, génèrent et éclairent sans mailler (triés, sans
+    /// doublon, sans le centre principal).
+    others: Vec<IVec3>,
+    /// Une vue demande des maillages (sans elle, un serveur sans fenêtre ne maille rien).
+    meshing: bool,
     /// Les chunks chargés sans aucune lumière du ciel (voir [`StreamingConfig::mesh_depth`]).
     dark: HashSet<IVec3>,
     /// La couche du joueur au dernier rafraîchissement.
@@ -341,6 +350,8 @@ impl ChunkStreamer {
             light_candidates: HashSet::default(),
             mesh_candidates: HashSet::default(),
             centre: None,
+            others: Vec::new(),
+            meshing: true,
             dark: HashSet::default(),
             centre_layer: None,
             next_ticket: 0,
@@ -964,24 +975,11 @@ impl ChunkStreamer {
     /// chargées un peu avant celles de derrière (voir [`StreamingConfig::view_bias`]). Un regard presque
     /// vertical ne change pas la direction retenue ; `Vec3::ZERO` n'en donne aucune.
     pub fn update_view(&mut self, player: Vec3, forward: Vec3) {
-        let _span = engine_trace::span("chunks : file et réception");
-        let centre = World::chunk_containing(player);
-        let flat = Vec2::new(forward.x, forward.z);
-        if flat.length_squared() > 0.04 {
-            self.view = Some(flat.normalize());
-        }
-        if self.centre != Some(centre) {
-            self.centre = Some(centre);
-            self.refresh(centre);
-        } else if self.view_changed_enough() {
-            self.resort_load_queue(centre);
-        }
-        self.receive();
-        // Les chunks modifiés en silence (machines) : un seul remaillage par chunk et par image.
-        for pos in std::mem::take(&mut self.remesh_pending) {
-            self.remesh_soon(pos);
-        }
-        self.schedule(centre);
+        self.update_views(&[View {
+            position: player,
+            forward,
+            mesh: true,
+        }]);
     }
 
     /// Le prochain événement à traiter (maillage à envoyer au GPU, chunk à libérer), sans limite :
@@ -1020,8 +1018,8 @@ impl ChunkStreamer {
         self.waiting
             .keys()
             .min_by(|a, b| {
-                self.priority(**a, centre)
-                    .total_cmp(&self.priority(**b, centre))
+                self.priority_from(**a, centre, true)
+                    .total_cmp(&self.priority_from(**b, centre, true))
             })
             .copied()
     }
@@ -1037,13 +1035,14 @@ impl ChunkStreamer {
     /// [`StreamingConfig::view_bias`] : on complète les colonnes dans l'ordre de leur distance
     /// horizontale (avec le biais de vue), puis chacune du chunk le plus proche en hauteur au plus
     /// loin ; l'ancien ordre était la distance 3D de chaque chunk.
-    fn priority(&self, pos: IVec3, centre: IVec3) -> f32 {
+    fn priority_from(&self, pos: IVec3, centre: IVec3, biased: bool) -> f32 {
         let d = pos - centre;
         if !self.config.column_order {
             return (d.x * d.x + d.y * d.y + d.z * d.z) as f32;
         }
         let mut score = (d.x * d.x + d.z * d.z) as f32;
-        if self.config.view_bias > 0.0
+        if biased
+            && self.config.view_bias > 0.0
             && score > 9.0
             && let Some(view) = self.view
         {
@@ -1051,6 +1050,15 @@ impl ChunkStreamer {
             score *= 1.0 + self.config.view_bias * (1.0 - cosine) * 0.5;
         }
         score * 8.0 + d.y.abs() as f32
+    }
+
+    /// La priorité d'un chunk à charger ou à éclairer : la meilleure (la plus petite) parmi toutes
+    /// les vues. Seule la vue principale a le biais du regard.
+    fn priority(&self, pos: IVec3, centre: IVec3) -> f32 {
+        self.others
+            .iter()
+            .map(|&other| self.priority_from(pos, other, false))
+            .fold(self.priority_from(pos, centre, true), f32::min)
     }
 
     /// La caméra a tourné d'au moins 25 degrés depuis le dernier tri de la file de chargement.
@@ -1117,9 +1125,15 @@ impl ChunkStreamer {
     /// Une colonne doit être éclairée si elle touche (diagonales comprises) une colonne visible.
     fn wants_light(&self, column: IVec2, centre: IVec2) -> bool {
         let view_sq = self.config.view_radius.pow(2);
-        (-1..=1).any(|dx| {
-            (-1..=1).any(|dz| (column + IVec2::new(dx, dz) - centre).length_squared() <= view_sq)
-        })
+        std::iter::once(centre)
+            .chain(self.others.iter().map(|o| IVec2::new(o.x, o.z)))
+            .any(|centre| {
+                (-1..=1).any(|dx| {
+                    (-1..=1).any(|dz| {
+                        (column + IVec2::new(dx, dz) - centre).length_squared() <= view_sq
+                    })
+                })
+            })
     }
 
     /// Le joueur a changé de chunk : décharger ce qui est trop loin, retrier la file.
@@ -1127,12 +1141,21 @@ impl ChunkStreamer {
         let load_radius = self.load_radius();
         let unload_radius = load_radius + self.config.unload_margin;
         let flat = IVec2::new(centre.x, centre.z);
+        // Toutes les vues : un chunk n'est libéré que hors du rayon de chacune.
+        let centres: Vec<IVec3> = std::iter::once(centre)
+            .chain(self.others.iter().copied())
+            .collect();
+        let near_any = |pos: IVec3, radius: i32| {
+            centres
+                .iter()
+                .any(|c| horizontal_distance_sq(pos, *c) <= radius * radius)
+        };
 
         // 1. Déchargement. `retain` garde les éléments pour lesquels la closure renvoie `true`.
         let mut unloaded = Vec::new();
         // Le joueur a changé de couche : les chunks sombres qui entrent dans la tranche maillée
         // (voir `mesh_depth`) deviennent candidats.
-        if self.centre_layer != Some(centre.y) {
+        if self.centre_layer != Some(centre.y) && self.meshing {
             self.centre_layer = Some(centre.y);
             let fresh: Vec<IVec3> = self
                 .dark
@@ -1144,18 +1167,20 @@ impl ChunkStreamer {
             self.mesh_candidates.extend(fresh);
         }
         self.slots.retain(|&pos, _| {
-            let keep = horizontal_distance_sq(pos, centre) <= unload_radius * unload_radius;
+            let keep = near_any(pos, unload_radius);
             if !keep {
                 unloaded.push(pos);
             }
             keep
         });
-        self.columns
-            .retain(|&c, _| (c - flat).length_squared() <= unload_radius * unload_radius);
-        self.dark
-            .retain(|&p| horizontal_distance_sq(p, centre) <= unload_radius * unload_radius);
-        self.light_candidates
-            .retain(|&c| (c - flat).length_squared() <= unload_radius * unload_radius);
+        let near_any_column = |c: IVec2| {
+            centres.iter().any(|o| {
+                (c - IVec2::new(o.x, o.z)).length_squared() <= unload_radius * unload_radius
+            })
+        };
+        self.columns.retain(|&c, _| near_any_column(c));
+        self.dark.retain(|&p| near_any(p, unload_radius));
+        self.light_candidates.retain(|&c| near_any_column(c));
         // Les maillages en attente des chunks déchargés ne servent plus : un seul passage
         // sur chaque file (un passage par chunk coûtait 60 ms pour 7 000 chunks d'un coup, après
         // une téléportation lointaine).
@@ -1195,15 +1220,21 @@ impl ChunkStreamer {
         // 2. Nouvelle file de chargement, triée du plus proche au plus lointain.
         let mut wanted = Vec::new();
         let vertical = self.world.vertical();
-        for dx in -load_radius..=load_radius {
-            for dz in -load_radius..=load_radius {
-                if dx * dx + dz * dz > load_radius * load_radius {
-                    continue;
-                }
-                for y in vertical.clone() {
-                    let pos = IVec3::new(centre.x + dx, y, centre.z + dz);
-                    if !self.slots.contains_key(&pos) {
-                        wanted.push(pos);
+        let mut seen: HashSet<IVec3> = HashSet::default();
+        for c in &centres {
+            for dx in -load_radius..=load_radius {
+                for dz in -load_radius..=load_radius {
+                    if dx * dx + dz * dz > load_radius * load_radius {
+                        continue;
+                    }
+                    for y in vertical.clone() {
+                        let pos = IVec3::new(c.x + dx, y, c.z + dz);
+                        // Les disques de plusieurs vues se recouvrent : un chunk n'est demandé qu'une fois.
+                        if !self.slots.contains_key(&pos)
+                            && (centres.len() == 1 || seen.insert(pos))
+                        {
+                            wanted.push(pos);
+                        }
                     }
                 }
             }
@@ -1234,7 +1265,8 @@ impl ChunkStreamer {
         self.light_candidates.extend(to_light);
         let view_sq = self.config.view_radius.pow(2);
         for (&pos, slot) in &self.slots {
-            if *slot == Slot::Generated(MeshState::Missing)
+            if self.meshing
+                && *slot == Slot::Generated(MeshState::Missing)
                 && horizontal_distance_sq(pos, centre) <= view_sq
             {
                 self.mesh_candidates.insert(pos);
@@ -1377,7 +1409,8 @@ impl ChunkStreamer {
         let max = self.config.max_jobs_in_flight;
         if self.in_flight < max && !self.mesh_candidates.is_empty() {
             let mut candidates: Vec<IVec3> = self.mesh_candidates.iter().copied().collect();
-            candidates.sort_by_cached_key(|&pos| (self.priority(pos, centre) * 16.0) as i64);
+            candidates
+                .sort_by_cached_key(|&pos| (self.priority_from(pos, centre, true) * 16.0) as i64);
             for pos in candidates {
                 if self.in_flight >= max {
                     break; // Les autres restent candidats pour l'image suivante.
@@ -1448,7 +1481,8 @@ impl ChunkStreamer {
     /// C'est pour ça qu'on génère et qu'on éclaire plus loin que le rayon de vue.
     fn ready_to_mesh(&self, pos: IVec3, centre: IVec3) -> bool {
         let view = self.config.view_radius;
-        self.slots.get(&pos) == Some(&Slot::Generated(MeshState::Missing))
+        self.meshing
+            && self.slots.get(&pos) == Some(&Slot::Generated(MeshState::Missing))
             && horizontal_distance_sq(pos, centre) <= view * view
             && self.in_vertical_view(pos, centre)
             && self.surroundings_lit(pos)

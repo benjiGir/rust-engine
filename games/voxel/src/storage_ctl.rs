@@ -183,10 +183,14 @@ impl VoxelGame {
                     (Some(n), _) | (None, Screen::Bag(n)) => n,
                     (None, _) => {
                         let items = self.content.items.clone();
-                        crate::backpacks::carried(&self.inventory, &items, &mut self.backpacks)
-                            .first()
-                            .map(|c| c.number)
-                            .context("bag : aucun sac numéroté (ouvrir un sac avec `backpack`)")?
+                        crate::backpacks::carried(
+                            &self.players.me_mut().inventory,
+                            &items,
+                            &mut self.backpacks,
+                        )
+                        .first()
+                        .map(|c| c.number)
+                        .context("bag : aucun sac numéroté (ouvrir un sac avec `backpack`)")?
                     }
                 };
                 let bag = self

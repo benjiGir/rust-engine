@@ -15,7 +15,8 @@ use serde::Deserialize;
 
 use crate::components::{Collider, Flying, Mob, PreviousPosition, Transform, Wander};
 use crate::events::{self, PlayerAttacked};
-use crate::mobs::{FixedDt, MobRegistry, PlayerEntity};
+use crate::mobs::{FixedDt, MobRegistry, PlayerSpot};
+use crate::players::PlayerId;
 use crate::shared::StreamerExt as _;
 
 /// La gravité des projectiles (blocs par seconde²), plus faible que celle des corps.
@@ -75,15 +76,14 @@ pub fn aim(from: Vec3, to: Vec3, speed: f32) -> Vec3 {
 
 /// Les créatures qui tirent : à portée, si elles voient le joueur, et rechargées.
 pub fn shoot(world: &mut World) {
-    let player = world.resource::<PlayerEntity>().0;
-    if world.has::<Flying>(player) {
+    // On ne tire pas sur qui vole : seuls les joueurs au sol sont des cibles.
+    let spots: Vec<PlayerSpot> = crate::mobs::player_spots(world)
+        .into_iter()
+        .filter(|s| !world.has::<Flying>(s.entity))
+        .collect();
+    if spots.is_empty() {
         return;
     }
-    let Some(target) = world.get::<Transform>(player).map(|t| t.position) else {
-        return;
-    };
-    // Viser le torse.
-    let target = target + Vec3::Y * 1.2;
     let registry = world.resource::<Arc<MobRegistry>>().clone();
     let shared = world.streamer();
     let streamer = shared.borrow();
@@ -94,6 +94,11 @@ pub fn shoot(world: &mut World) {
             let Some(ranged) = registry.get(mob.kind).and_then(|d| d.ranged) else {
                 return;
             };
+            // Le joueur le plus proche, visé au torse.
+            let Some(target) = crate::mobs::nearest_position(&spots, transform.position) else {
+                return;
+            };
+            let target = target + Vec3::Y * 1.2;
             let eye = eye_of(transform.position, collider);
             if wander.attack_cooldown > 0.0
                 || eye.distance(target) > ranged.range
@@ -130,9 +135,12 @@ pub fn shoot(world: &mut World) {
 /// blesse).
 pub fn fly(world: &mut World) {
     let dt = world.resource::<FixedDt>().0;
-    let player = world.resource::<PlayerEntity>().0;
-    let flying = world.has::<Flying>(player);
-    let feet = world.get::<Transform>(player).map(|t| t.position);
+    // Les joueurs que les tirs peuvent toucher : ceux qui ne volent pas.
+    let targets: Vec<(Option<PlayerId>, Vec3)> = crate::mobs::player_spots(world)
+        .into_iter()
+        .filter(|s| !world.has::<Flying>(s.entity))
+        .map(|s| (world.get::<PlayerId>(s.entity).map(|id| *id), s.position))
+        .collect();
     let shared = world.streamer();
     let streamer = shared.borrow();
     let mut gone = Vec::new();
@@ -153,26 +161,25 @@ pub fn fly(world: &mut World) {
                 return;
             }
             transform.position = from + step;
-            // Le joueur : sa boîte (0,6 de large, 1,8 de haut), un peu élargie.
-            if let Some(feet) = feet
-                && !flying
-            {
-                let p = transform.position;
-                let inside = (p.x - feet.x).abs() < 0.45
+            // Un joueur : sa boîte (0,6 de large, 1,8 de haut), un peu élargie.
+            let p = transform.position;
+            let touched = targets.iter().find(|(_, feet)| {
+                (p.x - feet.x).abs() < 0.45
                     && (p.z - feet.z).abs() < 0.45
                     && p.y > feet.y - 0.1
-                    && p.y < feet.y + 1.9;
-                if inside {
-                    hits.push((projectile.damage, from));
-                    gone.push(entity);
-                }
+                    && p.y < feet.y + 1.9
+            });
+            if let Some((player, _)) = touched {
+                hits.push((*player, projectile.damage, from));
+                gone.push(entity);
             }
         });
     drop(streamer);
-    for (amount, from) in hits {
+    for (player, amount, from) in hits {
         events::send(
             world,
             PlayerAttacked {
+                player,
                 amount: amount * crate::elites::tier_damage(world),
                 from,
                 pierce: 0.0,

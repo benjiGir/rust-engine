@@ -29,10 +29,14 @@ const TOAST_SECONDS: f32 = 3.0;
 impl VoxelGame {
     /// À chaque pas : la vie à 0, c'est la mort.
     pub(crate) fn check_death(&mut self) {
-        if self.mode != Mode::Playing || player::health(&self.ecs, self.player).current > 0.0 {
+        if self.mode != Mode::Playing
+            || player::health(&self.ecs, self.players.entity()).current > 0.0
+        {
             return;
         }
         let message = self
+            .players
+            .me_mut()
             .vitals
             .last_cause
             .map_or("Vous êtes mort.", |cause| cause.death_message());
@@ -42,20 +46,20 @@ impl VoxelGame {
             self.close_screen();
             self.ui.inventory_open = false;
         }
-        let feet = player::body(&self.ecs, self.player)
+        let feet = player::body(&self.ecs, self.players.entity())
             .position
             .floor()
             .as_ivec3();
-        let stacks = self.inventory.take_all();
+        let stacks = self.players.me_mut().inventory.take_all();
         let dropped: u32 = stacks.iter().map(|s| s.count).sum();
         for stack in stacks {
             self.drop_stack(feet, stack);
         }
-        self.mining = None;
-        self.hunger.chewing = None;
+        self.players.me_mut().mining = None;
+        self.players.me_mut().hunger.chewing = None;
         // L'expérience est perdue.
-        let (level, _) = self.experience.level();
-        self.experience = crate::survival::Experience::default();
+        let (level, _) = self.players.me_mut().experience.level();
+        self.players.me_mut().experience = crate::survival::Experience::default();
         log::info!("{message} ({dropped} objets lâchés en {feet}, niveau {level} perdu)");
         self.mode = Mode::Dead(message.to_string());
     }
@@ -65,27 +69,27 @@ impl VoxelGame {
         let feet = self.respawn_point();
         player::set_eye(
             &self.ecs,
-            self.player,
+            self.players.entity(),
             feet + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT,
         );
-        if let Some(mut health) = self.ecs.get_mut::<Health>(self.player) {
+        if let Some(mut health) = self.ecs.get_mut::<Health>(self.players.entity()) {
             health.current = health.max;
         }
-        self.vitals = Vitals::new(&self.survival);
-        self.hunger = Hunger::new(&self.hunger_rules);
-        self.effects.clear();
+        self.players.me_mut().vitals = Vitals::new(&self.survival);
+        self.players.me_mut().hunger = Hunger::new(&self.hunger_rules);
+        self.players.me_mut().effects.clear();
         self.mode = Mode::Playing;
         log::info!("réapparition en {feet}");
     }
 
     /// Où réapparaître : sur le lit (s'il n'a pas été cassé), sinon au point de départ.
     fn respawn_point(&mut self) -> Vec3 {
-        if let Some(bed) = self.bed {
+        if let Some(bed) = self.players.me_mut().bed {
             let head = bed::head_at(self.streamer().world(), bed);
             if let Some(head) = head {
                 return head.as_vec3() + Vec3::new(0.5, 1.0, 0.5);
             }
-            self.bed = None;
+            self.players.me_mut().bed = None;
             self.toast("Votre lit a disparu : retour au point de départ");
         }
         let spawn = self.spawn;
@@ -103,7 +107,7 @@ impl VoxelGame {
         let Some(head) = head else {
             return false;
         };
-        self.bed = Some(head);
+        self.players.me_mut().bed = Some(head);
         if !self.day.is_night() {
             self.toast("Point de réapparition fixé");
             return true;

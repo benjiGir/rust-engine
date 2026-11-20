@@ -16,8 +16,8 @@ const MAX_LINES: usize = 3;
 impl VoxelGame {
     pub(crate) fn draw_pinned_quests(&mut self, ctx: &egui::Context) {
         let (Some(quests), Some(progress)) = (
-            self.quest_book.quests(),
-            self.quest_book.progress().cloned(),
+            self.players.me_mut().quest_book.quests(),
+            self.players.me_mut().quest_book.progress().cloned(),
         ) else {
             return;
         };
@@ -32,7 +32,7 @@ impl VoxelGame {
         }
         let screen = ctx.content_rect().width();
         let offset = geometry::pin_offset(
-            self.effects.list().len(),
+            self.players.me_mut().effects.list().len(),
             screen,
             self.ui.toast.is_some(),
             self.ui.target_bottom,

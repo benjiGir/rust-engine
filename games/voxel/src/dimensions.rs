@@ -206,7 +206,7 @@ impl VoxelGame {
                 );
             }
         }
-        let feet = crate::player::body(&self.ecs, self.player).position;
+        let feet = crate::player::body(&self.ecs, self.players.entity()).position;
         let cells = [feet.floor().as_ivec3(), (feet + Vec3::Y).floor().as_ivec3()];
         let portal = {
             let streamer = self.streamer();

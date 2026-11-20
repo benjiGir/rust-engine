@@ -145,7 +145,7 @@ impl VoxelGame {
                     affixes::apply(&mut damage, sheet),
                     "loot : plus de numéro de fiche"
                 );
-                let left = self.inventory.add_stack(
+                let left = self.players.me_mut().inventory.add_stack(
                     ItemStack {
                         item,
                         count: 1,
@@ -166,7 +166,11 @@ impl VoxelGame {
                     .items
                     .id(&kind.item_key(quality - 1))
                     .context("gem : objet absent")?;
-                let left = self.inventory.add(item, count, &self.content.items);
+                let left = self
+                    .players
+                    .me_mut()
+                    .inventory
+                    .add(item, count, &self.content.items);
                 Ok(format!("{{\"ok\":true,\"full\":{left}}}"))
             }
             Command::Tier(tier) => {
@@ -175,14 +179,14 @@ impl VoxelGame {
                     "tier : 0 à {}",
                     data.tiers.len() - 1
                 );
-                let progress = &mut self.adventure.progress;
+                let progress = &mut self.players.me_mut().adventure.progress;
                 progress.unlocked = progress.unlocked.max(tier);
                 progress.select(tier, &data.tiers);
                 Ok(self.adventure_json())
             }
             Command::Tiers => Ok(self.adventure_json()),
             Command::Progress(what, n) => {
-                let p = &mut self.adventure.progress;
+                let p = &mut self.players.me_mut().adventure.progress;
                 match what.as_str() {
                     "kills" => p.kills = n.max(0) as u32,
                     "bosses" => p.bosses = n.max(0) as u32,
@@ -246,8 +250,8 @@ impl VoxelGame {
                 Ok(format!("{{\"ok\":true,\"slain\":{count}}}"))
             }
             Command::Cursor(slot) => {
-                self.inventory.cursor = match slot {
-                    Some(i) => self.inventory.slots[i].take(),
+                self.players.me_mut().inventory.cursor = match slot {
+                    Some(i) => self.players.me_mut().inventory.slots[i].take(),
                     None => None,
                 };
                 Ok("{\"ok\":true}".to_string())
@@ -287,13 +291,13 @@ impl VoxelGame {
                 Ok("{\"ok\":true}".to_string())
             }
             Command::ClearInventory => {
-                self.inventory.slots = [None; crate::inventory::SLOTS];
-                self.inventory.cursor = None;
+                self.players.me_mut().inventory.slots = [None; crate::inventory::SLOTS];
+                self.players.me_mut().inventory.cursor = None;
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Sockets(n) => {
-                let selected = self.inventory.selected;
-                let stack = self.inventory.slots[selected]
+                let selected = self.players.me_mut().inventory.selected;
+                let stack = self.players.me_mut().inventory.slots[selected]
                     .as_mut()
                     .context("sockets : rien en main")?;
                 crate::enchanting::edit_sheet(&mut stack.damage, |s| {
@@ -315,7 +319,7 @@ impl VoxelGame {
         let id = registry
             .id(&key)
             .with_context(|| format!("créature inconnue « {key} »"))?;
-        let feet = crate::player::body(&self.ecs, self.player).position;
+        let feet = crate::player::body(&self.ecs, self.players.entity()).position;
         let distance = if invader { 18.0 } else { 5.0 };
         let mut at: Vec3 = feet + self.camera.forward_flat() * distance;
         // Au sol : le premier bloc plein sous le point, vers le bas.
@@ -331,7 +335,7 @@ impl VoxelGame {
         let promoted = if invader {
             self.promote_invader(entity, &data)
         } else {
-            let tier = self.adventure.progress.tier;
+            let tier = self.players.me_mut().adventure.progress.tier;
             let mut rng = engine_voxel::Rng64::new(self.next_random());
             crate::elites::promote(&mut self.ecs, entity, &data, tier, false, &mut rng)
         };
@@ -353,8 +357,8 @@ impl VoxelGame {
     /// La progression et le palier, en JSON.
     pub(crate) fn adventure_json(&self) -> String {
         let data = adventure_data::current();
-        let p = &self.adventure.progress;
-        let effects = self.adventure.effects(&data);
+        let p = &self.players.me().adventure.progress;
+        let effects = self.players.me().adventure.effects(&data);
         format!(
             "{{\"ok\":true,\"tier\":{},\"unlocked\":{},\"kills\":{},\"bosses\":{},\"best_rarity\":{},\"depth\":{},\"health\":{:.2},\"damage\":{:.2},\"elite_chance\":{:.2}}}",
             p.tier,

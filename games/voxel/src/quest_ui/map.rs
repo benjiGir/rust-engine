@@ -145,7 +145,7 @@ pub(super) fn check_mark(painter: &egui::Painter, at: Pos2, size: f32) {
 impl VoxelGame {
     /// Les quêtes montrées du chapitre, prêtes pour la géométrie.
     fn plan_nodes(&self, quests: &Quests, statuses: &[Status]) -> Vec<PlanNode> {
-        let visible: Vec<bool> = match self.quest_book.progress() {
+        let visible: Vec<bool> = match self.players.me().quest_book.progress() {
             Some(progress) => (0..quests.quests.len())
                 .map(|i| progress.visible(quests, i))
                 .collect(),
@@ -426,7 +426,13 @@ impl VoxelGame {
         status: Status,
     ) {
         let quest = &quests.quests[index];
-        let progress = self.quest_book.progress().cloned().unwrap_or_default();
+        let progress = self
+            .players
+            .me_mut()
+            .quest_book
+            .progress()
+            .cloned()
+            .unwrap_or_default();
         let mobs = self
             .ecs
             .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()

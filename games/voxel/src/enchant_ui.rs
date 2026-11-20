@@ -87,7 +87,7 @@ impl VoxelGame {
 
     /// L'objet en main et les lots proposés, avec leur prix.
     fn enchant_body(&mut self, ui: &mut egui::Ui, stats: &TableStats) {
-        let Some(stack) = self.inventory.selected_stack() else {
+        let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
             ui.label("Tiens un outil, une armure, un livre ou un tome dans la barre d'objets, puis reviens.");
             return;
         };
@@ -118,12 +118,12 @@ impl VoxelGame {
             return;
         };
         let gem = items.id("core:sapphire");
-        let have_gems = gem.map_or(0, |g| self.inventory.count(g));
-        let points = self.experience.points;
+        let have_gems = gem.map_or(0, |g| self.players.me_mut().inventory.count(g));
+        let points = self.players.me_mut().experience.points;
         ui.label(format!(
             "{} · {points} pts d'XP (niveau {}) · {}",
             def.name,
-            self.experience.level().0,
+            self.players.me_mut().experience.level().0,
             sapphires(have_gems)
         ));
         let mut chosen = None;
@@ -164,21 +164,23 @@ impl VoxelGame {
     /// reçoit les enchantements, un livre ou un tome devient un livre enchanté.
     fn buy_offer(&mut self, offer: &Offer, gem: Option<engine_voxel::ItemId>) {
         let Some(gem) = gem else { return };
-        if self.experience.points < offer.points || !self.inventory.remove(gem, offer.gems) {
+        if self.players.me_mut().experience.points < offer.points
+            || !self.players.me_mut().inventory.remove(gem, offer.gems)
+        {
             return;
         }
-        self.experience.points -= offer.points;
-        let selected = self.inventory.selected;
+        self.players.me_mut().experience.points -= offer.points;
+        let selected = self.players.me_mut().inventory.selected;
         let items = self.content.items.clone();
-        let Some(held) = self.inventory.slots[selected] else {
+        let Some(held) = self.players.me_mut().inventory.slots[selected] else {
             return;
         };
         if BookKind::of_key(&items.get(held.item).key).is_some() {
             // Un livre vierge : un exemplaire est consommé, et un livre enchanté le remplace.
-            if let Some(slot) = self.inventory.slots[selected].as_mut() {
+            if let Some(slot) = self.players.me_mut().inventory.slots[selected].as_mut() {
                 slot.count -= 1;
                 if slot.count == 0 {
-                    self.inventory.slots[selected] = None;
+                    self.players.me_mut().inventory.slots[selected] = None;
                 }
             }
             if let Some(enchanted) = items.id(ENCHANTED_BOOK) {
@@ -188,7 +190,7 @@ impl VoxelGame {
                     damage: offer.apply(0),
                 });
             }
-        } else if let Some(slot) = self.inventory.slots[selected].as_mut() {
+        } else if let Some(slot) = self.players.me_mut().inventory.slots[selected].as_mut() {
             slot.damage = offer.apply(slot.damage);
         }
         // La table propose autre chose la prochaine fois.
@@ -211,7 +213,7 @@ impl VoxelGame {
             )
             .weak(),
         );
-        if let Some(held) = self.inventory.cursor {
+        if let Some(held) = self.players.me_mut().inventory.cursor {
             let items = self.content.items.clone();
             ui.separator();
             ui.label(format!("À la souris : {}", items.get(held.item).name));
@@ -289,6 +291,8 @@ impl VoxelGame {
         // Le dépôt : le livre à la souris, ou tous ceux de l'inventaire.
         ui.horizontal_wrapped(|ui| {
             let cursor_book = self
+                .players
+                .me_mut()
                 .inventory
                 .cursor
                 .filter(|s| Some(s.item) == book_id && enchanting::is_enchanted(s.damage));
@@ -302,7 +306,7 @@ impl VoxelGame {
             {
                 match self.deposit_book(pos, &book) {
                     Ok(()) => {
-                        self.inventory.cursor = None;
+                        self.players.me_mut().inventory.cursor = None;
                         self.toast("Livre rangé dans la bibliothèque");
                         self.bell();
                     }
@@ -311,15 +315,15 @@ impl VoxelGame {
             }
             if ui.button("Déposer tous les livres enchantés").clicked() {
                 let mut stored = 0;
-                for i in 0..self.inventory.slots.len() {
-                    let Some(stack) = self.inventory.slots[i] else {
+                for i in 0..self.players.me_mut().inventory.slots.len() {
+                    let Some(stack) = self.players.me_mut().inventory.slots[i] else {
                         continue;
                     };
                     if Some(stack.item) != book_id || !enchanting::is_enchanted(stack.damage) {
                         continue;
                     }
                     if self.deposit_book(pos, &stack).is_ok() {
-                        self.inventory.slots[i] = None;
+                        self.players.me_mut().inventory.slots[i] = None;
                         stored += 1;
                     }
                 }
@@ -342,7 +346,7 @@ impl VoxelGame {
             );
             ui.checkbox(&mut self.enchant_ui.only_fitting, "Va sur l'objet en main");
         });
-        let held = self.inventory.selected_stack();
+        let held = self.players.me_mut().inventory.selected_stack();
         let needle = self.enchant_ui.search.trim().to_lowercase();
         let mut rows: Vec<(Enchantment, u32, u8)> = library.entries();
         rows.retain(|(kind, _, _)| {
@@ -389,7 +393,7 @@ impl VoxelGame {
                         );
                         let cost = enchant_library::points_of_level(*pick);
                         let ready = *pick <= reachable
-                            && blank.is_some_and(|b| self.inventory.count(b) > 0);
+                            && blank.is_some_and(|b| self.players.me_mut().inventory.count(b) > 0);
                         if ui
                             .add_enabled(ready, egui::Button::new(format!("Extraire ({cost} pts)")))
                             .clicked()
@@ -399,7 +403,7 @@ impl VoxelGame {
                     });
                 }
             });
-        if blank.is_some_and(|b| self.inventory.count(b) == 0) {
+        if blank.is_some_and(|b| self.players.me_mut().inventory.count(b) == 0) {
             ui.label(
                 egui::RichText::new("Il faut un livre vierge dans l'inventaire pour extraire.")
                     .weak(),
@@ -455,7 +459,7 @@ impl VoxelGame {
         let Some((mut library, _)) = self.library_state(pos) else {
             return;
         };
-        if !library.extract(kind, level) || !self.inventory.remove(blank, 1) {
+        if !library.extract(kind, level) || !self.players.me_mut().inventory.remove(blank, 1) {
             return;
         }
         self.write_library(pos, &library);

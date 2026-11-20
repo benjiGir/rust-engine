@@ -289,8 +289,8 @@ impl VoxelGame {
             .set_vsync(std::env::var("VOXEL_BENCH_VSYNC").is_ok_and(|v| v == "1"));
         self.day.time = 0.5;
         self.day.speed = TimeSpeed::Frozen;
-        if player::mode(&self.ecs, self.player) != MoveMode::Fly {
-            player::toggle_mode(&mut self.ecs, self.player);
+        if player::mode(&self.ecs, self.players.entity()) != MoveMode::Fly {
+            player::toggle_mode(&mut self.ecs, self.players.entity());
         }
     }
 
@@ -323,7 +323,11 @@ impl VoxelGame {
         };
         self.camera.yaw = yaw;
         self.camera.pitch = route.pitch.to_radians();
-        player::set_eye(&self.ecs, self.player, Vec3::new(flat.x, y, flat.z));
+        player::set_eye(
+            &self.ecs,
+            self.players.entity(),
+            Vec3::new(flat.x, y, flat.z),
+        );
     }
 
     /// Le sol, ou la mer si elle est plus haute.

@@ -52,7 +52,7 @@ impl VoxelGame {
     /// Le corps de l'écran : une carte par palier.
     pub(crate) fn tiers_panel(&mut self, ui: &mut egui::Ui) {
         let data = adventure_data::current();
-        let progress = self.adventure.progress;
+        let progress = self.players.me_mut().adventure.progress;
         let mut chosen = None;
         ui.label(
             egui::RichText::new(
@@ -113,7 +113,12 @@ impl VoxelGame {
                 });
         }
         if let Some(index) = chosen
-            && self.adventure.progress.select(index, &data.tiers)
+            && self
+                .players
+                .me_mut()
+                .adventure
+                .progress
+                .select(index, &data.tiers)
         {
             let name = data
                 .tier(index)

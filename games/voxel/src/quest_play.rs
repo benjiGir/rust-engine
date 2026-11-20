@@ -251,18 +251,18 @@ fn plain_key(key: &str) -> String {
 }
 
 impl VoxelGame {
-    /// Le dossier où vit `quests.ron` : la racine du monde.
+    /// Le dossier où vit `quests.ron` du joueur local : la racine du monde (voir [`crate::players::PlayerState::quest_dir`]).
     fn quest_dir(&self) -> Option<PathBuf> {
         self.dims
             .meta_store
             .clone()
             .or_else(|| self.store.clone())
-            .map(|s| s.dir().to_path_buf())
+            .map(|s| self.players.me().quest_dir(s.dir(), true))
     }
 
     /// Charge le livre et la progression si ce n'est pas fait.
     pub(crate) fn open_quests(&mut self) {
-        if self.quest_book.loaded.is_some() {
+        if self.players.me_mut().quest_book.loaded.is_some() {
             return;
         }
         let tiers = crate::adventure_data::current().tiers.len();
@@ -286,7 +286,7 @@ impl VoxelGame {
             quests.quests.len(),
             quests.chapters.len()
         );
-        self.quest_book.loaded = Some(Loaded {
+        self.players.me_mut().quest_book.loaded = Some(Loaded {
             signals: quests.wanted_signals(),
             quests,
             progress,
@@ -298,6 +298,8 @@ impl VoxelGame {
     /// Dit aux scripts quelles quêtes sont finies (`quest_done`).
     pub(crate) fn sync_quests_done(&mut self) {
         let done: Vec<String> = self
+            .players
+            .me_mut()
             .quest_book
             .progress()
             .map(|p| p.done_ids().map(str::to_string).collect())
@@ -310,30 +312,36 @@ impl VoxelGame {
     pub(crate) fn update_quests(&mut self, dt: f32) {
         self.open_quests();
         self.collect_quest_events();
-        self.quest_book.timer -= dt;
-        let due = self.quest_book.timer <= 0.0;
-        if !due && self.quest_book.events.is_empty() {
+        self.players.me_mut().quest_book.timer -= dt;
+        let due = self.players.me_mut().quest_book.timer <= 0.0;
+        if !due && self.players.me_mut().quest_book.events.is_empty() {
             return;
         }
         if due {
-            self.quest_book.timer = SCAN_PERIOD;
+            self.players.me_mut().quest_book.timer = SCAN_PERIOD;
         }
         self.refresh_quests();
     }
 
     /// Lit les événements du monde que les quêtes écoutent.
     fn collect_quest_events(&mut self) {
-        let player_at = crate::player::body(&self.ecs, self.player).position;
-        let Some(loaded) = self.quest_book.loaded.as_mut() else {
+        let player_at = crate::player::body(&self.ecs, self.players.entity()).position;
+        // Un événement compte pour le joueur qui l'a causé ; sans auteur (une machine, un script),
+        // il compte pour tous.
+        let me = self.players.local_id();
+        let mine = |player: Option<crate::players::PlayerId>| player.is_none_or(|p| p == me);
+        let book = &mut self.players.me_mut().quest_book;
+        let Some(loaded) = book.loaded.as_mut() else {
             return;
         };
         let registry = &self.registry;
         let mobs = self.ecs.resource::<Arc<crate::mobs::MobRegistry>>().clone();
-        let events = &mut self.quest_book.events;
+        let events = &mut book.events;
         for e in loaded
             .readers
             .broken
             .read(&self.ecs.resource::<Events<BlockBroken>>())
+            .filter(|e| mine(e.player))
         {
             events.push(Event::Broken(plain_key(&registry.def(e.block).key)));
         }
@@ -341,6 +349,7 @@ impl VoxelGame {
             .readers
             .placed
             .read(&self.ecs.resource::<Events<BlockPlaced>>())
+            .filter(|e| mine(e.player))
         {
             events.push(Event::Placed(plain_key(&registry.def(e.block).key)));
         }
@@ -348,6 +357,7 @@ impl VoxelGame {
             .readers
             .died
             .read(&self.ecs.resource::<Events<EntityDied>>())
+            .filter(|e| mine(e.killer))
         {
             if e.position.distance(player_at) <= KILL_RADIUS {
                 let hostile = mobs.by_key(&e.kind).is_some_and(|d| d.hostile);
@@ -362,7 +372,7 @@ impl VoxelGame {
     /// L'instantané du joueur : ce qu'il porte, où il est.
     pub(crate) fn quest_snapshot(&self, wanted_structures: &[&str]) -> Snapshot {
         let mut items: HashMap<ItemId, u32> = HashMap::new();
-        let inventory = &self.inventory;
+        let inventory = &self.players.me().inventory;
         for stack in inventory
             .slots
             .iter()
@@ -372,7 +382,7 @@ impl VoxelGame {
         {
             *items.entry(stack.item).or_default() += stack.count;
         }
-        let feet = crate::player::body(&self.ecs, self.player).position;
+        let feet = crate::player::body(&self.ecs, self.players.entity()).position;
         let (x, z) = (feet.x.floor() as i32, feet.z.floor() as i32);
         let streamer = self.streamer();
         let generator = streamer.generator();
@@ -399,23 +409,30 @@ impl VoxelGame {
             biome,
             structures,
             y: feet.y,
-            level: self.experience.level().0,
-            tier: self.adventure.progress.unlocked,
+            level: self.players.me().experience.level().0,
+            tier: self.players.me().adventure.progress.unlocked,
         }
     }
 
     /// Met la progression à jour avec ce qui s'est passé, et annonce les quêtes finies.
     pub(crate) fn refresh_quests(&mut self) {
-        let Some(quests) = self.quest_book.loaded.as_ref().map(|l| l.quests.clone()) else {
+        let Some(quests) = self
+            .players
+            .me_mut()
+            .quest_book
+            .loaded
+            .as_ref()
+            .map(|l| l.quests.clone())
+        else {
             return;
         };
         if quests.is_empty() {
-            self.quest_book.events.clear();
+            self.players.me_mut().quest_book.events.clear();
             return;
         }
         let snapshot = self.quest_snapshot(&quests.wanted_structures());
-        let events = std::mem::take(&mut self.quest_book.events);
-        let finished = match self.quest_book.loaded.as_mut() {
+        let events = std::mem::take(&mut self.players.me_mut().quest_book.events);
+        let finished = match self.players.me_mut().quest_book.loaded.as_mut() {
             Some(loaded) => loaded.progress.update(&quests, &snapshot, &events),
             None => return,
         };
@@ -455,6 +472,8 @@ impl VoxelGame {
     /// joueur) et expérience. Renvoie ce qui a été donné, en une ligne.
     pub(crate) fn claim_quest(&mut self, index: usize) -> Result<String, ClaimError> {
         let quests = self
+            .players
+            .me_mut()
             .quest_book
             .loaded
             .as_ref()
@@ -462,7 +481,13 @@ impl VoxelGame {
             .ok_or(ClaimError::Unknown)?;
         let mut rng = Rng64::new(self.next_random());
         let grants = {
-            let loaded = self.quest_book.loaded.as_mut().ok_or(ClaimError::Unknown)?;
+            let loaded = self
+                .players
+                .me_mut()
+                .quest_book
+                .loaded
+                .as_mut()
+                .ok_or(ClaimError::Unknown)?;
             loaded
                 .progress
                 .claim(&quests, index, &mut |n| rng.below(n))?
@@ -487,7 +512,7 @@ impl VoxelGame {
     /// Remet les objets d'une tâche `consume` : prend ce qu'il faut dans l'inventaire (barre et
     /// réserve) et avance le compteur. Renvoie combien d'objets ont été pris.
     pub(crate) fn hand_in_quest(&mut self, index: usize, task: usize) -> u32 {
-        let Some(quests) = self.quest_book.quests() else {
+        let Some(quests) = self.players.me_mut().quest_book.quests() else {
             return 0;
         };
         let Some(Task::Item {
@@ -500,6 +525,8 @@ impl VoxelGame {
         };
         // Ce que le joueur a sur lui (barre et réserve : seules ces cases se vident).
         let have: u32 = self
+            .players
+            .me_mut()
             .inventory
             .slots
             .iter()
@@ -507,7 +534,7 @@ impl VoxelGame {
             .filter(|s| spec.matches(s.item))
             .map(|s| s.count)
             .sum();
-        let Ok(progress) = self.quest_book.progress_mut() else {
+        let Ok(progress) = self.players.me_mut().quest_book.progress_mut() else {
             return 0;
         };
         let mut left = progress.hand_in(&quests, index, task, have);
@@ -517,8 +544,8 @@ impl VoxelGame {
             ItemSpec::Group { members, .. } => members.clone(),
         };
         for item in members {
-            let n = self.inventory.count(item).min(left);
-            if n > 0 && self.inventory.remove(item, n) {
+            let n = self.players.me_mut().inventory.count(item).min(left);
+            if n > 0 && self.players.me_mut().inventory.remove(item, n) {
                 left -= n;
             }
         }
@@ -530,6 +557,8 @@ impl VoxelGame {
     /// Renvoie le nombre de quêtes récupérées.
     pub(crate) fn claim_all_quests(&mut self) -> usize {
         let pending = self
+            .players
+            .me_mut()
             .quest_book
             .loaded
             .as_ref()
@@ -546,7 +575,7 @@ impl VoxelGame {
         let Some(dir) = self.quest_dir() else {
             return;
         };
-        let Some(loaded) = self.quest_book.loaded.as_mut() else {
+        let Some(loaded) = self.players.me_mut().quest_book.loaded.as_mut() else {
             return;
         };
         if !loaded.progress.dirty() {

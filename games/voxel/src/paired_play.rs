@@ -24,7 +24,7 @@ impl VoxelGame {
         let occupied = if door {
             self.overlaps_door(parts)
         } else {
-            let body = player::body(&self.ecs, self.player);
+            let body = player::body(&self.ecs, self.players.entity());
             parts
                 .iter()
                 .any(|&(pos, _)| body.overlaps_block(pos) || self.mob_overlaps(pos))
@@ -39,7 +39,14 @@ impl VoxelGame {
         self.frame_stats.record_edit(start.elapsed());
         self.target = None;
         let (pos, block) = parts[0];
-        events::send(&self.ecs, BlockPlaced { pos, block });
+        events::send(
+            &self.ecs,
+            BlockPlaced {
+                pos,
+                block,
+                player: Some(self.players.local_id()),
+            },
+        );
         for (pos, _) in parts {
             self.after_edit(pos);
         }
@@ -58,7 +65,7 @@ impl VoxelGame {
                     .any(|b| min.cmplt(origin + b.max).all() && max.cmpgt(origin + b.min).all())
             })
         };
-        occupied(&player::body(&self.ecs, self.player)) || self.any_mob_body(occupied)
+        occupied(&player::body(&self.ecs, self.players.entity())) || self.any_mob_body(occupied)
     }
 
     pub(crate) fn use_door(&mut self, pos: IVec3) -> bool {

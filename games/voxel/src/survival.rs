@@ -534,11 +534,19 @@ impl crate::VoxelGame {
     /// Un pas de survie : les coups de l'environnement et ceux des créatures.
     pub(crate) fn update_vitals(&mut self, dt: f32) {
         let senses = self.senses();
-        let hits = self.vitals.step(&self.survival, senses, dt);
+        let hits = self
+            .players
+            .me_mut()
+            .vitals
+            .step(&self.survival, senses, dt);
+        // Seuls les coups reçus par le joueur local se jouent ici : les autres joueurs n'ont pas
+        // encore de simulation de survie (les événements portent déjà leur numéro).
+        let local = self.players.local_id();
         let attacks: Vec<(f32, Vec3, f32)> = self
             .readers
             .attacked
             .read(&self.ecs.resource::<Events<PlayerAttacked>>())
+            .filter(|e| e.player.is_none_or(|id| id == local))
             .map(|e| (e.amount, e.from, e.pierce))
             .collect();
         for (amount, cause) in hits {
@@ -557,13 +565,13 @@ impl crate::VoxelGame {
 
     /// Ce que la physique dit du joueur.
     fn senses(&self) -> Senses {
-        let body = player::body(&self.ecs, self.player);
+        let body = player::body(&self.ecs, self.players.entity());
         let collider = self
             .ecs
-            .get::<Collider>(self.player)
+            .get::<Collider>(self.players.entity())
             .map(|c| *c)
             .unwrap_or_default();
-        let eye = player::eye(&self.ecs, self.player, 1.0);
+        let eye = player::eye(&self.ecs, self.players.entity(), 1.0);
         let streamer = self.streamer();
         let world = streamer.world();
         let fluid_at = |p: Vec3| self.fluids.kind_of(world.block(p.floor().as_ivec3()));
@@ -599,18 +607,20 @@ impl crate::VoxelGame {
             in_water,
             head_under: surface.is_some_and(|s| eye.y + BREATH_MARGIN < s),
             fluid_damage,
-            flying: player::mode(&self.ecs, self.player) == MoveMode::Fly,
+            flying: player::mode(&self.ecs, self.players.entity()) == MoveMode::Fly,
         }
     }
 
     /// La faim d'un pas : régénération si bien nourri, dégâts si affamé.
     pub(crate) fn update_hunger(&mut self, dt: f32) {
-        let health = player::health(&self.ecs, self.player);
-        let effect = self
-            .hunger
-            .step(&self.hunger_rules, health.current, health.max, dt);
+        let health = player::health(&self.ecs, self.players.entity());
+        let effect =
+            self.players
+                .me_mut()
+                .hunger
+                .step(&self.hunger_rules, health.current, health.max, dt);
         if effect.heal > 0.0
-            && let Some(mut health) = self.ecs.get_mut::<Health>(self.player)
+            && let Some(mut health) = self.ecs.get_mut::<Health>(self.players.entity())
         {
             health.current = (health.current + effect.heal).min(health.max);
         }
@@ -621,17 +631,20 @@ impl crate::VoxelGame {
 
     /// Un effort (courir, sauter, miner, frapper) : la faim s'en ressent.
     pub(crate) fn exert(&mut self, amount: f32) {
-        self.hunger.exert(&self.hunger_rules, amount);
+        self.players
+            .me_mut()
+            .hunger
+            .exert(&self.hunger_rules, amount);
     }
 
     /// La fatigue des déplacements d'un pas : la course au sol, et chaque saut.
     pub(crate) fn exert_movement(&mut self, walk: Vec3, jump: bool, sprinting: bool, dt: f32) {
-        if player::mode(&self.ecs, self.player) == MoveMode::Fly {
+        if player::mode(&self.ecs, self.players.entity()) == MoveMode::Fly {
             return;
         }
         let on_ground = self
             .ecs
-            .get::<Collider>(self.player)
+            .get::<Collider>(self.players.entity())
             .is_some_and(|c| c.on_ground);
         if !on_ground {
             return;
@@ -649,27 +662,36 @@ impl crate::VoxelGame {
 
     /// Peut-il courir ? (pas affamé)
     pub(crate) fn can_sprint(&self) -> bool {
-        self.hunger.can_sprint(&self.hunger_rules)
+        self.players.me().hunger.can_sprint(&self.hunger_rules)
     }
 
     /// Manger : le bouton droit tenu avec un aliment en main. Renvoie l'avancement
     /// (0 à 1) pour la barre, ou `None`.
     pub(crate) fn update_eating(&mut self, holding: bool, dt: f32) -> Option<f32> {
         let food = self
+            .players
+            .me_mut()
             .inventory
             .selected_item()
             .and_then(|item| self.content.items.get(item).food);
         let Some(food) = food else {
-            self.hunger.chewing = None;
+            self.players.me_mut().hunger.chewing = None;
             return None;
         };
-        if self.hunger.chew(&self.hunger_rules, holding, dt) {
-            let eaten = self.inventory.consume_selected();
-            self.hunger
+        if self
+            .players
+            .me_mut()
+            .hunger
+            .chew(&self.hunger_rules, holding, dt)
+        {
+            let eaten = self.players.me_mut().inventory.consume_selected();
+            self.players
+                .me_mut()
+                .hunger
                 .eat(&self.hunger_rules, food.nutrition, food.saturation);
             if let Some(potion) = eaten.and_then(|item| self.potions.get(item)) {
                 // Une potion : l'effet démarre, la fiole vide revient.
-                let healed = self.effects.drink(potion);
+                let healed = self.players.me_mut().effects.drink(potion);
                 if healed > 0.0 {
                     self.heal(healed);
                 }
@@ -683,11 +705,13 @@ impl crate::VoxelGame {
             }
             log::debug!(
                 "miam : faim {:.1}, saturation {:.1}",
-                self.hunger.food,
-                self.hunger.saturation
+                self.players.me().hunger.food,
+                self.players.me().hunger.saturation
             );
         }
-        self.hunger
+        self.players
+            .me_mut()
+            .hunger
             .chewing
             .map(|t| (t / self.hunger_rules.eat_time).clamp(0.0, 1.0))
     }
@@ -699,10 +723,12 @@ impl crate::VoxelGame {
         };
         let items = self.content.items.clone();
         let left = self
+            .players
+            .me_mut()
             .inventory
             .add_stack(crate::inventory::ItemStack::new(flask, 1), &items);
         if left > 0 {
-            let at = player::body(&self.ecs, self.player)
+            let at = player::body(&self.ecs, self.players.entity())
                 .position
                 .floor()
                 .as_ivec3();
@@ -716,18 +742,28 @@ impl crate::VoxelGame {
             .readers
             .loot
             .read(&self.ecs.resource::<Events<EntityDied>>())
-            .map(|e| (e.kind.clone(), e.position, e.elite.clone(), e.coat))
+            .map(|e| {
+                (
+                    e.kind.clone(),
+                    e.position,
+                    e.elite.clone(),
+                    e.coat,
+                    e.killer,
+                )
+            })
             .collect();
-        let player_at = player::body(&self.ecs, self.player).position;
-        for (kind, position, elite, coat) in died {
+        let player_at = player::body(&self.ecs, self.players.entity()).position;
+        let me = self.players.local_id();
+        for (kind, position, elite, coat, killer) in died {
             let (drops, xp, hostile, boss) = self
                 .ecs
                 .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                 .by_key(&kind)
                 .map(|def| (def.drops.clone(), def.xp, def.hostile, def.boss))
                 .unwrap_or_default();
-            // L'expérience, si le joueur était là (pas pour une créature morte au loin).
-            if position.distance(player_at) <= XP_RADIUS {
+            // L'expérience, si le joueur était là (pas pour une créature morte au loin) et que la
+            // créature n'a pas été tuée par un autre joueur.
+            if position.distance(player_at) <= XP_RADIUS && killer.is_none_or(|k| k == me) {
                 let points = self.roll_range(xp);
                 self.grant_xp(points);
                 // La progression d'aventure, et le butin à affixes (voir `adventure.rs`).
@@ -780,7 +816,7 @@ impl crate::VoxelGame {
         if points == 0 {
             return;
         }
-        if let Some(level) = self.experience.add(points) {
+        if let Some(level) = self.players.me_mut().experience.add(points) {
             self.toast(&format!("Niveau {level}"));
             if let Some(audio) = &mut self.audio {
                 audio.play("core:break_glass");
@@ -790,16 +826,21 @@ impl crate::VoxelGame {
 
     /// Un coup venu de `from` : le joueur recule (pas en vol).
     fn knock_back(&mut self, from: Vec3) {
-        if player::mode(&self.ecs, self.player) == MoveMode::Fly {
+        if player::mode(&self.ecs, self.players.entity()) == MoveMode::Fly {
             return;
         }
-        let at = player::body(&self.ecs, self.player).position;
+        let at = player::body(&self.ecs, self.players.entity()).position;
         let away = Vec3::new(at.x - from.x, 0.0, at.z - from.z).normalize_or_zero();
-        if let Some(mut velocity) = self.ecs.get_mut::<crate::components::Velocity>(self.player) {
+        if let Some(mut velocity) = self
+            .ecs
+            .get_mut::<crate::components::Velocity>(self.players.entity())
+        {
             velocity.0.y = KNOCKBACK.1;
         }
-        self.ecs
-            .insert(self.player, crate::components::Impulse(away * KNOCKBACK.0));
+        self.ecs.insert(
+            self.players.entity(),
+            crate::components::Impulse(away * KNOCKBACK.0),
+        );
     }
 
     /// Un coup au joueur : invulnérabilité, armure, puis la vie et l'événement
@@ -826,18 +867,29 @@ impl crate::VoxelGame {
         };
         // La résistance au feu : ni la lave ni les flammes ne blessent.
         if matches!(cause, DamageCause::Lava | DamageCause::Burning)
-            && self.effects.has(crate::potions::Effect::FireResistance)
+            && self
+                .players
+                .me_mut()
+                .effects
+                .has(crate::potions::Effect::FireResistance)
         {
             return None;
         }
-        let armor = self.gear.armor();
-        let damage = self
-            .vitals
-            .hurt(&self.survival, amount, cause, armor, pierce)?;
+        let armor = self.players.me_mut().gear.armor();
+        let damage =
+            self.players
+                .me_mut()
+                .vitals
+                .hurt(&self.survival, amount, cause, armor, pierce)?;
         // L'armure qui a encaissé s'use ; une pièce peut se briser.
         if armor > 0.0 && !cause.ignores_armor() {
             let roll = engine_voxel::Rng64::new(self.next_random()).next_f32();
-            for item in self.inventory.wear_armor(&self.content.items, roll) {
+            for item in self
+                .players
+                .me_mut()
+                .inventory
+                .wear_armor(&self.content.items, roll)
+            {
                 let name = self.content.items.get(item).name.clone();
                 self.toast(&format!("{name} : brisé"));
                 if let Some(audio) = &mut self.audio {
@@ -846,7 +898,7 @@ impl crate::VoxelGame {
             }
         }
         let left = {
-            let mut health = self.ecs.get_mut::<Health>(self.player)?;
+            let mut health = self.ecs.get_mut::<Health>(self.players.entity())?;
             health.current = (health.current - damage).max(0.0);
             health.current
         };
@@ -855,6 +907,7 @@ impl crate::VoxelGame {
         events::send(
             &self.ecs,
             PlayerDamaged {
+                player: Some(self.players.local_id()),
                 amount: damage,
                 health_left: left,
             },

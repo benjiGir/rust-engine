@@ -14,7 +14,7 @@ const HEAL_EVERY: u32 = 10;
 impl VoxelGame {
     /// Un clic droit avec un charme en main : l'active ou le désactive. `true` si c'était un charme.
     pub(crate) fn use_charm(&mut self) -> bool {
-        let Some(stack) = self.inventory.selected_stack() else {
+        let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
             return false;
         };
         let data = crate::adventure_data::current();
@@ -29,8 +29,8 @@ impl VoxelGame {
             return true;
         }
         let active = !is_active(stack.damage);
-        let selected = self.inventory.selected;
-        if let Some(held) = self.inventory.slots[selected].as_mut() {
+        let selected = self.players.me_mut().inventory.selected;
+        if let Some(held) = self.players.me_mut().inventory.slots[selected].as_mut() {
             held.damage = with_active(held.damage, active);
         }
         self.toast(&format!(
@@ -46,8 +46,10 @@ impl VoxelGame {
         if click != Click::Primary {
             return false;
         }
-        let (Some(held), Some(target)) = (self.inventory.cursor, *self.inventory.slot_mut(slot))
-        else {
+        let (Some(held), Some(target)) = (
+            self.players.me_mut().inventory.cursor,
+            *self.players.me_mut().inventory.slot_mut(slot),
+        ) else {
             return false;
         };
         let data = crate::adventure_data::current();
@@ -63,20 +65,20 @@ impl VoxelGame {
             self.toast("Ce charme est déjà plein");
             return true;
         }
-        if let Some(stack) = self.inventory.slot_mut(slot) {
+        if let Some(stack) = self.players.me_mut().inventory.slot_mut(slot) {
             stack.damage = recharged(stack.damage);
         }
-        if let Some(cursor) = self.inventory.cursor.as_mut() {
+        if let Some(cursor) = self.players.me_mut().inventory.cursor.as_mut() {
             cursor.count -= 1;
             if cursor.count == 0 {
-                self.inventory.cursor = None;
+                self.players.me_mut().inventory.cursor = None;
             }
         }
         // La fiole vide est rendue.
         if let Some(flask) = items.id("core:flask") {
             let left = self.collect_stack(ItemStack::new(flask, 1));
             if left > 0 {
-                let at = crate::player::body(&self.ecs, self.player)
+                let at = crate::player::body(&self.ecs, self.players.entity())
                     .position
                     .floor()
                     .as_ivec3();
@@ -103,7 +105,8 @@ impl VoxelGame {
         let items = self.content.items.clone();
         let mut emptied = Vec::new();
         let mut heal = 0.0;
-        for slot in self.inventory.slots.iter_mut().flatten() {
+        let me = self.players.me_mut();
+        for slot in me.inventory.slots.iter_mut().flatten() {
             if !is_active(slot.damage) {
                 continue;
             }
@@ -121,7 +124,7 @@ impl VoxelGame {
                     }
                 }
                 _ => {
-                    self.effects.drink(PotionDef {
+                    me.effects.drink(PotionDef {
                         seconds: REFRESH_SECONDS,
                         ..potion
                     });

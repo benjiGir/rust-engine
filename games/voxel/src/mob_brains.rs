@@ -43,7 +43,7 @@ impl VoxelGame {
             return;
         }
         let registry = self.ecs.resource::<Arc<MobRegistry>>().clone();
-        let player_pos = player::body(&self.ecs, self.player).position;
+        let player_pos = player::body(&self.ecs, self.players.entity()).position;
         // Les créatures à comportement proches, par mod : les plus proches d'abord.
         let mut batches: HashMap<String, Vec<(f32, Entity, MobSnapshot)>> = HashMap::new();
         self.ecs
@@ -210,6 +210,7 @@ impl VoxelGame {
                         events::send(
                             &self.ecs,
                             PlayerAttacked {
+                                player: Some(self.players.local_id()),
                                 amount: damage.min(20.0),
                                 from: position,
                                 pierce: 0.0,

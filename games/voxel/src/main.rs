@@ -113,6 +113,7 @@ mod paired_play;
 mod persistence;
 mod player;
 mod player_api;
+mod players;
 mod potions;
 mod projectiles;
 mod quest_ctl;
@@ -214,11 +215,6 @@ struct VoxelGame {
     registry: Arc<BlockRegistry>,
     /// Les objets, recettes, fonte et butin.
     content: content::Content,
-    /// Le bloc en cours de minage (bouton gauche maintenu) et l'avancement, de 0 à 1.
-    mining: Option<(IVec3, f32)>,
-    /// Le bouton gauche est tenu sans rien à casser (le vide, un bloc incassable) : le bras frappe
-    /// quand même, en boucle.
-    air_swing: bool,
     /// L'état du hasard du jeu (butin, objets lâchés).
     random: u64,
     /// Le bras à la première personne.
@@ -253,9 +249,9 @@ struct VoxelGame {
     spawn: IVec3,
     /// Le maillage GPU de chaque chunk affiché.
     meshes: HashMap<IVec3, MeshId>,
-    /// L'entité du joueur dans `ecs`.
-    player: Entity,
-    inventory: Inventory,
+    /// Les joueurs : l'entité, l'inventaire, la survie... de chacun. Le joueur local est celui de
+    /// la fenêtre (voir `players.rs`).
+    players: players::Players,
     /// Les pixels des textures de blocs (pour les icônes de l'inventaire).
     block_textures: Vec<Vec<u8>>,
     ui: ui::GameUi,
@@ -282,15 +278,13 @@ struct VoxelGame {
     helm: Option<engine_voxel::GridId>,
     /// 0 paisible, 1 normale, 2 difficile.
     difficulty: u8,
+    /// Les définitions des potions.
     potions: potions::Potions,
-    effects: potions::Effects,
     soundscape: soundscape::Soundscape,
     /// Ce que propose la table d'enchantement : change après chaque enchantement.
     enchant_seed: u32,
     /// L'état des écrans d'enchantement avancé et des charmes (voir `enchant_ui.rs`).
     enchant_ui: enchant_ui::EnchantUi,
-    /// Le palier du monde, la progression d'aventure et l'état des tables du butin.
-    adventure: adventure::Adventure,
     /// Un morceau est en cours jusqu'à cette date.
     music_until: Option<Instant>,
     villages: villagers::Villages,
@@ -304,9 +298,6 @@ struct VoxelGame {
     dims: dimensions::Dimensions,
     /// Le contenu des sacs à dos du monde (voir `backpacks.rs`).
     backpacks: backpacks::BackpackStore,
-    quest_book: quest_play::QuestBook,
-    /// Les attributs du joueur, calculés depuis son équipement (voir `gear.rs`).
-    gear: gear::Gear,
     last_autosave: Instant,
     save_started: Instant,
     /// Le lancement du jeu (pour animer le vent).
@@ -327,18 +318,10 @@ struct VoxelGame {
     remote: control::Remote,
     /// Le culling des grottes : quels chunks sont visibles depuis la caméra.
     culling: culling::CaveCulling,
-    /// Les règles de la survie (`player.ron`) et l'état du joueur : air, feu, chute.
+    /// Les règles de la survie (`player.ron`) et de la faim ; l'état de chaque joueur est dans
+    /// `players`.
     survival: survival::SurvivalRules,
-    vitals: survival::Vitals,
-    /// La faim : ses règles et son état.
     hunger_rules: survival::HungerRules,
-    hunger: survival::Hunger,
-    /// L'avancement du repas en cours (0 à 1), pour la barre.
-    eat_progress: Option<f32>,
-    /// Le lit où réapparaître, s'il y en a un.
-    bed: Option<IVec3>,
-    /// L'expérience gagnée.
-    experience: survival::Experience,
     /// `VOXEL_BENCH` : le benchmark reproductible (voir `bench.rs`).
     bench: Option<bench::Bench>,
 }
@@ -401,6 +384,16 @@ impl VoxelGame {
             meta.as_ref(),
             launch.dimension.as_deref(),
         )?;
+        // Le joueur local vient de `players/<identifiant>.ron`, ou de `world.ron` pour un monde plus
+        // ancien (voir `persistence::with_player_file`).
+        let local_uuid = players::parse_uuid(&settings.player_uuid).unwrap_or_default();
+        let meta = meta.map(|m| {
+            persistence::with_player_file(
+                m,
+                dims.meta_store.as_deref().or(store.as_deref()),
+                local_uuid,
+            )
+        });
         if let Some(meta) = &meta {
             persistence::check_mods(meta, &registry);
         }
@@ -649,7 +642,6 @@ impl VoxelGame {
         ecs.insert_resource(adventure.effects(&adventure_data::current()));
         ecs.insert_resource(spawning::Sky::default());
         let player = player::spawn(&mut ecs, eye, mode);
-        ecs.insert_resource(mobs::PlayerEntity(player));
         let mut schedule = Schedule::new();
         schedule
             .add(Stage::FixedUpdate, "tick", mobs::tick)
@@ -739,24 +731,27 @@ impl VoxelGame {
         shape_materials::replace_all(dims.meta_store.as_ref().map_or_else(Default::default, |s| {
             shape_materials::Palette::load(s.dir())
         }));
-        let vitals = survival::Vitals::new(&survival);
-        let mut hunger = survival::Hunger::new(&hunger_rules);
-        let mut bed = None;
-        let mut experience = survival::Experience::default();
+        let mut local = players::PlayerState::new(
+            players::PlayerIdentity {
+                id: players::PlayerId(0),
+                name: settings.player_name.clone(),
+                uuid: local_uuid,
+            },
+            player,
+            inventory,
+            gear::Gear::new(attributes::load_base(&assets)),
+            &survival,
+            &hunger_rules,
+        );
+        local.adventure = adventure;
         if let Some(saved) = meta.as_ref().and_then(|m| m.player.as_ref()) {
-            experience.points = saved.xp.unwrap_or(0);
-            hunger.food = saved.food.unwrap_or(hunger.food);
-            hunger.saturation = saved.saturation.unwrap_or(hunger.saturation);
-            bed = saved.spawn_point.map(IVec3::from);
+            local.apply_save(saved);
         }
+        let players = players::Players::new(local);
+        players.sync_ecs(&mut ecs);
         Ok(Self {
             survival,
-            vitals,
             hunger_rules,
-            hunger,
-            eat_progress: None,
-            bed,
-            experience,
             renderer,
             camera,
             mouse_captured: false,
@@ -764,8 +759,6 @@ impl VoxelGame {
             schedule,
             registry,
             content,
-            mining: None,
-            air_swing: false,
             random: 0x853C_49E6_748F_EA9B ^ seed as u64,
             hand,
             fluids,
@@ -787,8 +780,7 @@ impl VoxelGame {
             stress: stress::StressTest::from_env(),
             spawn,
             meshes: HashMap::new(),
-            player,
-            inventory,
+            players,
             block_textures,
             ui: ui::GameUi::new(&ctx.window),
             debug: ui::DebugInfo::default(),
@@ -806,11 +798,9 @@ impl VoxelGame {
             helm: None,
             difficulty,
             potions,
-            effects: potions::Effects::default(),
             soundscape: soundscape::Soundscape::new(seed),
             enchant_seed: seed ^ 0xE5C4,
             enchant_ui: enchant_ui::EnchantUi::default(),
-            adventure,
             music_until: None,
             villages: villagers::Villages::default(),
             trades,
@@ -819,8 +809,6 @@ impl VoxelGame {
             backpacks: dims.meta_store.as_ref().map_or_else(Default::default, |s| {
                 backpacks::BackpackStore::load(s.dir())
             }),
-            quest_book: Default::default(),
-            gear: gear::Gear::new(attributes::load_base(&assets)),
             dims,
             last_autosave: Instant::now(),
             save_started: Instant::now(),
@@ -849,7 +837,7 @@ impl VoxelGame {
             // Le monde du menu vit (créatures, machines), sans joueur aux commandes ; de
             // même quand le joueur est mort.
             Mode::Title(_) | Mode::Dead(_) => {
-                player::set_intent(&self.ecs, self.player, Vec3::ZERO, false);
+                player::set_intent(&self.ecs, self.players.entity(), Vec3::ZERO, false);
                 self.schedule.run(Stage::FixedUpdate, &mut self.ecs);
                 self.step_fluids();
                 return;
@@ -863,7 +851,7 @@ impl VoxelGame {
         let busy = self.ui.inventory_open;
         let (walk, jump) = match &self.demo {
             _ if remote.is_some() => remote.unwrap_or_default(),
-            Some(_) => Demo::walk(&self.ecs, self.player, &self.camera),
+            Some(_) => Demo::walk(&self.ecs, self.players.entity(), &self.camera),
             None if busy => (Vec3::ZERO, false),
             None => {
                 // Affamé, on ne court plus.
@@ -871,18 +859,18 @@ impl VoxelGame {
                     SPRINT_SPEED
                 } else {
                     WALK_SPEED
-                } * self.gear.move_speed();
+                } * self.players.me_mut().gear.move_speed();
                 let jump = input.key_held(keys.key(Action::Jump));
                 let direction = self.wish_direction(ctx, false);
                 (direction * speed, jump)
             }
         };
-        player::set_intent(&self.ecs, self.player, walk, jump);
-        let sprinting = walk.length() > WALK_SPEED * self.gear.move_speed() + 0.01;
+        player::set_intent(&self.ecs, self.players.entity(), walk, jump);
+        let sprinting = walk.length() > WALK_SPEED * self.players.me_mut().gear.move_speed() + 0.01;
         self.exert_movement(walk, jump, sprinting, ctx.fixed_dt);
         self.schedule.run(Stage::FixedUpdate, &mut self.ecs);
         // Les machines : un tick tous les 3 pas (20 par seconde).
-        let eye = player::eye(&self.ecs, self.player, 1.0);
+        let eye = player::eye(&self.ecs, self.players.entity(), 1.0);
         self.refresh_gear(ctx.fixed_dt);
         self.pick_up_drops(ctx.fixed_dt);
         self.update_backpacks(ctx.fixed_dt);
@@ -893,7 +881,7 @@ impl VoxelGame {
         self.mods.set_player(snapshot);
         self.run_mob_brains(machine_tick.is_some());
         if let Some(stress) = &mut self.stress {
-            let eye = player::eye(&self.ecs, self.player, 1.0);
+            let eye = player::eye(&self.ecs, self.players.entity(), 1.0);
             let ready = self.world.borrow().is_idle();
             stress.build_if_ready(ready, &mut self.ecs, &mut self.mods, eye);
             let start = Instant::now();
@@ -971,7 +959,7 @@ impl VoxelGame {
                 self.mouse_captured = false;
                 ctx.set_cursor_captured(false);
             }
-            self.mining = None;
+            self.players.me_mut().mining = None;
         }
         if let Mode::Title(_) = self.mode {
             // Le survol du menu principal tourne lentement.
@@ -1019,7 +1007,7 @@ impl VoxelGame {
         }
         self.day.update(dt);
         let thunder = {
-            let player_position = player::body(&self.ecs, self.player).position;
+            let player_position = player::body(&self.ecs, self.players.entity()).position;
             let streamer = self.world.borrow();
             self.weather.update(dt, streamer.world(), player_position)
         };
@@ -1027,7 +1015,7 @@ impl VoxelGame {
         self.conduit_fx.advance(dt);
         // Les habitants des villages proches.
         {
-            let player_position = player::body(&self.ecs, self.player).position;
+            let player_position = player::body(&self.ecs, self.players.entity()).position;
             let shared = self.world.clone();
             let streamer = shared.borrow();
             self.villages.update(
@@ -1059,7 +1047,7 @@ impl VoxelGame {
             audio.update_ambience(self.day.daylight());
         }
 
-        if player::mode(&self.ecs, self.player) == MoveMode::Fly {
+        if player::mode(&self.ecs, self.players.entity()) == MoveMode::Fly {
             match self.autofly {
                 Some(speed) => self.autofly(speed, dt),
                 None => {
@@ -1072,7 +1060,7 @@ impl VoxelGame {
                     } else {
                         self.wish_direction(ctx, true)
                     };
-                    player::fly(&self.ecs, self.player, direction, speed, dt);
+                    player::fly(&self.ecs, self.players.entity(), direction, speed, dt);
                 }
             }
         }
@@ -1084,14 +1072,14 @@ impl VoxelGame {
             self.streamer().world(),
             self.camera.position,
             self.camera.forward(),
-            self.gear.reach(),
+            self.players.me().gear.reach(),
         );
         self.target = target;
         // Le minage : le bouton gauche maintenu sur le même bloc.
         let mining = self.mouse_captured && !click_used && ctx.input.mouse_held(MouseButton::Left);
-        self.air_swing = false;
+        self.players.me_mut().air_swing = false;
         if !mining {
-            self.mining = None;
+            self.players.me_mut().mining = None;
         }
         if self.mouse_captured && !click_used {
             if mining && !ctx.input.mouse_pressed(MouseButton::Left) {
@@ -1099,7 +1087,9 @@ impl VoxelGame {
             }
             if ctx.input.mouse_pressed(MouseButton::Left) {
                 // Une créature devant le bloc visé ? On la frappe plutôt que de casser.
-                let block_distance = self.target.map_or(self.gear.reach(), |hit| hit.distance);
+                let block_distance = self
+                    .target
+                    .map_or(self.players.me_mut().gear.reach(), |hit| hit.distance);
                 match mobs::hit_mob(
                     &self.ecs,
                     self.camera.position,
@@ -1123,7 +1113,7 @@ impl VoxelGame {
                 }
             }
             // Rien à frapper ni à casser : le bras donne un coup dans le vide, tant que le bouton est tenu.
-            self.air_swing = mining && self.mining.is_none();
+            self.players.me_mut().air_swing = mining && self.players.me_mut().mining.is_none();
             // Un clic droit : une porte, un lit, un conteneur, sinon poser.
             let block_pos = self.target.map(|hit| hit.block_pos);
             if ctx.input.mouse_pressed(MouseButton::Right)
@@ -1149,7 +1139,7 @@ impl VoxelGame {
         }
         // Manger : le bouton droit tenu avec un aliment en main.
         let eating = self.mouse_captured && !click_used && ctx.input.mouse_held(MouseButton::Right);
-        self.eat_progress = self.update_eating(eating, dt);
+        self.players.me_mut().eat_progress = self.update_eating(eating, dt);
         if interactive {
             self.animate_hand(ctx, dt);
         }
@@ -1189,9 +1179,9 @@ impl VoxelGame {
 
         // Tout le travail du monde côté thread principal : on le chronomètre.
         let start = Instant::now();
-        let eye = player::eye(&self.ecs, self.player, 1.0);
-        let forward = self.camera.forward();
-        self.streamer_mut().update_view(eye, forward);
+        let eye = player::eye(&self.ecs, self.players.entity(), 1.0);
+        let views = self.stream_views();
+        self.streamer_mut().update_views(&views);
         self.update_far(eye);
         let streamed = Instant::now();
         let uploads = self.apply_stream_events();
@@ -1201,7 +1191,7 @@ impl VoxelGame {
 
     fn render(&mut self, ctx: &mut Context, alpha: f32) {
         // Entre deux pas de physique : la caméra est interpolée (voir `player.rs`).
-        self.camera.position = player::eye(&self.ecs, self.player, alpha);
+        self.camera.position = player::eye(&self.ecs, self.players.entity(), alpha);
         // Le vent dans les feuilles suit le temps réel depuis le lancement.
         self.renderer.time = self.started.elapsed().as_secs_f32();
         let mut mob_boxes = mobs::instances(&self.ecs, alpha);
@@ -1227,7 +1217,7 @@ impl VoxelGame {
             .streamer()
             .world()
             .light(self.camera.position.floor().as_ivec3());
-        let held = self.inventory.selected_item();
+        let held = self.players.me_mut().inventory.selected_item();
         let size = ctx.window.inner_size();
         self.hand
             .set_aspect_ratio(size.width as f32 / size.height.max(1) as f32);
@@ -1364,7 +1354,11 @@ impl Game for App {
         // `?` remonte l'erreur au moteur, qui l'affichera à la fermeture.
         let mut renderer = Renderer::new(ctx.window.clone())?;
         let mut settings = settings::Settings::load(&project_root());
-        // Pour les captures, `VOXEL_TEXTURE_PACK` peut supplanter la préférence au lancement.
+        if players::ensure_identity(&mut settings) {
+            settings.save(&project_root());
+        }
+        // `VOXEL_TEXTURE_PACK=classic|earth32` : un pack imposé pour cette exécution (captures de recette),
+        // sans toucher à `settings.ron` : seules les actions du menu des options l'écrivent.
         match std::env::var("VOXEL_TEXTURE_PACK").as_deref() {
             Ok("earth64") => settings.texture_pack = settings::TexturePack::Earth64,
             Ok("earth32") => settings.texture_pack = settings::TexturePack::Earth32,
@@ -1548,7 +1542,7 @@ impl VoxelGame {
     /// la dureté du bloc et l'outil en main ; à 1, le bloc casse.
     fn mine(&mut self, dt: f32) {
         let Some(hit) = self.target else {
-            self.mining = None;
+            self.players.me_mut().mining = None;
             return;
         };
         let pos = hit.block_pos;
@@ -1556,37 +1550,47 @@ impl VoxelGame {
         let tool = self.held_tool();
         let Some(time) = engine_voxel::break_time(&self.mining_def(pos, block), tool.as_ref())
         else {
-            self.mining = None;
+            self.players.me_mut().mining = None;
             return; // Incassable.
         };
-        let progress = match self.mining {
+        let progress = match self.players.me_mut().mining {
             Some((p, progress)) if p == pos => progress,
             _ => 0.0,
         };
         // La vitesse de minage (Efficacité, affixes) est un attribut.
-        let time = time / self.gear.value(attributes::Attribute::MiningSpeed);
+        let time = time
+            / self
+                .players
+                .me_mut()
+                .gear
+                .value(attributes::Attribute::MiningSpeed);
         let progress = if time <= 0.0 {
             1.0
         } else {
             progress + dt / time
         };
         if progress >= 1.0 {
-            self.mining = None;
+            self.players.me_mut().mining = None;
             self.break_block(pos);
         } else {
-            self.mining = Some((pos, progress));
+            self.players.me_mut().mining = Some((pos, progress));
         }
     }
 
     /// L'objet en main s'use d'un point (Solidité peut l'épargner). `true` s'il se brise.
     fn wear_held(&mut self) -> bool {
         let roll = engine_voxel::Rng64::new(self.next_random()).next_f32();
-        self.inventory.wear_selected(&self.content.items, roll)
+        self.players
+            .me_mut()
+            .inventory
+            .wear_selected(&self.content.items, roll)
     }
 
     /// L'outil tenu en main.
     fn held_tool(&self) -> Option<engine_voxel::ToolDef> {
-        self.inventory
+        self.players
+            .me()
+            .inventory
             .selected_item()
             .and_then(|i| self.content.items.get(i).tool)
     }
@@ -1641,7 +1645,7 @@ impl VoxelGame {
 
     /// Ramasse les objets au sol tout proches.
     fn pick_up_drops(&mut self, dt: f32) {
-        let feet = player::body(&self.ecs, self.player).position;
+        let feet = player::body(&self.ecs, self.players.entity()).position;
         for (entity, stack) in drops::update(&mut self.ecs, feet, dt) {
             let left = self.collect_stack(stack);
             if left < stack.count {
@@ -1658,7 +1662,7 @@ impl VoxelGame {
     }
 
     fn place_at_target(&mut self) -> Option<IVec3> {
-        let item = self.inventory.selected_item()?;
+        let item = self.players.me_mut().inventory.selected_item()?;
         if self.content.items.get(item).key == "core:flask" {
             self.fill_flask(item);
             return None;
@@ -1687,7 +1691,7 @@ impl VoxelGame {
         }
         if let Some(parts) = self.paired_placement(pos, block, forward) {
             self.place_pair(parts)?;
-            self.inventory.consume_selected();
+            self.players.me_mut().inventory.consume_selected();
             self.hand.punch();
             return Some(pos);
         }
@@ -1700,7 +1704,9 @@ impl VoxelGame {
         if !replaceable {
             return None;
         }
-        if player::body(&self.ecs, self.player).overlaps_block(pos) || self.mob_overlaps(pos) {
+        if player::body(&self.ecs, self.players.entity()).overlaps_block(pos)
+            || self.mob_overlaps(pos)
+        {
             log::debug!("impossible de poser un bloc dans une entité");
             return None;
         }
@@ -1711,7 +1717,7 @@ impl VoxelGame {
         }
         let placed = self.edit(pos, block);
         if placed {
-            self.inventory.consume_selected();
+            self.players.me_mut().inventory.consume_selected();
             self.hand.punch();
             // Des feuilles posées par le joueur ne se décomposent pas : une entité de bloc
             // les marque comme « posées ».
@@ -1775,9 +1781,23 @@ impl VoxelGame {
             self.target = None;
             // On annonce le changement : le son (et plus tard les mods) s'y abonnent.
             if block.is_air() {
-                events::send(&self.ecs, BlockBroken { pos, block: old });
+                events::send(
+                    &self.ecs,
+                    BlockBroken {
+                        pos,
+                        block: old,
+                        player: Some(self.players.local_id()),
+                    },
+                );
             } else {
-                events::send(&self.ecs, BlockPlaced { pos, block });
+                events::send(
+                    &self.ecs,
+                    BlockPlaced {
+                        pos,
+                        block,
+                        player: Some(self.players.local_id()),
+                    },
+                );
             }
             let joined = (!block.is_air()).then(|| self.join_chest(pos)).flatten();
             self.after_edit(pos);
@@ -1850,6 +1870,8 @@ impl VoxelGame {
             .readers
             .damaged
             .read(&self.ecs.resource::<Events<PlayerDamaged>>())
+            // Le cri de douleur est celui du joueur de la fenêtre.
+            .filter(|e| e.player.is_none_or(|p| p == self.players.local_id()))
         {
             log::info!("aïe : -{} ({} restants)", event.amount, event.health_left);
             audio.play("core:place_hard");
@@ -1874,13 +1896,21 @@ impl VoxelGame {
                     let Some(item) = self.content.items.of_block(block) else {
                         continue;
                     };
-                    let left = self.inventory.add(item, count, &self.content.items);
+                    let left =
+                        self.players
+                            .me_mut()
+                            .inventory
+                            .add(item, count, &self.content.items);
                     if left > 0 {
                         log::info!("inventaire plein : {left} objet(s) perdu(s)");
                     }
                 }
                 MachineAction::GiveStack { item, count } => {
-                    let left = self.inventory.add(item, count, &self.content.items);
+                    let left =
+                        self.players
+                            .me_mut()
+                            .inventory
+                            .add(item, count, &self.content.items);
                     if left > 0 {
                         log::info!("inventaire plein : {left} objet(s) perdu(s)");
                     }
@@ -1932,7 +1962,14 @@ impl VoxelGame {
                     }
                 }
                 MachineAction::BlockBroken { pos, block } => {
-                    events::send(&self.ecs, BlockBroken { pos, block });
+                    events::send(
+                        &self.ecs,
+                        BlockBroken {
+                            pos,
+                            block,
+                            player: None,
+                        },
+                    );
                 }
                 MachineAction::Log(message) => log::info!("{message}"),
                 // Les ordres aux créatures ne valent que pendant leur lot (`mob_brains.rs`).
@@ -2006,15 +2043,17 @@ impl VoxelGame {
 
     /// Les bruits de pas (selon le bloc sous les pieds) et l'éclaboussure en entrant dans l'eau.
     fn footsteps(&mut self, dt: f32) {
-        if player::mode(&self.ecs, self.player) != MoveMode::Walk
-            || player::frozen(&self.ecs, self.player)
+        if player::mode(&self.ecs, self.players.entity()) != MoveMode::Walk
+            || player::frozen(&self.ecs, self.players.entity())
         {
             return;
         }
         let (Some(collider), Some(velocity), Some(transform)) = (
-            self.ecs.get::<Collider>(self.player).map(|c| *c),
-            self.ecs.get::<Velocity>(self.player).map(|v| v.0),
-            self.ecs.get::<Transform>(self.player).map(|t| t.position),
+            self.ecs.get::<Collider>(self.players.entity()).map(|c| *c),
+            self.ecs.get::<Velocity>(self.players.entity()).map(|v| v.0),
+            self.ecs
+                .get::<Transform>(self.players.entity())
+                .map(|t| t.position),
         ) else {
             return;
         };
@@ -2045,7 +2084,7 @@ impl VoxelGame {
         let render = self.last_render;
         let pending = stream.queued + stream.in_flight + stream.meshes_waiting;
         let triangles = render.triangles as f64 / 1e6;
-        let frozen = if player::frozen(&self.ecs, self.player) {
+        let frozen = if player::frozen(&self.ecs, self.players.entity()) {
             " (chargement…)"
         } else {
             ""
@@ -2053,7 +2092,7 @@ impl VoxelGame {
         ctx.status = format!(
             "{} | {}{frozen} | {} entités | {} chunks | {pending} en attente | {}/{} dessinés ({} cachés) | {triangles:.2} M tri",
             self.day.clock(),
-            player::mode(&self.ecs, self.player).name(),
+            player::mode(&self.ecs, self.players.entity()).name(),
             self.ecs.len(),
             stream.loaded,
             render.meshes_drawn,
@@ -2157,8 +2196,8 @@ impl VoxelGame {
 
     /// Avance tout droit en suivant le relief, pour mesurer le chargement.
     fn autofly(&mut self, speed: f32, dt: f32) {
-        let mut eye =
-            player::eye(&self.ecs, self.player, 1.0) + self.camera.forward_flat() * speed * dt;
+        let mut eye = player::eye(&self.ecs, self.players.entity(), 1.0)
+            + self.camera.forward_flat() * speed * dt;
         let ground = self
             .streamer()
             .generator()
@@ -2166,7 +2205,7 @@ impl VoxelGame {
             .height as f32;
         // On rejoint doucement l'altitude visée au lieu de sauter d'un coup.
         eye.y += (ground + FLY_ALTITUDE - eye.y) * (dt * 2.0).min(1.0);
-        player::set_eye(&self.ecs, self.player, eye);
+        player::set_eye(&self.ecs, self.players.entity(), eye);
     }
 
     /// Une action de démo par seconde : casser, puis poser, en alternance.
@@ -2175,7 +2214,7 @@ impl VoxelGame {
             return;
         };
         demo.timer += dt;
-        if demo.timer < 1.0 || player::frozen(&self.ecs, self.player) {
+        if demo.timer < 1.0 || player::frozen(&self.ecs, self.players.entity()) {
             return;
         }
         demo.timer = 0.0;
@@ -2185,8 +2224,9 @@ impl VoxelGame {
         if !breaking {
             // La case suivante qui contient quelque chose.
             for _ in 0..inventory::HOTBAR {
-                self.inventory.selected = (self.inventory.selected + 1) % inventory::HOTBAR;
-                if self.inventory.selected_item().is_some() {
+                self.players.me_mut().inventory.selected =
+                    (self.players.me_mut().inventory.selected + 1) % inventory::HOTBAR;
+                if self.players.me_mut().inventory.selected_item().is_some() {
                     break;
                 }
             }
@@ -2201,12 +2241,14 @@ impl VoxelGame {
         let body = engine_voxel::PlayerBody {
             on_ground: self
                 .ecs
-                .get::<Collider>(self.player)
+                .get::<Collider>(self.players.entity())
                 .is_some_and(|c| c.on_ground),
-            ..player::body(&self.ecs, self.player)
+            ..player::body(&self.ecs, self.players.entity())
         };
         let action = if breaking { "cassé" } else { "posé" };
         let block = self
+            .players
+            .me_mut()
             .inventory
             .selected_item()
             .map_or("?", |i| self.content.items.get(i).key.as_str());

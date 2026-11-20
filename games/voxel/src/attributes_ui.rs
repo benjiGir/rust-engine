@@ -91,7 +91,7 @@ impl VoxelGame {
         let x = frame.map_or(safe.left(), |f| (f.left() - actual - 10.0).max(safe.left()));
         let mut close = false;
         let mut modified_only = self.ui.attributes.modified_only;
-        let attrs = self.gear.attrs().clone();
+        let attrs = self.players.me_mut().gear.attrs().clone();
         egui::Window::new("Attributs")
             .id(id)
             .frame(skin::panel())
@@ -153,7 +153,7 @@ impl VoxelGame {
 
     /// Les attributs en JSON, pour `ctl attributes` : valeur, base, et le détail par source.
     pub(crate) fn attributes_json(&self) -> String {
-        let attrs = self.gear.attrs();
+        let attrs = self.players.me().gear.attrs();
         let rows: Vec<String> = Attribute::ALL
             .into_iter()
             .map(|a| {

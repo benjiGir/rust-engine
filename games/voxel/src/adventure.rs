@@ -85,31 +85,34 @@ impl VoxelGame {
     /// À chaque pas de la simulation (voir la doc du module).
     pub(crate) fn update_adventure(&mut self, dt: f32) {
         let data = adventure_data::current();
-        self.ecs.insert_resource(self.adventure.effects(&data));
-        self.adventure.scan_timer -= dt;
-        if self.adventure.scan_timer <= 0.0 {
-            self.adventure.scan_timer = 1.0;
+        self.ecs
+            .insert_resource(self.players.me_mut().adventure.effects(&data));
+        self.players.me_mut().adventure.scan_timer -= dt;
+        if self.players.me_mut().adventure.scan_timer <= 0.0 {
+            self.players.me_mut().adventure.scan_timer = 1.0;
             self.scan_adventure(&data);
         }
-        let (min, max) = self.adventure.effects(&data).invader;
+        let (min, max) = self.players.me_mut().adventure.effects(&data).invader;
         if max <= 0.0 {
-            self.adventure.invader_timer = 0.0;
+            self.players.me_mut().adventure.invader_timer = 0.0;
             return;
         }
-        if self.adventure.invader_timer <= 0.0 {
+        if self.players.me_mut().adventure.invader_timer <= 0.0 {
             let roll = Rng64::new(self.next_random()).next_f32();
-            self.adventure.invader_timer = min + (max - min) * roll;
+            self.players.me_mut().adventure.invader_timer = min + (max - min) * roll;
         }
-        self.adventure.invader_timer -= dt;
-        if self.adventure.invader_timer <= 0.0 {
+        self.players.me_mut().adventure.invader_timer -= dt;
+        if self.players.me_mut().adventure.invader_timer <= 0.0 {
             self.spawn_invader(&data);
         }
     }
 
     /// La revue d'une seconde : profondeur, objets portés, déblocages.
     fn scan_adventure(&mut self, data: &AdventureData) {
-        let feet = player::body(&self.ecs, self.player).position;
-        self.adventure
+        let feet = player::body(&self.ecs, self.players.entity()).position;
+        self.players
+            .me_mut()
+            .adventure
             .progress
             .note_depth(feet.y, engine_voxel::SEA_LEVEL);
         let items = self.content.items.clone();
@@ -124,22 +127,28 @@ impl VoxelGame {
                 best = best.max(Some(r));
             }
         };
-        for slot in self.inventory.slots.iter_mut() {
+        for slot in self.players.me_mut().inventory.slots.iter_mut() {
             visit(slot);
         }
-        for slot in self.inventory.armor.iter_mut() {
+        for slot in self.players.me_mut().inventory.armor.iter_mut() {
             visit(slot);
         }
-        visit(&mut self.inventory.cursor);
+        visit(&mut self.players.me_mut().inventory.cursor);
         if let Some(rarity) = best {
-            self.adventure.progress.note_rarity(rarity);
+            self.players.me_mut().adventure.progress.note_rarity(rarity);
         }
         self.unlock_tiers(data);
     }
 
     /// Débloque ce que la progression permet, avec un message.
     pub(crate) fn unlock_tiers(&mut self, data: &AdventureData) {
-        if let Some(tier) = self.adventure.progress.refresh_unlocked(&data.tiers) {
+        if let Some(tier) = self
+            .players
+            .me_mut()
+            .adventure
+            .progress
+            .refresh_unlocked(&data.tiers)
+        {
             let name = data.tier(tier).map_or("?", |t| t.name.as_str()).to_string();
             let key = self
                 .settings
@@ -155,7 +164,7 @@ impl VoxelGame {
 
     /// La hausse de rareté du palier choisi.
     fn rarity_boost(&self, data: &AdventureData) -> f32 {
-        data.tier(self.adventure.progress.tier)
+        data.tier(self.players.me().adventure.progress.tier)
             .map_or(0.0, |t| t.rarity_boost)
     }
 
@@ -163,7 +172,7 @@ impl VoxelGame {
     pub(crate) fn roll_affixed_stack(&mut self, min_rarity: u8) -> Option<ItemStack> {
         let data = adventure_data::current();
         let items = self.content.items.clone();
-        let tier = self.adventure.progress.tier;
+        let tier = self.players.me_mut().adventure.progress.tier;
         let boost = self.rarity_boost(&data);
         let seed = self.next_random();
         roll_affixed(&data, &items, tier, boost, min_rarity, seed)
@@ -209,7 +218,7 @@ impl VoxelGame {
             }
             None if hostile => {
                 let chance = data
-                    .tier(self.adventure.progress.tier)
+                    .tier(self.players.me_mut().adventure.progress.tier)
                     .map_or(0.0, |t| t.drop_chance);
                 if Rng64::new(self.next_random()).next_f32() < chance {
                     stacks.extend(self.roll_affixed_stack(0));
@@ -224,14 +233,14 @@ impl VoxelGame {
 
     /// Une hostile vient de mourir près du joueur : la progression la compte.
     pub(crate) fn credit_kill(&mut self, boss: bool) {
-        self.adventure.progress.note_kill(boss);
+        self.players.me_mut().adventure.progress.note_kill(boss);
         let data = adventure_data::current();
         self.unlock_tiers(&data);
     }
 
     /// Fait apparaître un envahisseur non loin du joueur : un son, un message, un faisceau.
     pub(crate) fn spawn_invader(&mut self, data: &AdventureData) -> Option<Vec3> {
-        let center = player::body(&self.ecs, self.player).position;
+        let center = player::body(&self.ecs, self.players.entity()).position;
         let kind = self.pick_invader_kind()?;
         let site = (0..12).find_map(|_| {
             let [angle, dist] = [(); 2].map(|()| Rng64::new(self.next_random()).next_f32());
@@ -276,7 +285,7 @@ impl VoxelGame {
 
     /// Fait de cette créature un envahisseur.
     pub(crate) fn promote_invader(&mut self, entity: Entity, data: &AdventureData) -> bool {
-        let tier = self.adventure.progress.tier;
+        let tier = self.players.me_mut().adventure.progress.tier;
         let mut rng = Rng64::new(self.next_random());
         elites::promote(&mut self.ecs, entity, data, tier, true, &mut rng)
     }

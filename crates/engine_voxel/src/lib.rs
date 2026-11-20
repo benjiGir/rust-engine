@@ -146,8 +146,9 @@ pub use registry::{
     RotationAxis, Shape, StateKind, Support, Tint,
 };
 pub use save::{
-    AdventureSave, ChunkToSave, FORMAT_VERSION, LoadedChunk, PlayerSave, REGION_SIZE, SaveReport,
-    SaveStore, SavedInventory, SavedStack, UNKNOWN_BLOCK, UnknownBlocks, WorldMeta, write_atomic,
+    AdventureSave, ChunkToSave, FORMAT_VERSION, LoadedChunk, PlayerFile, PlayerSave, REGION_SIZE,
+    SaveReport, SaveStore, SavedInventory, SavedStack, UNKNOWN_BLOCK, UnknownBlocks, WorldMeta,
+    write_atomic,
 };
 pub use ship::{ShipInput, StepReport, step as step_ship};
 pub use storage::{
@@ -159,7 +160,7 @@ pub use storage::{
     installed as installed_upgrades, is_controller, kit_of, kit_target, layout_of, maintain,
     put_in, relayout, room_in, stack_limit, stack_multiplier, upgrade_chest,
 };
-pub use streaming::{ChunkStreamer, StreamEvent, StreamStats, StreamingConfig};
+pub use streaming::{ChunkStreamer, StreamEvent, StreamStats, StreamingConfig, View};
 pub use subgrid::{
     AssemblyError, MAX_BLOCKS, SubGrid, SubGrids, extract, land, landing_cells, load_grids,
     quarter_turns, rotate_facing, rotate_y, save_grids,

@@ -35,20 +35,20 @@ pub type HudBars = BTreeMap<(String, u32), HudBar>;
 impl VoxelGame {
     /// L'état du joueur tel que les scripts le voient.
     pub(crate) fn player_snapshot(&self) -> PlayerSnapshot {
-        let health = player::health(&self.ecs, self.player);
+        let health = player::health(&self.ecs, self.players.entity());
         PlayerSnapshot {
             eye: self.camera.position,
             look: self.camera.forward().normalize_or_zero(),
             health: health.current,
             max_health: health.max,
-            level: self.experience.level().0 as f32,
+            level: self.players.me().experience.level().0 as f32,
         }
     }
 
     /// Un clic droit avec un objet `usable` en main : les scripts abonnés à `ItemUsed` en sont
     /// prévenus. Renvoie vrai si un script l'a reçu (le clic est alors pris : on ne pose rien).
     pub(crate) fn use_mod_item(&mut self) -> bool {
-        let Some(item) = self.inventory.selected_item() else {
+        let Some(item) = self.players.me_mut().inventory.selected_item() else {
             return false;
         };
         if !self.content.items.get(item).usable
@@ -69,21 +69,22 @@ impl VoxelGame {
         match action {
             MachineAction::PlayerHeal { amount } => self.heal(amount),
             MachineAction::PlayerHurt { amount } => {
-                let from = player::body(&self.ecs, self.player).position;
+                let from = player::body(&self.ecs, self.players.entity()).position;
                 crate::events::send(
                     &self.ecs,
                     crate::events::PlayerAttacked {
+                        player: Some(self.players.local_id()),
                         amount,
                         from,
                         pierce: 0.0,
                     },
                 );
             }
-            MachineAction::QuestSignal { id } => self.quest_book.note_signal(id),
+            MachineAction::QuestSignal { id } => self.players.me_mut().quest_book.note_signal(id),
             MachineAction::Say { text } => self.chat(&text),
             MachineAction::ConsumeHeld { count } => {
                 for _ in 0..count {
-                    self.inventory.consume_selected();
+                    self.players.me_mut().inventory.consume_selected();
                 }
             }
             MachineAction::PlayerTeleport { position } => self.teleport_player(position),
@@ -164,7 +165,7 @@ impl VoxelGame {
     }
 
     fn teleport_player(&mut self, to: Vec3) {
-        let from = player::body(&self.ecs, self.player).position;
+        let from = player::body(&self.ecs, self.players.entity()).position;
         // Seulement vers un endroit chargé et pas trop loin : un script ne perd pas le joueur.
         let loaded = self
             .streamer()
@@ -174,13 +175,13 @@ impl VoxelGame {
         if !loaded || from.distance(to) > MAX_TELEPORT {
             return;
         }
-        if let Some(mut transform) = self.ecs.get_mut::<Transform>(self.player) {
+        if let Some(mut transform) = self.ecs.get_mut::<Transform>(self.players.entity()) {
             transform.position = to;
         }
-        if let Some(mut previous) = self.ecs.get_mut::<PreviousPosition>(self.player) {
+        if let Some(mut previous) = self.ecs.get_mut::<PreviousPosition>(self.players.entity()) {
             previous.0 = to;
         }
-        if let Some(mut velocity) = self.ecs.get_mut::<Velocity>(self.player) {
+        if let Some(mut velocity) = self.ecs.get_mut::<Velocity>(self.players.entity()) {
             velocity.0 = Vec3::ZERO;
         }
         self.camera.position = to + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT;
@@ -196,7 +197,7 @@ impl VoxelGame {
             "healing" => Effect::Healing,
             _ => return,
         };
-        let healed = self.effects.drink(PotionDef {
+        let healed = self.players.me_mut().effects.drink(PotionDef {
             effect,
             seconds,
             power,

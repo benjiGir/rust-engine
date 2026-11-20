@@ -12,12 +12,13 @@ impl VoxelGame {
     pub(crate) fn use_bucket(&mut self, item: ItemId) {
         let items = self.content.items.clone();
         let key = items.get(item).key.clone();
-        let slot = self.inventory.selected;
+        let slot = self.players.me_mut().inventory.selected;
         if key == "core:bucket" {
             // Le long du rayon, la première cellule de fluide.
             let found = {
+                let reach = self.players.me().gear.reach();
                 let streamer = self.streamer();
-                (1..(self.gear.reach() * 10.0) as i32)
+                (1..(reach * 10.0) as i32)
                     .map(|k| {
                         (self.camera.position + self.camera.forward() * (k as f32 * 0.1))
                             .floor()
@@ -33,15 +34,15 @@ impl VoxelGame {
             let Some(full) = items.id(&format!("{fluid}_bucket")) else {
                 return;
             };
-            self.inventory.consume_selected();
+            self.players.me_mut().inventory.consume_selected();
             let filled = inventory::ItemStack {
                 item: full,
                 count: 1,
                 damage: amount as u32,
             };
-            if self.inventory.slots[slot].is_none() {
-                self.inventory.slots[slot] = Some(filled);
-            } else if self.inventory.add_stack(filled, &items) > 0 {
+            if self.players.me_mut().inventory.slots[slot].is_none() {
+                self.players.me_mut().inventory.slots[slot] = Some(filled);
+            } else if self.players.me_mut().inventory.add_stack(filled, &items) > 0 {
                 self.drop_stack(pos, filled);
             }
             if let Some(audio) = &mut self.audio {
@@ -50,7 +51,7 @@ impl VoxelGame {
             self.hand.punch();
         } else {
             let Some(hit) = self.target else { return };
-            let Some(stack) = self.inventory.selected_stack() else {
+            let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
                 return;
             };
             let fluid_key = key.trim_end_matches("_bucket");
@@ -65,7 +66,7 @@ impl VoxelGame {
                 return;
             }
             let left = stack.damage as i32 - poured;
-            self.inventory.slots[slot] = Some(if left > 0 {
+            self.players.me_mut().inventory.slots[slot] = Some(if left > 0 {
                 inventory::ItemStack {
                     damage: left as u32,
                     ..stack

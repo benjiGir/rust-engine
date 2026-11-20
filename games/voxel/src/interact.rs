@@ -11,6 +11,8 @@ impl VoxelGame {
             return true;
         }
         let Some(block) = self
+            .players
+            .me_mut()
             .inventory
             .selected_item()
             .and_then(|item| self.content.items.get(item).block)
@@ -58,12 +60,15 @@ impl VoxelGame {
             log::info!("temps {} ({})", self.day.speed.name(), self.day.clock());
         }
         if input.key_pressed(self.settings.keys.key(Action::Fly)) {
-            player::toggle_mode(&mut self.ecs, self.player);
-            log::info!("mode {}", player::mode(&self.ecs, self.player).name());
+            player::toggle_mode(&mut self.ecs, self.players.entity());
+            log::info!(
+                "mode {}",
+                player::mode(&self.ecs, self.players.entity()).name()
+            );
         }
         for (i, key) in HOTBAR_KEYS.iter().enumerate() {
             if input.key_pressed(*key) {
-                self.inventory.selected = i;
+                self.players.me_mut().inventory.selected = i;
             }
         }
         if input.key_pressed(KeyCode::F3) {
@@ -93,7 +98,7 @@ impl VoxelGame {
 
     /// Jette un exemplaire en conservant son usure et son enchantement.
     pub(crate) fn throw_selected(&mut self) {
-        let Some(stack) = self.inventory.selected_stack() else {
+        let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
             return;
         };
         let direction = self.camera.forward();
@@ -101,7 +106,7 @@ impl VoxelGame {
         if self.streamer().world().is_solid(center.floor().as_ivec3()) {
             return;
         }
-        self.inventory.consume_selected();
+        self.players.me_mut().inventory.consume_selected();
         let seed = self.next_random();
         let entity = drops::spawn(
             &mut self.ecs,
@@ -153,18 +158,26 @@ impl VoxelGame {
 
     /// Les potions en cours : la régénération soigne, la résistance éteint le feu.
     pub(crate) fn update_effects(&mut self, dt: f32) {
-        let healed = self.effects.update(dt);
+        let healed = self.players.me_mut().effects.update(dt);
         if healed > 0.0 {
             self.heal(healed);
         }
-        if self.effects.has(potions::Effect::FireResistance) {
-            self.vitals.burning = 0.0;
+        if self
+            .players
+            .me_mut()
+            .effects
+            .has(potions::Effect::FireResistance)
+        {
+            self.players.me_mut().vitals.burning = 0.0;
         }
     }
 
     /// Rend des points de vie, sans dépasser le maximum.
     pub(crate) fn heal(&mut self, amount: f32) {
-        if let Some(mut health) = self.ecs.get_mut::<components::Health>(self.player) {
+        if let Some(mut health) = self
+            .ecs
+            .get_mut::<components::Health>(self.players.entity())
+        {
             health.current = (health.current + amount).min(health.max);
         }
     }
@@ -177,7 +190,7 @@ impl VoxelGame {
         };
         let water = {
             let streamer = self.streamer();
-            (1..(self.gear.reach() * 10.0) as i32)
+            (1..(self.players.me().gear.reach() * 10.0) as i32)
                 .map(|k| {
                     (self.camera.position + self.camera.forward() * (k as f32 * 0.1))
                         .floor()
@@ -186,11 +199,13 @@ impl VoxelGame {
                 .find(|&p| self.fluids.kind_of(streamer.world().block(p)).is_some())
         };
         let Some(pos) = water else { return };
-        if self.inventory.selected_item() != Some(flask) {
+        if self.players.me_mut().inventory.selected_item() != Some(flask) {
             return;
         }
-        self.inventory.consume_selected();
+        self.players.me_mut().inventory.consume_selected();
         let left = self
+            .players
+            .me_mut()
             .inventory
             .add_stack(inventory::ItemStack::new(full, 1), &items);
         if left > 0 {
@@ -207,7 +222,7 @@ impl VoxelGame {
         if self.audio.is_none() {
             return;
         }
-        let feet = player::body(&self.ecs, self.player).position;
+        let feet = player::body(&self.ecs, self.players.entity()).position;
         let place = {
             let streamer = self.streamer();
             let generator = streamer.generator();
@@ -250,7 +265,9 @@ impl VoxelGame {
 
     /// Un clic droit sur un habitant : l'écran d'échange.
     pub(crate) fn trade_with_villager(&mut self) -> bool {
-        let block_distance = self.target.map_or(self.gear.reach(), |hit| hit.distance);
+        let block_distance = self
+            .target
+            .map_or(self.players.me_mut().gear.reach(), |hit| hit.distance);
         let Some((mob, _)) = mobs::hit_mob(
             &self.ecs,
             self.camera.position,
@@ -284,8 +301,12 @@ impl VoxelGame {
         self.forget_mod_menu();
         self.ui.browser.close();
         self.ui.split = None;
-        let loose = self.inventory.put_away(&self.content.items);
-        let at = player::body(&self.ecs, self.player)
+        let loose = self
+            .players
+            .me_mut()
+            .inventory
+            .put_away(&self.content.items);
+        let at = player::body(&self.ecs, self.players.entity())
             .position
             .floor()
             .as_ivec3()
@@ -329,10 +350,12 @@ impl VoxelGame {
 
     /// Un aliment en main, clic droit sur un animal qui l'aime : il entre en rut.
     pub(crate) fn feed_mob(&mut self) -> bool {
-        let Some(item) = self.inventory.selected_item() else {
+        let Some(item) = self.players.me_mut().inventory.selected_item() else {
             return false;
         };
-        let block_distance = self.target.map_or(self.gear.reach(), |hit| hit.distance);
+        let block_distance = self
+            .target
+            .map_or(self.players.me_mut().gear.reach(), |hit| hit.distance);
         let Some((mob, _)) = mobs::hit_mob(
             &self.ecs,
             self.camera.position,
@@ -345,7 +368,7 @@ impl VoxelGame {
         if !breeding::feed(&mut self.ecs, mob, &key) {
             return false;
         }
-        self.inventory.consume_selected();
+        self.players.me_mut().inventory.consume_selected();
         self.hand.punch();
         if let Some(audio) = &mut self.audio {
             audio.play("core:place_soft");
@@ -355,7 +378,7 @@ impl VoxelGame {
 
     /// L'engrais en main, clic droit sur une culture : elle avance de deux stades.
     pub(crate) fn use_fertilizer(&mut self) -> bool {
-        let Some(item) = self.inventory.selected_item() else {
+        let Some(item) = self.players.me_mut().inventory.selected_item() else {
             return false;
         };
         if self.content.items.get(item).key != "core:fertilizer" {
@@ -371,7 +394,7 @@ impl VoxelGame {
         if !self.edit(hit.block_pos, next) {
             return false;
         }
-        self.inventory.consume_selected();
+        self.players.me_mut().inventory.consume_selected();
         self.hand.punch();
         if let Some(audio) = &mut self.audio {
             audio.play("core:place_soft");

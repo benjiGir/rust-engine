@@ -14,9 +14,10 @@ impl VoxelGame {
             return 12.0;
         }
         let ship = self.ship_hit();
-        let block_distance = ship
-            .map(|(_, h)| h.distance)
-            .unwrap_or_else(|| self.target.map_or(self.gear.reach(), |h| h.distance));
+        let block_distance = ship.map(|(_, h)| h.distance).unwrap_or_else(|| {
+            self.target
+                .map_or(self.players.me_mut().gear.reach(), |h| h.distance)
+        });
         let mob = crate::mobs::hit_mob(
             &self.ecs,
             self.camera.position,
@@ -131,6 +132,8 @@ impl VoxelGame {
             };
             let def = self.registry.def(block);
             let held = self
+                .players
+                .me_mut()
                 .inventory
                 .selected_item()
                 .and_then(|id| self.content.items.get(id).tool);

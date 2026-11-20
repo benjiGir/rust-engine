@@ -4,6 +4,9 @@
 //!
 //! Un dossier par monde :
 //! - `world.ron` : les réglages du monde (graine, heure, joueur, mods), lisibles à la main ;
+//! - `players/<identifiant>.ron` : un fichier par joueur ([`PlayerFile`]) : sa position, son
+//!   inventaire, sa progression d'aventure. Le joueur hôte est aussi écrit dans `world.ron`, et un
+//!   monde d'avant ces fichiers (rien dans `players/`) se relit depuis `world.ron` ;
 //! - `regions/r.<x>.<z>.bin` : les chunks, regroupés par « régions » de 16 × 16 colonnes.
 //!   Un fichier par chunk ferait des milliers de petits fichiers, lents à ouvrir ;
 //!   un seul fichier pour tout le monde obligerait à tout réécrire à chaque sauvegarde.
@@ -98,6 +101,23 @@ pub struct AdventureSave {
     pub best_rarity: u8,
     /// La plus grande profondeur atteinte, en blocs sous le niveau de la mer.
     pub depth: i32,
+}
+
+/// Ce qui appartient à un joueur, dans `players/<identifiant>.ron`. Les champs de progression ont
+/// une valeur par défaut : un fichier plus ancien (ou écrit à la main) reste lisible.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlayerFile {
+    /// Le nom du joueur à sa dernière visite (pour s'y retrouver dans le dossier).
+    #[serde(default)]
+    pub name: String,
+    /// Où il est, comment il va (la même structure que dans `world.ron`).
+    pub player: PlayerSave,
+    /// Son inventaire.
+    #[serde(default)]
+    pub items: Option<SavedInventory>,
+    /// Ses paliers et compteurs d'aventure.
+    #[serde(default)]
+    pub adventure: AdventureSave,
 }
 
 /// Le contenu de `world.ron`.
@@ -291,6 +311,71 @@ impl SaveStore {
     pub fn save_meta(&self, meta: &WorldMeta) -> Result<()> {
         let text = ron::ser::to_string_pretty(meta, ron::ser::PrettyConfig::default())?;
         write_atomic(&self.meta_path(), text.as_bytes())
+    }
+
+    /// Le dossier des fichiers de joueurs.
+    pub fn players_dir(&self) -> PathBuf {
+        self.dir.join("players")
+    }
+
+    /// Un identifiant de joueur devient un nom de fichier : lettres, chiffres, `-` et `_`
+    /// seulement (rien qui sorte du dossier).
+    fn player_path(&self, id: &str) -> Result<PathBuf> {
+        if id.is_empty()
+            || !id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            bail!("identifiant de joueur invalide : « {id} »");
+        }
+        Ok(self.players_dir().join(format!("{id}.ron")))
+    }
+
+    /// Écrit le fichier d'un joueur (le dossier `players/` est créé au besoin).
+    pub fn save_player(&self, id: &str, file: &PlayerFile) -> Result<()> {
+        let path = self.player_path(id)?;
+        std::fs::create_dir_all(self.players_dir())
+            .with_context(|| format!("création de {}", self.players_dir().display()))?;
+        let text = ron::ser::to_string_pretty(file, ron::ser::PrettyConfig::default())?;
+        write_atomic(&path, text.as_bytes())
+    }
+
+    /// Lit le fichier d'un joueur, ou `None` s'il n'est jamais venu. Un fichier illisible est
+    /// mis de côté (`<identifiant>.ron.illisible`) et signalé, jamais écrasé en silence.
+    pub fn load_player(&self, id: &str) -> Result<Option<PlayerFile>> {
+        let path = self.player_path(id)?;
+        if !path.exists() {
+            return Ok(None);
+        }
+        let text = std::fs::read_to_string(&path)?;
+        match ron::from_str(&text) {
+            Ok(file) => Ok(Some(file)),
+            Err(err) => {
+                let aside = path.with_extension("ron.illisible");
+                let _ = std::fs::copy(&path, &aside);
+                bail!(
+                    "{} illisible ({err}) : copie gardée dans {}",
+                    path.display(),
+                    aside.display()
+                )
+            }
+        }
+    }
+
+    /// Les identifiants des joueurs qui ont un fichier.
+    pub fn list_players(&self) -> Vec<String> {
+        let Ok(entries) = std::fs::read_dir(self.players_dir()) else {
+            return Vec::new();
+        };
+        let mut ids: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().into_string().ok()?;
+                name.strip_suffix(".ron").map(str::to_string)
+            })
+            .collect();
+        ids.sort();
+        ids
     }
 
     /// La région qui contient ce chunk.
@@ -1146,6 +1231,99 @@ pub(crate) mod tests {
             AdventureSave::default(),
             "palier 0, sans progression"
         );
+    }
+
+    fn player_file(name: &str, x: f32, stone: u32) -> PlayerFile {
+        PlayerFile {
+            name: name.into(),
+            player: PlayerSave {
+                position: [x, 70.0, -3.0],
+                yaw: 1.0,
+                pitch: -0.5,
+                mode: "walk".into(),
+                selected_block: None,
+                food: Some(12.0),
+                saturation: None,
+                spawn_point: Some([1, 2, 3]),
+                xp: Some(7),
+            },
+            items: Some(SavedInventory {
+                palette: vec!["core:stone".into()],
+                slots: vec![Some(SavedStack {
+                    item: 0,
+                    count: stone,
+                    damage: 0,
+                })],
+                armor: vec![None; 4],
+                selected: 0,
+            }),
+            adventure: AdventureSave {
+                kills: stone,
+                ..AdventureSave::default()
+            },
+        }
+    }
+
+    #[test]
+    fn two_players_round_trip_through_their_own_files() {
+        let store = SaveStore::open(temp_dir("players")).unwrap();
+        let (a, b) = (
+            "00000000000000000000000000000001",
+            "0000000000000000000000000000beef",
+        );
+        assert_eq!(store.load_player(a).unwrap(), None, "personne n'est venu");
+        store.save_player(a, &player_file("Alice", 5.0, 3)).unwrap();
+        store
+            .save_player(b, &player_file("Bob", -40.0, 64))
+            .unwrap();
+        assert_eq!(store.list_players(), [a, b]);
+        let alice = store.load_player(a).unwrap().unwrap();
+        let bob = store.load_player(b).unwrap().unwrap();
+        assert_eq!(
+            (alice.name.as_str(), alice.player.position[0]),
+            ("Alice", 5.0)
+        );
+        assert_eq!((bob.name.as_str(), bob.player.position[0]), ("Bob", -40.0));
+        assert_eq!(alice.items.unwrap().slots[0].unwrap().count, 3);
+        assert_eq!(bob.items.unwrap().slots[0].unwrap().count, 64);
+        assert_eq!(bob.adventure.kills, 64);
+        // Réécrire un joueur ne touche pas l'autre.
+        store.save_player(a, &player_file("Alice", 9.0, 1)).unwrap();
+        assert_eq!(
+            store.load_player(b).unwrap().unwrap().player.position[0],
+            -40.0
+        );
+    }
+
+    #[test]
+    fn a_player_file_with_only_a_position_loads_and_bad_ids_are_refused() {
+        let store = SaveStore::open(temp_dir("player-minimal")).unwrap();
+        std::fs::create_dir_all(store.players_dir()).unwrap();
+        std::fs::write(
+            store.players_dir().join("abc.ron"),
+            r#"(player: (position: (1.0, 2.0, 3.0), yaw: 0.0, pitch: 0.0, mode: "fly", selected_block: None))"#,
+        )
+        .unwrap();
+        let file = store.load_player("abc").unwrap().unwrap();
+        assert!(file.name.is_empty() && file.items.is_none());
+        assert_eq!(file.adventure, AdventureSave::default());
+        for bad in ["", "../world", "a/b", "x.ron"] {
+            assert!(
+                store.load_player(bad).is_err(),
+                "{bad:?} aurait dû être refusé"
+            );
+            assert!(store.save_player(bad, &file).is_err());
+        }
+    }
+
+    #[test]
+    fn an_unreadable_player_file_is_kept_aside_and_reported() {
+        let store = SaveStore::open(temp_dir("player-broken")).unwrap();
+        std::fs::create_dir_all(store.players_dir()).unwrap();
+        std::fs::write(store.players_dir().join("abc.ron"), "pas du RON").unwrap();
+        let err = store.load_player("abc").unwrap_err();
+        assert!(format!("{err:#}").contains("illisible"));
+        assert!(store.players_dir().join("abc.ron.illisible").exists());
     }
 
     #[test]

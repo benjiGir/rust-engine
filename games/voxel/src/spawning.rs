@@ -26,7 +26,7 @@ use glam::{IVec3, Vec3};
 use serde::Deserialize;
 
 use crate::components::{Mob, Transform};
-use crate::mobs::{self, FixedDt, GameRng, MobRegistry, PlayerEntity, SimClock};
+use crate::mobs::{self, FixedDt, GameRng, MobRegistry, SimClock};
 use crate::shared::StreamerExt as _;
 
 /// Au-delà (à l'horizontale), une créature ne pense ni ne bouge.
@@ -163,10 +163,13 @@ pub fn horizontal_distance(a: Vec3, b: Vec3) -> f32 {
     Vec3::new(a.x - b.x, 0.0, a.z - b.z).length()
 }
 
-/// Hors de la zone de simulation : ni IA ni physique (le joueur, lui, est toujours
-/// simulé : ce n'est pas une créature).
-pub fn asleep(world: &World, entity: engine_ecs::Entity, position: Vec3, player: Vec3) -> bool {
-    world.has::<Mob>(entity) && horizontal_distance(position, player) > SIM_DISTANCE
+/// Hors de la zone de simulation de **tous** les joueurs (`players` : leurs positions) : ni IA ni
+/// physique. Un joueur, lui, est toujours simulé : ce n'est pas une créature.
+pub fn asleep(world: &World, entity: engine_ecs::Entity, position: Vec3, players: &[Vec3]) -> bool {
+    world.has::<Mob>(entity)
+        && players
+            .iter()
+            .all(|&p| horizontal_distance(position, p) > SIM_DISTANCE)
 }
 
 /// Toutes les [`SPAWN_INTERVAL`] secondes, quelques essais d'apparition autour du joueur.
@@ -184,10 +187,29 @@ pub fn spawn(world: &mut World) {
         }
         clock.spawn_timer = SPAWN_INTERVAL;
     }
-    let player = world.resource::<PlayerEntity>().0;
-    let Some(center) = world.get::<Transform>(player).map(|t| t.position) else {
+    // Chaque passage s'occupe d'un seul joueur, à tour de rôle (avec un seul, toujours le même) :
+    // les plafonds de créatures se comptent donc autour de lui. Les morts passent après les vivants.
+    let spots = mobs::player_spots(world);
+    let mut candidates: Vec<&mobs::PlayerSpot> = spots.iter().filter(|s| s.alive).collect();
+    if candidates.is_empty() {
+        candidates = spots.iter().collect();
+    }
+    if candidates.is_empty() {
         return;
+    }
+    let turn = {
+        let mut clock = world.resource_mut::<SimClock>();
+        clock.spawn_turn = clock.spawn_turn.wrapping_add(1);
+        clock.spawn_turn - 1
     };
+    let chosen = *candidates[turn % candidates.len()];
+    let center = chosen.position;
+    // Les autres joueurs : rien n'apparaît sous leur nez.
+    let others: Vec<Vec3> = spots
+        .iter()
+        .filter(|s| s.entity != chosen.entity)
+        .map(|s| s.position)
+        .collect();
     let registry = world.resource::<Arc<MobRegistry>>().clone();
     let sky = *world.resource::<Sky>();
     let (mut hostiles, mut passives, mut aquatics) = census(world, center, &registry);
@@ -208,6 +230,13 @@ pub fn spawn(world: &mut World) {
         let distance = SPAWN_MIN + r_dist * (SPAWN_MAX - SPAWN_MIN);
         let x = (center.x + angle.cos() * distance).floor() as i32;
         let z = (center.z + angle.sin() * distance).floor() as i32;
+        let at_xz = Vec3::new(x as f32 + 0.5, center.y, z as f32 + 0.5);
+        if others
+            .iter()
+            .any(|&o| horizontal_distance(at_xz, o) < SPAWN_MIN)
+        {
+            continue;
+        }
         // La moitié des essais en surface, l'autre à une hauteur proche de celle du
         // joueur (les grottes quand il est sous terre).
         let land_height_roll = if hostile {

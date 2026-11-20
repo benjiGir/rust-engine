@@ -6,16 +6,26 @@ use engine_ecs::{Entity, Events, World};
 use engine_voxel::BlockId;
 use glam::IVec3;
 
+use crate::players::PlayerId;
+
+// Les événements qui viennent d'un joueur portent son numéro (`Option<PlayerId>`) : les quêtes,
+// l'aventure et les statistiques les comptent au bon joueur. `None` : personne (une machine, un
+// script, un effondrement) ; les mods reçoivent l'événement sans ce numéro.
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BlockBroken {
     pub pos: IVec3,
     pub block: BlockId,
+    /// Le joueur qui l'a cassé.
+    pub player: Option<PlayerId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BlockPlaced {
     pub pos: IVec3,
     pub block: BlockId,
+    /// Le joueur qui l'a posé.
+    pub player: Option<PlayerId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,12 +45,16 @@ pub struct EntityDied {
     pub elite: Option<crate::elites::Elite>,
     /// Conservée avant la disparition du mouton pour déterminer sa laine.
     pub coat: Option<crate::sheep_colors::SheepCoat>,
+    /// Le joueur qui l'a tuée (`None` : chute, feu, soleil...).
+    pub killer: Option<PlayerId>,
 }
 
 /// Une créature frappe le joueur : le jeu en fait un coup (armure, invulnérabilité),
 /// puis un [`PlayerDamaged`] s'il porte.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerAttacked {
+    /// Le joueur frappé (`None` : le joueur local, pour les sources qui ne le précisent pas).
+    pub player: Option<PlayerId>,
     pub amount: f32,
     /// D'où vient le coup (la créature, le projectile) : le joueur recule à l'opposé.
     pub from: glam::Vec3,
@@ -51,6 +65,8 @@ pub struct PlayerAttacked {
 /// Le joueur a perdu de la vie (après l'armure).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerDamaged {
+    /// Le joueur blessé.
+    pub player: Option<PlayerId>,
     pub amount: f32,
     pub health_left: f32,
 }

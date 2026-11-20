@@ -258,6 +258,11 @@ pub struct Settings {
     pub keys: Keys,
     /// Les favoris de l'explorateur de recettes (identifiants d'objets).
     pub bookmarks: Vec<String>,
+    /// Le nom du joueur local.
+    pub player_name: String,
+    /// L'identifiant du joueur local, 32 chiffres hexadécimaux, tiré au hasard au premier
+    /// lancement : il nomme son fichier `players/<uuid>.ron` dans chaque monde.
+    pub player_uuid: String,
 }
 
 impl Default for Settings {
@@ -280,6 +285,8 @@ impl Default for Settings {
             cart_max_speed: 8.0,
             keys: Keys::default(),
             bookmarks: Vec::new(),
+            player_name: "Joueur".into(),
+            player_uuid: String::new(),
         }
     }
 }

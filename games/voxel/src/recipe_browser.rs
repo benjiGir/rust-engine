@@ -353,7 +353,11 @@ impl VoxelGame {
                 Press::Primary => self.content.items.get(item).max_stack.max(1),
                 Press::Secondary => 1,
             };
-            let left = self.inventory.add(item, count, &self.content.items);
+            let left = self
+                .players
+                .me_mut()
+                .inventory
+                .add(item, count, &self.content.items);
             if left > 0 {
                 self.ui.toast = Some(("Inventaire plein".into(), std::time::Instant::now()));
             }
@@ -621,7 +625,7 @@ impl VoxelGame {
                 if let Some(recipe) = &view.crafting
                     && self.can_use_grid(recipe)
                 {
-                    let ready = self.inventory.can_craft(recipe);
+                    let ready = self.players.me_mut().inventory.can_craft(recipe);
                     let button = ui
                         .add_enabled(ready, egui::Button::new("Fabriquer"))
                         .on_hover_text("Maj : autant que possible")
@@ -672,6 +676,8 @@ impl VoxelGame {
                 };
                 for _ in 0..limit {
                     if self
+                        .players
+                        .me_mut()
                         .inventory
                         .craft_from_book(&recipe, &self.content.items)
                         .is_none()

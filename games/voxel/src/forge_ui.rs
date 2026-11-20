@@ -44,7 +44,7 @@ impl VoxelGame {
     fn give_back(&mut self, stack: ItemStack) {
         let left = self.collect_stack(stack);
         if left > 0 {
-            let at = crate::player::body(&self.ecs, self.player)
+            let at = crate::player::body(&self.ecs, self.players.entity())
                 .position
                 .floor()
                 .as_ivec3();
@@ -62,7 +62,7 @@ impl VoxelGame {
     pub(crate) fn salvage_panel(&mut self, ui: &mut egui::Ui) {
         let data = adventure_data::current();
         let items = self.content.items.clone();
-        let Some(held) = self.inventory.cursor else {
+        let Some(held) = self.players.me_mut().inventory.cursor else {
             ui.label("Prends à la souris un objet à affixes (clic sur sa case, dans l'inventaire), puis reviens ici.");
             ui.label(
                 egui::RichText::new(
@@ -115,7 +115,7 @@ impl VoxelGame {
             let Some(got) = forge_tables::salvage(&data, held.damage, &mut rng) else {
                 return;
             };
-            self.inventory.cursor = None;
+            self.players.me_mut().inventory.cursor = None;
             let mut stacks = Vec::new();
             if let Some(id) = items.id(&got.shard) {
                 stacks.push(ItemStack::new(id, got.shards));
@@ -144,7 +144,7 @@ impl VoxelGame {
     pub(crate) fn reforge_panel(&mut self, ui: &mut egui::Ui) {
         let data = adventure_data::current();
         let items = self.content.items.clone();
-        let Some(held) = self.inventory.cursor else {
+        let Some(held) = self.players.me_mut().inventory.cursor else {
             ui.label("Prends à la souris un objet de base (outil ou armure sans affixe), puis reviens ici.");
             ui.label(
                 egui::RichText::new(
@@ -166,6 +166,8 @@ impl VoxelGame {
         }
         // La rareté voulue.
         let mut rarity = self
+            .players
+            .me_mut()
             .adventure
             .forge_rarity
             .min(data.rarities.len().saturating_sub(1) as u8);
@@ -180,15 +182,16 @@ impl VoxelGame {
                 }
             }
         });
-        self.adventure.forge_rarity = rarity;
+        self.players.me_mut().adventure.forge_rarity = rarity;
         let Some(cost) = forge_tables::reforge_cost(&data, rarity) else {
             return;
         };
         let shard_id = items.id(&cost.shard);
         let purse = Purse {
-            shards: shard_id.map_or(0, |id| self.inventory.count(id)),
-            dust: forge_tables::dust_item(&items).map_or(0, |id| self.inventory.count(id)),
-            levels: self.experience.level().0,
+            shards: shard_id.map_or(0, |id| self.players.me_mut().inventory.count(id)),
+            dust: forge_tables::dust_item(&items)
+                .map_or(0, |id| self.players.me_mut().inventory.count(id)),
+            levels: self.players.me_mut().experience.level().0,
         };
         let shard_name = shard_id.map_or(cost.shard.clone(), |id| items.get(id).name.clone());
         let affordable = cost.affordable(purse);
@@ -203,7 +206,7 @@ impl VoxelGame {
             &data,
             def,
             rarity,
-            self.adventure.forge_seed ^ u64::from(held.item.0),
+            self.players.me_mut().adventure.forge_seed ^ u64::from(held.item.0),
         );
         let color = rarity_color(&data, rarity);
         let mut chosen = None;
@@ -228,17 +231,21 @@ impl VoxelGame {
         }
         if let Some(i) = chosen
             && let Some(shard_id) = shard_id
-            && self.experience.spend_levels(cost.levels)
+            && self.players.me_mut().experience.spend_levels(cost.levels)
         {
             let dust = forge_tables::dust_item(&items);
-            self.inventory.remove(shard_id, cost.shards);
+            self.players
+                .me_mut()
+                .inventory
+                .remove(shard_id, cost.shards);
             if let Some(dust) = dust {
-                self.inventory.remove(dust, cost.dust);
+                self.players.me_mut().inventory.remove(dust, cost.dust);
             }
-            if let Some(stack) = self.inventory.cursor.as_mut() {
+            if let Some(stack) = self.players.me_mut().inventory.cursor.as_mut() {
                 forge_tables::apply_draw(&mut stack.damage, draws[i].clone());
             }
-            self.adventure.forge_seed = self.adventure.forge_seed.wrapping_add(1);
+            self.players.me_mut().adventure.forge_seed =
+                self.players.me_mut().adventure.forge_seed.wrapping_add(1);
             self.toast(draws[i].name.as_deref().unwrap_or("Objet réforgé"));
             if let Some(audio) = &mut self.audio {
                 audio.play("core:enchant");

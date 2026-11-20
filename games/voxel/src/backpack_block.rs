@@ -68,13 +68,13 @@ impl VoxelGame {
     /// Maj + clic droit avec un sac en main : le pose au sol. `true` si l'objet en main est un sac
     /// (même si la pose échoue : on ne veut pas ouvrir le sac à la place).
     pub(crate) fn place_backpack(&mut self) -> bool {
-        let Some(stack) = self.inventory.selected_stack() else {
+        let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
             return false;
         };
         if !backpacks::is_backpack(&self.content.items.get(stack.item).key) {
             return false;
         }
-        let slot = self.inventory.selected;
+        let slot = self.players.me_mut().inventory.selected;
         let Some(number) = self.bag_number_at(slot) else {
             self.toast("Plus aucun numéro de sac disponible");
             return true;

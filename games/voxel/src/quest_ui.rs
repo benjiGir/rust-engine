@@ -124,6 +124,8 @@ impl VoxelGame {
     pub(crate) fn open_quest_book(&mut self, chapter: Option<&str>) -> Result<()> {
         self.open_quests();
         let quests = self
+            .players
+            .me_mut()
             .quest_book
             .quests()
             .ok_or_else(|| anyhow::anyhow!("quêtes pas chargées"))?;
@@ -140,6 +142,8 @@ impl VoxelGame {
         // Une revue tout de suite : les objets portés comptent dès l'ouverture.
         self.refresh_quests();
         let last = self
+            .players
+            .me_mut()
             .quest_book
             .progress()
             .and_then(|p| p.last_chapter.clone())
@@ -161,7 +165,7 @@ impl VoxelGame {
         self.ui.quests.chapter = chapter;
         self.ui.quests.selected = None;
         self.ui.quests.fit = true;
-        if let Ok(progress) = self.quest_book.progress_mut() {
+        if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
             progress.set_last_chapter(&quests.chapters[chapter].id);
         }
     }
@@ -184,7 +188,12 @@ impl VoxelGame {
 
     /// Le bouton « Quêtes » de l'écran d'inventaire, et ce qui attend d'être récupéré.
     pub(crate) fn quests_button(&mut self, ui: &mut egui::Ui) {
-        let waiting = self.quest_book.loaded_pending().filter(|&n| n > 0);
+        let waiting = self
+            .players
+            .me_mut()
+            .quest_book
+            .loaded_pending()
+            .filter(|&n| n > 0);
         ui.horizontal(|ui| {
             if ui.small_button("Quêtes").clicked() {
                 let _ = self.open_quest_book(None);
@@ -209,8 +218,8 @@ impl VoxelGame {
         self.ui.browser.hovered = None;
         self.open_quests();
         let (Some(quests), Some(progress)) = (
-            self.quest_book.quests(),
-            self.quest_book.progress().cloned(),
+            self.players.me_mut().quest_book.quests(),
+            self.players.me_mut().quest_book.progress().cloned(),
         ) else {
             return;
         };
@@ -626,7 +635,7 @@ impl VoxelGame {
                     });
                 }
                 Act::Check(quest, task) => {
-                    if let Ok(progress) = self.quest_book.progress_mut() {
+                    if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
                         progress.check(quests, quest, task);
                     }
                     self.refresh_quests();
@@ -636,13 +645,15 @@ impl VoxelGame {
                     self.hand_in_quest(quest, task);
                 }
                 Act::Choose(quest, reward, option) => {
-                    if let Ok(progress) = self.quest_book.progress_mut() {
+                    if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
                         progress.choose(quests, quest, reward, option);
                     }
                 }
                 Act::Pin(quest) => {
                     let id = quests.quests[quest].id.clone();
                     let changed = self
+                        .players
+                        .me_mut()
                         .quest_book
                         .progress_mut()
                         .is_ok_and(|p| p.toggle_pin(&id));
@@ -727,7 +738,7 @@ impl VoxelGame {
     /// dessus, sa fiche ouverte.
     pub(crate) fn select_quest(&mut self, id: &str) -> Result<()> {
         self.open_quests();
-        let Some(quests) = self.quest_book.quests() else {
+        let Some(quests) = self.players.me_mut().quest_book.quests() else {
             bail!("quêtes pas chargées");
         };
         let Some(index) = quests.index(id) else {
@@ -756,7 +767,7 @@ impl VoxelGame {
     /// quête est dessinée (en points, comme `click x y`).
     pub(crate) fn quest_screen_json(&self) -> String {
         let state = &self.ui.quests;
-        let quests = self.quest_book.quests();
+        let quests = self.players.me().quest_book.quests();
         let id_of = |q: usize| {
             quests
                 .as_ref()

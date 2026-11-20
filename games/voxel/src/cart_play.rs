@@ -31,13 +31,15 @@ const COUPLING_REACH: f32 = 6.0;
 impl VoxelGame {
     /// La clé de l'objet tenu en main.
     fn held_key(&self) -> Option<String> {
-        let item = self.inventory.selected_item()?;
+        let item = self.players.me().inventory.selected_item()?;
         Some(self.content.items.get(item).key.clone())
     }
 
     /// Le wagon visé, s'il est plus près que le bloc visé.
     pub(crate) fn aimed_cart(&self) -> Option<Entity> {
-        let block_distance = self.target.map_or(self.gear.reach(), |hit| hit.distance);
+        let block_distance = self
+            .target
+            .map_or(self.players.me().gear.reach(), |hit| hit.distance);
         carts::hit_cart(
             &self.ecs,
             self.camera.position,
@@ -95,7 +97,7 @@ impl VoxelGame {
         if carts::place(&mut self.ecs, kind, hit.block_pos, look).is_none() {
             return false;
         }
-        self.inventory.consume_selected();
+        self.players.me_mut().inventory.consume_selected();
         self.hand.punch();
         if let Some(audio) = &mut self.audio {
             audio.play("core:place_hard");
@@ -105,11 +107,11 @@ impl VoxelGame {
 
     /// S'asseoir dans un wagonnet.
     pub(crate) fn ride(&mut self, cart: Entity) -> bool {
-        if player::mode(&self.ecs, self.player) == MoveMode::Fly {
+        if player::mode(&self.ecs, self.players.entity()) == MoveMode::Fly {
             self.toast("Pas en vol");
             return false;
         }
-        if carts::board(&mut self.ecs, self.player, cart) {
+        if carts::board(&mut self.ecs, self.players.entity(), cart) {
             self.hand.punch();
             self.toast("Maj : descendre. Avancer : pousser.");
             true
@@ -121,10 +123,10 @@ impl VoxelGame {
 
     /// Descendre du wagonnet (Maj).
     pub(crate) fn dismount(&mut self) -> bool {
-        if !self.ecs.has::<carts::Riding>(self.player) {
+        if !self.ecs.has::<carts::Riding>(self.players.entity()) {
             return false;
         }
-        carts::dismount(&mut self.ecs, self.player);
+        carts::dismount(&mut self.ecs, self.players.entity());
         true
     }
 

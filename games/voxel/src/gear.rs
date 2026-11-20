@@ -245,11 +245,12 @@ impl VoxelGame {
     /// À chaque pas : recalcule les attributs si l'équipement a changé, aligne la vie maximale du
     /// joueur, et rend la vie de la régénération.
     pub(crate) fn refresh_gear(&mut self, dt: f32) {
-        self.gear
-            .refresh(&self.inventory, &self.content.items, &self.effects);
-        let max = self.gear.value(Attribute::MaxHealth);
-        let regen = self.gear.value(Attribute::Regen);
-        if let Some(mut health) = self.ecs.get_mut::<Health>(self.player) {
+        let me = self.players.me_mut();
+        me.gear
+            .refresh(&me.inventory, &self.content.items, &me.effects);
+        let max = self.players.me_mut().gear.value(Attribute::MaxHealth);
+        let regen = self.players.me_mut().gear.value(Attribute::Regen);
+        if let Some(mut health) = self.ecs.get_mut::<Health>(self.players.entity()) {
             if (health.max - max).abs() > f32::EPSILON {
                 health.max = max;
                 health.current = health.current.min(max);
@@ -278,7 +279,7 @@ impl VoxelGame {
     /// contourne), recul, puis vol de vie. `None` si la créature vient d'être frappée.
     pub(crate) fn strike_mob(&mut self, mob: Entity, from: Vec3) -> Option<Strike> {
         let roll = engine_voxel::Rng64::new(self.next_random()).next_f32();
-        let attrs = self.gear.attrs();
+        let attrs = self.players.me().gear.attrs();
         let (damage, crit) = attributes::roll_hit(
             attrs.value(Attribute::Damage),
             attrs.value(Attribute::CritChance),
@@ -296,6 +297,8 @@ impl VoxelGame {
         if !crate::mobs::damage_mob(&mut self.ecs, mob, dealt, from) {
             return None;
         }
+        let me = self.players.local_id();
+        self.ecs.insert(mob, crate::players::LastHitBy(me));
         let healed = attributes::life_steal(dealt, steal);
         if healed > 0.0 {
             self.heal(healed);
@@ -312,7 +315,7 @@ impl VoxelGame {
 
     /// Le butin d'une pile avec la chance de butin du joueur.
     pub(crate) fn loot_count(&mut self, count: u32) -> u32 {
-        let loot = self.gear.value(Attribute::LootChance);
+        let loot = self.players.me_mut().gear.value(Attribute::LootChance);
         if loot <= 0.0 {
             return count;
         }
@@ -322,7 +325,7 @@ impl VoxelGame {
 
     /// L'expérience gagnée avec le gain d'expérience du joueur.
     pub(crate) fn scaled_xp(&self, points: u32) -> u32 {
-        attributes::scaled_xp(points, self.gear.value(Attribute::XpGain))
+        attributes::scaled_xp(points, self.players.me().gear.value(Attribute::XpGain))
     }
 
     /// Sauvegarde les fiches d'objets dans la racine du monde (si quelque chose a changé).

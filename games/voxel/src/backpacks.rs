@@ -493,7 +493,11 @@ impl VoxelGame {
     /// Ramasse un objet : les sacs d'abord (Ramassage), puis l'inventaire. Renvoie ce qui reste.
     pub(crate) fn collect_stack(&mut self, stack: ItemStack) -> u32 {
         let items = self.content.items.clone();
-        let bags = carried(&self.inventory, &items, &mut self.backpacks);
+        let bags = carried(
+            &self.players.me_mut().inventory,
+            &items,
+            &mut self.backpacks,
+        );
         let left = if bags.is_empty() {
             stack.count
         } else {
@@ -502,7 +506,7 @@ impl VoxelGame {
         if left == 0 {
             return 0;
         }
-        self.inventory.add_stack(
+        self.players.me_mut().inventory.add_stack(
             ItemStack {
                 count: left,
                 ..stack
@@ -514,7 +518,11 @@ impl VoxelGame {
     /// Les améliorations des sacs portés : l'aimant à chaque pas, le reste deux fois par seconde.
     pub(crate) fn update_backpacks(&mut self, dt: f32) {
         let items = self.content.items.clone();
-        let bags = carried(&self.inventory, &items, &mut self.backpacks);
+        let bags = carried(
+            &self.players.me_mut().inventory,
+            &items,
+            &mut self.backpacks,
+        );
         let magnet = bags.iter().any(|c| {
             self.backpacks
                 .bag(c.number)
@@ -531,13 +539,18 @@ impl VoxelGame {
         self.backpacks.timer = 0.0;
         let table = self.content.compact.clone();
         maintain_carried(&mut self.backpacks, &bags, &items, &table);
-        restock(&mut self.inventory, &mut self.backpacks, &bags, &items);
+        restock(
+            &mut self.players.me_mut().inventory,
+            &mut self.backpacks,
+            &bags,
+            &items,
+        );
         self.bags_feed(&bags);
     }
 
     /// Un aliment d'un sac, mangé si la faim a assez baissé pour ne rien perdre.
     fn bags_feed(&mut self, bags: &[Carried]) {
-        let missing = self.hunger_rules.max_food - self.hunger.food;
+        let missing = self.hunger_rules.max_food - self.players.me_mut().hunger.food;
         if missing <= 0.0 {
             return;
         }
@@ -560,7 +573,9 @@ impl VoxelGame {
                     bag.slots[slot] = None;
                 }
             }
-            self.hunger
+            self.players
+                .me_mut()
+                .hunger
                 .eat(&self.hunger_rules, food.nutrition, food.saturation);
             if let Some(audio) = &mut self.audio {
                 audio.play("core:place_soft");
@@ -573,7 +588,7 @@ impl VoxelGame {
     /// objets ramène sinon leur vitesse à zéro à chaque pas : on leur donne une intention de
     /// marche, comme à une créature. Sans aimant (`on` faux), on la leur retire.
     fn attract_drops(&mut self, on: bool) {
-        let feet = crate::player::body(&self.ecs, self.player).position + Vec3::Y * 0.6;
+        let feet = crate::player::body(&self.ecs, self.players.entity()).position + Vec3::Y * 0.6;
         let mut pulls = Vec::new();
         self.ecs
             .query::<(&crate::components::Transform, &crate::drops::DroppedItem)>()
@@ -594,17 +609,17 @@ impl VoxelGame {
 
     /// Le sac en position `slot` de l'inventaire est ouvert : son numéro (assigné s'il est neuf).
     pub(crate) fn bag_number_at(&mut self, slot: usize) -> Option<u32> {
-        let mut stack = self.inventory.slots[slot]?;
+        let mut stack = self.players.me_mut().inventory.slots[slot]?;
         let tier = tier_of(&self.content.items.get(stack.item).key)?;
         let number = self.backpacks.number_for(&mut stack, tier)?;
-        self.inventory.slots[slot] = Some(stack);
+        self.players.me_mut().inventory.slots[slot] = Some(stack);
         Some(number)
     }
 
     /// Ouvre le premier sac de l'inventaire (barre d'abord).
     pub(crate) fn open_first_bag(&mut self) -> bool {
-        let slot = (0..self.inventory.slots.len()).find(|&i| {
-            self.inventory.slots[i]
+        let slot = (0..self.players.me_mut().inventory.slots.len()).find(|&i| {
+            self.players.me_mut().inventory.slots[i]
                 .is_some_and(|s| is_backpack(&self.content.items.get(s.item).key))
         });
         slot.is_some_and(|slot| self.open_bag_at(slot))

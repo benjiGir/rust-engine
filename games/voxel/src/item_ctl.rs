@@ -139,9 +139,9 @@ impl VoxelGame {
     pub(crate) fn item_command(&mut self, command: Command) -> Result<String> {
         match command {
             Command::Enchant(list) => {
-                let selected = self.inventory.selected;
+                let selected = self.players.me_mut().inventory.selected;
                 let items = self.content.items.clone();
-                let stack = self.inventory.slots[selected]
+                let stack = self.players.me_mut().inventory.slots[selected]
                     .as_mut()
                     .context("enchant : rien en main")?;
                 let def = items.get(stack.item);
@@ -159,7 +159,8 @@ impl VoxelGame {
             }
             Command::Equip(slot) => {
                 let items = self.content.items.clone();
-                let stack = self.inventory.slots[slot].context("equip : case vide")?;
+                let stack =
+                    self.players.me_mut().inventory.slots[slot].context("equip : case vide")?;
                 let index = items
                     .get(stack.item)
                     .armor
@@ -170,15 +171,16 @@ impl VoxelGame {
                     })
                     .context("equip : ce n'est pas une pièce d'armure")?;
                 // La pièce portée (s'il y en a une) prend la place de la nouvelle.
-                self.inventory.slots[slot] = self.inventory.armor[index].replace(stack);
+                self.players.me_mut().inventory.slots[slot] =
+                    self.players.me_mut().inventory.armor[index].replace(stack);
                 Ok(format!(
                     "{{\"ok\":true,\"armor\":{:.1}}}",
-                    self.inventory.protection(&items)
+                    self.players.me_mut().inventory.protection(&items)
                 ))
             }
             Command::Affix(attribute, flat, percent) => {
-                let selected = self.inventory.selected;
-                let stack = self.inventory.slots[selected]
+                let selected = self.players.me_mut().inventory.selected;
+                let stack = self.players.me_mut().inventory.slots[selected]
                     .as_mut()
                     .context("affix : rien en main")?;
                 let affix = item_data::Affix {
@@ -219,7 +221,7 @@ impl VoxelGame {
 
     /// La pile en main : `damage`, usure, enchantements et fiche.
     fn sheet_json(&self) -> String {
-        let Some(stack) = self.inventory.selected_stack() else {
+        let Some(stack) = self.players.me().inventory.selected_stack() else {
             return "{\"ok\":true,\"item\":null}".to_string();
         };
         let key = &self.content.items.get(stack.item).key;

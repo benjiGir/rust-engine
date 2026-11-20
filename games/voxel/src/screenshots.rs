@@ -369,11 +369,15 @@ impl VoxelGame {
             Stage::Move => {
                 self.day.time = shot.time;
                 self.day.speed = TimeSpeed::Frozen;
-                if player::mode(&self.ecs, self.player) != MoveMode::Fly {
-                    player::toggle_mode(&mut self.ecs, self.player);
+                if player::mode(&self.ecs, self.players.entity()) != MoveMode::Fly {
+                    player::toggle_mode(&mut self.ecs, self.players.entity());
                 }
                 let (eye, yaw, pitch) = self.viewpoint(shot.scene);
-                player::set_eye(&self.ecs, self.player, eye + self.origin().as_vec3());
+                player::set_eye(
+                    &self.ecs,
+                    self.players.entity(),
+                    eye + self.origin().as_vec3(),
+                );
                 self.ui.inventory_open = matches!(
                     shot.scene,
                     Scene::Inventory
@@ -764,24 +768,27 @@ impl VoxelGame {
         use crate::inventory::ItemStack;
         let items = self.content.items.clone();
         let stack = |key: &str, count: u32| items.id(key).map(|i| ItemStack::new(i, count));
-        self.inventory.craft = [None; 9];
+        self.players.me_mut().inventory.craft = [None; 9];
         match scene {
             Scene::Inventory => {
-                self.inventory.craft[0] = stack("core:oak_log", 3);
-                self.inventory.armor[0] = stack("core:iron_helmet", 1);
-                self.inventory.armor[1] = stack("core:copper_chestplate", 1);
+                self.players.me_mut().inventory.craft[0] = stack("core:oak_log", 3);
+                self.players.me_mut().inventory.armor[0] = stack("core:iron_helmet", 1);
+                self.players.me_mut().inventory.armor[1] = stack("core:copper_chestplate", 1);
                 self.ui.screen = crate::ui::Screen::Inventory;
             }
             Scene::Workbench => {
                 // Une pioche en bois : trois planches en haut, deux bâtons au milieu.
                 for i in [0, 1, 2] {
-                    self.inventory.craft[i] = stack("core:oak_planks", 2);
+                    self.players.me_mut().inventory.craft[i] = stack("core:oak_planks", 2);
                 }
                 for i in [4, 7] {
-                    self.inventory.craft[i] = stack("core:stick", 2);
+                    self.players.me_mut().inventory.craft[i] = stack("core:stick", 2);
                 }
-                self.inventory
-                    .add(items.id("core:oak_planks").unwrap(), 12, &items);
+                self.players.me_mut().inventory.add(
+                    items.id("core:oak_planks").unwrap(),
+                    12,
+                    &items,
+                );
                 self.ui.screen = crate::ui::Screen::Workbench;
             }
             Scene::Furnace | Scene::Chest => {
@@ -864,9 +871,14 @@ impl VoxelGame {
                     .map(|(i, t)| if i == 2 { 0 } else { t.uses })
                     .collect();
                 self.ecs.insert(mob, crate::components::Trader { uses });
-                self.inventory
-                    .add(items.id("core:gold_ingot").unwrap(), 3, &items);
-                self.inventory
+                self.players.me_mut().inventory.add(
+                    items.id("core:gold_ingot").unwrap(),
+                    3,
+                    &items,
+                );
+                self.players
+                    .me_mut()
+                    .inventory
                     .add(items.id("core:wheat").unwrap(), 45, &items);
                 self.ui.screen = crate::ui::Screen::Trade(mob);
                 self.ui.trade_selected = 4;
@@ -1043,15 +1055,15 @@ impl VoxelGame {
         };
         // La case de la barre qui contient l'objet voulu (ou une case vide).
         let slot = (0..crate::inventory::HOTBAR)
-            .find(|&i| self.inventory.slots[i].map(|s| s.item) == wanted)
+            .find(|&i| self.players.me_mut().inventory.slots[i].map(|s| s.item) == wanted)
             .unwrap_or(0);
         if wanted.is_none() {
-            self.inventory.slots[8] = None;
+            self.players.me_mut().inventory.slots[8] = None;
         } else {
-            self.inventory.slots[slot] =
+            self.players.me_mut().inventory.slots[slot] =
                 wanted.map(|item| crate::inventory::ItemStack::new(item, 1));
         }
-        self.inventory.selected = if wanted.is_none() { 8 } else { slot };
+        self.players.me_mut().inventory.selected = if wanted.is_none() { 8 } else { slot };
         self.hand.equip = 0.0;
         self.hand.swing = None;
         self.hand.walk_amount = 0.0;

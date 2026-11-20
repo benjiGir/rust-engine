@@ -180,7 +180,7 @@ mod tests {
         use std::sync::Arc;
         let center = Vec3::new(0.5, 78.0, 0.5);
         let mut world = mobs::tests::sim_at(center, 7);
-        let player = world.resource::<mobs::PlayerEntity>().0;
+        let player = world.resource::<mobs::PlayerEntities>().0[0];
         world.get_mut::<Transform>(player).unwrap().position = center;
         let water = world
             .streamer()

@@ -87,8 +87,9 @@ la météo, les effets de l'eau, les habitants des villages proches, l'ambiance 
 structures mobiles et les wagons, le vol libre, **le lancer de rayon** (le bloc visé), le minage et la
 chaîne du clic droit (wagon → structure → porte → lit → conteneur → machine → habitant → animal →
 houe → engrais → charme → guide → objet de mod → **poser un bloc**), l'animation du bras, la sauvegarde
-automatique, le rechargement à chaud, puis le **streaming** : `update_view` dit au streamer où regarde la
-caméra, et les maillages prêts partent vers le GPU.
+automatique, le rechargement à chaud, puis le **streaming** : `update_views` dit au streamer où sont les
+joueurs (une vue par joueur, dont une seule est maillée : celle de la caméra), et les maillages prêts
+partent vers le GPU.
 
 ## L'ECS écrit à la main
 

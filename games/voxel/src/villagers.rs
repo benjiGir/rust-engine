@@ -150,7 +150,7 @@ mod tests {
         let y = probe.column(site.x, site.z).height as f32 + 2.0;
         let center = Vec3::new(site.x as f32, y, site.z as f32);
         let mut world = sim_at(center, 5);
-        let player = world.resource::<mobs::PlayerEntity>().0;
+        let player = world.resource::<mobs::PlayerEntities>().0[0];
         world.get_mut::<Transform>(player).unwrap().position = center;
         let items = ItemRegistry::builtin(&crate::test_registry()).unwrap();
         let trades = TradeBook::builtin(&items).unwrap();

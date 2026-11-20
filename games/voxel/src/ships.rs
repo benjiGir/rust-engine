@@ -102,7 +102,7 @@ pub fn update(world: &mut Ecs) {
         return;
     }
     let dt = world.resource::<mobs::FixedDt>().0;
-    let player = world.resource::<mobs::PlayerEntity>().0;
+    let player = world.resource::<mobs::PlayerEntities>().local();
     let control = world
         .get_resource::<ShipControl>()
         .map(|c| *c)
@@ -144,7 +144,7 @@ pub fn update(world: &mut Ecs) {
             t.position = grid.to_world(*local);
             t.yaw += turn;
         }
-        if *entity == player {
+        if Some(*entity) == player {
             player_turn += turn;
         }
         // Un passager qui a quitté le pont (sauté, tombé) redevient un habitant du monde.
@@ -367,7 +367,7 @@ impl VoxelGame {
                 grid.world(),
                 grid.to_local(origin),
                 grid.direction_to_local(direction),
-                self.gear.reach(),
+                self.players.me().gear.reach(),
             );
             if let Some(hit) = hit
                 && best.is_none_or(|(_, b)| hit.distance < b.distance)
@@ -455,7 +455,7 @@ impl VoxelGame {
 
     /// La barre : gauche et droite, tant que le pilote reste près de sa structure.
     pub(crate) fn update_ships(&mut self, ctx: &Context) {
-        let player = player::body(&self.ecs, self.player).position;
+        let player = player::body(&self.ecs, self.players.entity()).position;
         let mut steer = 0.0;
         if let Some(id) = self.helm {
             let near = self.mods.subgrids.borrow().get(id).is_some_and(|g| {

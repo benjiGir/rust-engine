@@ -12,20 +12,23 @@ impl crate::VoxelGame {
     pub(crate) fn animate_hand(&mut self, ctx: &Context, dt: f32) {
         let velocity = self
             .ecs
-            .get::<Velocity>(self.player)
+            .get::<Velocity>(self.players.entity())
             .map_or(Vec3::ZERO, |v| v.0);
         let on_ground = self
             .ecs
-            .get::<Collider>(self.player)
+            .get::<Collider>(self.players.entity())
             .is_some_and(|c| c.on_ground)
-            || player::mode(&self.ecs, self.player) == MoveMode::Fly;
+            || player::mode(&self.ecs, self.players.entity()) == MoveMode::Fly;
         self.hand.update(HandInput {
             dt,
             speed: Vec2::new(velocity.x, velocity.z).length(),
             sprinting: ctx.input.key_held(KeyCode::ControlLeft),
             on_ground,
-            mining: self.mining.is_some() || self.air_swing,
-            selected: (self.inventory.selected, self.inventory.selected_item()),
+            mining: self.players.me_mut().mining.is_some() || self.players.me_mut().air_swing,
+            selected: (
+                self.players.me_mut().inventory.selected,
+                self.players.me_mut().inventory.selected_item(),
+            ),
             yaw: self.camera.yaw,
             pitch: self.camera.pitch,
         });

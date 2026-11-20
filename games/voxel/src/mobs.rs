@@ -20,6 +20,7 @@ use crate::components::{
 };
 use crate::events::{self, EntityDied, EntitySpawned, PlayerAttacked, Tick};
 use crate::navigation::{DangerBlocks, PathFollow, SEARCHES_PER_STEP, cell_of};
+use crate::players::PlayerId;
 use crate::survival::{Senses, SurvivalRules, Vitals};
 use crate::tiers::TierEffects;
 
@@ -272,9 +273,67 @@ impl MobRegistry {
 #[derive(Debug, Clone, Copy)]
 pub struct FixedDt(pub f32);
 
-/// L'entité du joueur.
-#[derive(Debug, Clone, Copy)]
-pub struct PlayerEntity(pub Entity);
+/// Les entités de tous les joueurs, dans l'ordre d'arrivée : le joueur local est le premier. Le
+/// jeu la tient à jour (voir `players.rs`). Les systèmes qui visent « le joueur » prennent le plus
+/// proche (voir [`player_spots`] et [`nearest_spot`]).
+#[derive(Debug, Clone, Default)]
+pub struct PlayerEntities(pub Vec<Entity>);
+
+impl PlayerEntities {
+    /// Le joueur local, celui de la fenêtre.
+    pub fn local(&self) -> Option<Entity> {
+        self.0.first().copied()
+    }
+}
+
+/// Où est un joueur, pour les systèmes de créatures.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlayerSpot {
+    pub entity: Entity,
+    /// La position de ses pieds.
+    pub position: Vec3,
+    /// Il lui reste de la vie : un joueur mort n'est plus visé tant qu'un autre vit.
+    pub alive: bool,
+}
+
+/// La position de chaque joueur (ceux qui n'ont plus de position sont ignorés).
+pub fn player_spots(world: &World) -> Vec<PlayerSpot> {
+    world
+        .resource::<PlayerEntities>()
+        .0
+        .iter()
+        .filter_map(|&entity| {
+            let position = world.get::<Transform>(entity)?.position;
+            let alive = world.get::<Health>(entity).is_none_or(|h| h.current > 0.0);
+            Some(PlayerSpot {
+                entity,
+                position,
+                alive,
+            })
+        })
+        .collect()
+}
+
+/// Le joueur le plus proche de `from` parmi ceux qui vivent ; s'ils sont tous morts, le plus
+/// proche tout court (avec un seul joueur, c'est donc toujours lui).
+pub fn nearest_spot(spots: &[PlayerSpot], from: Vec3) -> Option<&PlayerSpot> {
+    let closest = |alive_only: bool| {
+        spots
+            .iter()
+            .filter(|s| s.alive || !alive_only)
+            .min_by(|a, b| {
+                let da = a.position.distance_squared(from);
+                let db = b.position.distance_squared(from);
+                da.total_cmp(&db)
+            })
+    };
+    closest(true).or_else(|| closest(false))
+}
+
+/// La position du joueur le plus proche de `from`.
+pub fn nearest_position(spots: &[PlayerSpot], from: Vec3) -> Option<Vec3> {
+    nearest_spot(spots, from).map(|s| s.position)
+}
 
 /// Un générateur pseudo-aléatoire pour l'IA et l'apparition (xorshift).
 #[derive(Debug, Clone, Copy)]
@@ -295,6 +354,8 @@ pub struct SimClock {
     pub tick: u64,
     pub spawn_timer: f32,
     pub dissolve_timer: f32,
+    /// Le nombre de passages d'apparition : il désigne le joueur dont c'est le tour.
+    pub spawn_turn: usize,
 }
 
 // ----- Les systèmes -----
@@ -314,11 +375,7 @@ pub fn surroundings_ready(streamer: &ChunkStreamer, body: &PlayerBody) -> bool {
 /// La physique de toutes les entités (joueur compris) : gravité, collisions, eau.
 pub fn physics(world: &mut World) {
     let dt = world.resource::<FixedDt>().0;
-    let player = world.resource::<PlayerEntity>().0;
-    let center = world
-        .get::<Transform>(player)
-        .map(|t| t.position)
-        .unwrap_or_default();
+    let centers: Vec<Vec3> = player_spots(world).iter().map(|s| s.position).collect();
     let shared = world.streamer();
     let streamer = shared.borrow();
     // La gravité de la dimension (un multiple de la normale).
@@ -343,7 +400,7 @@ pub fn physics(world: &mut World) {
             |entity, (transform, previous, velocity, collider, intent)| {
                 previous.0 = transform.position;
                 if world.has::<Flying>(entity)
-                    || crate::spawning::asleep(world, entity, transform.position, center)
+                    || crate::spawning::asleep(world, entity, transform.position, &centers)
                 {
                     return;
                 }
@@ -466,8 +523,7 @@ pub fn spawn_mob_with_coat(
 /// un point proche, ou rester là), puis suit un chemin vers lui (`navigation.rs`).
 pub fn wander(world: &mut World) {
     let dt = world.resource::<FixedDt>().0;
-    let player = world.resource::<PlayerEntity>().0;
-    let target = world.get::<Transform>(player).map(|t| t.position);
+    let spots = player_spots(world);
     let registry = world.resource::<Arc<MobRegistry>>().clone();
     let danger = world.resource::<Arc<DangerBlocks>>().clone();
     let shared = world.streamer();
@@ -494,6 +550,8 @@ pub fn wander(world: &mut World) {
                     return;
                 }
                 let position = transform.position;
+                // Le joueur le plus proche : sa cible, son regard, ce qu'elle fuit.
+                let target = nearest_position(&spots, position);
                 // Loin du joueur : elle ne pense pas (zone de simulation).
                 if target.is_some_and(|t| {
                     crate::spawning::horizontal_distance(t, position)
@@ -634,11 +692,7 @@ pub struct MobVitals(pub Vitals);
 /// Les créatures se blessent comme le joueur : une chute trop haute, la lave, le feu.
 pub fn environment(world: &mut World) {
     let dt = world.resource::<FixedDt>().0;
-    let player = world.resource::<PlayerEntity>().0;
-    let center = world
-        .get::<Transform>(player)
-        .map(|t| t.position)
-        .unwrap_or_default();
+    let centers: Vec<Vec3> = player_spots(world).iter().map(|s| s.position).collect();
     let rules = world.resource::<Arc<SurvivalRules>>().clone();
     let danger = world.resource::<Arc<DangerBlocks>>().clone();
     let shared = world.streamer();
@@ -647,7 +701,7 @@ pub fn environment(world: &mut World) {
     world
         .query::<(&Transform, &Collider, &mut MobVitals)>()
         .for_each(|entity, (transform, collider, vitals)| {
-            if crate::spawning::asleep(world, entity, transform.position, center) {
+            if crate::spawning::asleep(world, entity, transform.position, &centers) {
                 return;
             }
             let voxels = streamer.world();
@@ -693,11 +747,12 @@ pub fn environment(world: &mut World) {
 
 /// Les créatures hostiles blessent le joueur au contact.
 pub fn attack(world: &mut World) {
-    let player = world.resource::<PlayerEntity>().0;
-    let Some(target) = world.get::<Transform>(player).map(|t| t.position) else {
-        return;
-    };
-    if world.has::<Flying>(player) {
+    // Ceux qui volent ne sont pas touchés.
+    let spots: Vec<PlayerSpot> = player_spots(world)
+        .into_iter()
+        .filter(|s| !world.has::<Flying>(s.entity))
+        .collect();
+    if spots.is_empty() {
         return;
     }
     let registry = world.resource::<Arc<MobRegistry>>().clone();
@@ -706,8 +761,14 @@ pub fn attack(world: &mut World) {
             let Some(def) = registry.get(mob.kind) else {
                 return;
             };
-            let close = transform.position.distance(target) < def.width * 0.5 + 0.6;
-            if !def.hostile || !close || wander.attack_cooldown > 0.0 {
+            if !def.hostile || wander.attack_cooldown > 0.0 {
+                return;
+            }
+            // Elle frappe le joueur le plus proche, s'il est à portée.
+            let Some(victim) = nearest_spot(&spots, transform.position) else {
+                return;
+            };
+            if transform.position.distance(victim.position) >= def.width * 0.5 + 0.6 {
                 return;
             }
             wander.attack_cooldown = 1.0;
@@ -715,6 +776,7 @@ pub fn attack(world: &mut World) {
             events::send(
                 world,
                 PlayerAttacked {
+                    player: world.get::<PlayerId>(victim.entity).map(|id| *id),
                     amount: def.damage * crate::elites::damage_of(world, entity),
                     from: transform.position,
                     pierce: def.armor_pierce,
@@ -727,11 +789,7 @@ pub fn attack(world: &mut World) {
 /// Les créatures sans vie meurent ; celles trop loin disparaissent ; les coups s'estompent.
 pub fn cleanup(world: &mut World) {
     let dt = world.resource::<FixedDt>().0;
-    let player = world.resource::<PlayerEntity>().0;
-    let center = world
-        .get::<Transform>(player)
-        .map(|t| t.position)
-        .unwrap_or_default();
+    let spots = player_spots(world);
     let registry = world.resource::<Arc<MobRegistry>>().clone();
     world.query::<(&mut Hurt,)>().for_each(|entity, (hurt,)| {
         hurt.timer -= dt;
@@ -757,10 +815,15 @@ pub fn cleanup(world: &mut World) {
                         coat: world
                             .get::<crate::sheep_colors::SheepCoat>(entity)
                             .map(|c| *c),
+                        killer: world.get::<crate::players::LastHitBy>(entity).map(|k| k.0),
                     },
                 );
                 world.commands().despawn(entity);
-            } else if transform.position.distance(center) > DESPAWN_DISTANCE {
+            } else if spots
+                .iter()
+                .all(|s| transform.position.distance(s.position) > DESPAWN_DISTANCE)
+            {
+                // Loin de tous les joueurs : elle disparaît.
                 world.commands().despawn(entity);
             }
         });
@@ -850,13 +913,13 @@ fn wrap_angle(angle: f32) -> f32 {
 /// coup d'œil au hasard.
 pub fn animate(world: &mut World) {
     let dt = world.resource::<FixedDt>().0;
-    let player = world.resource::<PlayerEntity>().0;
-    let target = world.get::<Transform>(player).map(|t| t.position);
+    let spots = player_spots(world);
     let registry = world.resource::<Arc<MobRegistry>>().clone();
     let mut rng = world.resource_mut::<GameRng>();
     world
         .query::<(&Transform, &Velocity, &Mob, &mut MobAnim)>()
         .for_each(|_, (transform, velocity, mob, anim)| {
+            let target = nearest_position(&spots, transform.position);
             let Some(def) = registry.get(mob.kind) else {
                 return;
             };
@@ -1328,7 +1391,8 @@ pub(crate) mod tests {
         world.insert_resource(Arc::new(SurvivalRules::default()));
         events::register(&mut world);
         let player = world.spawn((Transform::default(), Flying));
-        world.insert_resource(PlayerEntity(player));
+        world.insert(player, PlayerId(0));
+        world.insert_resource(PlayerEntities(vec![player]));
         world
     }
 
@@ -1397,7 +1461,7 @@ pub(crate) mod tests {
             "endormi"
         );
         // Le joueur s'approche : il tombe.
-        let player = world.resource::<PlayerEntity>().0;
+        let player = world.resource::<PlayerEntities>().0[0];
         world.get_mut::<Transform>(player).unwrap().position = Vec3::new(50.0, 80.0, 5.0);
         for _ in 0..30 {
             physics(&mut world);
@@ -1438,7 +1502,7 @@ pub(crate) mod tests {
         };
         for night in [false, true] {
             let mut world = sim();
-            let player = world.resource::<PlayerEntity>().0;
+            let player = world.resource::<PlayerEntities>().0[0];
             world.get_mut::<Transform>(player).unwrap().position = Vec3::new(5.0, 70.0, 5.0);
             *world.resource_mut::<crate::spawning::Sky>() = crate::spawning::Sky {
                 daylight: if night { 0.1 } else { 1.0 },
@@ -1507,7 +1571,7 @@ pub(crate) mod tests {
                 }
             }
         }
-        let player = world.resource::<PlayerEntity>().0;
+        let player = world.resource::<PlayerEntities>().0[0];
         world.get_mut::<Transform>(player).unwrap().position = Vec3::new(4.5, 151.0, 0.5);
         let slime = world
             .resource::<Arc<MobRegistry>>()
@@ -1611,7 +1675,7 @@ pub(crate) mod tests {
     #[test]
     fn a_creature_turns_its_head_toward_a_player_nearby_and_looks_away_far_off() {
         let mut world = sim();
-        let player = world.resource::<PlayerEntity>().0;
+        let player = world.resource::<PlayerEntities>().0[0];
         let prowler = world
             .resource::<Arc<MobRegistry>>()
             .id("core:prowler")
@@ -1663,7 +1727,7 @@ pub(crate) mod tests {
                 }
             }
         }
-        let player = world.resource::<PlayerEntity>().0;
+        let player = world.resource::<PlayerEntities>().0[0];
         world.get_mut::<Transform>(player).unwrap().position = Vec3::new(5.0, 141.0, 1.0);
         let pig = world.resource::<Arc<MobRegistry>>().id("core:pig").unwrap();
         // Lâché de 20 blocs : 17 de trop, plus que ses 10 points de vie.
@@ -1715,7 +1779,7 @@ pub(crate) mod tests {
             }
         }
         // Le joueur au sol (pas en vol : on ne tire pas sur qui vole).
-        let player = world.resource::<PlayerEntity>().0;
+        let player = world.resource::<PlayerEntities>().0[0];
         world.remove::<Flying>(player);
         world.get_mut::<Transform>(player).unwrap().position = Vec3::new(6.5, 151.0, 0.5);
         // À 11 blocs : il poursuit (moins de 14) et il est à portée (12).
@@ -1744,7 +1808,7 @@ pub(crate) mod tests {
         let pig = world.resource::<Arc<MobRegistry>>().id("core:pig").unwrap();
         // Loin du terrain chargé (rayon de 2 chunks autour de l'origine), mais près du
         // joueur : dans la zone de simulation, elle devrait bouger.
-        let player = world.resource::<PlayerEntity>().0;
+        let player = world.resource::<PlayerEntities>().0[0];
         world.get_mut::<Transform>(player).unwrap().position = Vec3::new(5002.0, 80.0, 5.0);
         let mob = spawn_mob(&mut world, pig, Vec3::new(5000.5, 80.0, 5.5)).unwrap();
         for _ in 0..60 {
@@ -1790,6 +1854,7 @@ pub(crate) mod tests {
                 position: deaths[0].position,
                 elite: None,
                 coat: None,
+                killer: None,
             }]
         );
     }

@@ -58,7 +58,7 @@ impl VoxelGame {
     /// Un clic droit avec une pièce en main. `None` : ce n'est pas une pièce (la pose ordinaire
     /// continue) ; `Some(pos)` : la case modifiée, ou `Some(None)` si la pièce n'a pas pu se poser.
     pub(crate) fn place_shaped_piece(&mut self) -> Option<Option<IVec3>> {
-        let stack = self.inventory.selected_stack()?;
+        let stack = self.players.me_mut().inventory.selected_stack()?;
         let kind = PieceKind::from_key(&self.content.items.get(stack.item).key)?;
         let Some(material) = shape_materials::key_of(stack.damage) else {
             self.toast("Cette pièce n'a pas de matière : taille-la à l'établi");
@@ -100,7 +100,7 @@ impl VoxelGame {
             }
         }
         let pos = placed?;
-        self.inventory.consume_selected();
+        self.players.me_mut().inventory.consume_selected();
         self.hand.punch();
         Some(Some(pos))
     }
@@ -131,7 +131,7 @@ impl VoxelGame {
             return None;
         }
         for _ in 0..extra {
-            self.inventory.consume_selected();
+            self.players.me_mut().inventory.consume_selected();
         }
         self.hand.punch();
         self.target = None;
@@ -142,9 +142,14 @@ impl VoxelGame {
     /// Un clic droit sur un portillon : il s'ouvre ou se ferme. `false` : ce n'est pas un portillon
     /// (ou l'on tient une pièce, qui se pose).
     pub(crate) fn use_gate(&mut self, pos: IVec3) -> bool {
-        let holds_piece = self.inventory.selected_stack().is_some_and(|stack| {
-            PieceKind::from_key(&self.content.items.get(stack.item).key).is_some()
-        });
+        let holds_piece = self
+            .players
+            .me_mut()
+            .inventory
+            .selected_stack()
+            .is_some_and(|stack| {
+                PieceKind::from_key(&self.content.items.get(stack.item).key).is_some()
+            });
         if holds_piece {
             return false;
         }
@@ -206,7 +211,14 @@ impl VoxelGame {
             return None;
         }
         let block = self.streamer().world().block(pos);
-        events::send(&self.ecs, BlockPlaced { pos, block });
+        events::send(
+            &self.ecs,
+            BlockPlaced {
+                pos,
+                block,
+                player: Some(self.players.local_id()),
+            },
+        );
         self.target = None;
         self.after_edit(pos);
         Some(pos)
@@ -254,7 +266,14 @@ impl VoxelGame {
                 continue;
             };
             let def = self.registry.def(id).clone();
-            events::send(&self.ecs, BlockBroken { pos, block: id });
+            events::send(
+                &self.ecs,
+                BlockBroken {
+                    pos,
+                    block: id,
+                    player: Some(self.players.local_id()),
+                },
+            );
             if engine_voxel::can_harvest(&def, tool.as_ref()) {
                 self.drop_pieces(pos, &piece, &material);
             }
@@ -429,5 +448,5 @@ fn describe_piece(piece: &shaped::Piece) -> (String, String) {
 
 /// La boîte du joueur (min, max).
 fn player_bounds(game: &VoxelGame) -> (Vec3, Vec3) {
-    crate::player::body(&game.ecs, game.player).bounds()
+    crate::player::body(&game.ecs, game.players.entity()).bounds()
 }

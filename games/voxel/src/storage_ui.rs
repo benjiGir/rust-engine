@@ -270,7 +270,7 @@ impl VoxelGame {
         match op {
             Op::Deposit => {
                 transfer::move_all(
-                    &mut self.inventory.slots,
+                    &mut self.players.me_mut().inventory.slots,
                     &main,
                     &mut cslots,
                     &indices,
@@ -280,7 +280,7 @@ impl VoxelGame {
             }
             Op::TopUp => {
                 transfer::move_all(
-                    &mut self.inventory.slots,
+                    &mut self.players.me_mut().inventory.slots,
                     &main,
                     &mut cslots,
                     &indices,
@@ -292,7 +292,7 @@ impl VoxelGame {
                 transfer::move_all(
                     &mut cslots,
                     &indices,
-                    &mut self.inventory.slots,
+                    &mut self.players.me_mut().inventory.slots,
                     &everywhere,
                     &prules,
                     false,
@@ -301,7 +301,7 @@ impl VoxelGame {
             Op::Sort => transfer::sort(&mut cslots, &indices, &crules),
             Op::QuickIn(slot) => {
                 transfer::move_slot(
-                    &mut self.inventory.slots,
+                    &mut self.players.me_mut().inventory.slots,
                     slot,
                     &mut cslots,
                     &indices,
@@ -312,7 +312,7 @@ impl VoxelGame {
                 transfer::move_slot(
                     &mut cslots,
                     index,
-                    &mut self.inventory.slots,
+                    &mut self.players.me_mut().inventory.slots,
                     &everywhere,
                     &prules,
                 );
@@ -327,7 +327,7 @@ impl VoxelGame {
     /// Maj + clic sur une amélioration de l'inventaire : elle va dans le premier emplacement libre
     /// (un seul exemplaire). `false` si ce n'en est pas une, ou si elle ne convient pas ici.
     fn quick_upgrade(&mut self, view: &mut View, slot: usize, is_bag: bool) -> bool {
-        let Some(stack) = self.inventory.slots[slot] else {
+        let Some(stack) = self.players.me_mut().inventory.slots[slot] else {
             return false;
         };
         let key = self.content.items.get(stack.item).key.clone();
@@ -350,10 +350,10 @@ impl VoxelGame {
             count: 1,
             damage: 0,
         });
-        if let Some(s) = self.inventory.slots[slot].as_mut() {
+        if let Some(s) = self.players.me_mut().inventory.slots[slot].as_mut() {
             s.count -= 1;
             if s.count == 0 {
-                self.inventory.slots[slot] = None;
+                self.players.me_mut().inventory.slots[slot] = None;
             }
         }
         true
@@ -375,7 +375,7 @@ impl VoxelGame {
 
     /// Le Maj + clic est-il possible ici ? (un conteneur ouvert, la main vide)
     pub(crate) fn quick_enabled(&self) -> bool {
-        self.inventory.cursor.is_none()
+        self.players.me().inventory.cursor.is_none()
             && (self.open_target().is_some() || matches!(self.ui.screen, Screen::Controller(_)))
     }
 
@@ -433,7 +433,7 @@ impl VoxelGame {
         if slot.is_none() && view.raw.get(index).is_some_and(Option::is_some) {
             return false;
         }
-        let mut cursor = self.inventory.cursor.take();
+        let mut cursor = self.players.me_mut().inventory.cursor.take();
         match kind {
             SlotKind::Main => {
                 let is_bag = matches!(t, Target::Bag(_));
@@ -456,7 +456,7 @@ impl VoxelGame {
             }
             SlotKind::Filter(_) => ghost_click(&mut slot, &mut cursor, &items),
         }
-        self.inventory.cursor = cursor;
+        self.players.me_mut().inventory.cursor = cursor;
         if let Some(cell) = view.raw.get_mut(index) {
             *cell = slot.map(|s| to_engine(&items, s));
         }
@@ -664,7 +664,7 @@ impl VoxelGame {
         let mut streamer = world.borrow_mut();
         let members = controller_members(&*streamer, pos);
         for slot in slots {
-            let Some(stack) = self.inventory.slots[slot] else {
+            let Some(stack) = self.players.me_mut().inventory.slots[slot] else {
                 continue;
             };
             let key = items.get(stack.item).key.clone();
@@ -677,8 +677,8 @@ impl VoxelGame {
                 stack.count,
             );
             if stored >= stack.count {
-                self.inventory.slots[slot] = None;
-            } else if let Some(s) = self.inventory.slots[slot].as_mut() {
+                self.players.me_mut().inventory.slots[slot] = None;
+            } else if let Some(s) = self.players.me_mut().inventory.slots[slot].as_mut() {
                 s.count = stack.count - stored;
             }
         }
@@ -742,7 +742,7 @@ impl VoxelGame {
             return;
         };
         let world = self.world.clone();
-        match (group, self.inventory.cursor) {
+        match (group, self.players.me_mut().inventory.cursor) {
             // La pile tenue est rangée dans les coffres.
             (_, Some(held)) => {
                 let key = items.get(held.item).key.clone();
@@ -754,10 +754,11 @@ impl VoxelGame {
                     held.damage,
                     held.count,
                 );
-                self.inventory.cursor = (stored < held.count).then_some(ItemStack {
-                    count: held.count - stored,
-                    ..held
-                });
+                self.players.me_mut().inventory.cursor =
+                    (stored < held.count).then_some(ItemStack {
+                        count: held.count - stored,
+                        ..held
+                    });
             }
             (Some((id, g)), None) => {
                 let max = items.get(id).max_stack.max(1);
@@ -780,7 +781,7 @@ impl VoxelGame {
                 };
                 if press == Press::Quick {
                     // Tout, directement dans l'inventaire : ce qui n'y tient pas retourne aux coffres.
-                    let left = self.inventory.add_stack(stack, &items);
+                    let left = self.players.me_mut().inventory.add_stack(stack, &items);
                     if left > 0 {
                         controller_insert(
                             &mut *world.borrow_mut(),
@@ -792,7 +793,7 @@ impl VoxelGame {
                         );
                     }
                 } else if taken > 0 {
-                    self.inventory.cursor = Some(stack);
+                    self.players.me_mut().inventory.cursor = Some(stack);
                 }
             }
             (None, None) => {}
@@ -880,7 +881,7 @@ impl VoxelGame {
 
     /// Le kit en main sur un coffre, ou le sac en main (hors d'un bloc qui s'ouvre).
     fn use_storage_item(&mut self) -> bool {
-        let Some(held) = self.inventory.selected_stack() else {
+        let Some(held) = self.players.me_mut().inventory.selected_stack() else {
             return false;
         };
         let key = self.content.items.get(held.item).key.clone();
@@ -888,7 +889,7 @@ impl VoxelGame {
             return self.use_kit(&key);
         }
         if backpacks::is_backpack(&key) && !self.aimed_block_opens() {
-            let slot = self.inventory.selected;
+            let slot = self.players.me_mut().inventory.selected;
             return self.open_bag_at(slot);
         }
         false
@@ -917,7 +918,7 @@ impl VoxelGame {
         }
         let actions = self.mods.block_changed(pos);
         self.apply_machine_actions(actions);
-        self.inventory.consume_selected();
+        self.players.me_mut().inventory.consume_selected();
         self.target = None;
         self.hand.punch();
         if let Some(audio) = &mut self.audio {

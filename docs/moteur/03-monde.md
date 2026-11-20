@@ -278,7 +278,8 @@ fait tomber entièrement, et les fleurs posées dessus avec.
 
 ```
 saves/<monde>/
-├── world.ron           réglages lisibles : graine, heure, joueur, mods, version de génération
+├── world.ron           réglages lisibles : graine, heure, joueur hôte, mods, version de génération
+├── players/<uuid>.ron  un fichier par joueur : position, inventaire, progression d'aventure
 ├── regions/
 │   └── r.<x>.<z>.bin   les chunks modifiés d'une région de 16 × 16 colonnes
 ├── grids.bin           les structures mobiles
