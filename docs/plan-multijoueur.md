@@ -875,8 +875,18 @@ Le code serveur lit encore la fenêtre à plusieurs endroits : `self.ui` est cit
   peut pas deviner : vitesse du temps, ciel de la dimension, temps qu'il fait, ou heure qui saute (le serveur fait
   tourner la même horloge que la fenêtre pour le savoir). Le rendu, l'horloge affichée et l'ambiance sonore lisent la
   copie.
-- **Reste** : l'état du joueur lu par l'interface (inventaire, gear, faim, quêtes : ~150 accès à `players`), l'ECS
-  (~80), les portails, les wagons et structures pilotés depuis
+- **L'état du joueur à la fenêtre** (4c-3d) :
+  - le corps prédit remplace les lectures de l'ECS (mode, gel, position, vitesse, sol, eau) : pas sonores, bras, effets
+    de l'eau (l'éclaboussure, perdue depuis le 4c-2, revient), ambiance, démo ;
+  - `Move` porte l'intention (marche, saut) : le serveur règle `MoveIntent` (pour le joueur porté) et la fatigue
+    lui-même ; la fenêtre n'écrit plus dans l'ECS pendant la partie ;
+  - `VitalsView` gagne `move_speed` et `can_sprint`, et la portée sert au rayon de visée ; la protection et l'objet
+    tenu viennent de la vue d'inventaire ;
+  - le minage en cours et le geste dans le vide sont un état de la fenêtre (`ClientSide::mining`, `air_swing`),
+    effacé à la mort ; les effets de potion tournent dans `VoxelServer::frame` ;
+  - 16 lectures de `content` et `registry` écrites sur plusieurs lignes, oubliées au 4c-3b, passent à la fenêtre.
+- **Reste** : les quêtes (définitions du livre), les attributs, le menu des mods, les wagons et structures lus dans
+  l'ECS (fiches, pilotage), l'inspecteur de l'ECS, les portails, les wagons et structures pilotés depuis
   l'image, et les outils (`ctl`, captures, démo, banc d'essai), qui écrivent dans le serveur.
 
 ### Lot 5 : le réseau local

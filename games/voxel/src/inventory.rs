@@ -382,14 +382,7 @@ impl Inventory {
 
     /// La protection totale de l'armure portée.
     pub fn protection(&self, items: &ItemRegistry) -> u32 {
-        self.armor
-            .iter()
-            .flatten()
-            .filter_map(|s| {
-                let base = items.get(s.item).armor.map(|a| a.protection)?;
-                Some(base + u32::from(enchanting::level_of(s.damage, Enchantment::PROTECTION)))
-            })
-            .sum()
+        armor_protection(&self.armor, items)
     }
 
     /// Les objets de la grille d'artisanat (`size × size`), pour chercher une recette.
@@ -630,6 +623,18 @@ pub fn starter_inventory(items: &ItemRegistry) -> Inventory {
         }
     }
     inventory
+}
+
+/// La protection d'une armure : la base de chaque pièce, plus son enchantement de protection.
+pub fn armor_protection(armor: &[Option<ItemStack>; 4], items: &ItemRegistry) -> u32 {
+    armor
+        .iter()
+        .flatten()
+        .filter_map(|s| {
+            let base = items.get(s.item).armor.map(|a| a.protection)?;
+            Some(base + u32::from(enchanting::level_of(s.damage, Enchantment::PROTECTION)))
+        })
+        .sum()
 }
 
 #[cfg(test)]

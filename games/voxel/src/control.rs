@@ -970,7 +970,7 @@ impl VoxelGame {
                 Ok(self.state_json())
             }
             Command::Walk(walk) => {
-                if player::mode(&self.server.ecs, self.server.players.entity()) == MoveMode::Fly {
+                if self.client.body.mode == MoveMode::Fly {
                     bail!("walk : en vol, utiliser goto ou `mode walk`");
                 }
                 self.remote.walk = Some(walk);
@@ -1013,7 +1013,7 @@ impl VoxelGame {
             }
             Command::Place(Some((pos, key))) => {
                 let block = self
-                    .server
+                    .client
                     .registry
                     .id(&key)
                     .with_context(|| format!("place : bloc inconnu « {key} »"))?;
@@ -1060,7 +1060,7 @@ impl VoxelGame {
             }
             Command::Give(key, amount) => {
                 let item = self
-                    .server
+                    .client
                     .content
                     .items
                     .id(&key)
@@ -1103,7 +1103,7 @@ impl VoxelGame {
                 ))
             }
             Command::Mode(mode) => {
-                if player::mode(&self.server.ecs, self.server.players.entity()) != mode {
+                if self.client.body.mode != mode {
                     self.toggle_fly();
                 }
                 self.remote.walk = None;
@@ -1211,8 +1211,7 @@ impl VoxelGame {
                         .cart_by_id(id)
                         .with_context(|| format!("ride : pas de wagon {id}"))?,
                     None => {
-                        let feet =
-                            player::body(&self.server.ecs, self.server.players.entity()).position;
+                        let feet = self.client.body.body.position;
                         let mut best: Option<(f32, engine_ecs::Entity)> = None;
                         self.server
                             .ecs
@@ -1290,7 +1289,7 @@ impl VoxelGame {
                 ))
             }
             Command::Structures(radius) => {
-                let feet = player::body(&self.server.ecs, self.server.players.entity()).position;
+                let feet = self.client.body.body.position;
                 let streamer = self.server.streamer();
                 let generator = streamer.generator();
                 let list: Vec<String> = generator
@@ -1365,7 +1364,7 @@ impl VoxelGame {
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .id(&key)
                     .with_context(|| format!("summon : créature inconnue « {key} »"))?;
-                let feet = player::body(&self.server.ecs, self.server.players.entity()).position;
+                let feet = self.client.body.body.position;
                 let at = feet + self.client.camera.forward_flat() * 3.0;
                 crate::mobs::spawn_mob(&mut self.server.ecs, kind, at)
                     .context("summon : impossible")?;
@@ -1567,7 +1566,7 @@ impl VoxelGame {
             Mode::Paused(_) => "paused",
             Mode::Dead(_) => "dead",
         };
-        let feet = player::body(&self.server.ecs, self.server.players.entity()).position;
+        let feet = self.client.body.body.position;
         // L'état de la physique est dans le `Collider` (le `PlayerBody` est recréé).
         let collider = self
             .server
@@ -1593,7 +1592,7 @@ impl VoxelGame {
                 ivec3(hit.block_pos),
                 json_str(
                     &self
-                        .server
+                        .client
                         .registry
                         .def(streamer.world().block(hit.block_pos))
                         .key
@@ -1625,7 +1624,7 @@ impl VoxelGame {
 \"survival\":{{\"air\":{:.2},\"burning\":{:.2},\"protection\":{},\
 \"food\":{:.2},\"saturation\":{:.2},\"exhaustion\":{:.3},\"bed\":{},\"death\":{},\"xp\":{},\"level\":{}}}}}",
             // Les mêmes mots que la commande `mode`.
-            match player::mode(&self.server.ecs, self.server.players.entity()) {
+            match self.client.body.mode {
                 MoveMode::Walk => "walk",
                 MoveMode::Fly => "fly",
             },

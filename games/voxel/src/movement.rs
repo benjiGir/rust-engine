@@ -15,7 +15,7 @@ use glam::{IVec3, Vec3};
 use crate::player::{FLY_SPEED, FLY_SPRINT_FACTOR, MoveMode, SPRINT_SPEED};
 
 /// La durée d'un pas fixe, en secondes (60 Hz).
-const STEP_SECONDS: f32 = 1.0 / 60.0;
+pub(crate) const STEP_SECONDS: f32 = 1.0 / 60.0;
 /// Ce qu'on tolère en plus de la distance permise : un joueur repoussé hors d'un bloc, un
 /// arrondi, le premier pas après un chargement.
 const SLACK: f32 = 0.6;

@@ -140,7 +140,7 @@ impl VoxelGame {
                 let block = if key == "air" {
                     engine_voxel::BlockId::AIR
                 } else {
-                    self.server
+                    self.client
                         .registry
                         .id(&key)
                         .with_context(|| format!("shelves : bloc inconnu « {key} »"))?
@@ -216,7 +216,7 @@ impl VoxelGame {
             }
             Command::Book(list) => {
                 let book = self
-                    .server
+                    .client
                     .content
                     .items
                     .id(ENCHANTED_BOOK)
@@ -232,7 +232,7 @@ impl VoxelGame {
                 let max = {
                     let streamer = self.server.streamer();
                     enchant_library::max_level_of(
-                        self.server
+                        self.client
                             .registry
                             .def(streamer.world().block(at))
                             .enchanting

@@ -88,6 +88,11 @@ pub(crate) struct ClientSide {
     /// chargés ensemble, rechargés ensemble. Un client du réseau les chargera de ses propres mods.
     pub(crate) registry: std::sync::Arc<engine_voxel::BlockRegistry>,
     pub(crate) content: crate::content::Content,
+    /// Le bloc en cours de minage (bouton gauche maintenu) et l'avancement prédit, de 0 à 1 ; le
+    /// serveur contrôle le sien (`PlayerState::dig`).
+    pub(crate) mining: Option<(glam::IVec3, f32)>,
+    /// Le bouton gauche est tenu sans rien à casser : le bras frappe quand même, en boucle.
+    pub(crate) air_swing: bool,
     /// L'horloge et la météo que voit la fenêtre, copiées du serveur (voir `sky_view.rs`).
     pub(crate) day: crate::daytime::DayCycle,
     pub(crate) weather: crate::weather::Weather,

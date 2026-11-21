@@ -1,33 +1,20 @@
 //! Animation du bras et raccordement au joueur.
 pub use crate::hand_model::{ArmColors, Hand, HandInput};
-use crate::{
-    components::{Collider, Velocity},
-    player::{self, MoveMode},
-};
+use crate::player::MoveMode;
 use engine_core::{Context, winit::keyboard::KeyCode};
-use glam::{Vec2, Vec3};
+use glam::Vec2;
 
 impl crate::VoxelGame {
     /// Les animations du bras : marche, minage, changement d'objet, inertie.
     pub(crate) fn animate_hand(&mut self, ctx: &Context, dt: f32) {
-        let velocity = self
-            .server
-            .ecs
-            .get::<Velocity>(self.server.players.entity())
-            .map_or(Vec3::ZERO, |v| v.0);
-        let on_ground = self
-            .server
-            .ecs
-            .get::<Collider>(self.server.players.entity())
-            .is_some_and(|c| c.on_ground)
-            || player::mode(&self.server.ecs, self.server.players.entity()) == MoveMode::Fly;
+        let velocity = self.client.body.body.velocity;
+        let on_ground = self.client.body.body.on_ground || self.client.body.mode == MoveMode::Fly;
         self.client.hand.update(HandInput {
             dt,
             speed: Vec2::new(velocity.x, velocity.z).length(),
             sprinting: ctx.input.key_held(KeyCode::ControlLeft),
             on_ground,
-            mining: self.server.players.me_mut().mining.is_some()
-                || self.server.players.me_mut().air_swing,
+            mining: self.client.mining.is_some() || self.client.air_swing,
             // L'objet tenu : l'inventaire tel que le serveur l'a envoyé.
             selected: (
                 usize::from(self.client.view.me.inventory.selected),

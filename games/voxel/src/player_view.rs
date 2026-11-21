@@ -67,6 +67,10 @@ pub struct VitalsView {
     pub tiers: crate::tiers::Progress,
     /// La portée de la main (l'équipement l'allonge).
     pub reach: f32,
+    /// Le multiplicateur de vitesse de l'équipement (bottes, attributs).
+    pub move_speed: f32,
+    /// Assez mangé pour courir.
+    pub can_sprint: bool,
     pub effects: Vec<EffectView>,
 }
 
@@ -81,6 +85,11 @@ pub struct InventoryView {
 }
 
 impl InventoryView {
+    /// La protection de l'armure portée.
+    pub fn protection(&self, items: &engine_voxel::ItemRegistry) -> u32 {
+        crate::inventory::armor_protection(&self.armor, items)
+    }
+
     pub fn of(inventory: &Inventory) -> Self {
         Self {
             slots: inventory.slots.to_vec(),
@@ -176,6 +185,11 @@ pub struct ClientPlayer {
 }
 
 impl ClientPlayer {
+    /// La portée du bras (4,5 blocs tant que les jauges ne sont pas arrivées).
+    pub fn reach(&self) -> f32 {
+        self.vitals.as_ref().map_or(4.5, |v| v.reach)
+    }
+
     /// Range une vue reçue.
     pub fn receive_vitals(&mut self, vitals: VitalsView) {
         if self
@@ -275,7 +289,12 @@ impl PlayerViews {
 }
 
 /// Les jauges d'un joueur. `health` vient de l'ECS (le composant `Health` de son entité).
-pub fn vitals_of(state: &PlayerState, health: [f32; 2], enchant_seed: u32) -> VitalsView {
+pub fn vitals_of(
+    state: &PlayerState,
+    health: [f32; 2],
+    enchant_seed: u32,
+    rules: &crate::survival::HungerRules,
+) -> VitalsView {
     let (level, _) = state.experience.level();
     VitalsView {
         health,
@@ -291,6 +310,8 @@ pub fn vitals_of(state: &PlayerState, health: [f32; 2], enchant_seed: u32) -> Vi
         forge_seed: state.adventure.forge_seed,
         tiers: state.adventure.progress,
         reach: state.gear.reach(),
+        move_speed: state.gear.move_speed(),
+        can_sprint: state.hunger.can_sprint(rules),
         effects: state
             .effects
             .list()
@@ -355,7 +376,12 @@ impl crate::server_side::VoxelServer {
                 continue;
             };
             let health = crate::player::health(&self.ecs, player.entity);
-            let vitals = vitals_of(player, [health.current, health.max], self.enchant_seed);
+            let vitals = vitals_of(
+                player,
+                [health.current, health.max],
+                self.enchant_seed,
+                &self.hunger_rules,
+            );
             let inventory = InventoryView::of(&player.inventory);
             let update = PlayerUpdate {
                 vitals,
@@ -428,6 +454,8 @@ mod tests {
             forge_seed: 0,
             tiers: crate::tiers::Progress::default(),
             reach: 4.5,
+            move_speed: 1.0,
+            can_sprint: true,
             effects: Vec::new(),
         }
     }

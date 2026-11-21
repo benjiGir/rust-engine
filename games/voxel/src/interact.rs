@@ -42,29 +42,12 @@ impl VoxelGame {
         ));
     }
 
-    /// Les potions en cours : la régénération soigne, la résistance éteint le feu.
-    pub(crate) fn update_effects(&mut self, dt: f32) {
-        let healed = self.server.players.me_mut().effects.update(dt);
-        if healed > 0.0 {
-            self.server.heal(healed);
-        }
-        if self
-            .server
-            .players
-            .me_mut()
-            .effects
-            .has(potions::Effect::FireResistance)
-        {
-            self.server.players.me_mut().vitals.burning = 0.0;
-        }
-    }
-
     /// La musique et les sons d'ambiance, selon l'endroit où se trouve le joueur.
     pub(crate) fn update_soundscape(&mut self, dt: f32) {
         if self.client.audio.is_none() {
             return;
         }
-        let feet = player::body(&self.server.ecs, self.server.players.entity()).position;
+        let feet = self.client.body.body.position;
         let place = {
             let streamer = self.server.streamer();
             let generator = streamer.generator();

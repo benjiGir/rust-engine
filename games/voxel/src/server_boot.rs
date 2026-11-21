@@ -536,6 +536,8 @@ mod tests {
             pitch: 0.0,
             on_ground: true,
             in_liquid: false,
+            walk: Vec3::ZERO,
+            jump: false,
             frozen: false,
             mode: player::MoveMode::Walk,
             step: 1,

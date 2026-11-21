@@ -143,7 +143,7 @@ impl crate::VoxelGame {
         self.client
             .body
             .step(self.client.view.replica(), walk, jump, gravity, dt);
-        self.send_local_move();
+        self.send_local_move(walk, jump);
     }
 }
 

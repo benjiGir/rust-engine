@@ -198,7 +198,7 @@ use engine_voxel::{
 use glam::{IVec3, Vec2, Vec3};
 
 use client_side::ClientSide;
-use components::{Collider, Transform, Velocity};
+use components::{Collider, Transform};
 use daytime::DayCycle;
 use events::{BlockBroken, BlockPlaced, EntityDied, PlayerDamaged};
 use inventory::Inventory;
@@ -422,6 +422,8 @@ impl VoxelGame {
                 frame_dt: 0.0,
                 eating_sent: false,
                 body,
+                mining: None,
+                air_swing: false,
                 day: server.day.clone(),
                 weather: weather::Weather::follower(
                     seed,
@@ -473,25 +475,19 @@ impl VoxelGame {
             ),
             None if busy => (Vec3::ZERO, false),
             None => {
-                // Affamé, on ne court plus.
-                let speed = if input.key_held(keys.key(Action::Sprint)) && self.server.can_sprint()
-                {
+                // Affamé, on ne court plus (les jauges viennent du serveur, voir `player_view.rs`).
+                let vitals = self.client.view.me.vitals.as_ref();
+                let can_sprint = vitals.is_none_or(|v| v.can_sprint);
+                let speed = if input.key_held(keys.key(Action::Sprint)) && can_sprint {
                     SPRINT_SPEED
                 } else {
                     WALK_SPEED
-                } * self.server.players.me_mut().gear.move_speed();
+                } * vitals.map_or(1.0, |v| v.move_speed);
                 let jump = input.key_held(keys.key(Action::Jump));
                 let direction = self.wish_direction(ctx, false);
                 (direction * speed, jump)
             }
         };
-        player::set_intent(&self.server.ecs, self.server.players.entity(), walk, jump);
-        let sprinting =
-            walk.length() > WALK_SPEED * self.server.players.me_mut().gear.move_speed() + 0.01;
-        self.server
-            .exert_movement(walk, jump, sprinting, ctx.fixed_dt);
-        // Le monde avance d'un pas (voir `server_step.rs`) ; la fenêtre joue ensuite ses pas sonores,
-        // envoie son mouvement et applique ce que le serveur lui a répondu.
         // La fenêtre joue le mouvement de son joueur et l'envoie (voir `predicted.rs`).
         self.predict_move(walk, jump, ctx.fixed_dt);
         self.server.fixed_step(ctx.fixed_dt);
@@ -600,7 +596,6 @@ impl VoxelGame {
         self.client.conduit_fx.advance(dt);
         self.update_soundscape(dt);
         self.update_dimensions(dt);
-        self.update_effects(dt);
         self.update_ships(ctx);
         self.update_carts(ctx);
         self.update_sky(dt);
@@ -609,7 +604,7 @@ impl VoxelGame {
             audio.update_ambience(self.client.day.daylight());
         }
 
-        if player::mode(&self.server.ecs, self.server.players.entity()) == MoveMode::Fly {
+        if self.client.body.mode == MoveMode::Fly {
             match self.client.autofly {
                 Some(speed) => self.autofly(speed, dt),
                 None => {
@@ -1058,30 +1053,14 @@ impl VoxelGame {
             .then_some(hit.block_pos)
     }
 
-    /// Le jeu écoute ses propres événements pour jouer les sons.
     /// Les bruits de pas (selon le bloc sous les pieds) et l'éclaboussure en entrant dans l'eau.
     fn footsteps(&mut self, dt: f32) {
-        if player::mode(&self.server.ecs, self.server.players.entity()) != MoveMode::Walk
-            || player::frozen(&self.server.ecs, self.server.players.entity())
-        {
+        if self.client.body.mode != MoveMode::Walk || self.client.body.frozen {
             return;
         }
-        let (Some(collider), Some(velocity), Some(transform)) = (
-            self.server
-                .ecs
-                .get::<Collider>(self.server.players.entity())
-                .map(|c| *c),
-            self.server
-                .ecs
-                .get::<Velocity>(self.server.players.entity())
-                .map(|v| v.0),
-            self.server
-                .ecs
-                .get::<Transform>(self.server.players.entity())
-                .map(|t| t.position),
-        ) else {
-            return;
-        };
+        // Le corps prédit (voir `predicted.rs`).
+        let collider = self.client.body.body;
+        let (velocity, transform) = (collider.velocity, collider.position);
         let below_block = self
             .view_world()
             .block((transform - Vec3::Y * 0.05).floor().as_ivec3());
@@ -1108,7 +1087,7 @@ impl VoxelGame {
         let render = self.client.last_render;
         let pending = stream.queued + stream.in_flight + stream.meshes_waiting;
         let triangles = render.triangles as f64 / 1e6;
-        let frozen = if player::frozen(&self.server.ecs, self.server.players.entity()) {
+        let frozen = if self.client.body.frozen {
             " (chargement…)"
         } else {
             ""
@@ -1116,7 +1095,7 @@ impl VoxelGame {
         ctx.status = format!(
             "{} | {}{frozen} | {} entités | {} chunks | {pending} en attente | {}/{} dessinés ({} cachés) | {triangles:.2} M tri",
             self.client.day.clock(),
-            player::mode(&self.server.ecs, self.server.players.entity()).name(),
+            self.client.body.mode.name(),
             self.server.ecs.len(),
             stream.loaded,
             render.meshes_drawn,
@@ -1216,7 +1195,7 @@ impl VoxelGame {
             return;
         };
         demo.timer += dt;
-        if demo.timer < 1.0 || player::frozen(&self.server.ecs, self.server.players.entity()) {
+        if demo.timer < 1.0 || self.client.body.frozen {
             return;
         }
         demo.timer = 0.0;
@@ -1247,14 +1226,7 @@ impl VoxelGame {
             self.server.place_at_target()
         };
         let elapsed = before.elapsed();
-        let body = engine_voxel::PlayerBody {
-            on_ground: self
-                .server
-                .ecs
-                .get::<Collider>(self.server.players.entity())
-                .is_some_and(|c| c.on_ground),
-            ..player::body(&self.server.ecs, self.server.players.entity())
-        };
+        let body = self.client.body.body;
         let action = if breaking { "cassé" } else { "posé" };
         let block = self
             .server

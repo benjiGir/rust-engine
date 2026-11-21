@@ -188,7 +188,7 @@ impl VoxelGame {
     /// Les objets qui correspondent à la recherche, dans l'ordre du registre.
     fn browser_items(&self) -> Vec<ItemId> {
         let query = self.client.ui.browser.search.trim();
-        self.server
+        self.client
             .content
             .items
             .iter()
@@ -684,7 +684,7 @@ impl VoxelGame {
                 };
                 // Le serveur fabrique : la recette part par son rang dans la liste des recettes.
                 let Some(index) = self
-                    .server
+                    .client
                     .content
                     .recipes
                     .iter()

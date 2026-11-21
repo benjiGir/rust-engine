@@ -68,10 +68,6 @@ pub struct PlayerState {
     pub experience: Experience,
     /// Le lit où réapparaître, s'il y en a un.
     pub bed: Option<IVec3>,
-    /// Le bloc en cours de minage (bouton gauche maintenu) et l'avancement, de 0 à 1.
-    pub mining: Option<(IVec3, f32)>,
-    /// Le bouton gauche est tenu sans rien à casser : le bras frappe quand même, en boucle.
-    pub air_swing: bool,
     /// L'avancement du repas en cours (0 à 1), pour la barre.
     pub eat_progress: Option<f32>,
     /// Le bouton de repas est tenu (message `Eat`) : le simulateur mâche à chaque pas.
@@ -154,8 +150,6 @@ impl PlayerState {
             quest_book: QuestBook::default(),
             experience: Experience::default(),
             bed: None,
-            mining: None,
-            air_swing: false,
             eat_progress: None,
             eating: false,
             dead: false,

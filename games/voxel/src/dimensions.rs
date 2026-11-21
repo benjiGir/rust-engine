@@ -208,12 +208,12 @@ impl VoxelGame {
                 );
             }
         }
-        let feet = crate::player::body(&self.server.ecs, self.server.players.entity()).position;
+        let feet = self.client.body.body.position;
         let cells = [feet.floor().as_ivec3(), (feet + Vec3::Y).floor().as_ivec3()];
         let portal = {
             let streamer = self.server.streamer();
             cells.iter().find_map(|c| {
-                self.server
+                self.client
                     .registry
                     .def(streamer.world().block(*c))
                     .portal

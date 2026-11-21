@@ -188,6 +188,10 @@ pub enum ClientMsg {
         pitch: f32,
         on_ground: bool,
         in_liquid: bool,
+        /// L'intention qui a donné ce mouvement : le serveur s'en sert quand il simule le joueur porté,
+        /// et pour la fatigue de la marche, de la course et du saut.
+        walk: Vec3,
+        jump: bool,
         /// Le terrain autour n'est pas encore arrivé chez le client : il attend sans bouger.
         frozen: bool,
         mode: MoveMode,
@@ -430,6 +434,8 @@ mod tests {
                 pitch: -0.2,
                 on_ground: true,
                 in_liquid: false,
+                walk: Vec3::X,
+                jump: false,
                 frozen: false,
                 mode: MoveMode::Walk,
                 step: 12,

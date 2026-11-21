@@ -140,18 +140,19 @@ impl VoxelGame {
             };
             let def = self.client.registry.def(block);
             let held = self
-                .server
-                .players
-                .me_mut()
+                .client
+                .view
+                .me
                 .inventory
-                .selected_item()
+                .selected_stack()
+                .map(|s| s.item)
                 .and_then(|id| self.client.content.items.get(id).tool);
             let mut card = ui_info::block(def, held.as_ref());
             if let Some(hit) = self.client.target.filter(|_| ship.is_none()) {
                 self.describe_shaped(&mut card, &hit);
             }
             item = self
-                .server
+                .client
                 .content
                 .items
                 .of_block(self.client.registry.base(block));

@@ -115,7 +115,6 @@ impl crate::server_side::VoxelServer {
         for stack in stacks {
             self.drop_stack(feet, stack);
         }
-        self.players.me_mut().mining = None;
         self.players.me_mut().hunger.chewing = None;
         // L'expérience est perdue.
         let (level, _) = self.players.me_mut().experience.level();

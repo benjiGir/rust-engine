@@ -23,7 +23,7 @@ use glam::{IVec3, Vec3};
 
 use crate::VoxelGame;
 use crate::daytime::TimeSpeed;
-use crate::player::{self, MoveMode};
+use crate::player::MoveMode;
 
 /// Où poser les créatures de la capture.
 const MOB_SPOT: (i32, i32) = (12, -6);
@@ -369,7 +369,7 @@ impl VoxelGame {
             Stage::Move => {
                 self.server.day.time = shot.time;
                 self.server.day.speed = TimeSpeed::Frozen;
-                if player::mode(&self.server.ecs, self.server.players.entity()) != MoveMode::Fly {
+                if self.client.body.mode != MoveMode::Fly {
                     self.toggle_fly();
                 }
                 let (eye, yaw, pitch) = self.viewpoint(shot.scene);

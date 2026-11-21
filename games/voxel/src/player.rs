@@ -87,11 +87,6 @@ pub fn body(world: &World, player: Entity) -> PlayerBody {
     PlayerBody::new(feet(world, player))
 }
 
-/// Vrai si le joueur attend que le terrain soit chargé.
-pub fn frozen(world: &World, player: Entity) -> bool {
-    mode(world, player) == MoveMode::Walk && world.get::<Collider>(player).is_some_and(|c| c.frozen)
-}
-
 pub fn toggle_mode(world: &mut World, player: Entity) {
     match mode(world, player) {
         MoveMode::Walk => {

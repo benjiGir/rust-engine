@@ -162,7 +162,7 @@ impl VoxelGame {
                     .find(|g| g.id == key)
                     .with_context(|| format!("gem : sorte inconnue « {key} »"))?;
                 let item = self
-                    .server
+                    .client
                     .content
                     .items
                     .id(&kind.item_key(quality - 1))
@@ -325,7 +325,7 @@ impl VoxelGame {
         let id = registry
             .id(&key)
             .with_context(|| format!("créature inconnue « {key} »"))?;
-        let feet = crate::player::body(&self.server.ecs, self.server.players.entity()).position;
+        let feet = self.client.body.body.position;
         let distance = if invader { 18.0 } else { 5.0 };
         let mut at: Vec3 = feet + self.client.camera.forward_flat() * distance;
         // Au sol : le premier bloc plein sous le point, vers le bas.

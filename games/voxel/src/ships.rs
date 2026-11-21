@@ -298,7 +298,7 @@ fn build(renderer: &mut Renderer, grid: &SubGrid) -> Built {
 impl VoxelGame {
     /// La barre : gauche et droite, tant que le pilote reste près de sa structure.
     pub(crate) fn update_ships(&mut self, ctx: &Context) {
-        let player = player::body(&self.server.ecs, self.server.players.entity()).position;
+        let player = self.client.body.body.position;
         let mut steer = 0.0;
         if let Some(id) = self.server.helm {
             let near = self.server.mods.subgrids.borrow().get(id).is_some_and(|g| {

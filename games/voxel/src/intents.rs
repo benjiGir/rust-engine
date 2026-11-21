@@ -291,6 +291,7 @@ impl VoxelGame {
                     )));
                 }
                 ServerMsg::Died { message } => {
+                    self.client.mining = None;
                     // L'écran ouvert se ferme, la souris est rendue au menu de mort.
                     if self.client.ui.inventory_open {
                         self.close_screen();
@@ -313,7 +314,7 @@ impl VoxelGame {
 
     /// Envoie au serveur le mouvement que la physique de la fenêtre vient de jouer (voir
     /// `predicted.rs`).
-    pub(crate) fn send_local_move(&mut self) {
+    pub(crate) fn send_local_move(&mut self, walk: Vec3, jump: bool) {
         // Les vols automatiques et les démos déplacent le joueur à leur guise : le contrôle de
         // `VOXEL_CHECK_MOVES=1` repart de zéro à chaque pas.
         if self.client.autofly.is_some()
@@ -331,6 +332,8 @@ impl VoxelGame {
             pitch: self.client.camera.pitch,
             on_ground: body.body.on_ground,
             in_liquid: body.body.in_liquid,
+            walk,
+            jump,
             frozen: body.frozen,
             mode: body.mode,
             step: self.server.sim_step,
@@ -742,12 +745,21 @@ impl crate::server_side::VoxelServer {
                 velocity,
                 on_ground,
                 in_liquid,
+                walk,
+                jump,
                 frozen,
                 mode,
                 step,
                 yaw,
                 pitch,
             } => {
+                // L'intention : la physique du serveur s'en sert quand le joueur est porté, et la
+                // fatigue en vient (marche, course, saut).
+                let entity = self.players.me().entity;
+                crate::player::set_intent(&self.ecs, entity, walk, jump);
+                let sprinting = walk.length()
+                    > crate::player::WALK_SPEED * self.players.me().gear.move_speed() + 0.01;
+                self.exert_movement(walk, jump, sprinting, crate::movement::STEP_SECONDS);
                 let (sin_yaw, cos_yaw) = yaw.sin_cos();
                 let (sin_pitch, cos_pitch) = pitch.sin_cos();
                 self.players.me_mut().look =

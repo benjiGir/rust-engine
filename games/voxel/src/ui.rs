@@ -407,7 +407,7 @@ impl VoxelGame {
             &self.client.block_textures,
         );
         let durability = self
-            .server
+            .client
             .content
             .items
             .get(stack.item)
@@ -554,7 +554,7 @@ impl VoxelGame {
         let selected_slot = usize::from(self.client.view.me.inventory.selected);
         let held_stack = self.client.view.me.inventory.selected_stack();
         // La barre sous le réticule : le minage, ou le repas en cours.
-        if let Some(progress) = self.server.players.me_mut().mining.map(|(_, p)| p).or(self
+        if let Some(progress) = self.client.mining.map(|(_, p)| p).or(self
             .server
             .players
             .me_mut()
@@ -798,7 +798,7 @@ impl VoxelGame {
         let inventory = self.client.view.me.inventory.as_inventory();
         // Le numéro de chaque recette dans la liste : c'est lui qui part au serveur.
         let craftable: Vec<(u32, Recipe)> = self
-            .server
+            .client
             .content
             .recipes
             .iter()
@@ -978,9 +978,9 @@ impl VoxelGame {
         ui.label(
             egui::RichText::new(format!(
                 "Protection : {}",
-                self.server
-                    .players
-                    .me_mut()
+                self.client
+                    .view
+                    .me
                     .inventory
                     .protection(&self.client.content.items)
             ))

@@ -36,7 +36,7 @@ use glam::Vec3;
 
 use crate::VoxelGame;
 use crate::daytime::TimeSpeed;
-use crate::player::{self, MoveMode};
+use crate::player::MoveMode;
 
 /// Images d'attente après le chargement, et au début de chaque mesure (préchauffage).
 const SETTLE_FRAMES: u32 = 30;
@@ -287,7 +287,7 @@ impl VoxelGame {
             .set_vsync(std::env::var("VOXEL_BENCH_VSYNC").is_ok_and(|v| v == "1"));
         self.server.day.time = 0.5;
         self.server.day.speed = TimeSpeed::Frozen;
-        if player::mode(&self.server.ecs, self.server.players.entity()) != MoveMode::Fly {
+        if self.client.body.mode != MoveMode::Fly {
             self.toggle_fly();
         }
     }

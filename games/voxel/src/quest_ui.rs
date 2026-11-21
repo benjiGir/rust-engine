@@ -656,7 +656,7 @@ impl VoxelGame {
                 Act::Guide(chapter) => {
                     self.client.ui.browser.close();
                     if let Some(at) = self
-                        .server
+                        .client
                         .content
                         .guide
                         .chapters

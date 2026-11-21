@@ -172,7 +172,7 @@ impl VoxelGame {
     /// Ce que le regard de la fenêtre touche parmi les entités qu'elle voit : la créature la plus
     /// proche, sinon le wagon, avant le bloc visé (ou la portée). `None` : rien à frapper.
     pub(crate) fn window_entity(&self) -> Option<NetId> {
-        let reach = self.server.players.local().gear.reach();
+        let reach = self.client.view.me.reach();
         let distance = self.client.target.map_or(reach, |hit| hit.distance);
         self.client.view.entities.hit(
             self.client.camera.position,

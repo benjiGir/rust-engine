@@ -81,12 +81,29 @@ impl VoxelServer {
             daylight: self.day.daylight(),
             night: self.day.is_night(),
         };
+        self.update_effects(dt);
         self.schedule.run(Stage::Update, &mut self.ecs);
         self.play_event_sounds();
         self.forward_events_to_mods();
         // Fin de l'image : les événements lus tournent leurs tampons.
         crate::events::update(&self.ecs);
         self.send_sky(dt);
+    }
+
+    /// Les potions en cours : la régénération soigne, la résistance éteint le feu.
+    fn update_effects(&mut self, dt: f32) {
+        let healed = self.players.me_mut().effects.update(dt);
+        if healed > 0.0 {
+            self.heal(healed);
+        }
+        if self
+            .players
+            .me_mut()
+            .effects
+            .has(crate::potions::Effect::FireResistance)
+        {
+            self.players.me_mut().vitals.burning = 0.0;
+        }
     }
 
     /// Le monde se charge autour de chaque joueur.

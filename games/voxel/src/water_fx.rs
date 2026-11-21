@@ -9,8 +9,6 @@ use engine_voxel::{PlayerBody, World};
 use glam::{Vec2, Vec3};
 
 use crate::VoxelGame;
-use crate::components::{Collider, Velocity};
-use crate::player;
 
 /// La gravité d'une gouttelette (blocs par seconde au carré).
 const DROP_GRAVITY: f32 = 22.0;
@@ -223,17 +221,9 @@ impl WaterFx {
 impl VoxelGame {
     /// Met les effets de l'eau à jour avec l'état du joueur.
     pub(crate) fn update_water_fx(&mut self, dt: f32) {
-        let body = player::body(&self.server.ecs, self.server.players.entity());
-        let (splash, swimming) = self
-            .server
-            .ecs
-            .get::<Collider>(self.server.players.entity())
-            .map_or((0.0, false), |c| (c.splash, c.in_liquid));
-        let speed = self
-            .server
-            .ecs
-            .get::<Velocity>(self.server.players.entity())
-            .map_or(0.0, |v| Vec2::new(v.0.x, v.0.z).length());
+        let body = self.client.body.body;
+        let (splash, swimming) = (body.splash, body.in_liquid);
+        let speed = Vec2::new(body.velocity.x, body.velocity.z).length();
         self.client.water_fx.update(
             dt,
             self.client.view.world(),
