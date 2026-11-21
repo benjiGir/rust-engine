@@ -37,7 +37,7 @@ fn percent(value: f32) -> String {
 impl VoxelGame {
     /// Les stats de la table telles que la fenêtre les voit (la réplique du monde).
     fn shown_table_stats(&self, pos: IVec3) -> TableStats {
-        table_stats_in(&self.server.registry, self.view_world(), pos)
+        table_stats_in(&self.client.registry, self.view_world(), pos)
     }
 }
 
@@ -102,7 +102,7 @@ impl VoxelGame {
             ui.label("Tiens un outil, une armure, un livre ou un tome dans la barre d'objets, puis reviens.");
             return;
         };
-        let items = self.server.content.items.clone();
+        let items = self.client.content.items.clone();
         let def = items.get(stack.item);
         let owned = enchanting::labels(stack.damage);
         if !owned.is_empty() {
@@ -185,7 +185,7 @@ impl VoxelGame {
             .weak(),
         );
         if let Some(held) = self.client.view.me.inventory.cursor {
-            let items = self.server.content.items.clone();
+            let items = self.client.content.items.clone();
             ui.separator();
             ui.label(format!("À la souris : {}", items.get(held.item).name));
             for label in enchanting::labels(held.damage) {
@@ -198,7 +198,7 @@ impl VoxelGame {
 
     /// La bibliothèque telle que la fenêtre la voit (la réplique).
     fn shown_library(&self, pos: IVec3) -> Option<(Library, u8)> {
-        library_in(&self.server.registry, self.view_streamer(), pos)
+        library_in(&self.client.registry, self.view_streamer(), pos)
     }
 }
 
@@ -226,7 +226,7 @@ fn library_in(
 impl VoxelGame {
     /// La bibliothèque : dépôt, recherche, filtre par objet, extraction au niveau choisi.
     pub(crate) fn library_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
-        let items = self.server.content.items.clone();
+        let items = self.client.content.items.clone();
         // La bibliothèque telle que la réplique la voit (le serveur range la case d'entrée tant que
         // l'écran est ouvert) ; l'inventaire, d'après la vue du joueur.
         let Some((library, max)) = self.shown_library(pos) else {
@@ -368,7 +368,7 @@ impl VoxelGame {
                 .clone()
         });
         let Some(out) = out else { return false };
-        let items = self.server.content.items.clone();
+        let items = self.client.content.items.clone();
         let name = items
             .id(&out.item)
             .map_or(out.item.clone(), |id| items.get(id).name.clone());

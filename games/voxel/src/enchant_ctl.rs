@@ -161,7 +161,7 @@ impl VoxelGame {
             }
             Command::Offers(at) => {
                 let stats = self.server.table_stats(at);
-                let items = self.server.content.items.clone();
+                let items = self.client.content.items.clone();
                 let stack = self
                     .server
                     .players
@@ -281,7 +281,7 @@ impl VoxelGame {
                 ))
             }
             Command::Charms => {
-                let items = self.server.content.items.clone();
+                let items = self.client.content.items.clone();
                 let data = crate::adventure_data::current();
                 let rows: Vec<String> = self
                     .server

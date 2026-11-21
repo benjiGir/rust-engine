@@ -50,13 +50,13 @@ impl VoxelGame {
         let names: Vec<String> = shaped
             .materials
             .iter()
-            .map(|m| shape_materials::material_name(&self.server.registry, m).to_lowercase())
+            .map(|m| shape_materials::material_name(&self.client.registry, m).to_lowercase())
             .collect();
         card.name = format!("Case de formes : {}", names.join(", "));
         if let Some(index) = self.server.aimed_part(hit.block_pos, &shaped) {
             let part = shaped.parts[index];
             let material =
-                shape_materials::material_name(&self.server.registry, shaped.material_of(&part));
+                shape_materials::material_name(&self.client.registry, shaped.material_of(&part));
             let (what, size) = describe_piece(&part.piece);
             card.lines.insert(
                 0,

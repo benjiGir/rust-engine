@@ -818,7 +818,7 @@ impl VoxelGame {
             Command::Eat => {
                 self.require_playing("eat")?;
                 // L'aliment en main, sinon le premier de l'inventaire.
-                let items = &self.server.content.items;
+                let items = &self.client.content.items;
                 let is_food = |slot: &Option<crate::inventory::ItemStack>| {
                     slot.is_some_and(|s| items.get(s.item).food.is_some())
                 };
@@ -988,7 +988,7 @@ impl VoxelGame {
                 Ok(format!(
                     "{{\"ok\":true,\"pos\":{},\"block\":{},\"loaded\":{},\"light\":[{sky},{light}]}}",
                     ivec3(pos),
-                    json_str(&self.server.registry.def(block).key),
+                    json_str(&self.client.registry.def(block).key),
                     streamer.is_generated(engine_voxel::World::chunk_containing(pos.as_vec3())),
                 ))
             }
@@ -1001,7 +1001,7 @@ impl VoxelGame {
                 if block.is_air() {
                     bail!("break : rien à casser en {}", ivec3(pos));
                 }
-                let key = self.server.registry.def(block).key.clone();
+                let key = self.client.registry.def(block).key.clone();
                 if !self.server.break_block(pos) {
                     bail!("break : {key} est incassable ou hors du monde chargé");
                 }
@@ -1020,11 +1020,11 @@ impl VoxelGame {
                 if block == BlockId::AIR {
                     bail!("place : pour enlever un bloc, utiliser break");
                 }
-                if engine_voxel::bed::is_part(&self.server.registry, block) {
+                if engine_voxel::bed::is_part(&self.client.registry, block) {
                     bail!("place : utiliser core:bed pour poser le lit entier");
                 }
-                if engine_voxel::door::is_door(self.server.registry.def(block))
-                    && !self.server.registry.def(block).placeable
+                if engine_voxel::door::is_door(self.client.registry.def(block))
+                    && !self.client.registry.def(block).placeable
                 {
                     bail!("place : utiliser l'objet de porte pour poser les deux moitiés");
                 }
@@ -1068,7 +1068,7 @@ impl VoxelGame {
                 let left = self.server.players.me_mut().inventory.add(
                     item,
                     amount,
-                    &self.server.content.items,
+                    &self.client.content.items,
                 );
                 Ok(format!(
                     "{{\"ok\":true,\"given\":{},\"full\":{left}}}",
@@ -1076,7 +1076,7 @@ impl VoxelGame {
                 ))
             }
             Command::Inventory => {
-                let items = &self.server.content.items;
+                let items = &self.client.content.items;
                 let slots: Vec<String> = self
                     .server
                     .players
@@ -1115,7 +1115,7 @@ impl VoxelGame {
             }
             Command::Inspect(pos) => {
                 let streamer = self.server.streamer();
-                let block = json_str(&self.server.registry.def(streamer.world().block(pos)).key);
+                let block = json_str(&self.client.registry.def(streamer.world().block(pos)).key);
                 let Some(caps) = streamer
                     .block_entity(pos)
                     .and_then(|e| e.caps.as_deref().map(|c| (e.power, c)))
@@ -1607,7 +1607,7 @@ impl VoxelGame {
             Some(stack) => format!(
                 "{{\"slot\":{},\"item\":{},\"count\":{}}}",
                 self.server.players.me().inventory.selected + 1,
-                json_str(&self.server.content.items.get(stack.item).key),
+                json_str(&self.client.content.items.get(stack.item).key),
                 stack.count
             ),
             None => format!(
@@ -1656,7 +1656,7 @@ impl VoxelGame {
                 .players
                 .me()
                 .inventory
-                .protection(&self.server.content.items),
+                .protection(&self.client.content.items),
             self.server.players.me().hunger.food,
             self.server.players.me().hunger.saturation,
             self.server.players.me().hunger.exhaustion,

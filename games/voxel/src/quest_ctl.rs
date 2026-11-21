@@ -309,7 +309,7 @@ impl VoxelGame {
             .progress()
             .context("quêtes pas chargées")?
             .clone();
-        let items = self.server.content.items.clone();
+        let items = self.client.content.items.clone();
         let chosen: Vec<usize> = match filter {
             None => (0..quests.quests.len()).collect(),
             Some(id) => match quests.chapter(id) {

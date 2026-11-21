@@ -501,12 +501,14 @@ mod tests {
         let feet = player::body(&server.ecs, server.players.entity()).position;
         let guest = server.add_ghost("Invité", feet + Vec3::X * 3.0);
         // Une seconde de jeu : le monde se charge autour des deux joueurs, les envois suivent.
+        let time = server.day.time;
         for _ in 0..60 {
-            let views = server.stream_views();
-            server.world.borrow_mut().update_views(&views);
+            server.frame(1.0 / 60.0);
+            server.stream_world();
             server.send_world();
             server.fixed_step(1.0 / 60.0);
         }
+        assert_ne!(server.day.time, time, "l'heure avance sans fenêtre");
         assert_eq!(server.sends.tick, 60, "un compteur de pas par pas fixe");
         assert!(server.sends.senders.contains_key(&guest));
         assert!(

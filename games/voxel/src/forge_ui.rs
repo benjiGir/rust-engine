@@ -45,7 +45,7 @@ impl VoxelGame {
     /// rendra, et le bouton qui envoie `ScreenAction::Salvage`.
     pub(crate) fn salvage_panel(&mut self, ui: &mut egui::Ui) {
         let data = adventure_data::current();
-        let items = self.server.content.items.clone();
+        let items = self.client.content.items.clone();
         let Some(held) = self.client.view.me.inventory.cursor else {
             ui.label("Prends à la souris un objet à affixes (clic sur sa case, dans l'inventaire), puis reviens ici.");
             ui.label(
@@ -103,7 +103,7 @@ impl VoxelGame {
     /// d'après la graine de la vue du joueur) et le bouton qui envoie `ReforgeChoose`.
     pub(crate) fn reforge_panel(&mut self, ui: &mut egui::Ui) {
         let data = adventure_data::current();
-        let items = self.server.content.items.clone();
+        let items = self.client.content.items.clone();
         let Some(vitals) = self.client.view.me.vitals.clone() else {
             return;
         };

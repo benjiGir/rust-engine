@@ -40,18 +40,18 @@ impl VoxelGame {
         let mut preview = None;
         let fluids = self.view_world().fluids().cloned();
         let lines = |block: engine_voxel::BlockId, caps: Option<&engine_voxel::Capabilities>| {
-            let main = engine_voxel::layout_of(&self.server.registry, block).map(|l| l.main);
+            let main = engine_voxel::layout_of(&self.client.registry, block).map(|l| l.main);
             caps.map(|caps| ui_info::capabilities(caps, fluids.as_deref(), main))
                 .unwrap_or_default()
         };
         // L'aperçu du contenu d'un bloc à inventaire (voir `chest_preview.rs`).
         let want_preview = self.settings.chest_preview;
         let summary = |block: engine_voxel::BlockId, caps: Option<&engine_voxel::Capabilities>| {
-            if !want_preview || engine_voxel::is_controller(&self.server.registry, block) {
+            if !want_preview || engine_voxel::is_controller(&self.client.registry, block) {
                 return None;
             }
             let inventory = caps?.inventory.as_ref()?;
-            let main = engine_voxel::layout_of(&self.server.registry, block)
+            let main = engine_voxel::layout_of(&self.client.registry, block)
                 .map_or(inventory.slots.len(), |l| l.main);
             Some(crate::chest_preview::summarize(&inventory.slots, main))
         };
@@ -138,14 +138,14 @@ impl VoxelGame {
             } else {
                 return 12.0;
             };
-            let def = self.server.registry.def(block);
+            let def = self.client.registry.def(block);
             let held = self
                 .server
                 .players
                 .me_mut()
                 .inventory
                 .selected_item()
-                .and_then(|id| self.server.content.items.get(id).tool);
+                .and_then(|id| self.client.content.items.get(id).tool);
             let mut card = ui_info::block(def, held.as_ref());
             if let Some(hit) = self.client.target.filter(|_| ship.is_none()) {
                 self.describe_shaped(&mut card, &hit);
@@ -154,7 +154,7 @@ impl VoxelGame {
                 .server
                 .content
                 .items
-                .of_block(self.server.registry.base(block));
+                .of_block(self.client.registry.base(block));
             card.lines.extend(caps);
             preview = found;
             card
@@ -170,8 +170,8 @@ impl VoxelGame {
         let icon = item.map(|item| {
             self.client.ui.icon(
                 item,
-                &self.server.content.items,
-                &self.server.registry,
+                &self.client.content.items,
+                &self.client.registry,
                 &self.client.block_textures,
             )
         });
@@ -181,11 +181,11 @@ impl VoxelGame {
                 p.kinds
                     .iter()
                     .map(|(key, _)| {
-                        let id = self.server.content.items.id(key)?;
+                        let id = self.client.content.items.id(key)?;
                         Some(self.client.ui.icon(
                             id,
-                            &self.server.content.items,
-                            &self.server.registry,
+                            &self.client.content.items,
+                            &self.client.registry,
                             &self.client.block_textures,
                         ))
                     })

@@ -494,7 +494,7 @@ impl VoxelGame {
     pub(crate) fn open_first_bag(&mut self) -> bool {
         let slot = (0..self.server.players.me_mut().inventory.slots.len()).find(|&i| {
             self.server.players.me_mut().inventory.slots[i]
-                .is_some_and(|s| is_backpack(&self.server.content.items.get(s.item).key))
+                .is_some_and(|s| is_backpack(&self.client.content.items.get(s.item).key))
         });
         slot.is_some_and(|slot| self.server.open_bag_at(slot))
     }

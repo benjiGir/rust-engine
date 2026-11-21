@@ -28,7 +28,7 @@ impl VoxelGame {
 
     /// Le corps de l'écran du guide.
     pub(crate) fn guide_panel(&mut self, ui: &mut egui::Ui) {
-        let guide = self.server.content.guide.clone();
+        let guide = self.client.content.guide.clone();
         if guide.chapters.is_empty() {
             ui.label("Ce guide est vide.");
             return;

@@ -129,7 +129,7 @@ impl VoxelGame {
                     .or_else(|| rarity.parse().ok())
                     .filter(|r| usize::from(*r) < data.rarities.len())
                     .with_context(|| format!("loot : rareté inconnue « {rarity} »"))?;
-                let items = self.server.content.items.clone();
+                let items = self.client.content.items.clone();
                 let item = items
                     .id(&key)
                     .with_context(|| format!("loot : objet inconnu « {key} »"))?;
@@ -170,7 +170,7 @@ impl VoxelGame {
                 let left = self.server.players.me_mut().inventory.add(
                     item,
                     count,
-                    &self.server.content.items,
+                    &self.client.content.items,
                 );
                 Ok(format!("{{\"ok\":true,\"full\":{left}}}"))
             }
@@ -273,7 +273,7 @@ impl VoxelGame {
             }
             Command::Pending(pos, key, min) => {
                 let block = self.server.streamer().world().block(pos);
-                let slots = engine_voxel::container_slots(&self.server.registry, block)
+                let slots = engine_voxel::container_slots(&self.client.registry, block)
                     .context("pending : pas un conteneur")?;
                 let seed = (self.server.next_random() & 0xFFFF) as u16;
                 let mut streamer = self.server.streamer_mut();

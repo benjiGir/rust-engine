@@ -314,7 +314,7 @@ impl VoxelGame {
             }
             Feedback::Sound(Sound::Block { block, kind }) => {
                 if let Some(audio) = &mut self.client.audio {
-                    audio.play_block(&self.server.registry, engine_voxel::BlockId(block), kind);
+                    audio.play_block(&self.client.registry, engine_voxel::BlockId(block), kind);
                 }
             }
             Feedback::Toast(text) => {

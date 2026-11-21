@@ -383,10 +383,10 @@ impl VoxelGame {
                 // Pour les touches R, U et A de l'explorateur de recettes.
                 self.client.ui.browser.hovered = Some(stack.item);
             }
-            let def = self.server.content.items.get(stack.item);
+            let def = self.client.content.items.get(stack.item);
             let mut card = crate::ui_info::item(def, stack.count, stack.damage);
             if let Some(name) =
-                crate::shape_materials::piece_name(&self.server.registry, def, stack.damage)
+                crate::shape_materials::piece_name(&self.client.registry, def, stack.damage)
             {
                 card.name = name;
             }
@@ -402,8 +402,8 @@ impl VoxelGame {
         let icon = self.client.ui.icon_of(
             stack.item,
             stack.damage,
-            &self.server.content.items,
-            &self.server.registry,
+            &self.client.content.items,
+            &self.client.registry,
             &self.client.block_textures,
         );
         let durability = self
@@ -500,7 +500,7 @@ impl VoxelGame {
             self.client.ui.split = None;
             return;
         }
-        let name = self.server.content.items.get(stack.item).name.clone();
+        let name = self.client.content.items.get(stack.item).name.clone();
         let mut action = None;
         crate::ui_layout::window(ctx, "Diviser la pile", 360.0)
             .order(egui::Order::Foreground)
@@ -734,12 +734,12 @@ impl VoxelGame {
                             .as_ref()
                             .and_then(crate::affixes::display_rarity)
                             .map_or(skin::TEXT, |r| crate::forge_ui::rarity_color(&data, r));
-                        let item = self.server.content.items.get(held.item);
+                        let item = self.client.content.items.get(held.item);
                         let name = sheet
                             .and_then(|s| s.name)
                             .or_else(|| {
                                 crate::shape_materials::piece_name(
-                                    &self.server.registry,
+                                    &self.client.registry,
                                     item,
                                     held.damage,
                                 )
@@ -771,7 +771,7 @@ impl VoxelGame {
             .inventory
             .as_inventory()
             .craft_grid(size);
-        let recipe = self.server.content.recipes.find(&grid, size).cloned();
+        let recipe = self.client.content.recipes.find(&grid, size).cloned();
         crate::ui_layout::crafting(ui, size, |ui, index| {
             if let Some(index) = index {
                 self.slot_widget(ui, Slot::Craft(index / size * 3 + index % size), false);
@@ -830,11 +830,11 @@ impl VoxelGame {
                             .ingredients()
                             .iter()
                             .filter_map(|i| i.example())
-                            .map(|i| self.server.content.items.get(i).name.clone())
+                            .map(|i| self.client.content.items.get(i).name.clone())
                             .collect();
                         ui.label(format!(
                             "{}\n{}",
-                            self.server.content.items.get(item).name,
+                            self.client.content.items.get(item).name,
                             compact(&names)
                         ));
                     });
@@ -982,7 +982,7 @@ impl VoxelGame {
                     .players
                     .me_mut()
                     .inventory
-                    .protection(&self.server.content.items)
+                    .protection(&self.client.content.items)
             ))
             .size(11.0),
         );
@@ -1095,7 +1095,7 @@ impl VoxelGame {
         };
         let inventory = self.client.view.me.inventory.as_inventory();
         let trades = self.server.trades.for_mob(&key).to_vec();
-        let items = self.server.content.items.clone();
+        let items = self.client.content.items.clone();
         let item_name = |item: engine_voxel::ItemId| items.get(item).name.clone();
         ui.label(egui::RichText::new(name).strong().size(18.0));
         if trades.is_empty() {

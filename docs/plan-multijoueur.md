@@ -862,6 +862,16 @@ Le code serveur lit encore la fenêtre à plusieurs endroits : `self.ui` est cit
   `apply_machine_actions`, `open_quests`, sauvegardes…) s'écrivent `self.server.…`. Tout ce que la fenêtre prend au
   serveur se voit et se compte : environ 750 accès, surtout `players` (inventaire, gear), `ecs` (le joueur), `content`
   et `registry` (les définitions), `day` et `weather`, et les outils (`ctl`, captures, démo).
+- **Les définitions à la fenêtre** (4c-3b) : `ClientSide` garde son `registry` et son `content` (des `Arc`, clonés au
+  lancement, remplacés au rechargement à chaud). Les 112 lectures de la fenêtre les prennent là ; un client du réseau
+  les chargera de ses propres mods.
+- **`VoxelServer::frame(dt)`** (4c-3b) : le travail du serveur entre les pas fixes quitte l'image de la fenêtre :
+  l'heure, la météo (le tonnerre part à chaque joueur en `Feedback`), les villages, l'étape `Update` de l'ECS, les
+  événements devenus sons et messages aux mods (une machine posée s'oriente d'après le regard du joueur qui l'a posée,
+  plus d'après la caméra), puis `stream_world`. Le test sans fenêtre fait tourner `frame` : l'heure avance.
+- **Reste** : l'état du joueur lu par l'interface (inventaire, gear, faim, quêtes : ~150 accès à `players`), l'ECS
+  (~80), le ciel (`day`, `weather`, `dims` pour le rendu), les portails, les wagons et structures pilotés depuis
+  l'image, et les outils (`ctl`, captures, démo, banc d'essai), qui écrivent dans le serveur.
 
 ### Lot 5 : le réseau local
 

@@ -41,7 +41,7 @@ impl VoxelGame {
     /// pierre et de chêne, une pente de chêne, une pente de pierre qui monte jusqu'au niveau 10, une pente
     /// retournée sous un linteau, des microblocs, du verre.
     pub(crate) fn build_shapes(&mut self) {
-        let Some(stone) = self.server.registry.id("core:stone") else {
+        let Some(stone) = self.client.registry.id("core:stone") else {
             return;
         };
         let base = self.ground(SPOT.0, SPOT.1) + LIFT + 1;
@@ -276,7 +276,7 @@ impl VoxelGame {
 
     /// L'écran de l'établi de taille : du chêne dans la case d'entrée.
     pub(crate) fn build_shaping_screen(&mut self) {
-        let items = self.server.content.items.clone();
+        let items = self.client.content.items.clone();
         self.server.players.me_mut().inventory.craft = [None; 9];
         if let Some(planks) = items.id("core:oak_planks") {
             self.server.players.me_mut().inventory.craft[0] = Some(ItemStack::new(planks, 24));

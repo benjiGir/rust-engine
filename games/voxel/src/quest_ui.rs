@@ -477,8 +477,8 @@ impl VoxelGame {
                         );
                         let icon = self.client.ui.icon(
                             group.icon,
-                            &self.server.content.items,
-                            &self.server.registry,
+                            &self.client.content.items,
+                            &self.client.registry,
                             &self.client.block_textures,
                         );
                         let icon_rect = Rect::from_center_size(
@@ -546,8 +546,8 @@ impl VoxelGame {
             ui.allocate_exact_size(vec2(ui.available_width(), CHAPTER_ROW), Sense::click());
         let icon = self.client.ui.icon(
             chapter.icon,
-            &self.server.content.items,
-            &self.server.registry,
+            &self.client.content.items,
+            &self.client.registry,
             &self.client.block_textures,
         );
         let p = ui.painter();
@@ -708,8 +708,8 @@ impl VoxelGame {
         let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
         let icon = self.client.ui.icon(
             item,
-            &self.server.content.items,
-            &self.server.registry,
+            &self.client.content.items,
+            &self.client.registry,
             &self.client.block_textures,
         );
         let painter = ui.painter().clone();
@@ -717,7 +717,7 @@ impl VoxelGame {
         skin::stack(&painter, rect, icon, count, None, None);
         if response.hovered() {
             self.client.ui.browser.hovered = Some(item);
-            let mut card = crate::ui_info::item(self.server.content.items.get(item), count, 0);
+            let mut card = crate::ui_info::item(self.client.content.items.get(item), count, 0);
             if !hint.is_empty() {
                 card.lines.push((hint.to_string(), skin::MUTED));
             }

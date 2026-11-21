@@ -69,7 +69,7 @@ impl VoxelGame {
     /// La pile d'une case du conteneur ouvert, telle que la fenêtre la voit.
     pub(crate) fn shown_stack(&self, index: usize) -> Option<ItemStack> {
         self.shown_container()?
-            .stack(&self.server.content.items, index)
+            .stack(&self.client.content.items, index)
     }
 }
 

@@ -84,6 +84,10 @@ pub(crate) struct ClientSide {
     pub(crate) frame_dt: f32,
     /// Le dernier état du bouton de repas envoyé au simulateur.
     pub(crate) eating_sent: bool,
+    /// Les définitions des blocs et le contenu (objets, recettes, guide), les mêmes qu'au serveur :
+    /// chargés ensemble, rechargés ensemble. Un client du réseau les chargera de ses propres mods.
+    pub(crate) registry: std::sync::Arc<engine_voxel::BlockRegistry>,
+    pub(crate) content: crate::content::Content,
     /// Le corps du joueur, simulé ici (voir `predicted.rs`).
     pub(crate) body: crate::predicted::PredictedBody,
 }

@@ -41,7 +41,7 @@ impl VoxelGame {
         let Some(stack) = self.client.view.me.inventory.craft[0] else {
             return Input::Empty;
         };
-        let def = self.server.content.items.get(stack.item);
+        let def = self.client.content.items.get(stack.item);
         if let Some(kind) = shape_materials::kind_of(def) {
             return match shape_materials::key_of(stack.damage) {
                 Some(material) => Input::Pieces(kind, material, stack.count),
@@ -51,7 +51,7 @@ impl VoxelGame {
         let Some(block) = def.block else {
             return Input::Refused(def.name.clone(), "ce n'est pas un bloc");
         };
-        match shaped::why_not_shapeable(self.server.registry.def(block)) {
+        match shaped::why_not_shapeable(self.client.registry.def(block)) {
             None => Input::Block(def.key.clone(), def.name.clone()),
             Some(reason) => Input::Refused(def.name.clone(), reason),
         }
@@ -85,7 +85,7 @@ impl VoxelGame {
                     );
                 }
                 Input::Pieces(kind, material, count) => {
-                    let name = shape_materials::material_name(&self.server.registry, material);
+                    let name = shape_materials::material_name(&self.client.registry, material);
                     ui.strong(format!("{} × {count}", kind.name()));
                     ui.label(format!("En {}.", name.to_lowercase()));
                 }
@@ -124,7 +124,7 @@ impl VoxelGame {
 
     /// Une entrée de la grille : l'icône de la pièce et son rendement ; un clic taille.
     fn shape_entry(&mut self, ui: &mut egui::Ui, kind: PieceKind, number: u32) {
-        let Some(item) = self.server.content.items.id(kind.key()) else {
+        let Some(item) = self.client.content.items.id(kind.key()) else {
             return;
         };
         let preview = ItemStack {
@@ -161,7 +161,7 @@ impl VoxelGame {
             );
             return;
         }
-        let name = shape_materials::material_name(&self.server.registry, material);
+        let name = shape_materials::material_name(&self.client.registry, material);
         let all = ui.input(|i| i.modifiers.shift);
         let wanted = if all { blocks } else { 1 };
         let clicked = ui

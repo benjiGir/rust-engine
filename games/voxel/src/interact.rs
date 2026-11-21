@@ -14,7 +14,7 @@ impl VoxelGame {
         let streamer = self.server.streamer();
         let block = streamer.world().block(hit.block_pos);
         let directional = matches!(
-            self.server.registry.def(block).behavior.as_deref(),
+            self.client.registry.def(block).behavior.as_deref(),
             Some(
                 "core:piston"
                     | "core:sticky_piston"

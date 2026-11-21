@@ -128,7 +128,7 @@ impl VoxelGame {
         match self.client.ui.screen {
             Screen::Chest(pos) => {
                 let block = self.server.streamer().world().block(pos);
-                let name = &self.server.registry.def(block).name;
+                let name = &self.client.registry.def(block).name;
                 if engine_voxel::double_chest::paired(&*self.server.streamer(), pos).is_some() {
                     // « Coffre de fer » devient « Grand coffre de fer ».
                     let mut chars = name.chars();
@@ -289,7 +289,7 @@ impl VoxelGame {
 
     /// L'écran du contrôleur : les objets réunis, une recherche, un clic pour en prendre.
     pub(crate) fn controller_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
-        let items = self.server.content.items.clone();
+        let items = self.client.content.items.clone();
         // Les coffres reliés, tels que la réplique du monde les voit.
         let (members, groups) = {
             let streamer = self.view_streamer();

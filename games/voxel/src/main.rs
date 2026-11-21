@@ -188,11 +188,11 @@ use engine_core::winit::event::WindowEvent;
 use engine_core::winit::keyboard::KeyCode;
 use engine_core::{AppConfig, Context, Game};
 use engine_ecs::{Entity, EventReader, Events, Schedule, Stage};
-use engine_mods::ModEvent;
+
 use engine_render::{Aabb, Camera, ColorVertex, Fog, MeshId, RenderStats, Renderer, Sun};
 use engine_voxel::{
-    BlockId, BlockRegistry, CHUNK_SIZE, ChunkMesh, ChunkStreamer, GridPos, MachineAction,
-    MeshVertex, RayHit, StreamingConfig, raycast,
+    BlockId, BlockRegistry, CHUNK_SIZE, ChunkMesh, ChunkStreamer, MachineAction, MeshVertex,
+    RayHit, StreamingConfig, raycast,
 };
 use glam::{IVec3, Vec2, Vec3};
 
@@ -421,6 +421,8 @@ impl VoxelGame {
                 frame_dt: 0.0,
                 eating_sent: false,
                 body,
+                registry: server.registry.clone(),
+                content: server.content.clone(),
             },
             server,
         })
@@ -587,46 +589,16 @@ impl VoxelGame {
         if interactive && !self.console_open() && !typing {
             self.handle_keys(ctx);
         }
-        self.server.day.update(dt);
-        let thunder = {
-            let player_position =
-                player::body(&self.server.ecs, self.server.players.entity()).position;
-            self.server
-                .weather
-                .update(dt, self.client.view.world(), player_position)
-        };
         self.update_water_fx(dt);
         self.client.conduit_fx.advance(dt);
-        // Les habitants des villages proches.
-        {
-            let player_position =
-                player::body(&self.server.ecs, self.server.players.entity()).position;
-            let shared = self.server.world.clone();
-            let streamer = shared.borrow();
-            self.server.villages.update(
-                dt,
-                &mut self.server.ecs,
-                streamer.generator(),
-                player_position,
-                &self.server.trades,
-            );
-        }
         self.update_soundscape(dt);
         self.update_dimensions(dt);
         self.update_effects(dt);
         self.update_ships(ctx);
         self.update_carts(ctx);
         if let Some(audio) = &mut self.client.audio {
-            if thunder {
-                audio.play(audio::THUNDER);
-            }
             audio.update_rain(self.server.weather.amount());
         }
-        // L'heure, pour l'apparition des créatures (l'ECS ne connaît pas le jour).
-        *self.server.ecs.resource_mut::<spawning::Sky>() = spawning::Sky {
-            daylight: self.server.day.daylight(),
-            night: self.server.day.is_night(),
-        };
         self.update_remote(dt);
         if let Some(audio) = &mut self.client.audio {
             audio.update_ambience(self.server.day.daylight());
@@ -685,19 +657,14 @@ impl VoxelGame {
             ctx.exit();
         }
 
-        self.server
-            .schedule
-            .run(Stage::Update, &mut self.server.ecs);
-        self.play_event_sounds();
-        self.forward_events_to_mods();
-        // Fin de l'image : les événements lus tournent leurs tampons.
-        events::update(&self.server.ecs);
+        // Le travail du serveur à chaque image : l'heure, la météo, les villages, les systèmes de
+        // l'image et les événements (voir `server_step.rs`).
+        self.server.frame(dt);
 
         // Tout le travail du monde côté thread principal : on le chronomètre.
         let start = Instant::now();
         let eye = self.client.body.eye(1.0);
-        let views = self.server.stream_views();
-        self.server.streamer_mut().update_views(&views);
+        self.server.stream_world();
         self.update_far(eye);
         self.sync_world_view();
         let streamed = Instant::now();
@@ -721,8 +688,8 @@ impl VoxelGame {
             &self.client.view.entities,
             &entity_render::DrawEnv {
                 mobs: &mobs,
-                items: &self.server.content.items,
-                blocks: &self.server.registry,
+                items: &self.client.content.items,
+                blocks: &self.client.registry,
                 world: self.client.view.world(),
                 alpha,
                 time: self.client.renderer.time,
@@ -759,7 +726,7 @@ impl VoxelGame {
         } else {
             self.client
                 .hand
-                .instances(held, &self.server.content.items, &self.server.registry)
+                .instances(held, &self.client.content.items, &self.client.registry)
         };
         self.client
             .renderer
@@ -1019,7 +986,7 @@ impl VoxelGame {
         let mut textures = changes.textures;
         if changes.blocks {
             match hot_reload::reload_registry(
-                &self.server.registry,
+                &self.client.registry,
                 &assets_dir(),
                 &self.server.mod_dirs,
             ) {
@@ -1039,6 +1006,7 @@ impl VoxelGame {
                     self.server.ecs.insert_resource(Arc::new(creatures));
                     self.server.registry = Arc::new(fresh);
                     let registry = self.server.registry.clone();
+                    self.client.registry = registry.clone();
                     self.server
                         .streamer_mut()
                         .replace_registry(registry.clone());
@@ -1055,12 +1023,12 @@ impl VoxelGame {
         if (changes.sounds || textures)
             && let Some(audio) = &mut self.client.audio
         {
-            audio.reload(&self.server.registry);
+            audio.reload(&self.client.registry);
             self.client.music_until = None;
             self.client.soundscape.reloaded();
         }
         if textures {
-            self.client.block_textures = assets::load_textures(&self.server.registry);
+            self.client.block_textures = assets::load_textures(&self.client.registry);
             self.client
                 .renderer
                 .set_block_textures(&self.client.block_textures);
@@ -1072,7 +1040,7 @@ impl VoxelGame {
                 .reload_assets(hand::ArmColors::load(&assets_dir()));
             log::info!(
                 "{} textures rechargées",
-                self.server.registry.textures().len()
+                self.client.registry.textures().len()
             );
         }
     }
@@ -1086,135 +1054,6 @@ impl VoxelGame {
     }
 
     /// Le jeu écoute ses propres événements pour jouer les sons.
-    fn play_event_sounds(&mut self) {
-        // Les événements du monde deviennent des sons pour les joueurs qui les entendent.
-        use crate::player_view::Sound;
-        let mut sounds = Vec::new();
-        let centre = |pos: IVec3| pos.as_vec3() + Vec3::splat(0.5);
-        for event in self
-            .server
-            .readers
-            .broken
-            .read(&self.server.ecs.resource::<Events<BlockBroken>>())
-        {
-            let kind = audio::BlockSound::Break;
-            sounds.push((
-                Sound::Block {
-                    block: event.block.0,
-                    kind,
-                },
-                centre(event.pos),
-            ));
-        }
-        for event in self
-            .server
-            .readers
-            .placed
-            .read(&self.server.ecs.resource::<Events<BlockPlaced>>())
-        {
-            let kind = audio::BlockSound::Place;
-            sounds.push((
-                Sound::Block {
-                    block: event.block.0,
-                    kind,
-                },
-                centre(event.pos),
-            ));
-        }
-        for event in self
-            .server
-            .readers
-            .died
-            .read(&self.server.ecs.resource::<Events<EntityDied>>())
-        {
-            log::info!("{} est mort", event.kind);
-            sounds.push((Sound::key("core:break_soft"), event.position));
-        }
-        let mut cries = Vec::new();
-        for event in self
-            .server
-            .readers
-            .damaged
-            .read(&self.server.ecs.resource::<Events<PlayerDamaged>>())
-        {
-            log::info!("aïe : -{} ({} restants)", event.amount, event.health_left);
-            cries.push(event.player.unwrap_or(self.server.players.local_id()));
-        }
-        for (sound, at) in sounds {
-            self.server.sound_near(sound, at);
-        }
-        // Le cri de douleur : seulement pour le joueur touché.
-        for player in cries {
-            let feedback = crate::player_view::Feedback::Sound(Sound::key("core:place_hard"));
-            self.server
-                .replies
-                .push((player, crate::protocol::ServerMsg::Feedback(feedback)));
-        }
-    }
-
-    /// Transmet les événements du jeu aux scripts des mods.
-    fn forward_events_to_mods(&mut self) {
-        let _span = engine_trace::span("mods : événements");
-        let mut events = Vec::new();
-        for e in self
-            .server
-            .mod_readers
-            .broken
-            .read(&self.server.ecs.resource::<Events<BlockBroken>>())
-        {
-            events.push(ModEvent::BlockBroken {
-                at: GridPos::world(e.pos),
-                block: e.block,
-            });
-        }
-        // La direction du regard, ramenée à l'axe horizontal le plus proche : pour
-        // orienter les machines posées (un casseur regarde dans la direction du joueur).
-        let forward = self.client.camera.forward_flat();
-        let facing = if forward.x.abs() > forward.z.abs() {
-            IVec3::new(forward.x.signum() as i32, 0, 0)
-        } else {
-            IVec3::new(0, 0, forward.z.signum() as i32)
-        };
-        for e in self
-            .server
-            .mod_readers
-            .placed
-            .read(&self.server.ecs.resource::<Events<BlockPlaced>>())
-        {
-            events.push(ModEvent::BlockPlaced {
-                at: GridPos::world(e.pos),
-                block: e.block,
-                facing,
-            });
-        }
-        for e in self
-            .server
-            .mod_readers
-            .died
-            .read(&self.server.ecs.resource::<Events<EntityDied>>())
-        {
-            events.push(ModEvent::EntityDied {
-                kind: e.kind.clone(),
-                position: e.position,
-            });
-        }
-        for e in self
-            .server
-            .mod_readers
-            .damaged
-            .read(&self.server.ecs.resource::<Events<PlayerDamaged>>())
-        {
-            events.push(ModEvent::PlayerDamaged {
-                amount: e.amount,
-                health_left: e.health_left,
-            });
-        }
-        for event in events {
-            let actions = self.server.mods.dispatch(&event);
-            self.server.apply_machine_actions(actions);
-        }
-    }
-
     /// Les bruits de pas (selon le bloc sous les pieds) et l'éclaboussure en entrant dans l'eau.
     fn footsteps(&mut self, dt: f32) {
         if player::mode(&self.server.ecs, self.server.players.entity()) != MoveMode::Walk
@@ -1255,7 +1094,7 @@ impl VoxelGame {
         self.client.step_distance += Vec2::new(velocity.x, velocity.z).length() * dt;
         if self.client.step_distance >= 1.7 {
             self.client.step_distance = 0.0;
-            audio.play_block(&self.server.registry, below_block, audio::BlockSound::Step);
+            audio.play_block(&self.client.registry, below_block, audio::BlockSound::Step);
         }
     }
 
@@ -1418,7 +1257,7 @@ impl VoxelGame {
             .me_mut()
             .inventory
             .selected_item()
-            .map_or("?", |i| self.server.content.items.get(i).key.as_str());
+            .map_or("?", |i| self.client.content.items.get(i).key.as_str());
         match result {
             Some(pos) => log::info!(
                 "démo : {action} {} en {:.2} ms ({}) | pieds {:.1?} au sol : {} | {} maillages en attente",
