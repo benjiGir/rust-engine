@@ -23,7 +23,6 @@ use crate::components::{
 };
 use crate::inventory::{Click, HOTBAR, ItemStack, Slot, click_slot};
 use crate::mobs::MobRegistry;
-use crate::player;
 
 pub struct GameUi {
     pub ctx: egui::Context,
@@ -1318,7 +1317,7 @@ impl VoxelGame {
 
     /// L'inspecteur (F3) : mesures, et les entités avec leurs composants modifiables.
     fn draw_inspector(&mut self, ctx: &egui::Context) {
-        let eye = player::eye(&self.server.ecs, self.server.players.entity(), 1.0);
+        let eye = self.client.body.eye(1.0);
         let chunk = engine_voxel::World::chunk_containing(eye);
         let streamer_stats = self.stream_stats();
         let target_light = self

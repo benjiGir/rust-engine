@@ -168,3 +168,8 @@ pub struct Trader {
 /// structure (voir `ships.rs`), pour qu'elle marche sur un pont qui bouge.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct OnGrid(pub engine_voxel::GridId);
+
+/// Le joueur est simulé par sa fenêtre (voir `predicted.rs`) : le système `physics` le saute, sauf
+/// quand il est porté (wagon, structure mobile).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Predicted;

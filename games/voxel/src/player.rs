@@ -111,13 +111,6 @@ pub fn toggle_mode(world: &mut World, player: Entity) {
     }
 }
 
-/// Vol libre : déplacement direct, sans collision, à chaque image.
-pub fn fly(world: &World, player: Entity, direction: Vec3, speed: f32, dt: f32) {
-    if let Some(mut transform) = world.get_mut::<Transform>(player) {
-        transform.position += direction.normalize_or_zero() * speed * dt;
-    }
-}
-
 /// Place les yeux (vol automatique, visite guidée).
 pub fn set_eye(world: &World, player: Entity, eye: Vec3) {
     if let Some(mut transform) = world.get_mut::<Transform>(player) {

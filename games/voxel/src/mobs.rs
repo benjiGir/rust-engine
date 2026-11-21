@@ -397,6 +397,13 @@ pub fn physics(world: &mut World) {
         )>()
         .for_each(
             |entity, (transform, previous, velocity, collider, intent)| {
+                // Le joueur d'une fenêtre se simule chez elle (voir `predicted.rs`), sauf porté.
+                if world.has::<crate::components::Predicted>(entity)
+                    && !world.has::<crate::components::OnGrid>(entity)
+                    && !world.has::<crate::carts::Riding>(entity)
+                {
+                    return;
+                }
                 previous.0 = transform.position;
                 if world.has::<Flying>(entity)
                     || crate::spawning::asleep(world, entity, transform.position, &centers)

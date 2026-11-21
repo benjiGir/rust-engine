@@ -253,6 +253,8 @@ impl VoxelServer {
         ecs.insert_resource(adventure.effects(&adventure_data::current()));
         ecs.insert_resource(spawning::Sky::default());
         let player = player::spawn(&mut ecs, eye, mode);
+        // Le joueur de la fenêtre se simule chez elle (voir `predicted.rs`).
+        ecs.insert(player, components::Predicted);
         let mut schedule = Schedule::new();
         schedule
             .add(Stage::FixedUpdate, "tick", mobs::tick)
@@ -517,5 +519,45 @@ mod tests {
             server.players.get(guest).is_some(),
             "le fantôme reste en vie"
         );
+    }
+
+    #[test]
+    fn the_window_player_moves_by_its_messages_and_a_stale_move_is_corrected() {
+        use crate::protocol::{ClientMsg, ServerMsg};
+        let mut server = headless();
+        let local = server.players.local_id();
+        let feet = player::body(&server.ecs, server.players.entity()).position;
+        let moved = |position: Vec3| ClientMsg::Move {
+            position,
+            velocity: Vec3::ZERO,
+            yaw: 0.0,
+            pitch: 0.0,
+            on_ground: true,
+            in_liquid: false,
+            frozen: false,
+            mode: player::MoveMode::Walk,
+            step: 1,
+        };
+        // Le serveur ne simule pas ce joueur : il range ce que sa fenêtre a joué.
+        server.handle(local, moved(feet + Vec3::X));
+        server.fixed_step(1.0 / 60.0);
+        let here = player::body(&server.ecs, server.players.entity()).position;
+        assert_eq!(here, feet + Vec3::X, "ni gravité ni physique au serveur");
+        assert!(server.replies.iter().all(|(_, m)| !matches!(m, ServerMsg::Correct { .. })));
+        // Le serveur le déplace (une réapparition) : le mouvement suivant, joué ailleurs, est périmé.
+        let spawn = feet + Vec3::Z * 5.0;
+        player::set_eye(
+            &server.ecs,
+            server.players.entity(),
+            spawn + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT,
+        );
+        server.replies.clear();
+        server.handle(local, moved(feet + Vec3::X * 2.0));
+        assert_eq!(player::body(&server.ecs, server.players.entity()).position, spawn);
+        assert!(server.replies.iter().any(|(id, m)| *id == local
+            && matches!(m, ServerMsg::Correct { position, carried: false, .. } if *position == spawn)));
+        // D'accord sur la nouvelle place, le mouvement suivant est rangé.
+        server.handle(local, moved(spawn + Vec3::X));
+        assert_eq!(player::body(&server.ecs, server.players.entity()).position, spawn + Vec3::X);
     }
 }

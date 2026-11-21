@@ -84,4 +84,6 @@ pub(crate) struct ClientSide {
     pub(crate) frame_dt: f32,
     /// Le dernier état du bouton de repas envoyé au simulateur.
     pub(crate) eating_sent: bool,
+    /// Le corps du joueur, simulé ici (voir `predicted.rs`).
+    pub(crate) body: crate::predicted::PredictedBody,
 }

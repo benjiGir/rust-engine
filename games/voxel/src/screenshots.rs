@@ -370,14 +370,10 @@ impl VoxelGame {
                 self.server.day.time = shot.time;
                 self.server.day.speed = TimeSpeed::Frozen;
                 if player::mode(&self.server.ecs, self.server.players.entity()) != MoveMode::Fly {
-                    player::toggle_mode(&mut self.server.ecs, self.server.players.entity());
+                    self.toggle_fly();
                 }
                 let (eye, yaw, pitch) = self.viewpoint(shot.scene);
-                player::set_eye(
-                    &self.server.ecs,
-                    self.server.players.entity(),
-                    eye + self.origin().as_vec3(),
-                );
+                self.place_eye(eye + self.origin().as_vec3());
                 self.client.ui.inventory_open = matches!(
                     shot.scene,
                     Scene::Inventory

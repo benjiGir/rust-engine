@@ -45,6 +45,8 @@ impl VoxelServer {
         self.update_charms(dt);
         self.check_death();
         // Fin du pas : chaque joueur reçoit ce qui a changé parmi les entités.
+        // Les joueurs prédits que le serveur a déplacés reçoivent leur place (voir `predicted.rs`).
+        self.correct_predicted();
         self.send_entities();
     }
 }

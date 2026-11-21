@@ -831,16 +831,7 @@ impl crate::server_side::VoxelServer {
         }
         let at = player::body(&self.ecs, self.players.entity()).position;
         let away = Vec3::new(at.x - from.x, 0.0, at.z - from.z).normalize_or_zero();
-        if let Some(mut velocity) = self
-            .ecs
-            .get_mut::<crate::components::Velocity>(self.players.entity())
-        {
-            velocity.0.y = KNOCKBACK.1;
-        }
-        self.ecs.insert(
-            self.players.entity(),
-            crate::components::Impulse(away * KNOCKBACK.0),
-        );
+        self.push_player(KNOCKBACK.1, away * KNOCKBACK.0);
     }
 
     /// Un coup au joueur : invulnérabilité, armure, puis la vie et l'événement

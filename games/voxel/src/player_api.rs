@@ -111,13 +111,7 @@ impl crate::server_side::VoxelServer {
             velocity.0 = Vec3::ZERO;
         }
         // La fenêtre du joueur place sa caméra (et sa prédiction) au même endroit.
-        let id = self.players.current_id();
-        self.replies.push((
-            id,
-            crate::protocol::ServerMsg::Correct {
-                position: to + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT,
-            },
-        ));
+        self.send_correct(self.players.current_id(), false);
         self.forget_last_move();
     }
 

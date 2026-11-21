@@ -940,11 +940,7 @@ impl VoxelGame {
             Command::Help => Ok(format!("{{\"ok\":true,\"help\":{}}}", json_str(HELP))),
             Command::State | Command::Wait(_) => Ok(self.state_json()),
             Command::Goto(feet) => {
-                player::set_eye(
-                    &self.server.ecs,
-                    self.server.players.entity(),
-                    feet + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT,
-                );
+                self.place_eye(feet + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT);
                 self.forget_last_move();
                 Ok(self.state_json())
             }
@@ -958,7 +954,7 @@ impl VoxelGame {
                 Ok(self.state_json())
             }
             Command::LookAt(point) => {
-                let eye = player::eye(&self.server.ecs, self.server.players.entity(), 1.0);
+                let eye = self.client.body.eye(1.0);
                 let direction = (point - eye).normalize_or_zero();
                 if direction == Vec3::ZERO {
                     bail!("lookat : le point est déjà dans l'œil");
@@ -1103,7 +1099,7 @@ impl VoxelGame {
             }
             Command::Mode(mode) => {
                 if player::mode(&self.server.ecs, self.server.players.entity()) != mode {
-                    player::toggle_mode(&mut self.server.ecs, self.server.players.entity());
+                    self.toggle_fly();
                 }
                 self.remote.walk = None;
                 Ok(self.state_json())
@@ -1336,7 +1332,7 @@ impl VoxelGame {
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .clone();
                 let mut mobs: Vec<(f32, String)> = Vec::new();
-                let eye = player::eye(&self.server.ecs, self.server.players.entity(), 1.0);
+                let eye = self.client.body.eye(1.0);
                 self.server.ecs
                     .query::<(&crate::components::Transform, &crate::components::Health, &crate::components::Mob)>()
                     .for_each(|_, (transform, health, mob)| {
@@ -1546,7 +1542,7 @@ impl VoxelGame {
 
     /// Le bloc visé, recalculé maintenant (la commande a pu tourner la tête).
     pub(crate) fn aimed(&mut self) -> Result<engine_voxel::RayHit> {
-        let eye = player::eye(&self.server.ecs, self.server.players.entity(), 1.0);
+        let eye = self.client.body.eye(1.0);
         let hit = engine_voxel::raycast(
             self.view_world(),
             eye,

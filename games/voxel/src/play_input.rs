@@ -103,7 +103,7 @@ impl VoxelGame {
             );
         }
         if input.key_pressed(self.settings.keys.key(Action::Fly)) {
-            player::toggle_mode(&mut self.server.ecs, self.server.players.entity());
+            self.toggle_fly();
             log::info!(
                 "mode {}",
                 player::mode(&self.server.ecs, self.server.players.entity()).name()

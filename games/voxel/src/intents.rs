@@ -195,7 +195,7 @@ impl VoxelGame {
     /// après un `goto`), le regard de la caméra.
     pub(crate) fn body_aim(&self) -> Aim {
         Aim {
-            eye: player::eye(&self.server.ecs, self.server.players.entity(), 1.0),
+            eye: self.client.body.eye(1.0),
             forward: self.client.camera.forward(),
         }
     }
@@ -264,24 +264,15 @@ impl VoxelGame {
                 continue;
             }
             match reply {
-                ServerMsg::Correct { position } => {
-                    let entity = self.server.players.entity();
-                    if let Some(mut transform) = self.server.ecs.get_mut::<Transform>(entity) {
-                        transform.position = position;
-                    }
-                    if let Some(mut previous) = self
-                        .server
-                        .ecs
-                        .get_mut::<components::PreviousPosition>(entity)
-                    {
-                        previous.0 = position;
-                    }
-                    if let Some(mut velocity) = self.server.ecs.get_mut::<Velocity>(entity) {
-                        velocity.0 = Vec3::ZERO;
-                    }
-                    self.client.camera.position =
-                        position + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT;
+                ServerMsg::Correct {
+                    position,
+                    velocity,
+                    carried,
+                } => {
+                    self.client.body.correct(position, velocity, carried);
+                    self.client.camera.position = self.client.body.eye(1.0);
                 }
+                ServerMsg::Push { up, impulse } => self.client.body.push(up, impulse),
                 ServerMsg::Feedback(feedback) => self.apply_feedback(feedback),
                 ServerMsg::Chat(line) => self.show_chat(&line),
                 ServerMsg::ModOptions { mod_id, data } => self.show_mod_options(mod_id, &data),
@@ -319,38 +310,28 @@ impl VoxelGame {
 
     // ----- Le minage -----
 
-    /// Fabrique le message `Move` du joueur local après la physique d'un pas, et l'applique. Sans
-    /// `VOXEL_CHECK_MOVES=1`, rien ne part.
-    pub(crate) fn check_local_move(&mut self) {
-        if !self.server.check_moves {
-            return;
-        }
-        let entity = self.server.players.entity();
-        // Les vols automatiques, les wagons et les structures portent le joueur : pas de contrôle.
+    /// Envoie au serveur le mouvement que la physique de la fenêtre vient de jouer (voir
+    /// `predicted.rs`).
+    pub(crate) fn send_local_move(&mut self) {
+        // Les vols automatiques et les démos déplacent le joueur à leur guise : le contrôle de
+        // `VOXEL_CHECK_MOVES=1` repart de zéro à chaque pas.
         if self.client.autofly.is_some()
             || self.client.demo.is_some()
             || self.client.bench.is_some()
             || self.client.tour.is_some()
-            || self.server.ecs.has::<carts::Riding>(entity)
-            || player::frozen(&self.server.ecs, entity)
         {
             self.server.players.local_mut().last_move = None;
-            return;
         }
-        let (Some(transform), Some(collider), Some(velocity)) = (
-            self.server.ecs.get::<Transform>(entity).map(|t| t.position),
-            self.server.ecs.get::<Collider>(entity).map(|c| *c),
-            self.server.ecs.get::<Velocity>(entity).map(|v| v.0),
-        ) else {
-            return;
-        };
+        let body = self.client.body;
         let msg = ClientMsg::Move {
-            position: transform,
-            velocity,
+            position: body.feet(),
+            velocity: body.body.velocity,
             yaw: self.client.camera.yaw,
             pitch: self.client.camera.pitch,
-            on_ground: collider.on_ground,
-            mode: player::mode(&self.server.ecs, entity),
+            on_ground: body.body.on_ground,
+            in_liquid: body.body.in_liquid,
+            frozen: body.frozen,
+            mode: body.mode,
             step: self.server.sim_step,
         };
         self.send_now(msg);
@@ -656,14 +637,14 @@ impl crate::server_side::VoxelServer {
 
     /// Contrôle un mouvement que le client a déjà joué. Un refus ramène le joueur à sa dernière
     /// position acceptée.
-    fn handle_move(&mut self, player: PlayerId, next: MoveSample) {
+    fn handle_move(&mut self, player: PlayerId, next: MoveSample) -> bool {
         let Some(state) = self.players.get(player) else {
-            return;
+            return false;
         };
         let Some(previous) = state.last_move else {
             // Le premier mouvement n'a rien à quoi se comparer.
             self.players.me_mut().last_move = Some(next);
-            return;
+            return true;
         };
         let limits = MoveLimits::new(next.mode, state.gear.move_speed());
         let result = {
@@ -674,21 +655,21 @@ impl crate::server_side::VoxelServer {
             })
         };
         match result {
-            Ok(()) => self.players.me_mut().last_move = Some(next),
+            Ok(()) => {
+                self.players.me_mut().last_move = Some(next);
+                true
+            }
             Err(refusal) => {
                 log::warn!(
                     "mouvement refusé ({refusal:?}) : retour en {}",
                     previous.position
                 );
-                self.replies.push((
-                    player,
-                    ServerMsg::Correct {
-                        position: previous.position,
-                    },
-                ));
+                // Le mouvement n'est pas rangé : le joueur revient là où le serveur le tient.
+                self.send_correct(player, false);
                 if let MoveRefusal::Invalid = refusal {
                     self.players.me_mut().last_move = None;
                 }
+                false
             }
         }
     }
@@ -757,26 +738,39 @@ impl crate::server_side::VoxelServer {
         match msg {
             ClientMsg::Move {
                 position,
+                velocity,
                 on_ground,
+                in_liquid,
+                frozen,
                 mode,
                 step,
                 yaw,
                 pitch,
-                ..
             } => {
                 let (sin_yaw, cos_yaw) = yaw.sin_cos();
                 let (sin_pitch, cos_pitch) = pitch.sin_cos();
                 self.players.me_mut().look =
                     Vec3::new(cos_yaw * cos_pitch, sin_pitch, sin_yaw * cos_pitch);
-                self.handle_move(
-                    player,
-                    MoveSample {
-                        position,
-                        mode,
-                        on_ground,
-                        step,
-                    },
-                )
+                // Contrôlé si `VOXEL_CHECK_MOVES=1`, puis rangé (voir `predicted.rs`).
+                let sample = MoveSample {
+                    position,
+                    mode,
+                    on_ground,
+                    step,
+                };
+                if !self.check_moves || self.handle_move(player, sample) {
+                    self.store_move(
+                        player,
+                        crate::predicted::StoredMove {
+                            position,
+                            velocity,
+                            on_ground,
+                            in_liquid,
+                            frozen,
+                            mode,
+                        },
+                    );
+                }
             }
             ClientMsg::Dig {
                 aim, phase, pos, ..

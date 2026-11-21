@@ -95,6 +95,12 @@ pub struct PlayerState {
     pub dig: Option<DigState>,
     /// Le dernier mouvement accepté, pour contrôler le suivant (voir `movement.rs`).
     pub last_move: Option<crate::movement::MoveSample>,
+    /// Les pieds sur lesquels le serveur et la fenêtre de ce joueur sont d'accord (le dernier `Move`
+    /// rangé, ou le dernier `Correct`) : ailleurs, c'est que le serveur l'a déplacé (voir
+    /// `predicted.rs`). `None` : le premier `Move` fera foi.
+    pub synced: Option<glam::Vec3>,
+    /// Le dernier `Correct` disait le joueur porté (wagon, structure).
+    pub carried: bool,
     /// Un joueur du serveur sans fenêtre (`ctl ghost`, voir `ghosts.rs`) : il n'est jamais sauvegardé.
     pub ghost: bool,
 }
@@ -161,6 +167,8 @@ impl PlayerState {
             open: None,
             dig: None,
             last_move: None,
+            synced: None,
+            carried: false,
             ghost: false,
         }
     }

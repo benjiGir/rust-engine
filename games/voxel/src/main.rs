@@ -101,6 +101,7 @@ mod intents;
 mod interact;
 mod item_ctl;
 mod launch;
+mod predicted;
 mod server_boot;
 mod server_sends;
 mod server_side;
@@ -338,8 +339,13 @@ impl VoxelGame {
         // `VOXEL_PIPELINE=1` : les délais d'un chunk reçu → maillage → envoi (la réplique).
         view.replica_mut()
             .set_pipeline_timing(std::env::var("VOXEL_PIPELINE").is_ok_and(|v| v == "1"));
+        // La fenêtre simule son joueur à partir de là où le serveur l'a placé (voir `predicted.rs`).
+        let body = predicted::PredictedBody::new(
+            player::body(&server.ecs, server.players.entity()).position,
+            player::mode(&server.ecs, server.players.entity()),
+        );
         let camera = Camera {
-            position: player::eye(&server.ecs, server.players.entity(), 1.0),
+            position: body.eye(1.0),
             yaw,
             pitch: if launch.title { -0.25 } else { pitch },
             far: view_distance * 1.5,
@@ -414,6 +420,7 @@ impl VoxelGame {
                 outbox: Vec::new(),
                 frame_dt: 0.0,
                 eating_sent: false,
+                body,
             },
             server,
         })
@@ -474,10 +481,10 @@ impl VoxelGame {
         self.exert_movement(walk, jump, sprinting, ctx.fixed_dt);
         // Le monde avance d'un pas (voir `server_step.rs`) ; la fenêtre joue ensuite ses pas sonores,
         // envoie son mouvement et applique ce que le serveur lui a répondu.
+        // La fenêtre joue le mouvement de son joueur et l'envoie (voir `predicted.rs`).
+        self.predict_move(walk, jump, ctx.fixed_dt);
         self.server.fixed_step(ctx.fixed_dt);
         self.footsteps(ctx.fixed_dt);
-        // Le mouvement joué par la physique locale, contrôlé si `VOXEL_CHECK_MOVES=1`.
-        self.check_local_move();
         self.apply_replies();
     }
 
@@ -636,13 +643,7 @@ impl VoxelGame {
                     } else {
                         self.wish_direction(ctx, true)
                     };
-                    player::fly(
-                        &self.server.ecs,
-                        self.server.players.entity(),
-                        direction,
-                        speed,
-                        dt,
-                    );
+                    self.client.body.fly(direction, speed, dt);
                 }
             }
         }
@@ -692,7 +693,7 @@ impl VoxelGame {
 
         // Tout le travail du monde côté thread principal : on le chronomètre.
         let start = Instant::now();
-        let eye = player::eye(&self.server.ecs, self.server.players.entity(), 1.0);
+        let eye = self.client.body.eye(1.0);
         let views = self.stream_views();
         self.streamer_mut().update_views(&views);
         self.update_far(eye);
@@ -706,8 +707,7 @@ impl VoxelGame {
 
     fn render(&mut self, ctx: &mut Context, alpha: f32) {
         // Entre deux pas de physique : la caméra est interpolée (voir `player.rs`).
-        self.client.camera.position =
-            player::eye(&self.server.ecs, self.server.players.entity(), alpha);
+        self.client.camera.position = self.client.body.eye(alpha);
         // Le vent dans les feuilles suit le temps réel depuis le lancement.
         self.client.renderer.time = self.started.elapsed().as_secs_f32();
         // Les entités viennent de la réplique du client : créatures, autres joueurs, projectiles,
@@ -1348,8 +1348,7 @@ impl VoxelGame {
 
     /// Avance tout droit en suivant le relief, pour mesurer le chargement.
     fn autofly(&mut self, speed: f32, dt: f32) {
-        let mut eye = player::eye(&self.server.ecs, self.server.players.entity(), 1.0)
-            + self.client.camera.forward_flat() * speed * dt;
+        let mut eye = self.client.body.eye(1.0) + self.client.camera.forward_flat() * speed * dt;
         let ground = self
             .streamer()
             .generator()
@@ -1357,7 +1356,7 @@ impl VoxelGame {
             .height as f32;
         // On rejoint doucement l'altitude visée au lieu de sauter d'un coup.
         eye.y += (ground + FLY_ALTITUDE - eye.y) * (dt * 2.0).min(1.0);
-        player::set_eye(&self.server.ecs, self.server.players.entity(), eye);
+        self.place_eye(eye);
     }
 
     /// Une action de démo par seconde : casser, puis poser, en alternance.

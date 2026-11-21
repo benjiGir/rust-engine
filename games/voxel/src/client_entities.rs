@@ -206,6 +206,7 @@ impl ClientEntities {
                 }
             }
             ServerMsg::Correct { .. }
+            | ServerMsg::Push { .. }
             | ServerMsg::Unload(_)
             | ServerMsg::Vitals(_)
             | ServerMsg::Inventory(_)

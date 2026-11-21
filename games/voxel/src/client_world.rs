@@ -94,6 +94,7 @@ impl ClientWorld {
             ServerMsg::Quests(quests) => self.me.quests = quests,
             // Les retours (son, message, bras) et `Correct` sont appliqués par le jeu.
             ServerMsg::Correct { .. }
+            | ServerMsg::Push { .. }
             | ServerMsg::Feedback(_)
             | ServerMsg::Died { .. }
             | ServerMsg::Respawned
@@ -197,7 +198,7 @@ impl VoxelGame {
         self.server.send_world();
         self.server.replicate_player_views();
         self.apply_replies();
-        let eye = crate::player::eye(&self.server.ecs, self.server.players.entity(), 1.0);
+        let eye = self.client.body.eye(1.0);
         let view = View {
             position: eye,
             forward: self.client.camera.forward(),

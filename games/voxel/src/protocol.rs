@@ -187,6 +187,9 @@ pub enum ClientMsg {
         yaw: f32,
         pitch: f32,
         on_ground: bool,
+        in_liquid: bool,
+        /// Le terrain autour n'est pas encore arrivé chez le client : il attend sans bouger.
+        frozen: bool,
         mode: MoveMode,
         step: u64,
     },
@@ -261,9 +264,18 @@ pub enum ClientMsg {
 /// (`#[serde(skip)]`) : le transport réseau les encodera avec le format des sauvegardes (lot 5).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServerMsg {
-    /// Un mouvement refusé (ou un déplacement imposé) : le client place le joueur ici.
+    /// Un mouvement refusé (ou un déplacement imposé) : le client place le joueur ici. `carried` : un
+    /// wagon ou une structure porte le joueur, le serveur le simule et le client suit (sans s'arrêter,
+    /// à `velocity`). Voir `predicted.rs`.
     Correct {
         position: Vec3,
+        velocity: Vec3,
+        carried: bool,
+    },
+    /// Un coup reçu : le client fait reculer son corps prédit (un bond, une poussée qui s'amortit).
+    Push {
+        up: f32,
+        impulse: Vec3,
     },
     /// Un chunk hors de portée : le client l'oublie.
     Unload(IVec3),
@@ -414,6 +426,8 @@ mod tests {
                 yaw: 0.5,
                 pitch: -0.2,
                 on_ground: true,
+                in_liquid: false,
+                frozen: false,
                 mode: MoveMode::Walk,
                 step: 12,
             },
@@ -426,6 +440,8 @@ mod tests {
         }
         let reply = ServerMsg::Correct {
             position: Vec3::new(0.0, 64.0, 0.0),
+            velocity: Vec3::Y,
+            carried: true,
         };
         let bytes = postcard::to_stdvec(&reply).unwrap();
         assert_eq!(postcard::from_bytes::<ServerMsg>(&bytes).unwrap(), reply);

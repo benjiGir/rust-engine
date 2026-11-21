@@ -831,9 +831,30 @@ Le code serveur lit encore la fenêtre à plusieurs endroits : `self.ui` est cit
 - **Reste pour le 4c** : 793 lectures directes du serveur dans le code de la fenêtre (rendu, `ctl`, captures, écrans).
   Surtout, la prédiction du joueur local tourne sur l'ECS du serveur. Avant le thread, il faut :
   1. donner à la fenêtre son propre corps de joueur prédit (`PlayerBody` existe dans `engine_voxel`), corrigé par
-     `Correct` ;
+     `Correct` (fait au 4c-2) ;
   2. faire passer les lectures restantes par la réplique ou les vues ;
   3. remplacer le `Deref` de `VoxelGame` vers `VoxelServer` par des canaux.
+
+##### 4c-2 : le joueur prédit par la fenêtre (réalisé)
+
+- **`PredictedBody`** (`predicted.rs`) : la fenêtre fait tourner la physique de son joueur (`PlayerBody`, la même que
+  le serveur) sur sa réplique, à chaque pas fixe, et envoie le résultat en `Move` (position, vitesse, sol, eau, gel,
+  mode). La caméra se place d'après ce corps, interpolé entre ses deux derniers pas.
+- **Le serveur ne simule plus ce joueur** : le système `physics` saute les entités `Predicted`, sauf portées (wagon,
+  structure mobile). Il range chaque `Move` (`store_move`), le contrôle d'abord si `VOXEL_CHECK_MOVES=1`.
+- **L'accord sur la place** : le serveur retient les pieds sur lesquels il est d'accord avec la fenêtre (`synced`).
+  S'il a déplacé le joueur depuis (réapparition, téléportation d'un mod), le `Move` suivant est périmé : il est
+  refusé et le joueur reçoit `Correct`. En fin de pas, `correct_predicted` envoie aussi `Correct` au joueur porté,
+  avec `carried` et la vitesse : la fenêtre suit sans prédire, puis reprend à la descente.
+- **Le recul d'un coup** devient `ServerMsg::Push` : la fenêtre fait reculer son corps.
+- **Ce que la fenêtre fait elle-même** (vol libre, vol automatique, `ctl goto`, captures, visites) passe par
+  `place_eye` et `toggle_fly` : son corps et le serveur ensemble, transitoire tant qu'ils partagent le thread.
+- **Test sans fenêtre** : le joueur ne bouge que par ses messages, et un `Move` joué après une réapparition est
+  corrigé.
+- **Vérifié en jeu** : marche, saut, vol, `goto` et chute mortelle, réapparition, recul d'un rôdeur, montée en wagon
+  et descente.
+- **Reste transitoire** : la gravité de la dimension est lue à l'ECS du serveur ; les pas sonores, la main et l'eau
+  lisent encore l'état du joueur au serveur (le même que le corps prédit, rangé avant le pas).
 
 ### Lot 5 : le réseau local
 

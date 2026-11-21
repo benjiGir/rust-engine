@@ -288,7 +288,7 @@ impl VoxelGame {
         self.server.day.time = 0.5;
         self.server.day.speed = TimeSpeed::Frozen;
         if player::mode(&self.server.ecs, self.server.players.entity()) != MoveMode::Fly {
-            player::toggle_mode(&mut self.server.ecs, self.server.players.entity());
+            self.toggle_fly();
         }
     }
 
@@ -321,11 +321,7 @@ impl VoxelGame {
         };
         self.client.camera.yaw = yaw;
         self.client.camera.pitch = route.pitch.to_radians();
-        player::set_eye(
-            &self.server.ecs,
-            self.server.players.entity(),
-            Vec3::new(flat.x, y, flat.z),
-        );
+        self.place_eye(Vec3::new(flat.x, y, flat.z));
     }
 
     /// Le sol, ou la mer si elle est plus haute.
