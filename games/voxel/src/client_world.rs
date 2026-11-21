@@ -95,6 +95,7 @@ impl ClientWorld {
             // Les retours (son, message, bras) et `Correct` sont appliqués par le jeu.
             ServerMsg::Correct { .. }
             | ServerMsg::Push { .. }
+            | ServerMsg::Sky(_)
             | ServerMsg::Feedback(_)
             | ServerMsg::Died { .. }
             | ServerMsg::Respawned

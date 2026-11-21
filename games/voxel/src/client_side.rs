@@ -88,6 +88,9 @@ pub(crate) struct ClientSide {
     /// chargés ensemble, rechargés ensemble. Un client du réseau les chargera de ses propres mods.
     pub(crate) registry: std::sync::Arc<engine_voxel::BlockRegistry>,
     pub(crate) content: crate::content::Content,
+    /// L'horloge et la météo que voit la fenêtre, copiées du serveur (voir `sky_view.rs`).
+    pub(crate) day: crate::daytime::DayCycle,
+    pub(crate) weather: crate::weather::Weather,
     /// Le corps du joueur, simulé ici (voir `predicted.rs`).
     pub(crate) body: crate::predicted::PredictedBody,
 }

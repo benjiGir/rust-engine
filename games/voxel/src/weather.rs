@@ -17,7 +17,7 @@ const SKY_OFFSET: f32 = 14.0;
 /// Le ciel se couvre (ou se dégage) en une dizaine de secondes.
 const FADE_SPEED: f32 = 0.1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Sky {
     Clear,
     Rain,
@@ -79,6 +79,9 @@ pub struct Weather {
     rng: u64,
     /// Répartition des nuages propre au monde.
     seed: u32,
+    /// La copie de la fenêtre : le temps qu'il fait vient du serveur ([`Weather::follow`]), elle ne
+    /// le tire jamais elle-même.
+    follower: bool,
 }
 
 impl Weather {
@@ -96,6 +99,7 @@ impl Weather {
             time: 0.0,
             rng: 0x9E37_79B9_7F4A_7C15 ^ seed as u64,
             seed,
+            follower: false,
         };
         weather.timer = weather.clear_duration();
         weather
@@ -169,15 +173,39 @@ impl Weather {
     }
 
     /// Avance d'un pas. Renvoie `true` quand le tonnerre doit se faire entendre.
+    #[cfg(test)]
     pub fn update(&mut self, dt: f32, world: &World, player: Vec3) -> bool {
+        self.update_sky(dt);
+        self.update_visuals(dt, world, player)
+    }
+
+    /// La copie de la fenêtre : elle suit le temps du serveur, et n'en change jamais d'elle-même.
+    pub fn follower(seed: u32, sky: Sky, overcast: f32) -> Self {
+        let mut weather = Self::new(seed);
+        weather.follower = true;
+        weather.sky = sky;
+        weather.overcast = overcast;
+        weather
+    }
+
+    /// Le temps qu'il fait au serveur ; la copie y glisse en douceur.
+    pub fn follow(&mut self, sky: Sky) {
+        self.sky = sky;
+    }
+
+    /// Le serveur : le temps change à son heure, le ciel se couvre ou se découvre.
+    pub fn update_sky(&mut self, dt: f32) {
         self.time += dt;
         self.timer -= dt;
-        if self.timer <= 0.0 {
+        if self.timer <= 0.0 && !self.follower {
             self.next_weather();
         }
         let target = self.sky.overcast();
         self.overcast += (target - self.overcast).clamp(-FADE_SPEED * dt, FADE_SPEED * dt);
+    }
 
+    /// La fenêtre : ce qui tombe autour du joueur, les éclairs et le tonnerre (vrai quand il gronde).
+    pub fn update_visuals(&mut self, dt: f32, world: &World, player: Vec3) -> bool {
         self.check_in -= dt;
         if self.check_in <= 0.0 {
             self.check_in = 1.0;

@@ -18,7 +18,7 @@ const SUNSET_SKY: Vec3 = Vec3::new(0.64, 0.36, 0.29);
 const SUNSET_LIGHT: Vec3 = Vec3::new(1.0, 0.73, 0.49);
 const MOON_LIGHT: Vec3 = Vec3::new(0.60, 0.73, 0.91);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TimeSpeed {
     Normal,
     Fast,
@@ -35,6 +35,7 @@ impl TimeSpeed {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct DayCycle {
     /// L'heure, de 0 à 1.
     pub time: f32,
@@ -64,6 +65,26 @@ impl DayCycle {
         };
         // `rem_euclid` : reste toujours entre 0 et 1, même après minuit.
         self.time = (self.time + dt * factor / self.day_length).rem_euclid(1.0);
+    }
+
+    /// Le ciel fixe de la dimension (voir [`DayCycle::set_dimension_sky`]), pour le copier chez la fenêtre.
+    pub fn fixed_sky(&self) -> Option<(Vec3, f32)> {
+        self.fixed_sky
+    }
+
+    /// Une horloge qui reprend celle du serveur (voir `sky_view.rs`).
+    pub fn copy_of(
+        time: f32,
+        day_length: f32,
+        speed: TimeSpeed,
+        fixed_sky: Option<(Vec3, f32)>,
+    ) -> Self {
+        Self {
+            time,
+            day_length,
+            speed,
+            fixed_sky,
+        }
     }
 
     /// Le ciel d'une dimension : une couleur et une lumière fixes (sans cycle), ou un seul des deux.

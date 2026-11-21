@@ -272,6 +272,9 @@ pub enum ServerMsg {
         velocity: Vec3,
         carried: bool,
     },
+    /// L'heure et le temps qu'il fait, quand la copie du client ne peut pas les deviner (voir
+    /// `sky_view.rs`).
+    Sky(crate::sky_view::SkyView),
     /// Un coup reçu : le client fait reculer son corps prédit (un bond, une poussée qui s'amortit).
     Push {
         up: f32,

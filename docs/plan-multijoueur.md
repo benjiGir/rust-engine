@@ -869,8 +869,14 @@ Le code serveur lit encore la fenêtre à plusieurs endroits : `self.ui` est cit
   l'heure, la météo (le tonnerre part à chaque joueur en `Feedback`), les villages, l'étape `Update` de l'ECS, les
   événements devenus sons et messages aux mods (une machine posée s'oriente d'après le regard du joueur qui l'a posée,
   plus d'après la caméra), puis `stream_world`. Le test sans fenêtre fait tourner `frame` : l'heure avance.
+- **Le ciel de la fenêtre** (4c-3c, `sky_view.rs`) : le serveur tient l'horloge et décide du temps qu'il fait
+  (`Weather::update_sky`) ; la fenêtre garde sa copie des deux. Son horloge avance seule, sa météo suit le ciel du
+  serveur et fait ce qui se voit et s'entend (gouttes, éclairs, tonnerre). `ServerMsg::Sky` ne part que si la copie ne
+  peut pas deviner : vitesse du temps, ciel de la dimension, temps qu'il fait, ou heure qui saute (le serveur fait
+  tourner la même horloge que la fenêtre pour le savoir). Le rendu, l'horloge affichée et l'ambiance sonore lisent la
+  copie.
 - **Reste** : l'état du joueur lu par l'interface (inventaire, gear, faim, quêtes : ~150 accès à `players`), l'ECS
-  (~80), le ciel (`day`, `weather`, `dims` pour le rendu), les portails, les wagons et structures pilotés depuis
+  (~80), les portails, les wagons et structures pilotés depuis
   l'image, et les outils (`ctl`, captures, démo, banc d'essai), qui écrivent dans le serveur.
 
 ### Lot 5 : le réseau local

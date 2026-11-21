@@ -106,6 +106,7 @@ mod server_boot;
 mod server_sends;
 mod server_side;
 mod server_step;
+mod sky_view;
 mod stream_upload;
 mod texture_packs;
 pub use launch::{Launch, Request};
@@ -421,6 +422,12 @@ impl VoxelGame {
                 frame_dt: 0.0,
                 eating_sent: false,
                 body,
+                day: server.day.clone(),
+                weather: weather::Weather::follower(
+                    seed,
+                    server.weather.sky,
+                    server.weather.overcast,
+                ),
                 registry: server.registry.clone(),
                 content: server.content.clone(),
             },
@@ -596,12 +603,10 @@ impl VoxelGame {
         self.update_effects(dt);
         self.update_ships(ctx);
         self.update_carts(ctx);
-        if let Some(audio) = &mut self.client.audio {
-            audio.update_rain(self.server.weather.amount());
-        }
+        self.update_sky(dt);
         self.update_remote(dt);
         if let Some(audio) = &mut self.client.audio {
-            audio.update_ambience(self.server.day.daylight());
+            audio.update_ambience(self.client.day.daylight());
         }
 
         if player::mode(&self.server.ecs, self.server.players.entity()) == MoveMode::Fly {
@@ -696,7 +701,7 @@ impl VoxelGame {
             },
             &mut mob_boxes,
         );
-        self.server.weather.instances(&mut mob_boxes);
+        self.client.weather.instances(&mut mob_boxes);
         self.client
             .water_fx
             .instances(self.client.camera.position, &mut mob_boxes);
@@ -733,16 +738,16 @@ impl VoxelGame {
             .set_hand(&arm, [sky as f32 / 15.0, block as f32 / 15.0]);
         // L'heure décide du soleil et de la couleur du ciel, donc du brouillard.
         self.client.renderer.sun = Sun {
-            direction: self.server.day.sun_direction(),
-            daylight: self.server.day.daylight() * self.server.weather.daylight_factor(),
-            color: self.server.day.sun_color(),
+            direction: self.client.day.sun_direction(),
+            daylight: self.client.day.daylight() * self.client.weather.daylight_factor(),
+            color: self.client.day.sun_color(),
         };
         self.client.renderer.sky = self
             .server
             .day
             .has_daylight_cycle()
-            .then(|| self.server.weather.sky());
-        let fog_scale = self.server.weather.fog_scale();
+            .then(|| self.client.weather.sky());
+        let fog_scale = self.client.weather.fog_scale();
         self.client.renderer.fog = Some(Fog {
             start: self.client.base_fog.0 * fog_scale,
             end: self.client.base_fog.1 * fog_scale,
@@ -750,11 +755,11 @@ impl VoxelGame {
         let sky = self
             .server
             .weather
-            .tint_sky(self.server.day.sky_color())
+            .tint_sky(self.client.day.sky_color())
             .as_dvec3();
         // Sous l'eau, le « ciel » (le fond de ce qu'on voit) est le bleu sombre de l'eau.
         let (underwater, surface) = self.client.water_fx.underwater();
-        let day = f64::from(0.25 + 0.75 * self.server.day.daylight());
+        let day = f64::from(0.25 + 0.75 * self.client.day.daylight());
         let deep = glam::DVec3::new(0.015, 0.11, 0.17) * day;
         let sky = sky.lerp(deep, f64::from(underwater));
         self.client.renderer.underwater = underwater;
@@ -1110,7 +1115,7 @@ impl VoxelGame {
         };
         ctx.status = format!(
             "{} | {}{frozen} | {} entités | {} chunks | {pending} en attente | {}/{} dessinés ({} cachés) | {triangles:.2} M tri",
-            self.server.day.clock(),
+            self.client.day.clock(),
             player::mode(&self.server.ecs, self.server.players.entity()).name(),
             self.server.ecs.len(),
             stream.loaded,

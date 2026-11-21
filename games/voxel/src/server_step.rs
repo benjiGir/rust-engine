@@ -56,27 +56,14 @@ impl VoxelServer {
 }
 
 impl VoxelServer {
-    /// Le travail du serveur à chaque image, entre les pas fixes : l'heure, la météo (le tonnerre
-    /// s'entend partout), les habitants des villages, les systèmes de l'image, puis les événements
-    /// devenus sons et messages aux mods.
+    /// Le travail du serveur à chaque image, entre les pas fixes : l'heure, la météo, les habitants des villages, les systèmes de l'image, puis les événements
+    /// devenus sons et messages aux mods, et le ciel envoyé aux joueurs.
     pub(crate) fn frame(&mut self, dt: f32) {
         self.day.update(dt);
         let player_position = player::body(&self.ecs, self.players.entity()).position;
-        let thunder = {
-            let shared = self.world.clone();
-            let streamer = shared.borrow();
-            self.weather.update(dt, streamer.world(), player_position)
-        };
-        if thunder {
-            let sound = crate::player_view::Feedback::Sound(crate::player_view::Sound::key(
-                crate::audio::THUNDER,
-            ));
-            let ids: Vec<_> = self.players.iter().map(|p| p.id).collect();
-            for id in ids {
-                self.replies
-                    .push((id, crate::protocol::ServerMsg::Feedback(sound.clone())));
-            }
-        }
+        // Le temps qu'il fait ; ce qui se voit et s'entend (gouttes, éclairs, tonnerre) est chez la
+        // fenêtre (voir `sky_view.rs`).
+        self.weather.update_sky(dt);
         // Les habitants des villages proches.
         {
             let shared = self.world.clone();
@@ -99,6 +86,7 @@ impl VoxelServer {
         self.forward_events_to_mods();
         // Fin de l'image : les événements lus tournent leurs tampons.
         crate::events::update(&self.ecs);
+        self.send_sky(dt);
     }
 
     /// Le monde se charge autour de chaque joueur.

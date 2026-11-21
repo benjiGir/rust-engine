@@ -1371,7 +1371,7 @@ impl VoxelGame {
                     });
                     ui.end_row();
                     ui.label("Heure");
-                    ui.label(self.server.day.clock());
+                    ui.label(self.client.day.clock());
                     ui.end_row();
                 });
                 ui.collapsing("Systèmes", |ui| {

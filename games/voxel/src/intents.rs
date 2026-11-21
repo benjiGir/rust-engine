@@ -273,6 +273,7 @@ impl VoxelGame {
                     self.client.camera.position = self.client.body.eye(1.0);
                 }
                 ServerMsg::Push { up, impulse } => self.client.body.push(up, impulse),
+                ServerMsg::Sky(view) => self.receive_sky(view),
                 ServerMsg::Feedback(feedback) => self.apply_feedback(feedback),
                 ServerMsg::Chat(line) => self.show_chat(&line),
                 ServerMsg::ModOptions { mod_id, data } => self.show_mod_options(mod_id, &data),

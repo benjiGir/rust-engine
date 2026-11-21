@@ -77,8 +77,8 @@ impl VoxelGame {
                 .any(|w| key.contains(w));
             soundscape::Place {
                 underground: sky <= 2 && feet.y < column.height as f32 - 8.0,
-                night: self.server.day.is_night(),
-                raining: self.server.weather.amount() > 0.2,
+                night: self.client.day.is_night(),
+                raining: self.client.weather.amount() > 0.2,
                 near_water: water,
                 green: !["desert", "tundra", "ocean", "beach", "mountain"]
                     .iter()

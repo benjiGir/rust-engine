@@ -23,6 +23,8 @@ pub struct ServerSends {
     pub player_views: PlayerViews,
     /// Le pas fixe du serveur auquel en sont les entités.
     pub tick: u64,
+    /// Ce qu'a la fenêtre du ciel (voir `sky_view.rs`).
+    pub sky: crate::sky_view::SkyEcho,
 }
 
 impl ServerSends {
