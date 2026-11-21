@@ -60,7 +60,7 @@ impl Target {
 }
 
 /// Un geste sur un conteneur.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Op {
     /// Chaque pile de l'inventaire principal va dans le conteneur.
     Deposit,
@@ -197,17 +197,27 @@ impl VoxelGame {
         }
     }
 
-    /// La pile d'une case d'un conteneur (lecture directe, sans copier le reste).
-    pub(crate) fn target_stack(&self, t: Target, index: usize) -> Option<ItemStack> {
-        let items = &self.content.items;
-        match t {
-            Target::Block(pos) => self.container_stack(pos, index),
-            Target::Cart(cart) => self.cart_stack(cart, index),
-            Target::Bag(number) => {
-                let stored = self.backpacks.bag(number)?.slots.get(index)?.as_ref()?;
-                to_game(items, stored)
-            }
+    /// Le contenu d'un conteneur pour la vue de la fenêtre (cases, disposition, améliorations
+    /// coupées, à paliers). Un conteneur ancien (27 cases) reçoit ses emplacements d'amélioration dès
+    /// qu'il est ouvert.
+    pub(crate) fn open_contents(
+        &mut self,
+        t: Target,
+    ) -> Option<(Vec<Option<engine_voxel::ItemStack>>, Layout, u32, bool)> {
+        let mut view = self.view(t)?;
+        if view.tiered && self.target_len(t) < Some(view.layout.total()) {
+            self.store(
+                t,
+                View {
+                    raw: view.raw.clone(),
+                    layout: view.layout,
+                    disabled: view.disabled,
+                    tiered: true,
+                },
+            );
+            view = self.view(t)?;
         }
+        Some((view.raw, view.layout, view.disabled, view.tiered))
     }
 
     /// Les règles de rangement d'un conteneur : piles plus grandes, refus des sacs dans un sac,
@@ -497,22 +507,18 @@ impl VoxelGame {
 
     /// Les cases, la colonne des améliorations, les filtres et les boutons d'un conteneur.
     pub(crate) fn storage_panel(&mut self, ui: &mut egui::Ui, t: Target) {
-        let Some(view) = self.view(t) else {
+        // La vue que le serveur a envoyée (voir `container_view.rs`) ; un conteneur ancien y a déjà
+        // reçu ses emplacements d'amélioration.
+        let Some(shown) = self.shown_container().cloned() else {
             ui.label("Ce conteneur n'existe plus.");
             return;
         };
-        // Un conteneur ancien (27 cases) reçoit ses emplacements dès qu'on l'ouvre.
-        if view.tiered && self.target_len(t) < Some(view.layout.total()) {
-            self.store(
-                t,
-                View {
-                    raw: view.raw.clone(),
-                    layout: view.layout,
-                    disabled: view.disabled,
-                    tiered: true,
-                },
-            );
-        }
+        let view = View {
+            raw: shown.raw,
+            layout: shown.layout,
+            disabled: shown.disabled,
+            tiered: shown.tiered,
+        };
         let layout = view.layout;
         let ups = engine_voxel::installed_upgrades(&view.raw, layout, 0);
         // Les améliorations d'abord, dans un bandeau à part : on ne les confond pas avec le stockage.
@@ -532,7 +538,7 @@ impl VoxelGame {
                             self.storage_slot(ui, t, layout.main + n);
                         }
                         ui.add_space(8.0);
-                        if let Target::Bag(number) = t
+                        if let Target::Bag(_) = t
                             && !ups.is_empty()
                         {
                             // Un sac : chaque amélioration se coupe d'un clic.
@@ -547,10 +553,10 @@ impl VoxelGame {
                                         continue;
                                     };
                                     let mut on = view.disabled & (1 << n) == 0;
-                                    if ui.checkbox(&mut on, up.name()).changed()
-                                        && let Some(bag) = self.backpacks.bag_mut(number)
-                                    {
-                                        bag.disabled ^= 1 << n;
+                                    if ui.checkbox(&mut on, up.name()).changed() {
+                                        self.send_now(crate::protocol::ClientMsg::ToggleUpgrade(
+                                            n as u8,
+                                        ));
                                     }
                                 }
                             });
@@ -623,7 +629,7 @@ impl VoxelGame {
             }
         });
         if let Some(op) = op {
-            self.storage_transfer(t, op);
+            self.send_now(crate::protocol::ClientMsg::ContainerOp(op));
         }
     }
 
@@ -646,7 +652,7 @@ impl VoxelGame {
     }
 
     fn storage_slot(&mut self, ui: &mut egui::Ui, t: Target, index: usize) -> bool {
-        let stack = self.target_stack(t, index);
+        let stack = self.shown_stack(index);
         match self.stack_widget(ui, stack, false) {
             Some(press) => self.press_slot(t.slot_ref(index), stack, press),
             None => false,

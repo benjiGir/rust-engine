@@ -17,10 +17,12 @@ use engine_voxel::Chunk;
 use glam::{IVec3, Vec3};
 use serde::{Deserialize, Serialize};
 
+use crate::container_view::ContainerView;
 use crate::entities::{EntityKind, GridSnapshot, Look, NetId, Pose};
 use crate::inventory::{Click, Slot};
 use crate::player::MoveMode;
 use crate::player_view::{Feedback, InventoryView, VitalsView};
+use crate::storage_ui::Op;
 
 /// Ce que le joueur regarde : l'œil et la direction du regard, au moment de l'action.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -142,6 +144,16 @@ pub enum ClientMsg {
     },
     /// L'écran est fermé : la main et la grille d'artisanat retournent dans l'inventaire.
     CloseMenu,
+    /// Un bouton du conteneur ouvert : Déposer, Compléter, Tout prendre, Trier (et Maj + clic).
+    ContainerOp(Op),
+    /// Couper ou rallumer une amélioration du sac ouvert (son emplacement).
+    ToggleUpgrade(u8),
+    /// Fabriquer : avec la grille (`size` × `size`), ou une recette du livre (son numéro dans la
+    /// liste des recettes, la même des deux côtés).
+    Craft {
+        size: u8,
+        recipe: Option<u32>,
+    },
     Chat(String),
     /// Une ligne de la console (commande du jeu ou d'un mod).
     Command(String),
@@ -183,6 +195,8 @@ pub enum ServerMsg {
     Vitals(VitalsView),
     /// L'inventaire du joueur, quand il change.
     Inventory(InventoryView),
+    /// Le conteneur ouvert (coffre, four, alambic, sac, wagon), quand il change ; `None` : fermé.
+    Container(Option<ContainerView>),
     /// Un son, un message à l'écran, le bras qui frappe (voir `player_view.rs`).
     Feedback(Feedback),
     /// Le joueur est mort : l'écran de mort, avec sa cause.

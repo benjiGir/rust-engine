@@ -64,6 +64,7 @@ mod client_entities;
 mod client_world;
 mod components;
 mod console;
+mod container_view;
 mod content;
 mod control;
 mod culling;

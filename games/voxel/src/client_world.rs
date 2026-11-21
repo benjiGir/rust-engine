@@ -111,6 +111,7 @@ impl ClientWorld {
             ServerMsg::Unload(pos) => self.incoming.push(ChunkUpdate::Unload(pos)),
             ServerMsg::Vitals(vitals) => self.me.receive_vitals(vitals),
             ServerMsg::Inventory(inventory) => self.me.inventory = inventory,
+            ServerMsg::Container(container) => self.me.container = container,
             // Les retours (son, message, bras) et `Correct` sont appliqués par le jeu.
             ServerMsg::Correct { .. }
             | ServerMsg::Feedback(_)

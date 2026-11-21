@@ -213,6 +213,7 @@ impl ClientEntities {
             | ServerMsg::Unload(_)
             | ServerMsg::Vitals(_)
             | ServerMsg::Inventory(_)
+            | ServerMsg::Container(_)
             | ServerMsg::Feedback(_)
             | ServerMsg::Died { .. }
             | ServerMsg::Respawned

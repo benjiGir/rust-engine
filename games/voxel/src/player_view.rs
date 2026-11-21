@@ -24,7 +24,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::VoxelGame;
 use crate::audio::BlockSound;
-use crate::inventory::{Inventory, ItemStack, SLOTS};
+use crate::container_view::ContainerView;
+use crate::inventory::{Inventory, ItemStack, SLOTS, Slot};
 use crate::players::{PlayerId, PlayerState};
 use crate::potions::Effect;
 use crate::protocol::ServerMsg;
@@ -78,6 +79,29 @@ impl InventoryView {
         }
     }
 
+    /// Une copie de l'inventaire, pour les lectures de l'interface (ce qu'on peut fabriquer, une
+    /// case...). La modifier ne change rien : les gestes partent en messages.
+    pub fn as_inventory(&self) -> Inventory {
+        let mut inventory = Inventory::default();
+        for (to, from) in inventory.slots.iter_mut().zip(&self.slots) {
+            *to = *from;
+        }
+        inventory.armor = self.armor;
+        inventory.craft = self.craft;
+        inventory.selected = usize::from(self.selected);
+        inventory.cursor = self.cursor;
+        inventory
+    }
+
+    /// La pile d'une case du joueur.
+    pub fn slot(&self, slot: Slot) -> Option<ItemStack> {
+        match slot {
+            Slot::Main(i) => self.slots.get(i).copied().flatten(),
+            Slot::Armor(i) => self.armor.get(i).copied().flatten(),
+            Slot::Craft(i) => self.craft.get(i).copied().flatten(),
+        }
+    }
+
     /// La pile de la case choisie.
     pub fn selected_stack(&self) -> Option<ItemStack> {
         self.slots
@@ -127,6 +151,8 @@ pub enum Feedback {
 pub struct ClientPlayer {
     pub vitals: Option<VitalsView>,
     pub inventory: InventoryView,
+    /// Le conteneur ouvert (voir `container_view.rs`).
+    pub container: Option<ContainerView>,
     /// Le moment du dernier coup reçu (quand `hits` a changé).
     hit_at: Option<Instant>,
 }
@@ -156,6 +182,7 @@ impl ClientPlayer {
 pub struct PlayerViews {
     vitals: HashMap<PlayerId, VitalsView>,
     inventories: HashMap<PlayerId, InventoryView>,
+    containers: HashMap<PlayerId, Option<ContainerView>>,
 }
 
 impl PlayerViews {
@@ -165,6 +192,7 @@ impl PlayerViews {
         id: PlayerId,
         vitals: VitalsView,
         inventory: InventoryView,
+        container: Option<ContainerView>,
         out: &mut Vec<ServerMsg>,
     ) {
         if self.vitals.get(&id) != Some(&vitals) {
@@ -175,11 +203,18 @@ impl PlayerViews {
             self.inventories.insert(id, inventory.clone());
             out.push(ServerMsg::Inventory(inventory));
         }
+        // Rien d'ouvert la première fois : rien à envoyer.
+        let before = self.containers.get(&id).cloned().flatten();
+        if before != container {
+            self.containers.insert(id, container.clone());
+            out.push(ServerMsg::Container(container));
+        }
     }
 
     pub fn forget(&mut self, id: PlayerId) {
         self.vitals.remove(&id);
         self.inventories.remove(&id);
+        self.containers.remove(&id);
     }
 }
 
@@ -210,15 +245,22 @@ impl VoxelGame {
     /// Fin d'image : chaque joueur reçoit ses jauges et son inventaire s'ils ont changé.
     pub(crate) fn replicate_player_views(&mut self) {
         let mut out = Vec::new();
-        for player in self.players.iter() {
+        let ids: Vec<PlayerId> = self.players.iter().map(|p| p.id).collect();
+        for id in ids {
+            // Le conteneur se décrit avec l'état de ce joueur (son `open`).
+            let before = self.players.set_acting(Some(id));
+            let container = self.open_container_view();
+            self.players.set_acting(before);
+            let Some(player) = self.players.get(id) else {
+                continue;
+            };
             let health = crate::player::health(&self.ecs, player.entity);
             let vitals = vitals_of(player, [health.current, health.max]);
             let inventory = InventoryView::of(&player.inventory);
             self.view
                 .player_views
-                .step(player.id, vitals, inventory, &mut out);
-            self.replies
-                .extend(out.drain(..).map(|msg| (player.id, msg)));
+                .step(id, vitals, inventory, container, &mut out);
+            self.replies.extend(out.drain(..).map(|msg| (id, msg)));
         }
     }
 
@@ -304,19 +346,37 @@ mod tests {
         let mut views = PlayerViews::default();
         let me = PlayerId(0);
         let mut out = Vec::new();
-        views.step(me, vitals(20.0, 0), InventoryView::default(), &mut out);
+        views.step(
+            me,
+            vitals(20.0, 0),
+            InventoryView::default(),
+            None,
+            &mut out,
+        );
         assert_eq!(out.len(), 2, "la première fois : les deux vues");
         out.clear();
-        views.step(me, vitals(20.0, 0), InventoryView::default(), &mut out);
+        views.step(
+            me,
+            vitals(20.0, 0),
+            InventoryView::default(),
+            None,
+            &mut out,
+        );
         assert!(out.is_empty(), "rien n'a changé");
-        views.step(me, vitals(19.0, 0), InventoryView::default(), &mut out);
+        views.step(
+            me,
+            vitals(19.0, 0),
+            InventoryView::default(),
+            None,
+            &mut out,
+        );
         assert!(matches!(out.as_slice(), [ServerMsg::Vitals(v)] if v.food == 19.0));
         out.clear();
         let inventory = InventoryView {
             selected: 3,
             ..InventoryView::default()
         };
-        views.step(me, vitals(19.0, 0), inventory, &mut out);
+        views.step(me, vitals(19.0, 0), inventory, None, &mut out);
         assert!(matches!(out.as_slice(), [ServerMsg::Inventory(i)] if i.selected == 3));
     }
 
@@ -328,6 +388,7 @@ mod tests {
             PlayerId(0),
             vitals(20.0, 0),
             InventoryView::default(),
+            None,
             &mut out,
         );
         out.clear();
@@ -335,6 +396,7 @@ mod tests {
             PlayerId(1),
             vitals(20.0, 0),
             InventoryView::default(),
+            None,
             &mut out,
         );
         assert_eq!(
@@ -348,9 +410,53 @@ mod tests {
             PlayerId(1),
             vitals(20.0, 0),
             InventoryView::default(),
+            None,
             &mut out,
         );
         assert_eq!(out.len(), 2, "un joueur oublié recommence à zéro");
+    }
+
+    #[test]
+    fn the_open_container_is_sent_when_it_opens_changes_and_closes() {
+        use crate::container_view::ContainerView;
+        let chest = |count| ContainerView {
+            raw: vec![Some(engine_voxel::ItemStack {
+                item: "core:stone".into(),
+                count,
+                damage: 0,
+            })],
+            layout: engine_voxel::Layout::new(1, 0, 0),
+            disabled: 0,
+            tiered: false,
+            furnace: [0.0; 2],
+            brewing: 0.0,
+            cart: None,
+        };
+        let mut views = PlayerViews::default();
+        let me = PlayerId(0);
+        let mut out = Vec::new();
+        let mut send = |views: &mut PlayerViews, container| {
+            out.clear();
+            views.step(
+                me,
+                vitals(20.0, 0),
+                InventoryView::default(),
+                container,
+                &mut out,
+            );
+            out.iter()
+                .filter_map(|m| match m {
+                    ServerMsg::Container(c) => Some(c.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(send(&mut views, None).is_empty(), "rien d'ouvert : rien");
+        assert_eq!(send(&mut views, Some(chest(3))), vec![Some(chest(3))]);
+        assert!(send(&mut views, Some(chest(3))).is_empty(), "inchangé");
+        assert_eq!(send(&mut views, Some(chest(4))), vec![Some(chest(4))]);
+        assert_eq!(send(&mut views, None), vec![None], "fermé");
+        assert!(send(&mut views, None).is_empty());
     }
 
     #[test]

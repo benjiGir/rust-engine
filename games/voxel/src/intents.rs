@@ -240,6 +240,11 @@ impl VoxelGame {
                 self.handle(local, msg);
             }
         }
+        // Les vues du joueur (inventaire, conteneur ouvert) suivent tout de suite : un clic dans un
+        // écran se voit dès cette image.
+        if !self.replies.is_empty() || guard > 0 {
+            self.replicate_player_views();
+        }
         self.apply_replies();
     }
 
@@ -345,6 +350,19 @@ impl VoxelGame {
                 shift,
             } => self.handle_slot_click(slot, button, shift),
             ClientMsg::CloseMenu => self.close_menu(),
+            ClientMsg::ContainerOp(op) => match self.open_target() {
+                Some(target) => self.storage_transfer(target, op),
+                None => log::debug!("bouton de conteneur sans conteneur ouvert : ignoré"),
+            },
+            ClientMsg::ToggleUpgrade(slot) => {
+                if let Some(OpenContainer::Bag(number)) = self.players.me().open
+                    && let Some(bag) = self.backpacks.bag_mut(number)
+                    && slot < 32
+                {
+                    bag.disabled ^= 1 << slot;
+                }
+            }
+            ClientMsg::Craft { size, recipe } => self.craft(size, recipe),
             ClientMsg::Chat(text) => {
                 let name = self.players.me().name.clone();
                 self.chat(&format!("<{name}> {text}"));
@@ -667,6 +685,12 @@ impl VoxelGame {
             return;
         }
         self.click_target(target, button.into());
+        // Un four ou un alambic dort peut-être : on le réveille au prochain tick.
+        if let SlotRef::Container(pos, _) = target {
+            self.mods
+                .machines
+                .schedule(engine_voxel::GridPos::world(pos), 1);
+        }
     }
 
     /// La case désignée par un message, si le joueur courant peut la toucher.

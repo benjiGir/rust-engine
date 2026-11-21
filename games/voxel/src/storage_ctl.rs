@@ -134,10 +134,10 @@ impl VoxelGame {
                     }
                     return Ok("{\"ok\":true}".to_string());
                 }
-                let target = self
-                    .open_target()
+                self.open_target()
                     .context("aucun conteneur ouvert (coffre, wagon ou sac)")?;
-                self.storage_transfer(target, op);
+                // Le même chemin que les boutons de l'écran.
+                self.send_now(crate::protocol::ClientMsg::ContainerOp(op));
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Drops => {

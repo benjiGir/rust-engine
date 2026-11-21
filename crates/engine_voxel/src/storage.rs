@@ -65,7 +65,7 @@ pub const UPGRADE_PERIOD: u32 = 20;
 pub const CONTROLLER_KEY: &str = "core:storage_controller";
 
 /// Le rangement des cases d'un conteneur à paliers (voir la documentation du module).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Layout {
     pub main: usize,
     pub upgrades: usize,

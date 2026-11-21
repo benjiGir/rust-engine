@@ -624,6 +624,48 @@ une **réplique d'entités** avec seulement ce que le rendu demande.
 - **Pour le lot 5** : une pile d'objets porte un numéro (`damage`) qui renvoie à une fiche (`item_data`) gardée dans une
   table globale du processus. Sur le réseau, il faudra envoyer ces fiches avec les piles.
 
+##### 3d-1 : les écrans à cases (réalisé)
+
+Le 3d est coupé en deux : 3d-1 pour les écrans à cases, 3d-2 pour les autres.
+
+- **`container_view.rs`** : le serveur décrit le conteneur ouvert par chaque joueur (`PlayerState::open`) dans une
+  `ContainerView`. C'est le cas d'un coffre, d'un four, d'un alambic, d'un sac ou d'un wagon. La vue porte :
+  - les cases (objets par identifiant texte) ;
+  - la disposition (`Layout`, maintenant `Serialize`) ;
+  - les améliorations coupées d'un sac ;
+  - les jauges d'un four (feu, cuisson) et d'un alambic ;
+  - la sorte et le feu d'un wagon.
+
+  Elle est envoyée quand elle change (`ServerMsg::Container`), et `None` à la fermeture. Un coffre ancien reçoit ses
+  emplacements d'amélioration côté serveur, quand sa vue est faite.
+- **Les écrans dessinent les vues** : les cases du joueur (inventaire, armure, grille, pile tenue) lisent
+  `InventoryView`, et les écrans de conteneur (`storage_panel`, four, alambic, wagon) lisent la `ContainerView` (avec
+  `shown_stack`).
+- **Les gestes deviennent des messages** :
+  - `ContainerOp(Op)` pour Déposer, Compléter, Tout prendre et Trier (et `ctl deposit` / `takeall`... par le même
+    chemin) ;
+  - `ToggleUpgrade` pour une amélioration de sac ;
+  - `Craft { size, recipe }` pour la grille, ou une recette du livre par son numéro dans la liste.
+- **Le réveil des machines** se fait sur le serveur : un clic de case sur un bloc réveille le four ou l'alambic.
+- **Pas de retard en solo** : `flush_outbox` refait les vues du joueur avant d'appliquer les réponses, si bien qu'un
+  clic dans un écran se voit dès l'image.
+- **Vérifié en jeu** :
+  - coffre (Maj + clic, Déposer, Tout prendre) ;
+  - four (jauges, réveil par un clic) ;
+  - établi (2 planches donnent 4 bâtons, par l'interface) ;
+  - sac à dos (ouverture, Maj + clic).
+
+  Le wagon n'a pas été essayé en jeu.
+- **Restent pour le 3d-2** :
+  - le contrôleur de stockage ;
+  - l'enchantement, l'enclume et la bibliothèque ;
+  - la récupération, la réforge et l'établi de taille ;
+  - les échanges, les paliers, le guide, les quêtes et les menus des mods ;
+  - l'ouverture des écrans, encore décidée par la fenêtre (`open_container_screen` règle `ui.screen`). Un
+    `Screen::Cart(Entity)` porte une entité du serveur.
+- **Pour le lot 5** : la taille d'artisanat (2 ou 3) vient du client. Le serveur devra vérifier qu'un établi est
+  ouvert pour accepter 3.
+
 ### Lot 4 : le serveur intégré sur son thread
 
 - `VoxelServer` est construit **sur** son thread, avec ses `Rc` internes. Seuls les messages traversent.
