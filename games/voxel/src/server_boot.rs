@@ -20,8 +20,7 @@ use crate::{
     adventure, adventure_data, attributes, backpacks, breeding, carts, components, content,
     dimensions, elites, enchant_library, events, gear, intents, inventory, item_data, mob_brains,
     mobs, modding, navigation, persistence, player, players, potions, projectiles, settings,
-    shape_materials, shared, ships, spawning, stress, survival, texture_packs, trading, villagers,
-    weather,
+    shape_materials, shared, ships, spawning, stress, survival, trading, villagers, weather,
 };
 use anyhow::{Context as _, Result};
 use engine_ecs::Schedule;
@@ -62,7 +61,11 @@ impl VoxelServer {
         let mod_order = modding::resolve_order(&assets);
         let mod_dirs = modding::mod_dirs(&mod_order);
         let mut registry = load_registry(&mod_dirs)?;
-        texture_packs::configure(&mut registry, settings.texture_pack, &project_root());
+        crate::texture_pack_config::configure(
+            &mut registry,
+            settings.texture_pack,
+            &project_root(),
+        );
         let mut mob_registry =
             MobRegistry::load(&assets, &mod_dirs, &registry).context("chargement des créatures")?;
         mob_registry.bind_textures(&mut registry);

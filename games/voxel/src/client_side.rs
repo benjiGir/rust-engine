@@ -12,8 +12,8 @@ use glam::IVec3;
 use crate::stats::FrameStats;
 use crate::{
     Demo, Request, audio, bench, chest_lids, client_world, conduit_fx, culling, enchant_ui,
-    far_terrain, hand, menus, protocol, screenshots, settings, ships, soundscape, stream_upload,
-    ui, water_fx,
+    far_terrain, hand, menus, protocol, screenshots, settings, soundscape, stream_upload, ui,
+    water_fx,
 };
 
 /// L'état de la fenêtre : ce que le serveur ne doit pas lire (lot 4 du multijoueur,
@@ -56,7 +56,7 @@ pub(crate) struct ClientSide {
     /// Le budget d'envoi au GPU et ses compteurs (voir `stream_upload.rs`).
     pub(crate) uploads: stream_upload::Uploads,
     /// Les maillages des structures mobiles, et la structure dont on tient la barre.
-    pub(crate) grid_meshes: ships::GridMeshes,
+    pub(crate) grid_meshes: crate::ships_window::GridMeshes,
     pub(crate) soundscape: soundscape::Soundscape,
     /// L'état des écrans d'enchantement avancé et des charmes (voir `enchant_ui.rs`).
     pub(crate) enchant_ui: enchant_ui::EnchantUi,

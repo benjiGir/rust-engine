@@ -1055,6 +1055,12 @@ Une règle de Rust décide du reste : les méthodes d'un type se définissent da
 - **S3a, `engine_inspect` sans egui (réalisé)** : `Inspect` décrit une valeur à un `Inspector` (réel, entier,
   booléen, texte, vecteurs, absence, groupe) ; l'inspecteur egui (F3) est dans le jeu (`ui_inspect.rs`).
   `engine_inspect` rejoint la règle `HEADLESS` de check-arch : la simulation peut dériver `Inspect`.
+- **S3b, les derniers liens (réalisé)** : `cart_play` et `interact_server` passent par `screens` et `sound_ids` ; la
+  configuration du pack de textures du registre sort dans `texture_pack_config.rs` ; le rendu des structures
+  (`GridMeshes`) passe dans `ships_window.rs` ; les éléments de `main.rs` dont la simulation a besoin
+  (`assets_dir`, `project_root`, `env_parse`, `load_registry`, `EventReaders`, `DEFAULT_SEED`, `FLY_ALTITUDE`)
+  passent dans `common.rs` (réexportés par `main.rs`), et son dernier bloc `impl VoxelServer` dans `world_edit.rs`.
+  108 modules de simulation, qui contiennent tout le code du serveur, ne citent plus la fenêtre.
 - **S3, la crate** : `games/voxel_sim` (bibliothèque) reçoit les modules de simulation ; le jeu les réexporte à la
   racine (`pub(crate) use voxel_sim::inventory;`…), donc `crate::inventory::…` ne change pas dans la fenêtre.
 - **S4, le binaire** : `voxel-server` dans `voxel_sim`, et la règle check-arch (`HEADLESS`).

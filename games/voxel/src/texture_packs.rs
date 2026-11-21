@@ -1,8 +1,6 @@
 //! Packs graphiques du menu principal : le choix n'affecte ni données ni sauvegardes.
 use crate::settings::TexturePack;
 use engine_render::egui::{self, TextureHandle};
-use engine_voxel::BlockRegistry;
-use serde::Deserialize;
 use std::{collections::HashMap, path::Path};
 const PACKS: [TexturePack; 3] = [
     TexturePack::Classic,
@@ -10,47 +8,8 @@ const PACKS: [TexturePack; 3] = [
     TexturePack::Earth64,
 ];
 
-fn details(pack: TexturePack) -> Option<(&'static str, u32)> {
-    match pack {
-        TexturePack::Classic => None,
-        TexturePack::Earth32 => Some(("earth-copper-32", 32)),
-        TexturePack::Earth64 => Some(("earth-copper-64", 64)),
-    }
-}
-
-#[derive(Deserialize)]
-struct Manifest {
-    id: String,
-    name: String,
-    resolution: u32,
-    description: String,
-}
-fn manifest(folder: &Path) -> Option<Manifest> {
-    ron::from_str(&std::fs::read_to_string(folder.join("pack.ron")).ok()?).ok()
-}
-pub fn available(root: &Path, pack: TexturePack) -> bool {
-    details(pack).is_none_or(|(id, size)| {
-        let folder = root.join("texture_packs").join(id);
-        manifest(&folder).is_some_and(|p| p.id == id && p.resolution == size)
-            && folder.join("assets/core/textures/grass_top.png").is_file()
-    })
-}
-pub fn configure(registry: &mut BlockRegistry, pack: TexturePack, root: &Path) {
-    let (path, size) = match details(pack) {
-        Some((id, size)) if available(root, pack) => (
-            Some(root.join("texture_packs").join(id).join("assets")),
-            size,
-        ),
-        Some((id, _)) => {
-            log::warn!("pack {id} absent ou invalide : textures classiques utilisées");
-            (None, 16)
-        }
-        None => (None, 16),
-    };
-    if let Err(err) = registry.set_visual_pack(path, size) {
-        log::warn!("pack graphique : {err}");
-    }
-}
+#[allow(unused_imports)]
+pub(crate) use crate::texture_pack_config::{Manifest, available, configure, details, manifest};
 fn previews(ctx: &egui::Context, root: &Path, pack: TexturePack) -> Vec<TextureHandle> {
     let id = egui::Id::unique("texture_pack_previews");
     let key = format!("{}:{pack:?}", root.display());
@@ -236,6 +195,7 @@ pub fn panel(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use engine_voxel::BlockRegistry;
     use std::path::PathBuf;
     fn root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")

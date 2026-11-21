@@ -24,7 +24,7 @@ use std::collections::HashSet;
 use engine_voxel::{Inventory, ItemStack, RailKind, rail_at};
 
 use crate::carts::{Cart, CartCargo, CartKind, CartPending, CartSignals};
-use crate::{carts, inventory, player, ui};
+use crate::{carts, inventory, player};
 
 /// Les chargeurs passent tous les 5 pas de simulation (12 fois par seconde).
 const LOADER_EVERY: u32 = 5;
@@ -319,7 +319,7 @@ impl crate::server_side::VoxelServer {
             let Some(id) = self.ecs.get::<crate::entities::NetId>(entity).map(|id| *id) else {
                 return false;
             };
-            self.open_screen(ui::Screen::Cart(id));
+            self.open_screen(crate::screens::Screen::Cart(id));
             true
         }
     }

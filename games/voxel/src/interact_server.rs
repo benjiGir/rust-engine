@@ -2,7 +2,7 @@
 //! multijoueur ; la fenêtre reste dans `interact.rs`).
 
 use crate::mobs::MobRegistry;
-use crate::{audio, breeding, components, inventory, ui};
+use crate::{breeding, components, inventory};
 use glam::IVec3;
 
 impl crate::server_side::VoxelServer {
@@ -65,7 +65,7 @@ impl crate::server_side::VoxelServer {
         if left > 0 {
             self.drop_stack(pos, inventory::ItemStack::new(full, left));
         }
-        self.sound(audio::SPLASH);
+        self.sound(crate::sound_ids::SPLASH);
         self.punch();
     }
 
@@ -134,7 +134,7 @@ impl crate::server_side::VoxelServer {
         let Some(id) = self.ecs.get::<crate::entities::NetId>(mob).map(|id| *id) else {
             return false;
         };
-        self.open_screen(ui::Screen::Trade(id));
+        self.open_screen(crate::screens::Screen::Trade(id));
         true
     }
 
