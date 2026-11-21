@@ -69,7 +69,7 @@ impl TierEffects {
 }
 
 /// Ce qui s'est passé dans le monde, et le palier choisi.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Progress {
     /// Le palier choisi.
     pub tier: u8,

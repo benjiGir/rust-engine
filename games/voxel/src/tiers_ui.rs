@@ -52,7 +52,10 @@ impl VoxelGame {
     /// Le corps de l'écran : une carte par palier.
     pub(crate) fn tiers_panel(&mut self, ui: &mut egui::Ui) {
         let data = adventure_data::current();
-        let progress = self.players.me_mut().adventure.progress;
+        // L'aventure telle que la vue du joueur la décrit.
+        let Some(progress) = self.view.me.vitals.as_ref().map(|v| v.tiers) else {
+            return;
+        };
         let mut chosen = None;
         ui.label(
             egui::RichText::new(
@@ -112,22 +115,29 @@ impl VoxelGame {
                     }
                 });
         }
-        if let Some(index) = chosen
-            && self
-                .players
-                .me_mut()
-                .adventure
-                .progress
-                .select(index, &data.tiers)
+        if let Some(index) = chosen {
+            self.send_now(crate::protocol::ClientMsg::Screen(
+                crate::protocol::ScreenAction::Tier(index),
+            ));
+        }
+    }
+
+    /// `Tier` : le serveur change le palier du joueur courant, s'il est débloqué.
+    pub(crate) fn choose_tier(&mut self, index: u8) {
+        let data = adventure_data::current();
+        if self
+            .players
+            .me_mut()
+            .adventure
+            .progress
+            .select(index, &data.tiers)
         {
             let name = data
                 .tier(index)
                 .map_or("?", |t| t.name.as_str())
                 .to_string();
             self.toast(&format!("Palier : {name}"));
-            if let Some(audio) = &mut self.audio {
-                audio.play("core:enchant");
-            }
+            self.sound("core:enchant");
         }
     }
 }

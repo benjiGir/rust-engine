@@ -157,6 +157,14 @@ pub(crate) fn slot_ref_for(
             };
             in_range.then_some(SlotRef::Player(slot))
         }
+        SlotTarget::Open(index) => match open? {
+            OpenContainer::Chest(pos) | OpenContainer::Machine(pos) => {
+                Some(SlotRef::Container(pos, index))
+            }
+            OpenContainer::Cart(cart) => Some(SlotRef::Cart(cart, index)),
+            OpenContainer::Bag(number) => Some(SlotRef::Bag(number, index)),
+            OpenContainer::Controller(_) => None,
+        },
         SlotTarget::Block { pos, index } => matches!(
             open,
             Some(OpenContainer::Chest(p) | OpenContainer::Machine(p) | OpenContainer::Controller(p))
@@ -273,6 +281,18 @@ impl VoxelGame {
                     self.camera.position = position + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT;
                 }
                 ServerMsg::Feedback(feedback) => self.apply_feedback(feedback),
+                ServerMsg::OpenScreen(screen) => self.show_screen(screen),
+                ServerMsg::CloseScreen => self.close_screen(),
+                ServerMsg::ScreenView(Some(crate::screen_actions::ScreenView::Mod {
+                    owner,
+                    at,
+                    data,
+                })) => {
+                    self.receive_mod_menu(owner.clone(), at, data.clone());
+                    self.view.receive(ServerMsg::ScreenView(Some(
+                        crate::screen_actions::ScreenView::Mod { owner, at, data },
+                    )));
+                }
                 ServerMsg::Died { message } => {
                     // L'écran ouvert se ferme, la souris est rendue au menu de mort.
                     if self.ui.inventory_open {
@@ -363,6 +383,7 @@ impl VoxelGame {
                 }
             }
             ClientMsg::Craft { size, recipe } => self.craft(size, recipe),
+            ClientMsg::Screen(action) => self.screen_action(action),
             ClientMsg::Chat(text) => {
                 let name = self.players.me().name.clone();
                 self.chat(&format!("<{name}> {text}"));
@@ -698,27 +719,44 @@ impl VoxelGame {
         slot_ref_for(self.players.me(), slot, &|id| self.server_entity(id))
     }
 
-    /// Ouvre l'écran d'un conteneur pour le joueur courant. L'interface ne s'ouvre que pour le
-    /// joueur de la fenêtre.
-    pub(crate) fn open_container_screen(&mut self, screen: Screen) {
-        self.players.me_mut().open = match screen {
+    /// Ouvre un écran pour le joueur courant : le serveur note ce qu'il a ouvert (un conteneur, une
+    /// table...), puis lui envoie `OpenScreen`, que sa fenêtre affiche.
+    pub(crate) fn open_screen(&mut self, screen: Screen) {
+        let open = match screen {
             Screen::Chest(pos) => Some(OpenContainer::Chest(pos)),
-            Screen::Furnace(pos) | Screen::Brewing(pos) => Some(OpenContainer::Machine(pos)),
+            // Une machine de mod garde ses cases dans son entité de bloc, comme un four.
+            Screen::Furnace(pos) | Screen::Brewing(pos) | Screen::Mod(pos) => {
+                Some(OpenContainer::Machine(pos))
+            }
             Screen::Controller(pos) => Some(OpenContainer::Controller(pos)),
-            Screen::Cart(cart) => Some(OpenContainer::Cart(cart)),
+            Screen::Cart(cart) => self.server_entity(cart).map(OpenContainer::Cart),
             Screen::Bag(number) => Some(OpenContainer::Bag(number)),
             _ => None,
         };
-        if self.players.current_is_local() {
-            self.ui.screen = screen;
-            self.ui.inventory_open = true;
+        let me = self.players.me_mut();
+        me.open = open;
+        me.screen = Some(screen);
+        let id = self.players.current_id();
+        self.replies.push((id, ServerMsg::OpenScreen(screen)));
+    }
+
+    /// La fenêtre ouvre l'écran que le serveur lui a ouvert.
+    pub(crate) fn show_screen(&mut self, screen: Screen) {
+        match screen {
+            Screen::Trade(_) => self.ui.trade_selected = 0,
+            Screen::Mod(_) if self.ui.screen == screen && self.ui.inventory_open => return,
+            _ => {}
         }
+        self.ui.screen = screen;
+        self.ui.inventory_open = true;
     }
 
     /// `CloseMenu` : la main et la grille d'artisanat retournent dans l'inventaire (ce qui n'y tient
     /// pas tombe par terre), et le conteneur n'est plus ouvert.
     pub(crate) fn close_menu(&mut self) {
+        self.forget_mod_menu();
         self.players.me_mut().open = None;
+        self.players.me_mut().screen = None;
         let loose = self
             .players
             .me_mut()
@@ -751,6 +789,7 @@ impl VoxelGame {
     pub(crate) fn slot_target_of(&self, target: SlotRef) -> SlotTarget {
         match target {
             SlotRef::Player(slot) => SlotTarget::Player(slot),
+            SlotRef::Open(index) => SlotTarget::Open(index),
             SlotRef::Container(pos, index) => SlotTarget::Block { pos, index },
             SlotRef::Cart(cart, index) => SlotTarget::Cart {
                 cart: self.ecs.get::<NetId>(cart).map_or(NetId(0), |id| *id),
@@ -1004,5 +1043,25 @@ mod tests {
         assert_eq!(slot_ref_for(&b, on_cart, &known), None);
         // Un numéro que le serveur ne connaît pas ne désigne aucun wagon.
         assert_eq!(slot_ref_for(&a, on_cart, &none), None);
+        // Une case « du conteneur ouvert » : le serveur sait lequel, la fenêtre n'a pas à le dire.
+        assert_eq!(
+            slot_ref_for(&a, SlotTarget::Open(5), &none),
+            Some(SlotRef::Cart(cart, 5))
+        );
+        a.open = Some(OpenContainer::Chest(IVec3::new(1, 2, 3)));
+        assert_eq!(
+            slot_ref_for(&a, SlotTarget::Open(2), &none),
+            Some(SlotRef::Container(IVec3::new(1, 2, 3), 2))
+        );
+        a.open = Some(OpenContainer::Bag(7));
+        assert_eq!(
+            slot_ref_for(&a, SlotTarget::Open(0), &none),
+            Some(SlotRef::Bag(7, 0))
+        );
+        // Rien d'ouvert, ou le contrôleur (il n'a pas de cases) : rien.
+        a.open = None;
+        assert_eq!(slot_ref_for(&a, SlotTarget::Open(0), &none), None);
+        a.open = Some(OpenContainer::Controller(IVec3::ZERO));
+        assert_eq!(slot_ref_for(&a, SlotTarget::Open(0), &none), None);
     }
 }

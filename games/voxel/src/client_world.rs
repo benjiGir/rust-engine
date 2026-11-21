@@ -112,11 +112,15 @@ impl ClientWorld {
             ServerMsg::Vitals(vitals) => self.me.receive_vitals(vitals),
             ServerMsg::Inventory(inventory) => self.me.inventory = inventory,
             ServerMsg::Container(container) => self.me.container = container,
+            ServerMsg::ScreenView(screen) => self.me.screen = screen,
+            ServerMsg::Quests(quests) => self.me.quests = quests,
             // Les retours (son, message, bras) et `Correct` sont appliqués par le jeu.
             ServerMsg::Correct { .. }
             | ServerMsg::Feedback(_)
             | ServerMsg::Died { .. }
-            | ServerMsg::Respawned => {}
+            | ServerMsg::Respawned
+            | ServerMsg::OpenScreen(_)
+            | ServerMsg::CloseScreen => {}
             // Les entités : Tick, Spawn, Despawn, Moves, EntityState, GridBlocks.
             entity_msg => self.entities.receive(&entity_msg),
         }

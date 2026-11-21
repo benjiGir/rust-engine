@@ -880,7 +880,10 @@ impl VoxelGame {
                     .me_mut()
                     .inventory
                     .add(items.id("core:wheat").unwrap(), 45, &items);
-                self.ui.screen = crate::ui::Screen::Trade(mob);
+                crate::entities::NetIds::assign(&mut self.ecs);
+                if let Some(id) = self.ecs.get::<crate::entities::NetId>(mob).map(|id| *id) {
+                    self.ui.screen = crate::ui::Screen::Trade(id);
+                }
                 self.ui.trade_selected = 4;
             }
             _ => {}

@@ -15,7 +15,9 @@ impl VoxelGame {
         let ship = self.ship_hit();
         let block_distance = ship.map(|(_, h)| h.distance).unwrap_or_else(|| {
             self.target
-                .map_or(self.players.me_mut().gear.reach(), |h| h.distance)
+                .map_or(self.view.me.vitals.as_ref().map_or(4.5, |v| v.reach), |h| {
+                    h.distance
+                })
         });
         // Ce qui est visé vient de la réplique des entités : la fiche d'une créature (nom, vie, élite)
         // aussi. Le wagon lit encore le serveur pour l'aperçu de son contenu (les menus, sous-lot 3d).

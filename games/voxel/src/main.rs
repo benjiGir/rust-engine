@@ -133,6 +133,7 @@ mod quest_progress;
 mod quest_ui;
 mod quests;
 mod recipe_browser;
+mod screen_actions;
 mod screenshots;
 mod settings;
 mod shader_packs;

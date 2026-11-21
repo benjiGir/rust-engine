@@ -218,13 +218,6 @@ impl QuestBook {
             .context("quêtes pas chargées")
     }
 
-    /// Combien de quêtes finies attendent leurs récompenses (`None` : le livre n'est pas chargé).
-    pub fn loaded_pending(&self) -> Option<usize> {
-        self.loaded
-            .as_ref()
-            .map(|l| l.progress.pending(&l.quests).len())
-    }
-
     pub fn quests(&self) -> Option<Arc<Quests>> {
         self.loaded.as_ref().map(|l| l.quests.clone())
     }

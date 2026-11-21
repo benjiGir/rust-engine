@@ -25,6 +25,7 @@
 //! sorte, avec une recherche. Un clic prend une pile, Maj + clic tout, et poser la pile tenue (ou
 //! Déposer) range dans les coffres en complétant d'abord les piles.
 
+use crate::protocol::{ClientMsg, ScreenAction, TakeHow};
 use engine_ecs::Entity;
 use engine_render::egui;
 use engine_voxel::{
@@ -47,16 +48,6 @@ pub enum Target {
     Block(IVec3),
     Cart(Entity),
     Bag(u32),
-}
-
-impl Target {
-    fn slot_ref(self, index: usize) -> SlotRef {
-        match self {
-            Self::Block(pos) => SlotRef::Container(pos, index),
-            Self::Cart(cart) => SlotRef::Cart(cart, index),
-            Self::Bag(number) => SlotRef::Bag(number, index),
-        }
-    }
 }
 
 /// Un geste sur un conteneur.
@@ -386,9 +377,18 @@ impl VoxelGame {
 
     /// Le Maj + clic est-il possible ici ? (un conteneur ouvert, la main vide)
     pub(crate) fn quick_enabled(&self) -> bool {
-        self.players.me().inventory.cursor.is_none()
-            && (self.open_target().is_some()
-                || matches!(self.players.me().open, Some(OpenContainer::Controller(_))))
+        // D'après ce que voit la fenêtre : la main vide, un écran de conteneur ouvert (pas la
+        // case de feu d'une locomotive).
+        let locomotive = self
+            .shown_container()
+            .and_then(|c| c.cart)
+            .is_some_and(|(kind, _)| kind == crate::carts::CartKind::Locomotive);
+        self.view.me.inventory.cursor.is_none()
+            && match self.ui.screen {
+                Screen::Chest(_) | Screen::Bag(_) | Screen::Controller(_) => true,
+                Screen::Cart(_) => !locomotive,
+                _ => false,
+            }
     }
 
     /// Maj + clic sur une case : toute la pile passe de l'autre côté. `false` si ce n'est pas
@@ -506,7 +506,7 @@ impl VoxelGame {
     }
 
     /// Les cases, la colonne des améliorations, les filtres et les boutons d'un conteneur.
-    pub(crate) fn storage_panel(&mut self, ui: &mut egui::Ui, t: Target) {
+    pub(crate) fn storage_panel(&mut self, ui: &mut egui::Ui, bag: bool) {
         // La vue que le serveur a envoyée (voir `container_view.rs`) ; un conteneur ancien y a déjà
         // reçu ses emplacements d'amélioration.
         let Some(shown) = self.shown_container().cloned() else {
@@ -535,12 +535,10 @@ impl VoxelGame {
                         ui.add_space(8.0);
                         ui.spacing_mut().item_spacing.x = crate::ui_layout::SLOT_GAP;
                         for n in 0..layout.upgrades {
-                            self.storage_slot(ui, t, layout.main + n);
+                            self.storage_slot(ui, layout.main + n);
                         }
                         ui.add_space(8.0);
-                        if let Target::Bag(_) = t
-                            && !ups.is_empty()
-                        {
+                        if bag && !ups.is_empty() {
                             // Un sac : chaque amélioration se coupe d'un clic.
                             ui.vertical(|ui| {
                                 for (n, slot) in layout.upgrade_range().enumerate() {
@@ -589,7 +587,7 @@ impl VoxelGame {
             .max_height((ui.ctx().content_rect().height() * 0.2).clamp(96.0, 300.0))
             .show(ui, |ui| {
                 crate::ui_layout::slots(ui, layout.main, 9, |ui, i| {
-                    self.storage_slot(ui, t, i);
+                    self.storage_slot(ui, i);
                 });
             });
         // Les filtres, seulement quand l'amélioration qui les lit est posée.
@@ -612,7 +610,7 @@ impl VoxelGame {
                 .size(11.0),
             );
             crate::ui_layout::slots(ui, range.len(), range.len(), |ui, i| {
-                self.storage_slot(ui, t, range.start + i);
+                self.storage_slot(ui, range.start + i);
             });
         }
         let mut op = None;
@@ -651,10 +649,10 @@ impl VoxelGame {
         }
     }
 
-    fn storage_slot(&mut self, ui: &mut egui::Ui, t: Target, index: usize) -> bool {
+    fn storage_slot(&mut self, ui: &mut egui::Ui, index: usize) -> bool {
         let stack = self.shown_stack(index);
         match self.stack_widget(ui, stack, false) {
-            Some(press) => self.press_slot(t.slot_ref(index), stack, press),
+            Some(press) => self.press_slot(SlotRef::Open(index), stack, press),
             None => false,
         }
     }
@@ -695,10 +693,11 @@ impl VoxelGame {
     /// L'écran du contrôleur : les objets réunis, une recherche, un clic pour en prendre.
     pub(crate) fn controller_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
         let items = self.content.items.clone();
+        // Les coffres reliés, tels que la réplique du monde les voit.
         let (members, groups) = {
-            let streamer = self.streamer();
-            let members = controller_members(&*streamer, pos);
-            let groups = controller_groups(&*streamer, &members);
+            let streamer = self.view_streamer();
+            let members = controller_members(streamer, pos);
+            let groups = controller_groups(streamer, &members);
             (members, groups)
         };
         let total: u32 = groups.iter().map(|g| g.count).sum();
@@ -719,7 +718,7 @@ impl VoxelGame {
                     .desired_width(ui.available_width().min(220.0)),
             );
             if ui.button("Déposer").clicked() {
-                self.controller_deposit(pos, None);
+                self.send_now(ClientMsg::Screen(ScreenAction::ControllerDeposit));
             }
         });
         let query = self.ui.storage_search.clone();
@@ -749,62 +748,89 @@ impl VoxelGame {
         let Some((group, press)) = pressed else {
             return;
         };
-        let world = self.world.clone();
-        match (group, self.players.me_mut().inventory.cursor) {
+        let action = match (group, self.view.me.inventory.cursor) {
             // La pile tenue est rangée dans les coffres.
-            (_, Some(held)) => {
-                let key = items.get(held.item).key.clone();
-                let stored = controller_insert(
+            (_, Some(_)) => ScreenAction::ControllerPut,
+            (Some((_, g)), None) => ScreenAction::ControllerTake {
+                item: g.item,
+                damage: g.damage,
+                how: match press {
+                    Press::Quick => TakeHow::All,
+                    Press::Secondary | Press::Split => TakeHow::Half,
+                    Press::Primary => TakeHow::Stack,
+                },
+            },
+            (None, None) => return,
+        };
+        self.send_now(ClientMsg::Screen(action));
+    }
+
+    /// `ControllerPut` : la pile tenue par le joueur courant va dans les coffres reliés.
+    pub(crate) fn controller_put(&mut self, pos: IVec3) {
+        let items = self.content.items.clone();
+        let Some(held) = self.players.me().inventory.cursor else {
+            return;
+        };
+        let world = self.world.clone();
+        let members = controller_members(&*world.borrow(), pos);
+        let key = items.get(held.item).key.clone();
+        let stored = controller_insert(
+            &mut *world.borrow_mut(),
+            &members,
+            Some(&items),
+            &key,
+            held.damage,
+            held.count,
+        );
+        self.players.me_mut().inventory.cursor = (stored < held.count).then_some(ItemStack {
+            count: held.count - stored,
+            ..held
+        });
+    }
+
+    /// `ControllerTake` : prendre une pile (ou la moitié, ou tout) d'un objet des coffres reliés.
+    pub(crate) fn controller_take_for(&mut self, pos: IVec3, key: &str, damage: u32, how: TakeHow) {
+        let items = self.content.items.clone();
+        let Some(id) = items.id(key) else {
+            return;
+        };
+        if self.players.me().inventory.cursor.is_some() {
+            return;
+        }
+        let world = self.world.clone();
+        let members = controller_members(&*world.borrow(), pos);
+        let available: u32 = controller_groups(&*world.borrow(), &members)
+            .iter()
+            .filter(|g| g.item == key && g.damage == damage)
+            .map(|g| g.count)
+            .sum();
+        let max = items.get(id).max_stack.max(1);
+        let wanted = match how {
+            TakeHow::All => available,
+            TakeHow::Half => max.div_ceil(2).min(available),
+            TakeHow::Stack => max.min(available),
+        };
+        let taken = controller_take(&mut *world.borrow_mut(), &members, key, damage, wanted);
+        let stack = ItemStack {
+            item: id,
+            count: taken,
+            damage,
+        };
+        if how == TakeHow::All {
+            // Tout, directement dans l'inventaire : ce qui n'y tient pas retourne aux coffres.
+            let left = self.players.me_mut().inventory.add_stack(stack, &items);
+            if left > 0 {
+                controller_insert(
                     &mut *world.borrow_mut(),
                     &members,
                     Some(&items),
-                    &key,
-                    held.damage,
-                    held.count,
+                    key,
+                    damage,
+                    left,
                 );
-                self.players.me_mut().inventory.cursor =
-                    (stored < held.count).then_some(ItemStack {
-                        count: held.count - stored,
-                        ..held
-                    });
             }
-            (Some((id, g)), None) => {
-                let max = items.get(id).max_stack.max(1);
-                let wanted = match press {
-                    Press::Quick => g.count,
-                    Press::Secondary | Press::Split => max.div_ceil(2).min(g.count),
-                    Press::Primary => max.min(g.count),
-                };
-                let taken = controller_take(
-                    &mut *world.borrow_mut(),
-                    &members,
-                    &g.item,
-                    g.damage,
-                    wanted,
-                );
-                let stack = ItemStack {
-                    item: id,
-                    count: taken,
-                    damage: g.damage,
-                };
-                if press == Press::Quick {
-                    // Tout, directement dans l'inventaire : ce qui n'y tient pas retourne aux coffres.
-                    let left = self.players.me_mut().inventory.add_stack(stack, &items);
-                    if left > 0 {
-                        controller_insert(
-                            &mut *world.borrow_mut(),
-                            &members,
-                            Some(&items),
-                            &g.item,
-                            g.damage,
-                            left,
-                        );
-                    }
-                } else if taken > 0 {
-                    self.players.me_mut().inventory.cursor = Some(stack);
-                }
-            }
-            (None, None) => {}
+        } else if taken > 0 {
+            self.players.me_mut().inventory.cursor = Some(stack);
         }
     }
 
@@ -822,7 +848,7 @@ impl VoxelGame {
         };
         // Un sac posé : son contenu, comme depuis l'inventaire.
         if let Some(number) = self.placed_bag_number(hit.block_pos) {
-            self.open_container_screen(Screen::Bag(number));
+            self.open_screen(Screen::Bag(number));
             return true;
         }
         // Un grand coffre s'ouvre sur sa moitié gauche, qui garde l'inventaire.
@@ -862,7 +888,7 @@ impl VoxelGame {
         if let Screen::Chest(pos) = screen {
             self.resolve_chest_loot(pos);
         }
-        self.open_container_screen(screen);
+        self.open_screen(screen);
         true
     }
 

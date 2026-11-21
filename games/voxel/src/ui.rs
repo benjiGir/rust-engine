@@ -84,6 +84,9 @@ pub struct Split {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SlotRef {
     Player(Slot),
+    /// Une case du conteneur ouvert, quel qu'il soit : c'est ainsi que la fenêtre les désigne (le
+    /// serveur sait ce que le joueur a ouvert, voir `slot_ref_for`).
+    Open(usize),
     Container(IVec3, usize),
     /// Une case de l'inventaire d'un wagon.
     Cart(Entity, usize),
@@ -102,8 +105,9 @@ pub(crate) enum Press {
     Split,
 }
 
-/// L'écran ouvert.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// L'écran ouvert. Il passe dans `ServerMsg::OpenScreen` : un wagon ou un habitant y est désigné par
+/// son numéro réseau (`NetId`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Screen {
     /// L'inventaire (E) : armure, grille 2 × 2, livre de recettes.
     Inventory,
@@ -118,9 +122,9 @@ pub enum Screen {
     /// Le contrôleur de stockage (voir `storage_ui.rs`).
     Controller(IVec3),
     /// L'inventaire d'un wagon (voir `cart_play.rs`).
-    Cart(Entity),
+    Cart(crate::entities::NetId),
     /// L'échange avec un habitant.
-    Trade(Entity),
+    Trade(crate::entities::NetId),
     /// La table d'enchantement posée à cet endroit (ses étagères sont lues autour d'elle).
     Enchant(IVec3),
     /// L'enclume simple (voir `enchant_books.rs`).
@@ -487,6 +491,8 @@ impl VoxelGame {
                 }
                 true
             }
+            // Résolue par le serveur avant d'arriver ici (voir `slot_ref_for`).
+            SlotRef::Open(_) => false,
             SlotRef::Container(pos, index) => self.click_container(pos, index, click),
             SlotRef::Cart(cart, index) => self.click_cart(cart, index, click),
             SlotRef::Bag(number, index) => {
@@ -500,9 +506,10 @@ impl VoxelGame {
         match target {
             SlotRef::Player(slot) => self.view.me.inventory.slot(slot),
             // Une case du conteneur ouvert : sa vue (voir `container_view.rs`).
-            SlotRef::Container(_, index) | SlotRef::Cart(_, index) | SlotRef::Bag(_, index) => {
-                self.shown_stack(index)
-            }
+            SlotRef::Open(index)
+            | SlotRef::Container(_, index)
+            | SlotRef::Cart(_, index)
+            | SlotRef::Bag(_, index) => self.shown_stack(index),
         }
     }
 
@@ -858,7 +865,7 @@ impl VoxelGame {
             Screen::Furnace(_) => "Four".to_string(),
             Screen::Brewing(_) => "Alambic".to_string(),
             Screen::Chest(_) | Screen::Bag(_) | Screen::Controller(_) => self.storage_title(),
-            Screen::Cart(cart) => self.cart_title(cart),
+            Screen::Cart(_) => self.cart_title(),
             Screen::Trade(_) => "Échange".to_string(),
             Screen::Enchant(_) => "Table d'enchantement".to_string(),
             Screen::Anvil => "Enclume simple".to_string(),
@@ -903,15 +910,15 @@ impl VoxelGame {
                             ui.collapsing("Livre de recettes", |ui| self.recipe_book(ui, 3));
                         }
                     }
-                    Screen::Furnace(pos) => self.furnace_panel(ui, pos),
-                    Screen::Brewing(pos) => self.brewing_panel(ui, pos),
-                    Screen::Chest(pos) => self.chest_panel(ui, pos),
-                    Screen::Bag(number) => {
-                        self.storage_panel(ui, crate::storage_ui::Target::Bag(number))
+                    Screen::Furnace(_) => self.furnace_panel(ui),
+                    Screen::Brewing(_) => self.brewing_panel(ui),
+                    Screen::Chest(_) => self.chest_panel(ui),
+                    Screen::Bag(_) => {
+                        self.storage_panel(ui, true)
                     }
                     Screen::Controller(pos) => self.controller_panel(ui, pos),
-                    Screen::Cart(cart) => self.cart_panel(ui, cart),
-                    Screen::Trade(mob) => self.trade_panel(ui, mob),
+                    Screen::Cart(_) => self.cart_panel(ui),
+                    Screen::Trade(_) => self.trade_panel(ui),
                     Screen::Enchant(pos) => self.enchant_panel(ui, pos),
                     Screen::Anvil => self.anvil_panel(ui),
                     Screen::Library(pos) => self.library_panel(ui, pos),
@@ -920,7 +927,7 @@ impl VoxelGame {
                     Screen::Shaping => self.shaping_panel(ui),
                     Screen::Tiers => self.tiers_panel(ui),
                     Screen::Guide => self.guide_panel(ui),
-                    Screen::Mod(pos) => self.mod_panel(ui, pos),
+                    Screen::Mod(_) => self.mod_panel(ui),
                     Screen::Console | Screen::Quests => {}
                 }
                 if !matches!(self.ui.screen, Screen::Tiers | Screen::Guide) {
@@ -1006,40 +1013,34 @@ impl VoxelGame {
     }
 
     /// Le menu d'une machine de mod : les éléments décrits par son script, dessinés ici.
-    fn mod_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
+    fn mod_panel(&mut self, ui: &mut egui::Ui) {
         // Le menu est sorti de l'état pendant le dessin (les cases ont besoin de `self`) ;
         // les actions sont mises en file, jamais appliquées pendant le dessin.
         let Some(mut state) = self.ui.mod_menu.take() else {
             return;
         };
         let mut events = Vec::new();
-        let mut changed = false;
         crate::mod_menu::draw_widgets(
             ui,
             &mut state.menu.widgets,
             &mut events,
             &mut |ui, first, count, columns| {
                 let columns = columns.min(crate::ui_layout::slot_columns(ui)).max(1);
+                // Un clic de case réveille la machine côté serveur (`SlotClick`).
                 crate::ui_layout::slots(ui, count, columns, |ui, index| {
-                    changed |= self.container_slot(ui, pos, first + index);
+                    self.container_slot(ui, first + index);
                 });
             },
         );
         self.ui.mod_menu = Some(state);
         self.ui.mod_events.extend(events);
-        if changed {
-            // La machine dort peut-être : on la réveille au prochain tick.
-            self.mods
-                .machines
-                .schedule(engine_voxel::GridPos::world(pos), 1);
-        }
     }
 
     /// Une case d'un conteneur (coffre, four) : ses objets sont dans l'entité du bloc.
-    fn container_slot(&mut self, ui: &mut egui::Ui, pos: IVec3, index: usize) -> bool {
+    fn container_slot(&mut self, ui: &mut egui::Ui, index: usize) -> bool {
         let stack = self.shown_stack(index);
         match self.stack_widget(ui, stack, false) {
-            Some(press) => self.press_slot(SlotRef::Container(pos, index), stack, press),
+            Some(press) => self.press_slot(SlotRef::Open(index), stack, press),
             None => false,
         }
     }
@@ -1051,7 +1052,7 @@ impl VoxelGame {
     }
 
     /// Le titre de l'écran d'un wagon (et sa réserve de combustible, pour une locomotive).
-    fn cart_title(&self, _cart: Entity) -> String {
+    fn cart_title(&self) -> String {
         match self.shown_container().and_then(|c| c.cart) {
             Some((crate::carts::CartKind::Locomotive, burn)) => {
                 format!(
@@ -1067,7 +1068,7 @@ impl VoxelGame {
 
     /// L'inventaire d'un wagon : 27 cases pour un coffre ou une trémie, la case de combustible
     /// d'une locomotive.
-    fn cart_panel(&mut self, ui: &mut egui::Ui, cart: Entity) {
+    fn cart_panel(&mut self, ui: &mut egui::Ui) {
         let Some(kind) = self
             .shown_container()
             .and_then(|c| c.cart)
@@ -1080,17 +1081,17 @@ impl VoxelGame {
         if kind == crate::carts::CartKind::Locomotive {
             ui.label("Combustible : charbon, bois...");
             crate::ui_layout::slots(ui, 1, 1, |ui, index| {
-                self.cart_slot(ui, cart, index);
+                self.cart_slot(ui, index);
             });
         } else {
-            self.storage_panel(ui, crate::storage_ui::Target::Cart(cart));
+            self.storage_panel(ui, false);
         }
     }
 
-    fn cart_slot(&mut self, ui: &mut egui::Ui, cart: Entity, index: usize) {
+    fn cart_slot(&mut self, ui: &mut egui::Ui, index: usize) {
         let stack = self.shown_stack(index);
         if let Some(press) = self.stack_widget(ui, stack, false) {
-            self.press_slot(SlotRef::Cart(cart, index), stack, press);
+            self.press_slot(SlotRef::Open(index), stack, press);
         }
     }
 
@@ -1135,35 +1136,21 @@ impl VoxelGame {
     /// avec ses objets dessinés (prix, flèche, produit), grisée si l'on ne peut pas payer et marquée
     /// si l'habitant n'en a plus ; à droite l'offre choisie en grandes cases, ce qui manque, et les
     /// boutons d'échange.
-    fn trade_panel(&mut self, ui: &mut egui::Ui, mob: Entity) {
-        let Some(key) = self.mob_key(mob) else {
+    fn trade_panel(&mut self, ui: &mut egui::Ui) {
+        // L'habitant, d'après la vue d'écran du serveur ; l'inventaire, d'après la vue du joueur.
+        let Some(crate::screen_actions::ScreenView::Trade { key, name, uses }) =
+            self.shown_screen().cloned()
+        else {
             // L'habitant a disparu (tué, ou trop loin) : on ferme.
             self.close_screen();
             self.ui.inventory_open = false;
             return;
         };
-        let name = {
-            let kind = self.ecs.get::<crate::components::Mob>(mob).map(|m| m.kind);
-            kind.and_then(|k| {
-                self.ecs
-                    .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
-                    .get(k)
-                    .map(|d| d.name.clone())
-            })
-        };
+        let inventory = self.view.me.inventory.as_inventory();
         let trades = self.trades.for_mob(&key).to_vec();
-        let uses = self
-            .ecs
-            .get::<crate::components::Trader>(mob)
-            .map(|t| t.uses.clone())
-            .unwrap_or_default();
         let items = self.content.items.clone();
         let item_name = |item: engine_voxel::ItemId| items.get(item).name.clone();
-        ui.label(
-            egui::RichText::new(name.unwrap_or_else(|| key.clone()))
-                .strong()
-                .size(18.0),
-        );
+        ui.label(egui::RichText::new(name).strong().size(18.0));
         if trades.is_empty() {
             ui.label("Cet habitant n'a rien à échanger.");
             return;
@@ -1185,11 +1172,7 @@ impl VoxelGame {
                     .show(ui, |ui| {
                         for (i, trade) in trades.iter().enumerate() {
                             let left = uses.get(i).copied().unwrap_or(0);
-                            let can = crate::trading::can_trade(
-                                &self.players.me_mut().inventory,
-                                trade,
-                                left,
-                            );
+                            let can = crate::trading::can_trade(&inventory, trade, left);
                             let (rect, response) = ui.allocate_exact_size(
                                 egui::vec2(list_width - 4.0, row_height),
                                 egui::Sense::click(),
@@ -1275,8 +1258,8 @@ impl VoxelGame {
             ui.vertical(|ui| {
                 let trade = &trades[selected];
                 let left = uses.get(selected).copied().unwrap_or(0);
-                let have = self.players.me_mut().inventory.count(trade.give.0);
-                let can = crate::trading::can_trade(&self.players.me_mut().inventory, trade, left);
+                let have = inventory.count(trade.give.0);
+                let can = crate::trading::can_trade(&inventory, trade, left);
                 let big = slot * 1.3;
                 let (rect, _) =
                     ui.allocate_exact_size(egui::vec2(big * 3.6, big + 8.0), egui::Sense::hover());
@@ -1353,61 +1336,34 @@ impl VoxelGame {
             });
         });
         self.ui.trade_selected = chosen;
-        let Some((i, times)) = deal else {
-            return;
-        };
-        let mut done = 0;
-        for _ in 0..times {
-            let left = self
-                .ecs
-                .get::<crate::components::Trader>(mob)
-                .and_then(|t| t.uses.get(i).copied())
-                .unwrap_or(0);
-            let Some(overflow) = crate::trading::execute(
-                &mut self.players.me_mut().inventory,
-                &items,
-                &trades[i],
-                left,
-            ) else {
-                break;
-            };
-            if let Some(mut trader) = self.ecs.get_mut::<crate::components::Trader>(mob) {
-                trader.uses[i] = left - 1;
-            }
-            if overflow > 0 {
-                let at = crate::player::body(&self.ecs, self.players.entity())
-                    .position
-                    .floor()
-                    .as_ivec3();
-                self.drop_stack(at, ItemStack::new(trades[i].get.0, overflow));
-            }
-            done += 1;
-        }
-        if done > 0
-            && let Some(audio) = &mut self.audio
-        {
-            audio.play("core:place_hard");
+        if let Some((i, times)) = deal {
+            self.send_now(crate::protocol::ClientMsg::Screen(
+                crate::protocol::ScreenAction::Trade {
+                    offer: i as u8,
+                    times,
+                },
+            ));
         }
     }
 
-    fn chest_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
-        self.storage_panel(ui, crate::storage_ui::Target::Block(pos));
+    fn chest_panel(&mut self, ui: &mut egui::Ui) {
+        self.storage_panel(ui, false);
     }
 
-    fn furnace_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
+    fn furnace_panel(&mut self, ui: &mut egui::Ui) {
         // Les jauges et les cases viennent de la vue du conteneur ouvert (`container_view.rs`) ; le
         // serveur réveille le four quand une case change.
         let [burn, cook] = self.shown_container().map_or([0.0; 2], |c| c.furnace);
         crate::ui_layout::furnace(ui, burn, cook, |ui, index| {
-            self.container_slot(ui, pos, index);
+            self.container_slot(ui, index);
         });
     }
 
     /// L'alambic : la fiole d'eau, l'ingrédient, l'avancement et la potion obtenue.
-    fn brewing_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
+    fn brewing_panel(&mut self, ui: &mut egui::Ui) {
         let progress = self.shown_container().map_or(0.0, |c| c.brewing);
         crate::ui_layout::brewing(ui, progress, |ui, index| {
-            self.container_slot(ui, pos, index);
+            self.container_slot(ui, index);
         });
         ui.label("Pomme : soin. Spores : régénération. Carotte : vitesse. Poussière d'ombre : force. Cinabre : résistance au feu.");
     }

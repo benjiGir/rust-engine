@@ -625,7 +625,7 @@ impl VoxelGame {
                 if let Some(recipe) = &view.crafting
                     && self.can_use_grid(recipe)
                 {
-                    let ready = self.players.me_mut().inventory.can_craft(recipe);
+                    let ready = self.view.me.inventory.as_inventory().can_craft(recipe);
                     let button = ui
                         .add_enabled(ready, egui::Button::new("Fabriquer"))
                         .on_hover_text("Maj : autant que possible")
@@ -674,17 +674,22 @@ impl VoxelGame {
                 } else {
                     1
                 };
+                // Le serveur fabrique : la recette part par son rang dans la liste des recettes.
+                let Some(index) = self.content.recipes.iter().position(|r| *r == recipe) else {
+                    return;
+                };
+                let size = if self.ui.screen == Screen::Workbench {
+                    3
+                } else {
+                    2
+                };
                 for _ in 0..limit {
-                    if self
-                        .players
-                        .me_mut()
-                        .inventory
-                        .craft_from_book(&recipe, &self.content.items)
-                        .is_none()
-                    {
-                        break;
-                    }
+                    self.outbox.push(crate::protocol::ClientMsg::Craft {
+                        size,
+                        recipe: Some(index as u32),
+                    });
                 }
+                self.flush_outbox();
             }
         }
     }

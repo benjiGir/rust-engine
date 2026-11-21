@@ -18,6 +18,7 @@ use engine_voxel::shaped::{self, Family, PieceKind};
 
 use crate::VoxelGame;
 use crate::inventory::{ItemStack, Slot};
+use crate::protocol::{ClientMsg, ScreenAction};
 use crate::shape_materials;
 
 /// L'établi de taille.
@@ -36,7 +37,8 @@ enum Input {
 
 impl VoxelGame {
     fn shaping_input(&self) -> Input {
-        let Some(stack) = self.players.me().inventory.craft[0] else {
+        // La case d'entrée, d'après la vue de l'inventaire.
+        let Some(stack) = self.view.me.inventory.craft[0] else {
             return Input::Empty;
         };
         let def = self.content.items.get(stack.item);
@@ -134,9 +136,10 @@ impl VoxelGame {
             ui.set_width(crate::ui_layout::slot_size(ui.ctx()) + 30.0);
             if self.stack_widget(ui, Some(preview), false).is_some() {
                 let all = ui.input(|i| i.modifiers.shift);
-                if let Err(why) = self.carve(Slot::Craft(0), kind, all) {
-                    self.toast(&why);
-                }
+                self.send_now(ClientMsg::Screen(ScreenAction::Carve {
+                    piece: kind.key().to_string(),
+                    all,
+                }));
             }
             ui.label(
                 egui::RichText::new(format!("{}\n×{}", kind.name(), kind.per_block())).small(),
@@ -164,8 +167,8 @@ impl VoxelGame {
         let clicked = ui
             .button(format!("{} bloc(s) : {}", wanted, name.to_lowercase()))
             .clicked();
-        if clicked && let Err(why) = self.rebuild(Slot::Craft(0), all) {
-            self.toast(&why);
+        if clicked {
+            self.send_now(ClientMsg::Screen(ScreenAction::Rebuild { all }));
         }
     }
 
@@ -196,9 +199,7 @@ impl VoxelGame {
                 ..stack
             });
         self.give_or_drop(made);
-        if let Some(audio) = &mut self.audio {
-            audio.play("core:place_hard");
-        }
+        self.sound("core:place_hard");
         Ok(made.count)
     }
 

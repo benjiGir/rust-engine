@@ -28,7 +28,7 @@ impl VoxelGame {
         if self.content.items.get(stack.item).key != GUIDE_ITEM {
             return false;
         }
-        self.open_guide();
+        self.open_screen(Screen::Guide);
         true
     }
 

@@ -14,14 +14,26 @@ use crate::VoxelGame;
 use crate::menus::PausePage;
 use crate::ui::Screen;
 
-/// Le menu de mod ouvert.
+/// Le menu de mod ouvert, tel que la fenêtre le dessine (analysé des octets que le serveur envoie
+/// dans `ScreenView::Mod`).
 #[derive(Debug, Clone)]
 pub struct ModMenuState {
-    /// Le mod qui l'a ouvert : il reçoit les actions du joueur.
+    /// Le mod qui l'a ouvert.
     pub owner: String,
     /// La machine du monde dont c'est le menu (ses cases d'inventaire sont les siennes).
     pub at: IVec3,
     pub menu: ModMenu,
+    /// Les octets reçus : un menu n'est réanalysé que s'ils changent.
+    pub data: Vec<u8>,
+}
+
+/// Le menu de mod qu'un joueur a ouvert, côté serveur : le mod qui l'a ouvert (il reçoit les
+/// actions), la machine, le menu tel que le script l'a décrit, et le dernier rafraîchissement.
+#[derive(Debug, Clone)]
+pub struct OpenModMenu {
+    pub owner: String,
+    pub at: IVec3,
+    pub data: Vec<u8>,
     pub last_refresh: Instant,
 }
 
@@ -29,20 +41,17 @@ pub struct ModMenuState {
 const REFRESH: Duration = Duration::from_millis(200);
 
 impl VoxelGame {
-    /// Un script demande d'ouvrir ou de mettre à jour son menu. L'ouverture n'est permise que
-    /// pendant un clic droit du joueur (un mod ne surgit pas à l'écran quand il veut) ; la mise
-    /// à jour, seulement pour le menu que ce mod a lui-même ouvert, sur la même machine.
+    /// Un script demande d'ouvrir ou de mettre à jour son menu, pour le joueur courant. L'ouverture
+    /// n'est permise que pendant un clic droit du joueur (un mod ne surgit pas à l'écran quand il
+    /// veut) ; la mise à jour, seulement pour le menu que ce mod a lui-même ouvert, sur la même
+    /// machine.
     pub(crate) fn show_mod_menu(&mut self, mod_id: String, at: GridPos, data: &[u8]) {
-        let menu = match ModMenu::parse(data) {
-            Ok(menu) => menu,
-            Err(err) => {
-                log::warn!("[mod {mod_id}] menu refusé : {err:#}");
-                return;
-            }
-        };
-        let updating = self
-            .ui
-            .mod_menu
+        if let Err(err) = ModMenu::parse(data) {
+            log::warn!("[mod {mod_id}] menu refusé : {err:#}");
+            return;
+        }
+        let open = self.players.me().mod_menu.clone();
+        let updating = open
             .as_ref()
             .is_some_and(|m| m.owner == mod_id && m.at == at.pos);
         if !updating && !self.ui.allow_mod_menu {
@@ -51,33 +60,39 @@ impl VoxelGame {
         if at.grid != engine_voxel::GridId::WORLD {
             return;
         }
-        let last_refresh = self
-            .ui
-            .mod_menu
-            .as_ref()
-            .map_or_else(Instant::now, |m| m.last_refresh);
-        self.ui.mod_menu = Some(ModMenuState {
+        let last_refresh = open.map_or_else(Instant::now, |m| m.last_refresh);
+        self.players.me_mut().mod_menu = Some(OpenModMenu {
             owner: mod_id,
             at: at.pos,
-            menu,
+            data: data.to_vec(),
             last_refresh,
         });
         if !updating {
-            self.ui.screen = Screen::Mod(at.pos);
-            self.ui.inventory_open = true;
+            self.open_screen(Screen::Mod(at.pos));
         }
     }
 
-    /// Un script ferme son menu.
+    /// Un script ferme son menu : chez chaque joueur qui l'a ouvert.
     pub(crate) fn close_mod_menu_of(&mut self, mod_id: &str) {
-        if self.ui.mod_menu.as_ref().is_some_and(|m| m.owner == mod_id) {
-            self.close_screen();
+        let ids: Vec<_> = self
+            .players
+            .iter()
+            .filter(|p| p.mod_menu.as_ref().is_some_and(|m| m.owner == mod_id))
+            .map(|p| p.id)
+            .collect();
+        for id in ids {
+            let before = self.players.set_acting(Some(id));
+            self.forget_mod_menu();
+            self.players.me_mut().screen = None;
+            self.players.set_acting(before);
+            self.replies
+                .push((id, crate::protocol::ServerMsg::CloseScreen));
         }
     }
 
-    /// Dit au mod que son menu est fermé, et l'oublie. Appelé par `close_screen`.
+    /// Dit au mod que le menu du joueur courant est fermé, et l'oublie (`CloseMenu`).
     pub(crate) fn forget_mod_menu(&mut self) {
-        let Some(state) = self.ui.mod_menu.take() else {
+        let Some(state) = self.players.me_mut().mod_menu.take() else {
             return;
         };
         let actions = self
@@ -86,12 +101,34 @@ impl VoxelGame {
         self.apply_machine_actions(actions);
     }
 
-    /// Transmet au script les actions du joueur depuis la dernière image, puis le
-    /// rafraîchissement périodique.
+    /// La fenêtre range le menu que le serveur décrit (seulement s'il a changé).
+    pub(crate) fn receive_mod_menu(&mut self, owner: String, at: IVec3, data: Vec<u8>) {
+        if self
+            .ui
+            .mod_menu
+            .as_ref()
+            .is_some_and(|m| m.owner == owner && m.at == at && m.data == data)
+        {
+            return;
+        }
+        if let Ok(menu) = ModMenu::parse(&data) {
+            self.ui.mod_menu = Some(ModMenuState {
+                owner,
+                at,
+                menu,
+                data,
+            });
+        }
+    }
+
+    /// La fenêtre envoie au serveur les actions du joueur sur le menu ; le serveur rafraîchit les
+    /// menus ouverts cinq fois par seconde, et transmet les pages d'options.
     pub(crate) fn flush_mod_ui(&mut self) {
         let events = std::mem::take(&mut self.ui.mod_events);
         for (kind, id, value) in events {
-            self.send_mod_ui(kind, id, value);
+            self.send_now(crate::protocol::ClientMsg::Screen(
+                crate::protocol::ScreenAction::ModEvent { kind, id, value },
+            ));
         }
         let options = std::mem::take(&mut self.ui.options_events);
         if let (Some((owner, _)), false) = (self.ui.options_menu.clone(), options.is_empty()) {
@@ -106,21 +143,35 @@ impl VoxelGame {
             self.ui.settings_saved = Instant::now();
             self.mods.save_settings();
         }
-        let due = self
-            .ui
-            .mod_menu
-            .as_ref()
-            .is_some_and(|m| m.last_refresh.elapsed() >= REFRESH);
-        if due {
-            if let Some(m) = &mut self.ui.mod_menu {
+        let due: Vec<_> = self
+            .players
+            .iter()
+            .filter(|p| {
+                p.mod_menu
+                    .as_ref()
+                    .is_some_and(|m| m.last_refresh.elapsed() >= REFRESH)
+            })
+            .map(|p| p.id)
+            .collect();
+        for id in due {
+            let before = self.players.set_acting(Some(id));
+            if let Some(m) = &mut self.players.me_mut().mod_menu {
                 m.last_refresh = Instant::now();
             }
             self.send_mod_ui(UI_REFRESH, 0, 0);
+            self.players.set_acting(before);
         }
     }
 
-    fn send_mod_ui(&mut self, kind: i32, id: i32, value: i32) {
-        let Some((owner, at)) = self.ui.mod_menu.as_ref().map(|m| (m.owner.clone(), m.at)) else {
+    /// Transmet une action au mod du menu ouvert par le joueur courant.
+    pub(crate) fn send_mod_ui(&mut self, kind: i32, id: i32, value: i32) {
+        let Some((owner, at)) = self
+            .players
+            .me()
+            .mod_menu
+            .as_ref()
+            .map(|m| (m.owner.clone(), m.at))
+        else {
             return;
         };
         let actions = self

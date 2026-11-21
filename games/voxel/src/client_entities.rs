@@ -214,9 +214,13 @@ impl ClientEntities {
             | ServerMsg::Vitals(_)
             | ServerMsg::Inventory(_)
             | ServerMsg::Container(_)
+            | ServerMsg::ScreenView(_)
+            | ServerMsg::Quests(_)
             | ServerMsg::Feedback(_)
             | ServerMsg::Died { .. }
             | ServerMsg::Respawned
+            | ServerMsg::OpenScreen(_)
+            | ServerMsg::CloseScreen
             | ServerMsg::Chunk { .. }
             | ServerMsg::ChunkChanged { .. } => {}
         }

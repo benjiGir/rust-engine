@@ -98,8 +98,8 @@ impl VoxelGame {
                         self.give_or_drop(old);
                     }
                 }
-                self.ui.screen = Screen::Shaping;
-                self.ui.inventory_open = true;
+                self.open_screen(Screen::Shaping);
+                self.apply_replies();
                 self.mouse_captured = false;
                 Ok("{\"ok\":true}".to_string())
             }

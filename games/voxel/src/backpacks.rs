@@ -629,7 +629,7 @@ impl VoxelGame {
             self.toast("Plus aucun numéro de sac disponible");
             return false;
         };
-        self.open_container_screen(crate::ui::Screen::Bag(number));
+        self.open_screen(crate::ui::Screen::Bag(number));
         true
     }
 

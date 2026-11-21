@@ -257,12 +257,13 @@ impl VoxelGame {
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Open(screen) => {
-                self.ui.screen = match screen.as_str() {
+                let screen = match screen.as_str() {
                     "salvage" => Screen::Salvage,
                     "reforge" => Screen::Reforge,
                     _ => Screen::Tiers,
                 };
-                self.ui.inventory_open = true;
+                self.open_screen(screen);
+                self.apply_replies();
                 self.mouse_captured = false;
                 Ok("{\"ok\":true}".to_string())
             }

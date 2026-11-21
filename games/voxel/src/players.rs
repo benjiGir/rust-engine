@@ -78,6 +78,10 @@ pub struct PlayerState {
     pub eating: bool,
     /// Mort, en attente de réapparaître : sa mort a déjà été traitée (objets lâchés, message).
     pub dead: bool,
+    /// L'écran que le serveur a ouvert pour ce joueur (ses gestes ne valent que pour lui).
+    pub screen: Option<crate::ui::Screen>,
+    /// Le menu de mod ouvert par ce joueur (voir `mod_menu.rs`).
+    pub mod_menu: Option<crate::mod_menu::OpenModMenu>,
     /// Le conteneur ouvert par ce joueur (coffre, four, sac, wagon) : les clics de cases ne valent
     /// que pour lui (voir `intents.rs`).
     pub open: Option<OpenContainer>,
@@ -144,6 +148,8 @@ impl PlayerState {
             eat_progress: None,
             eating: false,
             dead: false,
+            screen: None,
+            mod_menu: None,
             open: None,
             dig: None,
             last_move: None,

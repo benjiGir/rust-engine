@@ -55,6 +55,18 @@ pub struct VitalsView {
     /// Niveau et avancement vers le suivant (0 à 1).
     pub level: u32,
     pub progress: f32,
+    /// Les points d'expérience (le prix des lots de la table d'enchantement).
+    pub points: u32,
+    /// La graine des lots de la table d'enchantement : le client calcule les mêmes lots que le
+    /// serveur.
+    pub enchant_seed: u32,
+    /// La rareté choisie à la table de réforge, et la graine de ses tirages.
+    pub forge_rarity: u8,
+    pub forge_seed: u64,
+    /// L'aventure : le palier choisi, les paliers débloqués et ce qui les débloque.
+    pub tiers: crate::tiers::Progress,
+    /// La portée de la main (l'équipement l'allonge).
+    pub reach: f32,
     pub effects: Vec<EffectView>,
 }
 
@@ -153,6 +165,10 @@ pub struct ClientPlayer {
     pub inventory: InventoryView,
     /// Le conteneur ouvert (voir `container_view.rs`).
     pub container: Option<ContainerView>,
+    /// Ce que montre l'écran ouvert, quand le serveur seul le sait (voir `screen_actions.rs`).
+    pub screen: Option<crate::screen_actions::ScreenView>,
+    /// La progression des quêtes du joueur (le livre et les quêtes épinglées la lisent).
+    pub quests: Option<crate::quest_progress::Progress>,
     /// Le moment du dernier coup reçu (quand `hits` a changé).
     hit_at: Option<Instant>,
 }
@@ -183,18 +199,54 @@ pub struct PlayerViews {
     vitals: HashMap<PlayerId, VitalsView>,
     inventories: HashMap<PlayerId, InventoryView>,
     containers: HashMap<PlayerId, Option<ContainerView>>,
+    screens: HashMap<PlayerId, Option<crate::screen_actions::ScreenView>>,
+    quests: HashMap<PlayerId, Option<crate::quest_progress::Progress>>,
+}
+
+/// Les vues d'un joueur à une fin d'image, avant de voir ce qui a changé.
+pub struct PlayerUpdate<'a> {
+    pub vitals: VitalsView,
+    pub inventory: InventoryView,
+    pub container: Option<ContainerView>,
+    pub screen: Option<crate::screen_actions::ScreenView>,
+    pub quests: Option<&'a crate::quest_progress::Progress>,
+}
+
+#[cfg(test)]
+impl PlayerUpdate<'_> {
+    /// Les jauges et l'inventaire, rien d'ouvert, pas de quêtes.
+    pub fn new(vitals: VitalsView, inventory: InventoryView) -> Self {
+        Self {
+            vitals,
+            inventory,
+            container: None,
+            screen: None,
+            quests: None,
+        }
+    }
 }
 
 impl PlayerViews {
     /// Les messages d'un joueur : seulement ses vues qui ont changé.
-    pub fn step(
-        &mut self,
-        id: PlayerId,
-        vitals: VitalsView,
-        inventory: InventoryView,
-        container: Option<ContainerView>,
-        out: &mut Vec<ServerMsg>,
-    ) {
+    pub fn step(&mut self, id: PlayerId, update: PlayerUpdate<'_>, out: &mut Vec<ServerMsg>) {
+        let PlayerUpdate {
+            vitals,
+            inventory,
+            container,
+            screen,
+            quests,
+        } = update;
+        let known = self.quests.get(&id).and_then(Option::as_ref);
+        if known != quests {
+            let quests = quests.cloned();
+            self.quests.insert(id, quests.clone());
+            out.push(ServerMsg::Quests(quests));
+        }
+        let before = self.screens.get(&id).cloned().flatten();
+        if before != screen {
+            self.screens.insert(id, screen.clone());
+            out.push(ServerMsg::ScreenView(screen));
+        }
         if self.vitals.get(&id) != Some(&vitals) {
             self.vitals.insert(id, vitals.clone());
             out.push(ServerMsg::Vitals(vitals));
@@ -215,11 +267,13 @@ impl PlayerViews {
         self.vitals.remove(&id);
         self.inventories.remove(&id);
         self.containers.remove(&id);
+        self.screens.remove(&id);
+        self.quests.remove(&id);
     }
 }
 
 /// Les jauges d'un joueur. `health` vient de l'ECS (le composant `Health` de son entité).
-pub fn vitals_of(state: &PlayerState, health: [f32; 2]) -> VitalsView {
+pub fn vitals_of(state: &PlayerState, health: [f32; 2], enchant_seed: u32) -> VitalsView {
     let (level, _) = state.experience.level();
     VitalsView {
         health,
@@ -229,6 +283,12 @@ pub fn vitals_of(state: &PlayerState, health: [f32; 2]) -> VitalsView {
         hits: state.vitals.hits,
         level,
         progress: state.experience.progress(),
+        points: state.experience.points,
+        enchant_seed,
+        forge_rarity: state.adventure.forge_rarity,
+        forge_seed: state.adventure.forge_seed,
+        tiers: state.adventure.progress,
+        reach: state.gear.reach(),
         effects: state
             .effects
             .list()
@@ -249,17 +309,27 @@ impl VoxelGame {
         for id in ids {
             // Le conteneur se décrit avec l'état de ce joueur (son `open`).
             let before = self.players.set_acting(Some(id));
+            // Une bibliothèque ouverte range ce que les réseaux déposent dans sa case d'entrée.
+            if let Some(crate::ui::Screen::Library(pos)) = self.players.me().screen {
+                self.absorb_library(pos);
+            }
             let container = self.open_container_view();
+            let screen = self.screen_view();
             self.players.set_acting(before);
             let Some(player) = self.players.get(id) else {
                 continue;
             };
             let health = crate::player::health(&self.ecs, player.entity);
-            let vitals = vitals_of(player, [health.current, health.max]);
+            let vitals = vitals_of(player, [health.current, health.max], self.enchant_seed);
             let inventory = InventoryView::of(&player.inventory);
-            self.view
-                .player_views
-                .step(id, vitals, inventory, container, &mut out);
+            let update = PlayerUpdate {
+                vitals,
+                inventory,
+                container,
+                screen,
+                quests: player.quest_book.progress(),
+            };
+            self.view.player_views.step(id, update, &mut out);
             self.replies.extend(out.drain(..).map(|msg| (id, msg)));
         }
     }
@@ -337,6 +407,12 @@ mod tests {
             hits,
             level: 0,
             progress: 0.0,
+            points: 0,
+            enchant_seed: 0,
+            forge_rarity: 0,
+            forge_seed: 0,
+            tiers: crate::tiers::Progress::default(),
+            reach: 4.5,
             effects: Vec::new(),
         }
     }
@@ -348,26 +424,20 @@ mod tests {
         let mut out = Vec::new();
         views.step(
             me,
-            vitals(20.0, 0),
-            InventoryView::default(),
-            None,
+            PlayerUpdate::new(vitals(20.0, 0), InventoryView::default()),
             &mut out,
         );
         assert_eq!(out.len(), 2, "la première fois : les deux vues");
         out.clear();
         views.step(
             me,
-            vitals(20.0, 0),
-            InventoryView::default(),
-            None,
+            PlayerUpdate::new(vitals(20.0, 0), InventoryView::default()),
             &mut out,
         );
         assert!(out.is_empty(), "rien n'a changé");
         views.step(
             me,
-            vitals(19.0, 0),
-            InventoryView::default(),
-            None,
+            PlayerUpdate::new(vitals(19.0, 0), InventoryView::default()),
             &mut out,
         );
         assert!(matches!(out.as_slice(), [ServerMsg::Vitals(v)] if v.food == 19.0));
@@ -376,7 +446,7 @@ mod tests {
             selected: 3,
             ..InventoryView::default()
         };
-        views.step(me, vitals(19.0, 0), inventory, None, &mut out);
+        views.step(me, PlayerUpdate::new(vitals(19.0, 0), inventory), &mut out);
         assert!(matches!(out.as_slice(), [ServerMsg::Inventory(i)] if i.selected == 3));
     }
 
@@ -386,17 +456,13 @@ mod tests {
         let mut out = Vec::new();
         views.step(
             PlayerId(0),
-            vitals(20.0, 0),
-            InventoryView::default(),
-            None,
+            PlayerUpdate::new(vitals(20.0, 0), InventoryView::default()),
             &mut out,
         );
         out.clear();
         views.step(
             PlayerId(1),
-            vitals(20.0, 0),
-            InventoryView::default(),
-            None,
+            PlayerUpdate::new(vitals(20.0, 0), InventoryView::default()),
             &mut out,
         );
         assert_eq!(
@@ -408,9 +474,7 @@ mod tests {
         views.forget(PlayerId(1));
         views.step(
             PlayerId(1),
-            vitals(20.0, 0),
-            InventoryView::default(),
-            None,
+            PlayerUpdate::new(vitals(20.0, 0), InventoryView::default()),
             &mut out,
         );
         assert_eq!(out.len(), 2, "un joueur oublié recommence à zéro");
@@ -439,9 +503,10 @@ mod tests {
             out.clear();
             views.step(
                 me,
-                vitals(20.0, 0),
-                InventoryView::default(),
-                container,
+                PlayerUpdate {
+                    container,
+                    ..PlayerUpdate::new(vitals(20.0, 0), InventoryView::default())
+                },
                 &mut out,
             );
             out.iter()

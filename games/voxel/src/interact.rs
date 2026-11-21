@@ -177,13 +177,10 @@ impl VoxelGame {
         if !key.as_deref().is_some_and(|k| self.trades.trades(k)) {
             return false;
         }
-        // L'écran d'échange ne s'ouvre que devant le joueur de la fenêtre (il devient une vue au
-        // lot 3).
-        if self.players.current_is_local() {
-            self.ui.screen = ui::Screen::Trade(mob);
-            self.ui.trade_selected = 0;
-            self.ui.inventory_open = true;
-        }
+        let Some(id) = self.ecs.get::<crate::entities::NetId>(mob).map(|id| *id) else {
+            return false;
+        };
+        self.open_screen(ui::Screen::Trade(id));
         true
     }
 
@@ -199,7 +196,8 @@ impl VoxelGame {
     /// Ferme l'écran ouvert : la grille d'artisanat et la main retournent dans
     /// l'inventaire (ce qui n'y tient pas tombe par terre).
     pub(crate) fn close_screen(&mut self) {
-        self.forget_mod_menu();
+        // Le serveur prévient le mod (`CloseMenu`, voir `close_menu`).
+        self.ui.mod_menu = None;
         self.ui.browser.close();
         self.ui.split = None;
         // Le simulateur range la main et la grille d'artisanat (voir `intents.rs`).

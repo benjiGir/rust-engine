@@ -21,6 +21,7 @@ mod labels;
 mod map;
 mod sheet;
 
+use crate::protocol::{ClientMsg, QuestAct, ScreenAction};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -165,9 +166,9 @@ impl VoxelGame {
         self.ui.quests.chapter = chapter;
         self.ui.quests.selected = None;
         self.ui.quests.fit = true;
-        if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
-            progress.set_last_chapter(&quests.chapters[chapter].id);
-        }
+        self.send_now(ClientMsg::Screen(ScreenAction::Quest(
+            QuestAct::LastChapter(quests.chapters[chapter].id.clone()),
+        )));
     }
 
     /// Va à une quête : son chapitre, le plan centré dessus, sa fiche ouverte.
@@ -188,12 +189,15 @@ impl VoxelGame {
 
     /// Le bouton « Quêtes » de l'écran d'inventaire, et ce qui attend d'être récupéré.
     pub(crate) fn quests_button(&mut self, ui: &mut egui::Ui) {
-        let waiting = self
-            .players
-            .me_mut()
-            .quest_book
-            .loaded_pending()
-            .filter(|&n| n > 0);
+        // Ce qui attend d'être récupéré, d'après la progression que le serveur a envoyée.
+        let waiting = match (
+            self.players.local().quest_book.quests(),
+            &self.view.me.quests,
+        ) {
+            (Some(quests), Some(progress)) => Some(progress.pending(&quests).len()),
+            _ => None,
+        }
+        .filter(|&n| n > 0);
         ui.horizontal(|ui| {
             if ui.small_button("Quêtes").clicked() {
                 let _ = self.open_quest_book(None);
@@ -217,9 +221,10 @@ impl VoxelGame {
     pub(crate) fn draw_quests_screen(&mut self, ctx: &egui::Context) {
         self.ui.browser.hovered = None;
         self.open_quests();
+        // Les quêtes sont le contenu du jeu ; la progression vient de la vue du joueur.
         let (Some(quests), Some(progress)) = (
-            self.players.me_mut().quest_book.quests(),
-            self.players.me_mut().quest_book.progress().cloned(),
+            self.players.local().quest_book.quests(),
+            self.view.me.quests.clone(),
         ) else {
             return;
         };
@@ -614,6 +619,67 @@ impl VoxelGame {
         response.clicked()
     }
 
+    fn send_quest_act(&mut self, act: QuestAct) {
+        self.send_now(ClientMsg::Screen(ScreenAction::Quest(act)));
+    }
+
+    /// `ScreenAction::Quest` : le serveur applique un geste du livre au joueur courant.
+    pub(crate) fn quest_act(&mut self, act: QuestAct) {
+        let Some(quests) = self.players.me().quest_book.quests() else {
+            return;
+        };
+        let count = quests.quests.len();
+        let quest_ok = |q: u32| (q as usize) < count;
+        match act {
+            QuestAct::LastChapter(id) => {
+                if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
+                    progress.set_last_chapter(&id);
+                }
+            }
+            QuestAct::Claim(quest) if quest_ok(quest) => match self.claim_quest(quest as usize) {
+                Ok(gave) if gave.is_empty() => self.toast("Quête récupérée"),
+                Ok(gave) => self.toast(&format!("Récupéré : {gave}")),
+                Err(err) => self.toast(&err.to_string()),
+            },
+            QuestAct::ClaimAll => {
+                let claimed = self.claim_all_quests();
+                self.toast(&if claimed == 0 {
+                    "Rien à récupérer (ou un choix à faire)".to_string()
+                } else {
+                    format!("{claimed} quête(s) récupérée(s)")
+                });
+            }
+            QuestAct::Check(quest, task) if quest_ok(quest) => {
+                if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
+                    progress.check(&quests, quest as usize, task as usize);
+                }
+                self.refresh_quests();
+            }
+            QuestAct::HandIn(quest, task) if quest_ok(quest) => {
+                // Pas de bannière : la fiche montre le compteur, et la quête finie s'annonce.
+                self.hand_in_quest(quest as usize, task as usize);
+            }
+            QuestAct::Choose(quest, reward, option) if quest_ok(quest) => {
+                if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
+                    progress.choose(&quests, quest as usize, reward as usize, option as usize);
+                }
+            }
+            QuestAct::Pin(quest) if quest_ok(quest) => {
+                let id = quests.quests[quest as usize].id.clone();
+                let changed = self
+                    .players
+                    .me_mut()
+                    .quest_book
+                    .progress_mut()
+                    .is_ok_and(|p| p.toggle_pin(&id));
+                if !changed {
+                    self.toast("Trois quêtes épinglées au plus");
+                }
+            }
+            act => log::warn!("geste du livre de quêtes refusé : {act:?}"),
+        }
+    }
+
     /// Applique ce que le joueur a demandé pendant l'image.
     fn apply_quest_acts(&mut self, acts: Vec<Act>, quests: &Arc<Quests>) {
         for act in acts {
@@ -621,46 +687,21 @@ impl VoxelGame {
                 Act::Chapter(c) => self.show_quest_chapter(c, quests),
                 Act::Select(quest) => self.ui.quests.selected = quest,
                 Act::GoTo(quest) => self.go_to_quest(quest, quests),
-                Act::Claim(quest) => match self.claim_quest(quest) {
-                    Ok(gave) if gave.is_empty() => self.toast("Quête récupérée"),
-                    Ok(gave) => self.toast(&format!("Récupéré : {gave}")),
-                    Err(err) => self.toast(&err.to_string()),
-                },
-                Act::ClaimAll => {
-                    let claimed = self.claim_all_quests();
-                    self.toast(&if claimed == 0 {
-                        "Rien à récupérer (ou un choix à faire)".to_string()
-                    } else {
-                        format!("{claimed} quête(s) récupérée(s)")
-                    });
-                }
+                // Ce qui change la progression part au serveur.
+                Act::Claim(quest) => self.send_quest_act(QuestAct::Claim(quest as u32)),
+                Act::ClaimAll => self.send_quest_act(QuestAct::ClaimAll),
                 Act::Check(quest, task) => {
-                    if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
-                        progress.check(quests, quest, task);
-                    }
-                    self.refresh_quests();
+                    self.send_quest_act(QuestAct::Check(quest as u32, task as u32));
                 }
                 Act::HandIn(quest, task) => {
-                    // Pas de bannière : la fiche montre le compteur, et la quête finie s'annonce.
-                    self.hand_in_quest(quest, task);
+                    self.send_quest_act(QuestAct::HandIn(quest as u32, task as u32));
                 }
-                Act::Choose(quest, reward, option) => {
-                    if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
-                        progress.choose(quests, quest, reward, option);
-                    }
-                }
-                Act::Pin(quest) => {
-                    let id = quests.quests[quest].id.clone();
-                    let changed = self
-                        .players
-                        .me_mut()
-                        .quest_book
-                        .progress_mut()
-                        .is_ok_and(|p| p.toggle_pin(&id));
-                    if !changed {
-                        self.toast("Trois quêtes épinglées au plus");
-                    }
-                }
+                Act::Choose(quest, reward, option) => self.send_quest_act(QuestAct::Choose(
+                    quest as u32,
+                    reward as u32,
+                    option as u32,
+                )),
+                Act::Pin(quest) => self.send_quest_act(QuestAct::Pin(quest as u32)),
                 Act::Guide(chapter) => {
                     self.ui.browser.close();
                     if let Some(at) = self

@@ -14,6 +14,7 @@ use crate::enchant_library::{self, Library};
 use crate::enchant_table::{self, Offer, Subject, TableStats};
 use crate::enchanting::{self, Enchantment};
 use crate::inventory::ItemStack;
+use crate::protocol::ScreenAction;
 
 /// La couleur d'un nom d'enchantement sur le cadre clair de l'inventaire.
 const ENCHANT_TEXT: egui::Color32 = egui::Color32::from_rgb(98, 54, 158);
@@ -39,22 +40,35 @@ fn percent(value: f32) -> String {
 impl VoxelGame {
     /// Les stats de la table posée en `pos` (voir `enchant_table.rs`).
     pub(crate) fn table_stats(&self, pos: IVec3) -> TableStats {
-        let streamer = self.streamer();
-        let world = streamer.world();
-        let registry = &self.registry;
-        enchant_table::read_stats(
-            pos,
-            |p| !registry.def(world.block(p)).solid,
-            |p| {
-                registry
-                    .def(world.block(p))
-                    .enchanting
-                    .clone()
-                    .filter(|s| s.library_level == 0)
-            },
-        )
+        table_stats_in(&self.registry, self.streamer().world(), pos)
     }
 
+    /// Les stats de la table telles que la fenêtre les voit (la réplique du monde).
+    fn shown_table_stats(&self, pos: IVec3) -> TableStats {
+        table_stats_in(&self.registry, self.view_world(), pos)
+    }
+}
+
+/// Les stats d'une table, lues dans `world` (celui du serveur, ou la réplique de la fenêtre).
+fn table_stats_in(
+    registry: &engine_voxel::BlockRegistry,
+    world: &engine_voxel::World,
+    pos: IVec3,
+) -> TableStats {
+    enchant_table::read_stats(
+        pos,
+        |p| !registry.def(world.block(p)).solid,
+        |p| {
+            registry
+                .def(world.block(p))
+                .enchanting
+                .clone()
+                .filter(|s| s.library_level == 0)
+        },
+    )
+}
+
+impl VoxelGame {
     /// Le sujet de la table : la pile en main, objet à enchanter ou livre à remplir.
     fn table_subject<'a>(
         items: &'a engine_voxel::ItemRegistry,
@@ -73,7 +87,9 @@ impl VoxelGame {
     /// La table d'enchantement : ses stats, et trois lots pour l'objet (ou le livre) en main, payés
     /// en points d'expérience et en saphirs.
     pub(crate) fn enchant_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
-        let stats = self.table_stats(pos);
+        // Ce que la fenêtre voit : la réplique (étagères) et les vues du joueur ; le serveur
+        // recalcule les lots quand on en achète un (`ScreenAction::EnchantBuy`).
+        let stats = self.shown_table_stats(pos);
         stats_grid(ui, &stats);
         ui.add_space(4.0);
         ui.separator();
@@ -87,7 +103,10 @@ impl VoxelGame {
 
     /// L'objet en main et les lots proposés, avec leur prix.
     fn enchant_body(&mut self, ui: &mut egui::Ui, stats: &TableStats) {
-        let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
+        let Some(vitals) = self.view.me.vitals.clone() else {
+            return;
+        };
+        let Some(stack) = self.view.me.inventory.selected_stack() else {
             ui.label("Tiens un outil, une armure, un livre ou un tome dans la barre d'objets, puis reviens.");
             return;
         };
@@ -107,7 +126,7 @@ impl VoxelGame {
             subject,
             &def.key,
             stack.damage,
-            self.enchant_seed,
+            vitals.enchant_seed,
             stats,
         ) else {
             ui.label(if owned.is_empty() {
@@ -118,16 +137,16 @@ impl VoxelGame {
             return;
         };
         let gem = items.id("core:sapphire");
-        let have_gems = gem.map_or(0, |g| self.players.me_mut().inventory.count(g));
-        let points = self.players.me_mut().experience.points;
+        let have_gems = gem.map_or(0, |g| self.view.me.inventory.as_inventory().count(g));
+        let points = vitals.points;
         ui.label(format!(
             "{} · {points} pts d'XP (niveau {}) · {}",
             def.name,
-            self.players.me_mut().experience.level().0,
+            vitals.level,
             sapphires(have_gems)
         ));
         let mut chosen = None;
-        for offer in list {
+        for (index, offer) in list.into_iter().enumerate() {
             let affordable = points >= offer.points && have_gems >= offer.gems;
             let text = format!(
                 "Niv. {} · {} · {} pts, {}",
@@ -140,12 +159,42 @@ impl VoxelGame {
                 .add_enabled(affordable, egui::Button::new(text).wrap())
                 .clicked()
             {
-                chosen = Some(offer);
+                chosen = Some(index);
             }
         }
-        if let Some(offer) = chosen {
-            self.buy_offer(&offer, gem);
+        if let Some(index) = chosen {
+            self.send_now(crate::protocol::ClientMsg::Screen(
+                crate::protocol::ScreenAction::EnchantBuy { offer: index as u8 },
+            ));
         }
+    }
+
+    /// `EnchantBuy` : le serveur refait la liste des lots de la table ouverte pour l'objet en main,
+    /// et achète celui-ci s'il est abordable.
+    pub(crate) fn buy_enchant_offer(&mut self, pos: IVec3, index: usize) {
+        let stats = self.table_stats(pos);
+        let Some(stack) = self.players.me().inventory.selected_stack() else {
+            return;
+        };
+        let items = self.content.items.clone();
+        let Some(subject) = Self::table_subject(&items, &stack) else {
+            return;
+        };
+        let data = crate::adventure_data::current();
+        let key = items.get(stack.item).key.clone();
+        let Some(offer) = enchant_table::offers(
+            &data,
+            subject,
+            &key,
+            stack.damage,
+            self.enchant_seed,
+            &stats,
+        )
+        .and_then(|list| list.into_iter().nth(index)) else {
+            log::warn!("lot d'enchantement inconnu ({index}) : ignoré");
+            return;
+        };
+        self.buy_offer(&offer, items.id("core:sapphire"));
     }
 
     /// L'aide des livres et des indices, repliée sous la table pour laisser la place à
@@ -213,7 +262,7 @@ impl VoxelGame {
             )
             .weak(),
         );
-        if let Some(held) = self.players.me_mut().inventory.cursor {
+        if let Some(held) = self.view.me.inventory.cursor {
             let items = self.content.items.clone();
             ui.separator();
             ui.label(format!("À la souris : {}", items.get(held.item).name));
@@ -227,22 +276,37 @@ impl VoxelGame {
 
     /// Les octets et le plafond de la bibliothèque en `pos`.
     fn library_state(&self, pos: IVec3) -> Option<(Library, u8)> {
-        let streamer = self.streamer();
-        let max = enchant_library::max_level_of(
-            self.registry
-                .def(streamer.world().block(pos))
-                .enchanting
-                .as_ref(),
-        );
-        if max == 0 {
-            return None;
-        }
-        let library = streamer
-            .block_entity(pos)
-            .map_or_else(Library::default, |e| Library::read(&e.data));
-        Some((library, max))
+        library_in(&self.registry, &self.streamer(), pos)
     }
 
+    /// La bibliothèque telle que la fenêtre la voit (la réplique).
+    fn shown_library(&self, pos: IVec3) -> Option<(Library, u8)> {
+        library_in(&self.registry, self.view_streamer(), pos)
+    }
+}
+
+/// Les octets et le plafond d'une bibliothèque, lus dans `streamer`.
+fn library_in(
+    registry: &engine_voxel::BlockRegistry,
+    streamer: &engine_voxel::ChunkStreamer,
+    pos: IVec3,
+) -> Option<(Library, u8)> {
+    let max = enchant_library::max_level_of(
+        registry
+            .def(streamer.world().block(pos))
+            .enchanting
+            .as_ref(),
+    );
+    if max == 0 {
+        return None;
+    }
+    let library = streamer
+        .block_entity(pos)
+        .map_or_else(Library::default, |e| Library::read(&e.data));
+    Some((library, max))
+}
+
+impl VoxelGame {
     fn write_library(&mut self, pos: IVec3, library: &Library) {
         if let Some(entity) = self.streamer_mut().block_entity_mut(pos) {
             entity.data = library.write();
@@ -271,14 +335,14 @@ impl VoxelGame {
     /// La bibliothèque : dépôt, recherche, filtre par objet, extraction au niveau choisi.
     pub(crate) fn library_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
         let items = self.content.items.clone();
-        let Some((_, max)) = self.library_state(pos) else {
+        // La bibliothèque telle que la réplique la voit (le serveur range la case d'entrée tant que
+        // l'écran est ouvert) ; l'inventaire, d'après la vue du joueur.
+        let Some((library, max)) = self.shown_library(pos) else {
             ui.label("Cette bibliothèque a disparu.");
             return;
         };
-        self.absorb_library_input(pos, max);
-        let Some((library, _)) = self.library_state(pos) else {
-            return;
-        };
+        let inventory = self.view.me.inventory.as_inventory();
+        let mut action = None;
         ui.label(
             egui::RichText::new(format!(
                 "Niveau n = 2^(n−1) points · niveau {max} au plus · {} points par sorte au plus.",
@@ -290,10 +354,7 @@ impl VoxelGame {
         let blank = items.id(enchant_books::BOOK);
         // Le dépôt : le livre à la souris, ou tous ceux de l'inventaire.
         ui.horizontal_wrapped(|ui| {
-            let cursor_book = self
-                .players
-                .me_mut()
-                .inventory
+            let cursor_book = inventory
                 .cursor
                 .filter(|s| Some(s.item) == book_id && enchanting::is_enchanted(s.damage));
             if ui
@@ -302,39 +363,17 @@ impl VoxelGame {
                     egui::Button::new("Déposer le livre de la souris"),
                 )
                 .clicked()
-                && let Some(book) = cursor_book
             {
-                match self.deposit_book(pos, &book) {
-                    Ok(()) => {
-                        self.players.me_mut().inventory.cursor = None;
-                        self.toast("Livre rangé dans la bibliothèque");
-                        self.bell();
-                    }
-                    Err(why) => self.toast(&why),
-                }
+                action = Some(ScreenAction::LibraryDepositCursor);
             }
             if ui.button("Déposer tous les livres enchantés").clicked() {
-                let mut stored = 0;
-                for i in 0..self.players.me_mut().inventory.slots.len() {
-                    let Some(stack) = self.players.me_mut().inventory.slots[i] else {
-                        continue;
-                    };
-                    if Some(stack.item) != book_id || !enchanting::is_enchanted(stack.damage) {
-                        continue;
-                    }
-                    if self.deposit_book(pos, &stack).is_ok() {
-                        self.players.me_mut().inventory.slots[i] = None;
-                        stored += 1;
-                    }
-                }
-                self.toast(&format!("{stored} livre(s) rangé(s)"));
-                if stored > 0 {
-                    self.bell();
-                }
+                action = Some(ScreenAction::LibraryDepositAll);
             }
         });
         // La case de sortie : ce que le bloc a refusé.
-        self.library_output(ui, pos);
+        if self.library_output(ui, pos) {
+            action = Some(ScreenAction::LibraryTakeOutput);
+        }
         ui.separator();
         // La recherche et le filtre par objet.
         ui.horizontal(|ui| {
@@ -346,7 +385,7 @@ impl VoxelGame {
             );
             ui.checkbox(&mut self.enchant_ui.only_fitting, "Va sur l'objet en main");
         });
-        let held = self.players.me_mut().inventory.selected_stack();
+        let held = inventory.selected_stack();
         let needle = self.enchant_ui.search.trim().to_lowercase();
         let mut rows: Vec<(Enchantment, u32, u8)> = library.entries();
         rows.retain(|(kind, _, _)| {
@@ -392,8 +431,8 @@ impl VoxelGame {
                                 .prefix("niv. "),
                         );
                         let cost = enchant_library::points_of_level(*pick);
-                        let ready = *pick <= reachable
-                            && blank.is_some_and(|b| self.players.me_mut().inventory.count(b) > 0);
+                        let ready =
+                            *pick <= reachable && blank.is_some_and(|b| inventory.count(b) > 0);
                         if ui
                             .add_enabled(ready, egui::Button::new(format!("Extraire ({cost} pts)")))
                             .clicked()
@@ -403,20 +442,27 @@ impl VoxelGame {
                     });
                 }
             });
-        if blank.is_some_and(|b| self.players.me_mut().inventory.count(b) == 0) {
+        if blank.is_some_and(|b| inventory.count(b) == 0) {
             ui.label(
                 egui::RichText::new("Il faut un livre vierge dans l'inventaire pour extraire.")
                     .weak(),
             );
         }
         if let Some((kind, level)) = extract {
-            self.extract_from_library(pos, kind, level);
+            action = Some(ScreenAction::LibraryExtract {
+                kind: kind.id(),
+                level,
+            });
+        }
+        if let Some(action) = action {
+            self.send_now(crate::protocol::ClientMsg::Screen(action));
         }
     }
 
     /// La case de sortie du bloc : un bouton pour la récupérer.
-    fn library_output(&mut self, ui: &mut egui::Ui, pos: IVec3) {
-        let out: Option<BlockStack> = self.streamer().block_entity(pos).and_then(|e| {
+    /// `true` si le bouton est cliqué.
+    fn library_output(&mut self, ui: &mut egui::Ui, pos: IVec3) -> bool {
+        let out: Option<BlockStack> = self.view_streamer().block_entity(pos).and_then(|e| {
             e.caps
                 .as_ref()?
                 .inventory
@@ -425,21 +471,97 @@ impl VoxelGame {
                 .get(enchant_library::OUTPUT)?
                 .clone()
         });
-        let Some(out) = out else { return };
+        let Some(out) = out else { return false };
         let items = self.content.items.clone();
         let name = items
             .id(&out.item)
             .map_or(out.item.clone(), |id| items.get(id).name.clone());
-        if ui
-            .button(format!("Récupérer le refus : {} × {}", out.count, name))
+        ui.button(format!("Récupérer le refus : {} × {}", out.count, name))
             .clicked()
+    }
+
+    // ----- Les gestes de la bibliothèque, côté serveur -----
+
+    /// Range la case d'entrée de la bibliothèque (les réseaux y déposent), si elle n'est pas vide.
+    pub(crate) fn absorb_library(&mut self, pos: IVec3) {
+        let Some((_, max)) = self.library_state(pos) else {
+            return;
+        };
+        let waiting = self
+            .streamer()
+            .block_entity(pos)
+            .and_then(|e| {
+                e.caps
+                    .as_ref()?
+                    .inventory
+                    .as_ref()?
+                    .slots
+                    .get(enchant_library::INPUT)
+                    .cloned()
+                    .flatten()
+            })
+            .is_some();
+        if waiting {
+            self.absorb_library_input(pos, max);
+        }
+    }
+
+    pub(crate) fn library_deposit_cursor(&mut self, pos: IVec3) {
+        self.absorb_library(pos);
+        let book_id = self.content.items.id(ENCHANTED_BOOK);
+        let Some(book) = self
+            .players
+            .me()
+            .inventory
+            .cursor
+            .filter(|s| Some(s.item) == book_id && enchanting::is_enchanted(s.damage))
+        else {
+            return;
+        };
+        match self.deposit_book(pos, &book) {
+            Ok(()) => {
+                self.players.me_mut().inventory.cursor = None;
+                self.toast("Livre rangé dans la bibliothèque");
+                self.bell();
+            }
+            Err(why) => self.toast(&why),
+        }
+    }
+
+    pub(crate) fn library_deposit_all(&mut self, pos: IVec3) {
+        self.absorb_library(pos);
+        let book_id = self.content.items.id(ENCHANTED_BOOK);
+        let mut stored = 0;
+        for i in 0..self.players.me().inventory.slots.len() {
+            let Some(stack) = self.players.me().inventory.slots[i] else {
+                continue;
+            };
+            if Some(stack.item) != book_id || !enchanting::is_enchanted(stack.damage) {
+                continue;
+            }
+            if self.deposit_book(pos, &stack).is_ok() {
+                self.players.me_mut().inventory.slots[i] = None;
+                stored += 1;
+            }
+        }
+        self.toast(&format!("{stored} livre(s) rangé(s)"));
+        if stored > 0 {
+            self.bell();
+        }
+    }
+
+    pub(crate) fn library_take_output(&mut self, pos: IVec3) {
+        let items = self.content.items.clone();
+        let mut taken = None;
+        if let Some(entity) = self.streamer_mut().block_entity_mut(pos)
+            && let Some(inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut())
+            && let Some(slot) = inventory.slots.get_mut(enchant_library::OUTPUT)
+        {
+            taken = slot.take();
+        }
+        if let Some(out) = taken
             && let Some(id) = items.id(&out.item)
         {
-            if let Some(entity) = self.streamer_mut().block_entity_mut(pos)
-                && let Some(inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut())
-            {
-                inventory.slots[enchant_library::OUTPUT] = None;
-            }
             self.give_or_drop(ItemStack {
                 item: id,
                 count: out.count,
@@ -449,7 +571,8 @@ impl VoxelGame {
     }
 
     /// Sort un livre enchanté de la bibliothèque, au niveau choisi, et consomme un livre vierge.
-    fn extract_from_library(&mut self, pos: IVec3, kind: Enchantment, level: u8) {
+    pub(crate) fn extract_from_library(&mut self, pos: IVec3, kind: Enchantment, level: u8) {
+        self.absorb_library(pos);
         let items = self.content.items.clone();
         let (Some(blank), Some(enchanted)) =
             (items.id(enchant_books::BOOK), items.id(ENCHANTED_BOOK))

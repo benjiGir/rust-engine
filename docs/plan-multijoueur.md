@@ -666,6 +666,57 @@ Le 3d est coupé en deux : 3d-1 pour les écrans à cases, 3d-2 pour les autres.
 - **Pour le lot 5** : la taille d'artisanat (2 ou 3) vient du client. Le serveur devra vérifier qu'un établi est
   ouvert pour accepter 3.
 
+##### 3d-2 : les autres écrans (réalisé)
+
+- **L'ouverture des écrans passe par le serveur.** `open_screen(screen)` note l'écran (`PlayerState::screen`) et le
+  conteneur ouverts. Il envoie `ServerMsg::OpenScreen`, que la fenêtre affiche (`show_screen`).
+  - `Screen` est maintenant `Serialize`, et un wagon ou un habitant y est désigné par son `NetId`.
+  - `CloseMenu` efface l'écran.
+  - `ServerMsg::CloseScreen` ferme l'écran à la demande du serveur (un mod qui ferme son menu).
+  - Les commandes `ctl` qui ouvrent un écran passent par le même chemin.
+- **Les cases du conteneur ouvert** sont désignées par `SlotTarget::Open(index)` : la fenêtre n'a besoin d'aucun
+  identifiant du serveur, qui résout la case d'après ce qui est ouvert.
+- **Les gestes** passent par `ClientMsg::Screen(ScreenAction)` (dans `screen_actions.rs`), acceptés seulement pour
+  l'écran que le serveur a ouvert :
+  - table d'enchantement (`EnchantBuy`) ;
+  - bibliothèque (déposer, tout déposer, extraire, reprendre le refus) ;
+  - récupération et réforge (`Salvage`, `ReforgeRarity`, `ReforgeChoose`) ;
+  - établi de taille (`Carve`, `Rebuild`) ;
+  - échange (`Trade`) ;
+  - menu de mod (`ModEvent`) ;
+  - contrôleur de stockage (déposer, poser, prendre).
+
+  Les paliers (`Tier`) et le livre de quêtes (`Quest(QuestAct)`) s'ouvrent d'une touche, sans le serveur : leurs
+  gestes valent partout.
+- **Les vues** :
+  - `VitalsView` porte en plus les points d'XP, la graine de la table d'enchantement, la rareté et la graine de la
+    réforge, la progression de l'aventure et la portée. Le client calcule ainsi les mêmes lots et les mêmes tirages
+    que le serveur, qui les recalcule à l'achat.
+  - `ServerMsg::Quests` porte la progression des quêtes (le livre et les quêtes épinglées la lisent).
+  - `ServerMsg::ScreenView` porte ce que seul le serveur sait : l'habitant d'un échange (nom, échanges restants) et
+    les octets du menu d'un mod. L'état d'un menu de mod est passé de l'interface au joueur
+    (`PlayerState::mod_menu`), et son rafraîchissement se fait joueur par joueur.
+  - Les étagères, la bibliothèque et les coffres du contrôleur se lisent dans la réplique du monde.
+  - La bibliothèque range sa case d'entrée côté serveur tant qu'elle est ouverte. L'explorateur de recettes fabrique
+    par `Craft`.
+- **Vérifié en jeu** :
+  - table d'enchantement : les lots s'affichent, l'achat d'un lot enchante l'épée et prend un saphir ;
+  - échange : l'écran s'ouvre par le serveur, avec le nom et les offres de l'habitant ;
+  - livre de quêtes : il s'affiche, et l'épinglage montre la quête en jeu ;
+  - aucun geste refusé dans le journal.
+- **Non vérifié en jeu** :
+  - l'échange lui-même (un habitant appelé par `ctl summon` n'a pas de stock d'échanges, ce qui était déjà le cas
+    avant ce lot) ;
+  - la bibliothèque, la forge, l'établi de taille, le contrôleur et les menus de mods. Ils sont couverts par la
+    compilation et les tests des messages.
+- **Restent côté fenêtre** :
+  - la fenêtre des attributs lit l'équipement du joueur local ;
+  - la barre de minage et de repas (prédiction) ;
+  - le livre de quêtes lit ses définitions dans le `QuestBook` local (c'est du contenu, mais chargé par monde) ;
+  - les pages d'options des mods (réglages globaux du jeu).
+- **Pour le lot 5** : les fiches d'objets (`item_data`) sont dans une table globale du processus, et plusieurs écrans
+  les lisent (noms, affixes, gemmes).
+
 ### Lot 4 : le serveur intégré sur son thread
 
 - `VoxelServer` est construit **sur** son thread, avec ses `Rc` internes. Seuls les messages traversent.

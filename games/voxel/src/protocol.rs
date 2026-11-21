@@ -47,6 +47,8 @@ pub enum DigPhase {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlotTarget {
     Player(Slot),
+    /// Une case du conteneur que le joueur a ouvert (coffre, four, alambic, wagon, sac).
+    Open(usize),
     /// Une case d'un coffre, d'un four, d'un alambic : par le bloc qui porte l'inventaire.
     Block {
         pos: IVec3,
@@ -60,6 +62,89 @@ pub enum SlotTarget {
         number: u32,
         index: usize,
     },
+}
+
+/// Un geste dans un écran, hors des cases.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ScreenAction {
+    /// Acheter un lot de la table d'enchantement (son rang dans la liste).
+    EnchantBuy {
+        offer: u8,
+    },
+    /// Bibliothèque : ranger le livre tenu à la souris, ou tous ceux de l'inventaire.
+    LibraryDepositCursor,
+    LibraryDepositAll,
+    /// Bibliothèque : sortir un livre de cet enchantement (son numéro) à ce niveau.
+    LibraryExtract {
+        kind: u8,
+        level: u8,
+    },
+    /// Bibliothèque : reprendre ce qu'elle a refusé.
+    LibraryTakeOutput,
+    /// Table de récupération : détruire l'objet tenu à la souris et en récupérer les matériaux.
+    Salvage,
+    /// Table de réforge : la rareté voulue, puis le tirage gardé (son rang).
+    ReforgeRarity(u8),
+    ReforgeChoose(u8),
+    /// Établi de taille : tailler le bloc de la case en pièces de cette sorte (l'identifiant de
+    /// l'objet pièce), un bloc ou toute la pile ; ou reconstituer des blocs avec les pièces.
+    Carve {
+        piece: String,
+        all: bool,
+    },
+    Rebuild {
+        all: bool,
+    },
+    /// Échange : faire l'échange `offer` de l'habitant, `times` fois au plus.
+    Trade {
+        offer: u8,
+        times: u32,
+    },
+    /// Paliers du monde : choisir ce palier (débloqué).
+    Tier(u8),
+    /// Livre de quêtes (les quêtes, tâches et récompenses par leur rang).
+    Quest(QuestAct),
+    /// Menu d'une machine de mod : une action du joueur, transmise au script.
+    ModEvent {
+        kind: i32,
+        id: i32,
+        value: i32,
+    },
+    /// Contrôleur de stockage : tout déposer, poser la pile tenue, ou prendre un objet.
+    ControllerDeposit,
+    ControllerPut,
+    ControllerTake {
+        item: String,
+        damage: u32,
+        how: TakeHow,
+    },
+}
+
+/// Combien prendre d'un objet du contrôleur de stockage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TakeHow {
+    /// Une pile (clic).
+    Stack,
+    /// La moitié d'une pile (clic droit).
+    Half,
+    /// Tout, dans l'inventaire (Maj + clic).
+    All,
+}
+
+/// Un geste du livre de quêtes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum QuestAct {
+    /// Le chapitre où le livre se rouvrira.
+    LastChapter(String),
+    Claim(u32),
+    ClaimAll,
+    /// Cocher une tâche « à cocher ».
+    Check(u32, u32),
+    /// Remettre les objets d'une tâche « à remettre ».
+    HandIn(u32, u32),
+    /// Choisir une récompense : la quête, la récompense, l'option.
+    Choose(u32, u32, u32),
+    Pin(u32),
 }
 
 /// Le bouton pressé sur une case (Maj est à part : [`ClientMsg::SlotClick::shift`]).
@@ -148,6 +233,9 @@ pub enum ClientMsg {
     ContainerOp(Op),
     /// Couper ou rallumer une amélioration du sac ouvert (son emplacement).
     ToggleUpgrade(u8),
+    /// Un geste dans l'écran ouvert (table d'enchantement, bibliothèque, forge...) : le serveur
+    /// vérifie que cet écran est bien celui qu'il a ouvert à ce joueur (voir `screen_actions.rs`).
+    Screen(ScreenAction),
     /// Fabriquer : avec la grille (`size` × `size`), ou une recette du livre (son numéro dans la
     /// liste des recettes, la même des deux côtés).
     Craft {
@@ -205,6 +293,14 @@ pub enum ServerMsg {
     },
     /// Le joueur est revenu à la vie.
     Respawned,
+    /// Le serveur ouvre un écran (conteneur, table, échange, menu de mod...).
+    OpenScreen(crate::ui::Screen),
+    /// Le serveur ferme l'écran ouvert (un mod ferme son menu).
+    CloseScreen,
+    /// La progression des quêtes du joueur, quand elle change.
+    Quests(Option<crate::quest_progress::Progress>),
+    /// Ce que l'écran ouvert montre et que seul le serveur sait, quand cela change.
+    ScreenView(Option<crate::screen_actions::ScreenView>),
     // Les variantes `serde(skip)` sont à la fin : elles décalent les numéros de variantes qui les suivent.
     /// Un chunk que le client n'avait pas, avec sa lumière et ses blocs actifs. Le serveur envoie des
     /// colonnes entières, éclairées (voir `engine_voxel::ChunkSender`).
@@ -234,6 +330,43 @@ pub enum ServerMsg {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screen_actions_survive_postcard() {
+        for action in [
+            ScreenAction::EnchantBuy { offer: 2 },
+            ScreenAction::LibraryExtract { kind: 3, level: 4 },
+            ScreenAction::Carve {
+                piece: "core:shape_slab".into(),
+                all: true,
+            },
+            ScreenAction::Trade {
+                offer: 1,
+                times: 12,
+            },
+            ScreenAction::Quest(QuestAct::Choose(1, 2, 3)),
+            ScreenAction::ModEvent {
+                kind: 1,
+                id: -4,
+                value: 9,
+            },
+            ScreenAction::ControllerTake {
+                item: "core:stone".into(),
+                damage: 0,
+                how: TakeHow::Half,
+            },
+        ] {
+            let msg = ClientMsg::Screen(action);
+            let bytes = postcard::to_allocvec(&msg).unwrap();
+            assert_eq!(postcard::from_bytes::<ClientMsg>(&bytes).unwrap(), msg);
+        }
+        let open = ServerMsg::OpenScreen(crate::ui::Screen::Cart(NetId(4)));
+        let bytes = postcard::to_allocvec(&open).unwrap();
+        assert!(matches!(
+            postcard::from_bytes::<ServerMsg>(&bytes).unwrap(),
+            ServerMsg::OpenScreen(crate::ui::Screen::Cart(NetId(4)))
+        ));
+    }
 
     #[test]
     fn messages_survive_postcard() {

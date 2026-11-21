@@ -64,7 +64,10 @@ impl VoxelGame {
         if kind == CartKind::Minecart {
             self.ride(entity)
         } else {
-            self.open_container_screen(ui::Screen::Cart(entity));
+            let Some(id) = self.ecs.get::<crate::entities::NetId>(entity).map(|id| *id) else {
+                return false;
+            };
+            self.open_screen(ui::Screen::Cart(id));
             true
         }
     }

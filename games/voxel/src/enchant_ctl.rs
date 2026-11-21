@@ -206,8 +206,9 @@ impl VoxelGame {
                     ("guide", _) => Screen::Guide,
                     _ => Screen::Anvil,
                 };
-                self.ui.screen = screen;
-                self.ui.inventory_open = true;
+                // Par le serveur, comme un clic droit : ses gestes y seront acceptés.
+                self.open_screen(screen);
+                self.apply_replies();
                 self.mouse_captured = false;
                 Ok("{\"ok\":true}".to_string())
             }
