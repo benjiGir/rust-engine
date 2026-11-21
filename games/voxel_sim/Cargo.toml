@@ -21,6 +21,7 @@ notify = { workspace = true }
 crossbeam-channel = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
+env_logger = { workspace = true }
 
 [features]
 # Les aides de test (mondes de créatures, quêtes livrées, registre complet), pour les tests du jeu.

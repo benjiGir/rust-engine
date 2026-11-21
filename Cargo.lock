@@ -4131,6 +4131,7 @@ dependencies = [
  "engine_net",
  "engine_trace",
  "engine_voxel",
+ "env_logger",
  "glam",
  "log",
  "notify",

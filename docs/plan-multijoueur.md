@@ -1011,8 +1011,7 @@ lot 4, viendra plus tard) :
 - L'hôte refuse au-delà du nombre de joueurs, et ceux qui ne sont pas sur la liste blanche.
 - Vérifié : un invité rejoint le serveur dédié, voit le monde et le message de la console, est renvoyé par `kick`
   (il revient au menu) ; `stop` sauvegarde.
-- **Reste** : le binaire lie encore winit, wgpu, egui et kira (la simulation dans sa propre crate, puis la règle
-  check-arch) ; les opérateurs n'ont
+- **Reste** : (le binaire sans affichage est fait au lot 8, `voxel-server`) ; les opérateurs n'ont
   pas encore de commandes.
 
 
@@ -1069,7 +1068,9 @@ Une règle de Rust décide du reste : les méthodes d'un type se définissent da
   tests de créatures qui touchent au dessin passent dans le jeu (`mob_render_tests.rs`). Les exemples incluent les
   fichiers déplacés depuis `../../voxel_sim/src`. `voxel_sim` ne tire aucune bibliothèque d'affichage, même
   indirectement, et rejoint la règle `HEADLESS` de check-arch.
-- **S4, le binaire** : `voxel-server` dans `voxel_sim`, et la règle check-arch (`HEADLESS`).
+- **S4, le binaire (réalisé)** : `cargo run -p voxel_sim --bin voxel-server` lance le serveur dédié sans aucune
+  bibliothèque d'affichage (52 Mo en débogage contre 78 pour le jeu) ; `voxel --server` reste possible. Vérifié :
+  deux bots le rejoignent, 60 ticks/s, Ctrl+C sauvegarde et arrête.
 
 ### Lot 7 : tester et mesurer
 
