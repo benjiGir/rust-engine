@@ -226,15 +226,12 @@ impl VoxelGame {
                         error: None,
                     });
                 }
-                if button(ui, "Packs de textures…") {
+                let (textures, shaders) =
+                    crate::ui_layout::paired_buttons(ui, "Packs de textures…", "Packs de shaders…");
+                if textures {
                     self.mode = Mode::Title(TitlePage::TexturePacks {
                         selected: self.settings.texture_pack,
                     });
-                }
-                if button(ui, "Packs de shaders") {
-                    self.mode = Mode::Title(TitlePage::ShaderPacks) {
-                        selected: self.settings.shader_pack,
-                    }
                 }
                 if shaders {
                     self.mode = Mode::Title(TitlePage::ShaderPacks {
@@ -420,6 +417,85 @@ impl VoxelGame {
                     crate::texture_packs::Action::None => TitlePage::TexturePacks { selected },
                 });
             }
+            TitlePage::ShaderPacks {
+                mut selection,
+                from_options,
+            } => {
+                self.mode = Mode::Title(if self.shader_panel(ctx, &mut selection) {
+                    if from_options {
+                        TitlePage::Options
+                    } else {
+                        TitlePage::Main
+                    }
+                } else {
+                    TitlePage::ShaderPacks {
+                        selection,
+                        from_options,
+                    }
+                });
+            }
+            TitlePage::Join { mut address, error } => {
+                // Les parties annoncées sur le réseau local (voir `engine_net::lan`).
+                if self.client.lan.is_none() {
+                    match engine_net::Discovery::new(engine_net::ANNOUNCE_PORT) {
+                        Ok(discovery) => self.client.lan = Some(discovery),
+                        Err(err) => log::warn!("écoute des annonces impossible : {err}"),
+                    }
+                }
+                let games = self
+                    .client
+                    .lan
+                    .as_mut()
+                    .map(|l| l.poll())
+                    .unwrap_or_default();
+                let mut join = None;
+                let mut back = false;
+                Self::menu_window(ctx, "Multijoueur", |ui| {
+                    if games.is_empty() {
+                        ui.label("Aucune partie annoncée sur le réseau local.");
+                    }
+                    for game in &games {
+                        if button(ui, &format!("{} ({})", game.name, game.address)) {
+                            join = Some(game.address.to_string());
+                        }
+                    }
+                    ui.add_space(8.0);
+                    ui.label("Adresse (hôte:port)");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut address)
+                            .desired_width(ui.available_width().min(260.0)),
+                    );
+                    if let Some(error) = &error {
+                        ui.label(RichText::new(error).color(crate::skin::RED));
+                    }
+                    ui.add_space(8.0);
+                    if button(ui, "Rejoindre") && !address.trim().is_empty() {
+                        let address = address.trim();
+                        join = Some(if address.contains(':') {
+                            address.to_string()
+                        } else {
+                            format!("{address}:{}", crate::net_host::DEFAULT_PORT)
+                        });
+                    }
+                    back = button(ui, "Retour");
+                });
+                if let Some(address) = join {
+                    self.client.request = Some(Request::Play(Launch {
+                        world: None,
+                        seed: None,
+                        title: false,
+                        difficulty: None,
+                        dimension: None,
+                        join: Some(address),
+                    }));
+                }
+                self.mode = Mode::Title(if back {
+                    self.client.lan = None;
+                    TitlePage::Main
+                } else {
+                    TitlePage::Join { address, error }
+                });
+            }
         }
     }
 
@@ -444,7 +520,7 @@ impl VoxelGame {
             Action::None => false,
             Action::Back => true,
             Action::Apply => match shader_packs::apply(
-                &mut self.renderer,
+                &mut self.client.renderer,
                 &crate::assets_dir(),
                 selection.selected.as_deref(),
             ) {
@@ -555,10 +631,11 @@ impl VoxelGame {
     /// Les options, communes au menu principal et à la pause. Renvoie `true` quand on
     /// clique « Retour » (les options sont alors enregistrées et appliquées).
     fn options_panel(&mut self, ui: &mut egui::Ui) -> bool {
-        let navigation = crate::ui_options::panel(ui, &mut self.settings, &mut self.waiting_key);
+        let navigation =
+            crate::ui_options::panel(ui, &mut self.settings, &mut self.client.waiting_key);
         self.apply_settings();
         if navigation == crate::ui_options::Navigation::Shaders {
-            self.waiting_key = None;
+            self.client.waiting_key = None;
             let selection = self.shader_selection();
             self.mode = if matches!(self.mode, Mode::Title(_)) {
                 Mode::Title(TitlePage::ShaderPacks {
@@ -570,7 +647,7 @@ impl VoxelGame {
             };
         }
         if navigation == crate::ui_options::Navigation::Back {
-            self.waiting_key = None;
+            self.client.waiting_key = None;
             self.settings.save(&project_root());
             self.client.renderer.set_vsync(self.settings.vsync);
             return true;

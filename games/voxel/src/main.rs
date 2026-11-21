@@ -1071,7 +1071,7 @@ impl VoxelGame {
         }
         if changes.shader {
             let result = shader_packs::reload(
-                &mut self.renderer,
+                &mut self.client.renderer,
                 &assets_dir(),
                 self.settings.shader_pack.as_deref(),
             );
