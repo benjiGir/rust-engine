@@ -11,7 +11,8 @@ impl VoxelGame {
     /// Un livre enchanté ou un tome d'extraction au curseur, un clic sur un objet de l'inventaire,
     /// dans l'écran d'une table d'enchantement ou d'une enclume. `true` si le clic est traité.
     pub(crate) fn try_book_click(&mut self, slot: Slot, click: Click) -> bool {
-        if click != Click::Primary || !matches!(self.ui.screen, Screen::Enchant(_) | Screen::Anvil)
+        if click != Click::Primary
+            || !matches!(self.client.ui.screen, Screen::Enchant(_) | Screen::Anvil)
         {
             return false;
         }
@@ -104,7 +105,7 @@ impl VoxelGame {
 
     /// Le petit son des gestes d'enchantement.
     pub(crate) fn bell(&mut self) {
-        if let Some(audio) = &mut self.audio {
+        if let Some(audio) = &mut self.client.audio {
             audio.play("core:enchant");
         }
     }

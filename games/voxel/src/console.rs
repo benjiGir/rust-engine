@@ -82,31 +82,31 @@ pub struct ConsoleState {
 impl VoxelGame {
     /// La console est ouverte (le jeu ne doit pas prendre les touches tapées pour des commandes).
     pub(crate) fn console_open(&self) -> bool {
-        self.ui.inventory_open && self.ui.screen == Screen::Console
+        self.client.ui.inventory_open && self.client.ui.screen == Screen::Console
     }
 
     pub(crate) fn open_console(&mut self) {
-        self.ui.screen = Screen::Console;
-        self.ui.inventory_open = true;
-        self.ui.console.input.clear();
-        self.ui.console.history_at = None;
+        self.client.ui.screen = Screen::Console;
+        self.client.ui.inventory_open = true;
+        self.client.ui.console.input.clear();
+        self.client.ui.console.history_at = None;
     }
 
     /// Ouvre la console sur Entrée ou `/`, et exécute les lignes validées.
     pub(crate) fn update_console(&mut self, ctx: &mut Context) {
-        let free = self.mode == crate::Mode::Playing && !self.ui.inventory_open;
+        let free = self.mode == crate::Mode::Playing && !self.client.ui.inventory_open;
         if free && (ctx.input.key_pressed(KeyCode::Enter) || ctx.input.key_pressed(KeyCode::Slash))
         {
             self.open_console();
         }
-        for line in std::mem::take(&mut self.ui.console.submitted) {
+        for line in std::mem::take(&mut self.client.ui.console.submitted) {
             self.run_console_line(&line);
         }
     }
 
     /// Ajoute des lignes à la console (une par `\n`).
     pub(crate) fn chat(&mut self, text: &str) {
-        let console = &mut self.ui.console;
+        let console = &mut self.client.ui.console;
         for line in text.lines() {
             console.lines.push_back((line.to_string(), Instant::now()));
         }
@@ -215,10 +215,12 @@ impl VoxelGame {
 
     /// Les lignes récentes, au-dessus de la barre d'objets (console fermée).
     pub(crate) fn draw_chat(&mut self, ctx: &egui::Context) {
-        if self.console_open() || self.ui.inventory_open || self.mode != crate::Mode::Playing {
+        if self.console_open() || self.client.ui.inventory_open || self.mode != crate::Mode::Playing
+        {
             return;
         }
         let recent: Vec<&str> = self
+            .client
             .ui
             .console
             .lines
@@ -263,12 +265,20 @@ impl VoxelGame {
                     .max_height((ctx.content_rect().height() - 130.0).max(40.0))
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
-                        for (text, _) in self.ui.console.lines.iter().rev().take(SHOWN_LINES).rev()
+                        for (text, _) in self
+                            .client
+                            .ui
+                            .console
+                            .lines
+                            .iter()
+                            .rev()
+                            .take(SHOWN_LINES)
+                            .rev()
                         {
                             ui.label(text.as_str());
                         }
                     });
-                let console = &mut self.ui.console;
+                let console = &mut self.client.ui.console;
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut console.input)
                         .hint_text("/commande (Échap : fermer)")

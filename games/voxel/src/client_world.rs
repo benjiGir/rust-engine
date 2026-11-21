@@ -161,22 +161,22 @@ pub fn combined_stats(server: StreamStats, replica: StreamStats) -> StreamStats 
 impl VoxelGame {
     /// Le monde que voit la fenêtre (la réplique), pour tout ce qui se dessine ou se vise.
     pub(crate) fn view_world(&self) -> &World {
-        self.view.world()
+        self.client.view.world()
     }
 
     /// Le streamer de la réplique, pour ce qui lit des blocs actifs (`BlockAccess`) à l'écran.
     pub(crate) fn view_streamer(&self) -> &ChunkStreamer {
-        self.view.replica()
+        self.client.view.replica()
     }
 
     /// Les compteurs du chargement (serveur) et du maillage (réplique), ensemble.
     pub(crate) fn stream_stats(&self) -> StreamStats {
-        combined_stats(self.streamer().stats(), self.view.replica().stats())
+        combined_stats(self.streamer().stats(), self.client.view.replica().stats())
     }
 
     /// Le serveur et la réplique n'ont plus rien à faire, et tout ce qui est en route est arrivé.
     pub(crate) fn world_idle(&self) -> bool {
-        self.streamer().is_idle() && self.view.idle()
+        self.streamer().is_idle() && self.client.view.idle()
     }
 
     /// Ce que les commandes de `ctl` ont changé après la fin de l'image : envoyé, remaillé et déjà au GPU.
@@ -189,24 +189,26 @@ impl VoxelGame {
     /// proche, sinon le wagon, avant le bloc visé (ou la portée). `None` : rien à frapper.
     pub(crate) fn window_entity(&self) -> Option<NetId> {
         let reach = self.players.local().gear.reach();
-        let distance = self.target.map_or(reach, |hit| hit.distance);
-        self.view
-            .entities
-            .hit(self.camera.position, self.camera.forward(), distance)
+        let distance = self.client.target.map_or(reach, |hit| hit.distance);
+        self.client.view.entities.hit(
+            self.client.camera.position,
+            self.client.camera.forward(),
+            distance,
+        )
     }
 
     /// Un pas fixe du serveur : il donne un numéro aux entités neuves, puis dit à chaque joueur ce qui
     /// entre dans sa portée, en sort, bouge ou change d'apparence. Le client applique les messages
     /// aussitôt (voir `apply_replies`) : le lien est la liste `replies`, vidée à chaque pas.
     pub(crate) fn replicate_entities(&mut self) {
-        self.view.tick += 1;
+        self.client.view.tick += 1;
         NetIds::assign(&mut self.ecs);
         self.keep_ghosts_alive();
         let players = &self.players;
         let all = collect(&self.ecs, &self.mods.subgrids.borrow(), &|entity| {
             players.by_entity(entity).map(|p| p.name.clone())
         });
-        let view = &mut self.view;
+        let view = &mut self.client.view;
         let interval = view.entities.interval();
         let mut out = Vec::new();
         for player in self.players.iter() {
@@ -238,11 +240,12 @@ impl VoxelGame {
     /// reçus et sa réplique remaille (les éditions dans cette image, le reste en tâche de fond).
     pub(crate) fn sync_world_view(&mut self) {
         let changes = self.streamer_mut().take_changes();
-        let radius = self.view.replica().config().view_radius;
+        let radius = self.client.view.replica().config().view_radius;
         let mut updates = Vec::new();
         for player in self.players.iter() {
             let eye = crate::player::eye(&self.ecs, player.entity, 1.0);
             let sender = self
+                .client
                 .view
                 .senders
                 .entry(player.id)
@@ -265,10 +268,10 @@ impl VoxelGame {
         let eye = crate::player::eye(&self.ecs, self.players.entity(), 1.0);
         let view = View {
             position: eye,
-            forward: self.camera.forward(),
+            forward: self.client.camera.forward(),
             mesh: true,
         };
-        self.view.replica_mut().update_views(&[view]);
+        self.client.view.replica_mut().update_views(&[view]);
     }
 }
 

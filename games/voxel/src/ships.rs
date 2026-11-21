@@ -323,7 +323,7 @@ impl VoxelGame {
             .grid_blocks_loaded(grids, &active, &mut actions);
         drop(subs);
         self.apply_machine_actions(actions);
-        self.target = None;
+        self.client.target = None;
         Ok(id)
     }
 
@@ -352,7 +352,7 @@ impl VoxelGame {
                 self.apply_machine_actions(actions);
             }
         }
-        self.target = None;
+        self.client.target = None;
         Ok(placed.len())
     }
 
@@ -481,7 +481,7 @@ impl VoxelGame {
             .get_resource_mut::<ShipEvents>()
             .map(|mut e| std::mem::take(&mut e.player_turn))
             .unwrap_or(0.0);
-        self.camera.yaw += turn;
+        self.client.camera.yaw += turn;
     }
 }
 

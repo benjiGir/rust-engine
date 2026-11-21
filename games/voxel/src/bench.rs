@@ -151,7 +151,7 @@ impl Bench {
 impl VoxelGame {
     /// Une image du benchmark ; quitte le jeu à la fin.
     pub(crate) fn run_bench(&mut self, ctx: &mut Context, dt: f32) -> Result<()> {
-        let Some(mut bench) = self.bench.take() else {
+        let Some(mut bench) = self.client.bench.take() else {
             return Ok(());
         };
         let done = self.bench_step(&mut bench, ctx, dt);
@@ -160,7 +160,7 @@ impl VoxelGame {
             write_results(&bench)?;
             ctx.exit();
         }
-        self.bench = Some(bench);
+        self.client.bench = Some(bench);
         done.map(|_| ())
     }
 
@@ -230,7 +230,7 @@ impl VoxelGame {
                     *warmup -= 1;
                 } else {
                     // Les mesures de l'image précédente : elle est finie.
-                    let render = self.last_render;
+                    let render = self.client.last_render;
                     let cpu = ctx.frame_work.saturating_sub(render.wait);
                     bench.samples.push(Sample {
                         frame: dt,
@@ -282,7 +282,8 @@ impl VoxelGame {
         // `VOXEL_BENCH_VSYNC=1` : comme en jeu, pour voir les images ratées. Sans VSync,
         // le « 1 % le plus lent » mesure surtout l'attente d'une image libre auprès du
         // système (les 3 tampons de l'écran sont pleins), pas le travail du jeu.
-        self.renderer
+        self.client
+            .renderer
             .set_vsync(std::env::var("VOXEL_BENCH_VSYNC").is_ok_and(|v| v == "1"));
         self.day.time = 0.5;
         self.day.speed = TimeSpeed::Frozen;
@@ -318,8 +319,8 @@ impl VoxelGame {
             Height::Fixed(y) => y,
             Height::AboveGround(h) => self.surface(flat.x, flat.z) + h,
         };
-        self.camera.yaw = yaw;
-        self.camera.pitch = route.pitch.to_radians();
+        self.client.camera.yaw = yaw;
+        self.client.camera.pitch = route.pitch.to_radians();
         player::set_eye(
             &self.ecs,
             self.players.entity(),

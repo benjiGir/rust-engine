@@ -136,7 +136,7 @@ impl VoxelGame {
             self.players.me_mut().inventory.consume_selected();
         }
         self.punch();
-        self.target = None;
+        self.client.target = None;
         self.after_edit(pos);
         Some(pos)
     }
@@ -176,7 +176,7 @@ impl VoxelGame {
         if shaped::store(&mut self.streamer_mut(), pos, &shaped) {
             self.sound("core:place_hard");
             self.punch();
-            self.target = None;
+            self.client.target = None;
             self.after_edit(pos);
         }
         true
@@ -219,7 +219,7 @@ impl VoxelGame {
                 player: Some(self.players.current_id()),
             },
         );
-        self.target = None;
+        self.client.target = None;
         self.after_edit(pos);
         Some(pos)
     }
@@ -279,7 +279,7 @@ impl VoxelGame {
             }
             wear |= def.hardness > 0.0;
         }
-        self.target = None;
+        self.client.target = None;
         if tool.is_some() && wear && self.wear_held() {
             log::info!("l'outil s'est cassé");
         }

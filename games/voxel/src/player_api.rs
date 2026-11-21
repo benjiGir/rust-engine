@@ -39,7 +39,7 @@ impl VoxelGame {
         // La visée de l'action en cours (un clic droit avec un objet de mod), sinon la caméra.
         let (eye, look) = match self.acting {
             Some(aim) => (aim.eye, aim.forward),
-            None => (self.camera.position, self.camera.forward()),
+            None => (self.client.camera.position, self.client.camera.forward()),
         };
         PlayerSnapshot {
             eye,
@@ -110,7 +110,7 @@ impl VoxelGame {
                 color,
                 label,
             } => {
-                let bars = &mut self.ui.mod_hud;
+                let bars = &mut self.client.ui.mod_hud;
                 let known = bars.contains_key(&(mod_id.clone(), id));
                 let count = bars.keys().filter(|(m, _)| *m == mod_id).count();
                 if known || count < MAX_BARS_PER_MOD {
@@ -125,7 +125,7 @@ impl VoxelGame {
                 }
             }
             MachineAction::HudClear { mod_id, id } => {
-                self.ui.mod_hud.remove(&(mod_id, id));
+                self.client.ui.mod_hud.remove(&(mod_id, id));
             }
             _ => {}
         }
@@ -134,7 +134,9 @@ impl VoxelGame {
     /// Les jauges des mods, au-dessus de la barre d'objets, l'une sous l'autre.
     pub(crate) fn draw_mod_hud(&mut self, ctx: &engine_render::egui::Context) {
         use engine_render::egui::{self, Color32};
-        if self.ui.mod_hud.is_empty() || self.ui.inventory_open || self.mode != crate::Mode::Playing
+        if self.client.ui.mod_hud.is_empty()
+            || self.client.ui.inventory_open
+            || self.mode != crate::Mode::Playing
         {
             return;
         }
@@ -142,7 +144,7 @@ impl VoxelGame {
             .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -120.0))
             .interactable(false)
             .show(ctx, |ui| {
-                for bar in self.ui.mod_hud.values() {
+                for bar in self.client.ui.mod_hud.values() {
                     let (rect, _) = ui.allocate_exact_size(
                         egui::vec2((ctx.content_rect().width() * 0.4 - 12.0).min(220.0), 14.0),
                         egui::Sense::hover(),
@@ -189,7 +191,7 @@ impl VoxelGame {
         if let Some(mut velocity) = self.ecs.get_mut::<Velocity>(self.players.entity()) {
             velocity.0 = Vec3::ZERO;
         }
-        self.camera.position = to + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT;
+        self.client.camera.position = to + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT;
         self.forget_last_move();
     }
 

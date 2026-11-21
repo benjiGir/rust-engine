@@ -36,8 +36,8 @@ impl VoxelGame {
         if !self.streamer_mut().place_pair(parts) {
             return None;
         }
-        self.frame_stats.record_edit(start.elapsed());
-        self.target = None;
+        self.client.frame_stats.record_edit(start.elapsed());
+        self.client.target = None;
         let (pos, block) = parts[0];
         events::send(
             &self.ecs,
@@ -86,7 +86,7 @@ impl VoxelGame {
             return true;
         }
         if self.streamer_mut().toggle_door(pos) {
-            self.target = None;
+            self.client.target = None;
             for (p, _) in parts {
                 self.notify_edit(p);
             }

@@ -303,6 +303,6 @@ impl VoxelGame {
                 );
             }
         }
-        self.ui.screen = crate::ui::Screen::Shaping;
+        self.client.ui.screen = crate::ui::Screen::Shaping;
     }
 }

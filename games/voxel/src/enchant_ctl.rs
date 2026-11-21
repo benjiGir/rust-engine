@@ -209,7 +209,7 @@ impl VoxelGame {
                 // Par le serveur, comme un clic droit : ses gestes y seront acceptés.
                 self.open_screen(screen);
                 self.apply_replies();
-                self.mouse_captured = false;
+                self.client.mouse_captured = false;
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Book(list) => {

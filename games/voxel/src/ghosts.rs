@@ -64,7 +64,7 @@ impl VoxelGame {
             Command::Add(name, at) => {
                 let feet = at.unwrap_or_else(|| {
                     let body = player::body(&self.ecs, self.players.local().entity).position;
-                    body + self.camera.forward_flat() * 4.0
+                    body + self.client.camera.forward_flat() * 4.0
                 });
                 let number = self.players.iter().filter(|p| p.ghost).count() + 1;
                 let name = name.unwrap_or_else(|| format!("Fantôme {number}"));
@@ -133,7 +133,7 @@ impl VoxelGame {
         if let Some(state) = self.players.remove(id) {
             self.ecs.despawn(state.entity);
             self.players.sync_ecs(&mut self.ecs);
-            self.view.forget_player(id);
+            self.client.view.forget_player(id);
         }
     }
 

@@ -147,11 +147,11 @@ impl VoxelGame {
 
     /// Le message en cours, s'il n'a pas expiré.
     pub(crate) fn draw_toast(&mut self, ctx: &egui::Context) {
-        let Some((text, since)) = &self.ui.toast else {
+        let Some((text, since)) = &self.client.ui.toast else {
             return;
         };
         if since.elapsed().as_secs_f32() > TOAST_SECONDS {
-            self.ui.toast = None;
+            self.client.ui.toast = None;
             return;
         }
         egui::Area::new(egui::Id::unique("toast"))
@@ -159,8 +159,8 @@ impl VoxelGame {
                 egui::Align2::CENTER_TOP,
                 egui::vec2(
                     0.0,
-                    if self.mode == crate::Mode::Playing && !self.ui.inventory_open {
-                        self.ui.target_bottom + 8.0
+                    if self.mode == crate::Mode::Playing && !self.client.ui.inventory_open {
+                        self.client.ui.target_bottom + 8.0
                     } else {
                         12.0
                     },
@@ -203,7 +203,7 @@ impl VoxelGame {
         if respawn {
             self.send_now(crate::protocol::ClientMsg::Respawn);
         } else if quit {
-            self.request = Some(Request::Title);
+            self.client.request = Some(Request::Title);
         }
     }
 }

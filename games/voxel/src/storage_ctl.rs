@@ -112,7 +112,7 @@ impl VoxelGame {
                 if !self.open_first_bag() {
                     bail!("backpack : aucun sac à dos dans l'inventaire");
                 }
-                let Screen::Bag(number) = self.ui.screen else {
+                let Screen::Bag(number) = self.client.ui.screen else {
                     bail!("backpack : le sac ne s'est pas ouvert");
                 };
                 Ok(format!("{{\"ok\":true,\"bag\":{number}}}"))
@@ -159,7 +159,7 @@ impl VoxelGame {
                 Ok(format!("{{\"ok\":true,\"drops\":[{}]}}", list.join(",")))
             }
             Command::Capture(on) => {
-                self.mouse_captured = on;
+                self.client.mouse_captured = on;
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Container(pos) => {
@@ -180,7 +180,7 @@ impl VoxelGame {
                 ))
             }
             Command::Bag(number) => {
-                let number = match (number, self.ui.screen) {
+                let number = match (number, self.client.ui.screen) {
                     (Some(n), _) | (None, Screen::Bag(n)) => n,
                     (None, _) => {
                         let items = self.content.items.clone();

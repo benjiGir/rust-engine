@@ -84,7 +84,7 @@ impl VoxelGame {
     pub(crate) fn player_save(&self, player: &PlayerState) -> PlayerSave {
         let local = player.id == self.players.local_id();
         let (yaw, pitch) = if local {
-            (self.camera.yaw, self.camera.pitch)
+            (self.client.camera.yaw, self.client.camera.pitch)
         } else {
             let yaw = self
                 .ecs

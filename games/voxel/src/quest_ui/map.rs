@@ -145,13 +145,13 @@ pub(super) fn check_mark(painter: &egui::Painter, at: Pos2, size: f32) {
 impl VoxelGame {
     /// Les quêtes montrées du chapitre, prêtes pour la géométrie.
     fn plan_nodes(&self, quests: &Quests, statuses: &[Status]) -> Vec<PlanNode> {
-        let visible: Vec<bool> = match &self.view.me.quests {
+        let visible: Vec<bool> = match &self.client.view.me.quests {
             Some(progress) => (0..quests.quests.len())
                 .map(|i| progress.visible(quests, i))
                 .collect(),
             None => vec![true; quests.quests.len()],
         };
-        quests.chapters[self.ui.quests.chapter]
+        quests.chapters[self.client.ui.quests.chapter]
             .quests
             .iter()
             .filter(|&&q| visible[q])
@@ -183,21 +183,27 @@ impl VoxelGame {
         let nodes = self.plan_nodes(quests, statuses);
         // La fenêtre a changé de taille (la fiche s'ouvre ou se ferme) : un plan resté cadré se
         // recadre, un plan déplacé garde ses quêtes à la même place à l'écran.
-        if let Some(old) = self.ui.quests.viewport.filter(|old| *old != viewport) {
-            if self.ui.quests.auto_fit {
-                self.ui.quests.fit = true;
-            } else if self.ui.quests.screen == ui.ctx().content_rect().size() {
-                let scale = self.ui.quests.view.scale();
-                self.ui.quests.view.center += (viewport.center() - old.center()) / scale;
+        if let Some(old) = self
+            .client
+            .ui
+            .quests
+            .viewport
+            .filter(|old| *old != viewport)
+        {
+            if self.client.ui.quests.auto_fit {
+                self.client.ui.quests.fit = true;
+            } else if self.client.ui.quests.screen == ui.ctx().content_rect().size() {
+                let scale = self.client.ui.quests.view.scale();
+                self.client.ui.quests.view.center += (viewport.center() - old.center()) / scale;
             }
         }
-        self.ui.quests.viewport = Some(viewport);
-        self.ui.quests.screen = ui.ctx().content_rect().size();
+        self.client.ui.quests.viewport = Some(viewport);
+        self.client.ui.quests.screen = ui.ctx().content_rect().size();
         // Le cadrage de l'ouverture ou du changement de chapitre.
-        if self.ui.quests.fit {
-            self.ui.quests.fit = false;
-            self.ui.quests.auto_fit = true;
-            self.ui.quests.view = match geometry::grid_bounds(&nodes) {
+        if self.client.ui.quests.fit {
+            self.client.ui.quests.fit = false;
+            self.client.ui.quests.auto_fit = true;
+            self.client.ui.quests.view = match geometry::grid_bounds(&nodes) {
                 Some(bounds) => MapView::fit(bounds, viewport.size()),
                 None => MapView::default(),
             };
@@ -205,18 +211,22 @@ impl VoxelGame {
         let response = ui.allocate_rect(viewport, Sense::click_and_drag());
         // Glisser, zoomer.
         if response.dragged() {
-            self.ui.quests.auto_fit = false;
-            self.ui.quests.view.pan_by(response.drag_delta());
+            self.client.ui.quests.auto_fit = false;
+            self.client.ui.quests.view.pan_by(response.drag_delta());
         }
         if let Some(pointer) = response.hover_pos() {
             let (scroll, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
             let factor = pinch * (scroll * 0.0025).exp();
             if (factor - 1.0).abs() > 1e-4 {
-                self.ui.quests.auto_fit = false;
-                self.ui.quests.view.zoom_at(factor, pointer, viewport);
+                self.client.ui.quests.auto_fit = false;
+                self.client
+                    .ui
+                    .quests
+                    .view
+                    .zoom_at(factor, pointer, viewport);
             }
         }
-        let view = self.ui.quests.view;
+        let view = self.client.ui.quests.view;
         let hovered = response
             .hover_pos()
             .and_then(|at| geometry::hit_test(&view, viewport, &nodes, at));
@@ -302,7 +312,7 @@ impl VoxelGame {
                 view.zoom,
             );
         }
-        self.ui.quests.drawn = drawn;
+        self.client.ui.quests.drawn = drawn;
         if nodes.iter().any(|n| n.status == Status::Done) {
             ui.ctx().request_repaint();
         }
@@ -364,11 +374,11 @@ impl VoxelGame {
             fill,
             Stroke::new(border_width, if hovered { skin::TEXT } else { border }),
         );
-        let icon = self.ui.icon(
+        let icon = self.client.ui.icon(
             quest.icon,
             &self.content.items,
             &self.registry,
-            &self.block_textures,
+            &self.client.block_textures,
         );
         painter.image(
             icon,
@@ -426,7 +436,7 @@ impl VoxelGame {
         status: Status,
     ) {
         let quest = &quests.quests[index];
-        let progress = self.view.me.quests.clone().unwrap_or_default();
+        let progress = self.client.view.me.quests.clone().unwrap_or_default();
         let mobs = self
             .ecs
             .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()

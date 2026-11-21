@@ -140,7 +140,7 @@ impl VoxelGame {
     }
 
     fn play_ui_sound(&mut self) {
-        if let Some(audio) = &mut self.audio {
+        if let Some(audio) = &mut self.client.audio {
             audio.play("core:enchant");
         }
     }

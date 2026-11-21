@@ -341,7 +341,7 @@ impl Tour {
 impl VoxelGame {
     /// Une étape de la visite, à chaque image.
     pub(crate) fn run_tour(&mut self, ctx: &mut Context) -> Result<()> {
-        let Some(tour) = self.tour.as_mut() else {
+        let Some(tour) = self.client.tour.as_mut() else {
             return Ok(());
         };
         // Les captures écartées par `VOXEL_SHOTS` sont sautées.
@@ -378,7 +378,7 @@ impl VoxelGame {
                     self.players.entity(),
                     eye + self.origin().as_vec3(),
                 );
-                self.ui.inventory_open = matches!(
+                self.client.ui.inventory_open = matches!(
                     shot.scene,
                     Scene::Inventory
                         | Scene::Workbench
@@ -387,7 +387,7 @@ impl VoxelGame {
                         | Scene::Trade
                         | Scene::ShapingTable
                 );
-                self.ui.screen = crate::ui::Screen::Inventory;
+                self.client.ui.screen = crate::ui::Screen::Inventory;
                 // Le bras n'apparaît que dans ses propres captures.
                 let arm = matches!(
                     shot.scene,
@@ -397,14 +397,14 @@ impl VoxelGame {
                         | Scene::ArmTool
                         | Scene::ArmSword
                 );
-                self.hand.visible = arm;
-                self.hand.frozen = false;
+                self.client.hand.visible = arm;
+                self.client.hand.frozen = false;
                 self.mode = match shot.scene {
                     Scene::Menu(MenuShot::Main) => {
                         crate::Mode::Title(crate::menus::TitlePage::Main)
                     }
                     Scene::Menu(MenuShot::Worlds) => {
-                        self.worlds = crate::menus::saved_worlds();
+                        self.client.worlds = crate::menus::saved_worlds();
                         crate::Mode::Title(crate::menus::TitlePage::Worlds { confirm: None })
                     }
                     Scene::Menu(MenuShot::NewWorld) => {
@@ -423,9 +423,9 @@ impl VoxelGame {
                     }
                     _ => crate::Mode::Playing,
                 };
-                self.ui.inspector_open = shot.scene == Scene::Inspector;
-                self.camera.yaw = yaw.to_radians();
-                self.camera.pitch = pitch.to_radians();
+                self.client.ui.inspector_open = shot.scene == Scene::Inspector;
+                self.client.camera.yaw = yaw.to_radians();
+                self.client.camera.pitch = pitch.to_radians();
                 self.set_stage(Stage::Build);
             }
             Stage::Build if ready => {
@@ -440,11 +440,15 @@ impl VoxelGame {
                     // L'interface aussi : la barre d'objets, l'inventaire ou l'inspecteur.
                     let (ui, _) = self.build_ui(crate::ui::offscreen_input(WIDTH, HEIGHT));
                     self.update_visibility(WIDTH as f32 / HEIGHT as f32);
-                    let capture = self
-                        .renderer
-                        .capture(&self.camera, WIDTH, HEIGHT, Some(ui))?;
+                    let capture = self.client.renderer.capture(
+                        &self.client.camera,
+                        WIDTH,
+                        HEIGHT,
+                        Some(ui),
+                    )?;
                     let elapsed = start.elapsed();
                     let dir = self
+                        .client
                         .tour
                         .as_ref()
                         .map(|t| t.dir.clone())
@@ -458,10 +462,10 @@ impl VoxelGame {
                         capture.stats.triangles as f64 / 1e6,
                         elapsed.as_secs_f32() * 1000.0
                     );
-                    if tour_index(&self.tour) == 0 {
+                    if tour_index(&self.client.tour) == 0 {
                         self.measure_gpu()?;
                     }
-                    if let Some(tour) = self.tour.as_mut() {
+                    if let Some(tour) = self.client.tour.as_mut() {
                         tour.index += 1;
                         tour.taken += 1;
                     }
@@ -479,10 +483,14 @@ impl VoxelGame {
     /// une borne haute du travail du GPU par image, même écran éteint.
     fn measure_gpu(&mut self) -> Result<()> {
         const FRAMES: u32 = 10;
-        self.renderer.capture(&self.camera, 2560, 1440, None)?; // préchauffage
+        self.client
+            .renderer
+            .capture(&self.client.camera, 2560, 1440, None)?; // préchauffage
         let start = Instant::now();
         for _ in 0..FRAMES {
-            self.renderer.capture(&self.camera, 2560, 1440, None)?;
+            self.client
+                .renderer
+                .capture(&self.client.camera, 2560, 1440, None)?;
         }
         log::info!(
             "rendu hors écran 2560 × 1440 : {:.2} ms par image (lecture des pixels comprise)",
@@ -492,7 +500,7 @@ impl VoxelGame {
     }
 
     fn set_stage(&mut self, stage: Stage) {
-        if let Some(tour) = self.tour.as_mut() {
+        if let Some(tour) = self.client.tour.as_mut() {
             tour.stage = stage;
         }
     }
@@ -774,7 +782,7 @@ impl VoxelGame {
                 self.players.me_mut().inventory.craft[0] = stack("core:oak_log", 3);
                 self.players.me_mut().inventory.armor[0] = stack("core:iron_helmet", 1);
                 self.players.me_mut().inventory.armor[1] = stack("core:copper_chestplate", 1);
-                self.ui.screen = crate::ui::Screen::Inventory;
+                self.client.ui.screen = crate::ui::Screen::Inventory;
             }
             Scene::Workbench => {
                 // Une pioche en bois : trois planches en haut, deux bâtons au milieu.
@@ -789,7 +797,7 @@ impl VoxelGame {
                     12,
                     &items,
                 );
-                self.ui.screen = crate::ui::Screen::Workbench;
+                self.client.ui.screen = crate::ui::Screen::Workbench;
             }
             Scene::Furnace | Scene::Chest => {
                 let (x, z) = (3, 3);
@@ -836,12 +844,12 @@ impl VoxelGame {
                         .machines
                         .schedule(engine_voxel::GridPos::world(pos), 1);
                     for _ in 0..3 * 300 {
-                        let (actions, _) = self.mods.fixed_step(self.camera.position);
+                        let (actions, _) = self.mods.fixed_step(self.client.camera.position);
                         self.apply_machine_actions(actions);
                     }
-                    self.ui.screen = crate::ui::Screen::Furnace(pos);
+                    self.client.ui.screen = crate::ui::Screen::Furnace(pos);
                 } else {
-                    self.ui.screen = crate::ui::Screen::Chest(pos);
+                    self.client.ui.screen = crate::ui::Screen::Chest(pos);
                 }
             }
             Scene::Trade => {
@@ -882,9 +890,9 @@ impl VoxelGame {
                     .add(items.id("core:wheat").unwrap(), 45, &items);
                 crate::entities::NetIds::assign(&mut self.ecs);
                 if let Some(id) = self.ecs.get::<crate::entities::NetId>(mob).map(|id| *id) {
-                    self.ui.screen = crate::ui::Screen::Trade(id);
+                    self.client.ui.screen = crate::ui::Screen::Trade(id);
                 }
-                self.ui.trade_selected = 4;
+                self.client.ui.trade_selected = 4;
             }
             _ => {}
         }
@@ -1067,18 +1075,18 @@ impl VoxelGame {
                 wanted.map(|item| crate::inventory::ItemStack::new(item, 1));
         }
         self.players.me_mut().inventory.selected = if wanted.is_none() { 8 } else { slot };
-        self.hand.equip = 0.0;
-        self.hand.swing = None;
-        self.hand.walk_amount = 0.0;
+        self.client.hand.equip = 0.0;
+        self.client.hand.swing = None;
+        self.client.hand.walk_amount = 0.0;
         match scene {
             Scene::ArmWalk => {
-                self.hand.walk_phase = 1.1;
-                self.hand.walk_amount = 1.6;
+                self.client.hand.walk_phase = 1.1;
+                self.client.hand.walk_amount = 1.6;
             }
-            Scene::ArmMine => self.hand.swing = Some(0.42),
+            Scene::ArmMine => self.client.hand.swing = Some(0.42),
             _ => {}
         }
-        self.hand.frozen = true;
+        self.client.hand.frozen = true;
     }
 
     /// Un mécanisme sur une dalle de pierre : une horloge entourée de quatre lampes, et une
@@ -1137,7 +1145,7 @@ impl VoxelGame {
         // Une seconde et quart de machines (25 ticks) : l'horloge s'allume (tick 20),
         // ses lampes aussi.
         for _ in 0..75 {
-            let (actions, _) = self.mods.fixed_step(self.camera.position);
+            let (actions, _) = self.mods.fixed_step(self.client.camera.position);
             self.apply_machine_actions(actions);
         }
     }

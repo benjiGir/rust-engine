@@ -204,7 +204,7 @@ impl VoxelGame {
         match page {
             TitlePage::Main => Self::menu_window(ctx, "Voxel", |ui| {
                 if button(ui, "Jouer") {
-                    self.worlds = saved_worlds();
+                    self.client.worlds = saved_worlds();
                     self.mode = Mode::Title(TitlePage::Worlds { confirm: None });
                 }
                 if button(ui, "Nouveau monde") {
@@ -234,18 +234,18 @@ impl VoxelGame {
                     self.mode = Mode::Title(TitlePage::Options);
                 }
                 if quit {
-                    self.request = Some(Request::Quit);
+                    self.client.request = Some(Request::Quit);
                 }
             }),
             TitlePage::Worlds { confirm } => Self::menu_window(ctx, "Mondes", |ui| {
-                if self.worlds.is_empty() {
+                if self.client.worlds.is_empty() {
                     ui.label("Aucun monde sauvegardé.");
                 }
                 let mut delete = None;
                 egui::ScrollArea::vertical()
                     .max_height(320.0)
                     .show(ui, |ui| {
-                        for world in self.worlds.clone() {
+                        for world in self.client.worlds.clone() {
                             ui.vertical(|ui| {
                                 ui.vertical(|ui| {
                                     ui.label(RichText::new(&world.name).strong().size(16.0));
@@ -281,7 +281,7 @@ impl VoxelGame {
                                         if world.unplayable.is_none()
                                             && ui.button(RichText::new("Jouer").strong()).clicked()
                                         {
-                                            self.request = Some(Request::Play(Launch {
+                                            self.client.request = Some(Request::Play(Launch {
                                                 world: Some(world.dir.clone()),
                                                 seed: None,
                                                 title: false,
@@ -300,7 +300,7 @@ impl VoxelGame {
                         Ok(()) => log::info!("monde « {} » supprimé", world.name),
                         Err(err) => log::error!("suppression de {} : {err}", world.dir.display()),
                     }
-                    self.worlds = saved_worlds();
+                    self.client.worlds = saved_worlds();
                     self.mode = Mode::Title(TitlePage::Worlds { confirm: None });
                 }
                 if button(ui, "Retour") {
@@ -368,7 +368,7 @@ impl VoxelGame {
                             error: Some(format!("« {folder} » existe déjà.")),
                         };
                     } else {
-                        self.request = Some(Request::Play(Launch {
+                        self.client.request = Some(Request::Play(Launch {
                             world: Some(dir),
                             seed: Some(parse_seed(&seed)),
                             title: false,
@@ -484,7 +484,7 @@ impl VoxelGame {
                     "Retourner au menu"
                 };
                 if button(ui, label) {
-                    self.request = Some(Request::Title);
+                    self.client.request = Some(Request::Title);
                 }
             }),
             PausePage::Options => Self::menu_window(ctx, "Options", |ui| {
@@ -508,7 +508,7 @@ impl VoxelGame {
                     .map_or_else(|| id.clone(), |(_, name)| name.clone());
                 Self::menu_window(ctx, &title, |ui| {
                     // Le menu est sorti de l'état pendant le dessin ; les actions sont mises en file.
-                    if let Some((owner, mut menu)) = self.ui.options_menu.take() {
+                    if let Some((owner, mut menu)) = self.client.ui.options_menu.take() {
                         let mut events = Vec::new();
                         crate::mod_menu::draw_widgets(
                             ui,
@@ -518,8 +518,8 @@ impl VoxelGame {
                                 ui.label("(cases d'inventaire indisponibles ici)");
                             },
                         );
-                        self.ui.options_menu = Some((owner, menu));
-                        self.ui.options_events.extend(events);
+                        self.client.ui.options_menu = Some((owner, menu));
+                        self.client.ui.options_events.extend(events);
                     } else {
                         ui.label("Ce mod n'a pas de réglages à afficher.");
                     }
@@ -553,7 +553,7 @@ impl VoxelGame {
         if navigation == crate::ui_options::Navigation::Back {
             self.waiting_key = None;
             self.settings.save(&project_root());
-            self.renderer.set_vsync(self.settings.vsync);
+            self.client.renderer.set_vsync(self.settings.vsync);
             return true;
         }
         false
@@ -561,9 +561,9 @@ impl VoxelGame {
 
     /// Applique les options qui ne demandent pas de recharger le monde.
     pub(crate) fn apply_settings(&mut self) {
-        self.camera.fov_y = self.settings.fov.to_radians();
-        self.hand.visible = self.settings.show_arm && !matches!(self.mode, Mode::Title(_));
-        if let Some(audio) = &mut self.audio {
+        self.client.camera.fov_y = self.settings.fov.to_radians();
+        self.client.hand.visible = self.settings.show_arm && !matches!(self.mode, Mode::Title(_));
+        if let Some(audio) = &mut self.client.audio {
             let (effects, music) = self.settings.volumes();
             audio.set_volumes(effects, music);
         }

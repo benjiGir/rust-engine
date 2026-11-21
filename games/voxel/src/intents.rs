@@ -189,13 +189,13 @@ impl VoxelGame {
         if let Some(aim) = self.acting {
             return aim;
         }
-        let eye = self.camera.position;
-        let forward = self.camera.forward();
+        let eye = self.client.camera.position;
+        let forward = self.client.camera.forward();
         ActingAim {
             player: self.players.current_id(),
             eye,
             forward,
-            hit: self.target,
+            hit: self.client.target,
             // La fenêtre choisit ce qu'elle frappe dans sa réplique (voir `window_entity`) ; le simulateur
             // refait sa propre visée à chaque message.
             mob: None,
@@ -210,8 +210,8 @@ impl VoxelGame {
     /// La visée de la fenêtre, telle qu'elle part dans un message.
     pub(crate) fn window_aim(&self) -> Aim {
         Aim {
-            eye: self.camera.position,
-            forward: self.camera.forward(),
+            eye: self.client.camera.position,
+            forward: self.client.camera.forward(),
         }
     }
 
@@ -220,20 +220,20 @@ impl VoxelGame {
     pub(crate) fn body_aim(&self) -> Aim {
         Aim {
             eye: player::eye(&self.ecs, self.players.entity(), 1.0),
-            forward: self.camera.forward(),
+            forward: self.client.camera.forward(),
         }
     }
 
     /// Met un message dans la file du client : il sera appliqué à la fin de la chaîne d'entrées de
     /// l'image (voir `play_input.rs`).
     pub(crate) fn send(&mut self, msg: ClientMsg) {
-        self.outbox.push(msg);
+        self.client.outbox.push(msg);
     }
 
     /// Envoie et applique tout de suite (les écrans et `ctl`, qui ne sont pas dans la chaîne
     /// d'entrées).
     pub(crate) fn send_now(&mut self, msg: ClientMsg) {
-        self.outbox.push(msg);
+        self.client.outbox.push(msg);
         self.flush_outbox();
     }
 
@@ -242,9 +242,9 @@ impl VoxelGame {
         let local = self.players.local_id();
         let mut guard = 0;
         // Un message peut en provoquer d'autres (fermer un écran...) : on vide jusqu'au bout.
-        while !self.outbox.is_empty() && guard < 64 {
+        while !self.client.outbox.is_empty() && guard < 64 {
             guard += 1;
-            for msg in std::mem::take(&mut self.outbox) {
+            for msg in std::mem::take(&mut self.client.outbox) {
                 self.handle(local, msg);
             }
         }
@@ -278,7 +278,8 @@ impl VoxelGame {
                     if let Some(mut velocity) = self.ecs.get_mut::<Velocity>(entity) {
                         velocity.0 = Vec3::ZERO;
                     }
-                    self.camera.position = position + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT;
+                    self.client.camera.position =
+                        position + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT;
                 }
                 ServerMsg::Feedback(feedback) => self.apply_feedback(feedback),
                 ServerMsg::OpenScreen(screen) => self.show_screen(screen),
@@ -289,25 +290,25 @@ impl VoxelGame {
                     data,
                 })) => {
                     self.receive_mod_menu(owner.clone(), at, data.clone());
-                    self.view.receive(ServerMsg::ScreenView(Some(
+                    self.client.view.receive(ServerMsg::ScreenView(Some(
                         crate::screen_actions::ScreenView::Mod { owner, at, data },
                     )));
                 }
                 ServerMsg::Died { message } => {
                     // L'écran ouvert se ferme, la souris est rendue au menu de mort.
-                    if self.ui.inventory_open {
+                    if self.client.ui.inventory_open {
                         self.close_screen();
-                        self.ui.inventory_open = false;
+                        self.client.ui.inventory_open = false;
                     }
                     self.mode = Mode::Dead(message);
                 }
                 ServerMsg::Respawned => self.mode = Mode::Playing,
                 // Le monde que voit la fenêtre : la réplique l'applique à la prochaine mise à jour
                 // de ses vues (voir `client_world.rs`).
-                chunk_msg => self.view.receive(chunk_msg),
+                chunk_msg => self.client.view.receive(chunk_msg),
             }
         }
-        self.view.apply_received();
+        self.client.view.apply_received();
     }
 
     /// Applique une intention du client. Tout ce que le simulateur touche pendant ce temps est
@@ -512,7 +513,7 @@ impl VoxelGame {
                     }
                     let block = game.streamer().world().block(pos);
                     // La première image est créditée comme chez le client (qui y a déjà avancé).
-                    let first = game.frame_dt;
+                    let first = game.client.frame_dt;
                     game.players.me_mut().dig = game
                         .mining_time(pos, block)
                         .map(|time| start_dig(pos, block, time, first));
@@ -584,10 +585,10 @@ impl VoxelGame {
         }
         let entity = self.players.entity();
         // Les vols automatiques, les wagons et les structures portent le joueur : pas de contrôle.
-        if self.autofly.is_some()
-            || self.demo.is_some()
-            || self.bench.is_some()
-            || self.tour.is_some()
+        if self.client.autofly.is_some()
+            || self.client.demo.is_some()
+            || self.client.bench.is_some()
+            || self.client.tour.is_some()
             || self.ecs.has::<carts::Riding>(entity)
             || player::frozen(&self.ecs, entity)
         {
@@ -604,8 +605,8 @@ impl VoxelGame {
         let msg = ClientMsg::Move {
             position: transform,
             velocity,
-            yaw: self.camera.yaw,
-            pitch: self.camera.pitch,
+            yaw: self.client.camera.yaw,
+            pitch: self.client.camera.pitch,
             on_ground: collider.on_ground,
             mode: player::mode(&self.ecs, entity),
             step: self.sim_step,
@@ -743,12 +744,14 @@ impl VoxelGame {
     /// La fenêtre ouvre l'écran que le serveur lui a ouvert.
     pub(crate) fn show_screen(&mut self, screen: Screen) {
         match screen {
-            Screen::Trade(_) => self.ui.trade_selected = 0,
-            Screen::Mod(_) if self.ui.screen == screen && self.ui.inventory_open => return,
+            Screen::Trade(_) => self.client.ui.trade_selected = 0,
+            Screen::Mod(_) if self.client.ui.screen == screen && self.client.ui.inventory_open => {
+                return;
+            }
             _ => {}
         }
-        self.ui.screen = screen;
-        self.ui.inventory_open = true;
+        self.client.ui.screen = screen;
+        self.client.ui.inventory_open = true;
     }
 
     /// `CloseMenu` : la main et la grille d'artisanat retournent dans l'inventaire (ce qui n'y tient

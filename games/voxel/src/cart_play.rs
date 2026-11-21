@@ -223,7 +223,7 @@ impl VoxelGame {
             .input
             .key_pressed(self.settings.keys.key(Action::Descend))
             || ctx.input.key_pressed(KeyCode::ShiftRight);
-        if sneak && self.mouse_captured && !self.ui.inventory_open {
+        if sneak && self.client.mouse_captured && !self.client.ui.inventory_open {
             self.dismount();
         }
     }

@@ -369,7 +369,7 @@ impl crate::VoxelGame {
                 engine_voxel::View {
                     position: crate::player::eye(&self.ecs, p.entity, 1.0),
                     forward: if local {
-                        self.camera.forward()
+                        self.client.camera.forward()
                     } else {
                         glam::Vec3::ZERO
                     },

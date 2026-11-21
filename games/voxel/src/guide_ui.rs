@@ -34,8 +34,8 @@ impl VoxelGame {
 
     /// Ouvre le guide à la page où on l'avait laissé.
     pub(crate) fn open_guide(&mut self) {
-        self.ui.screen = Screen::Guide;
-        self.ui.inventory_open = true;
+        self.client.ui.screen = Screen::Guide;
+        self.client.ui.inventory_open = true;
     }
 
     /// Le corps de l'écran du guide.
@@ -45,7 +45,7 @@ impl VoxelGame {
             ui.label("Ce guide est vide.");
             return;
         }
-        let state = &mut self.ui.guide;
+        let state = &mut self.client.ui.guide;
         state.chapter = state.chapter.min(guide.chapters.len() - 1);
         let chapter = &guide.chapters[state.chapter];
         state.page = state.page.min(chapter.pages.len() - 1);
@@ -124,10 +124,10 @@ impl VoxelGame {
                 });
             });
         });
-        self.ui.guide.chapter = chapter_index;
-        self.ui.guide.page = page_index;
+        self.client.ui.guide.chapter = chapter_index;
+        self.client.ui.guide.page = page_index;
         if let Some(item) = open {
-            self.ui.browser.open(item, Lookup::Recipes);
+            self.client.ui.browser.open(item, Lookup::Recipes);
         }
     }
 }

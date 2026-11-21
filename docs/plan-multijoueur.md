@@ -730,6 +730,29 @@ Le 3d est coupé en deux : 3d-1 pour les écrans à cases, 3d-2 pour les autres.
 - Mesure (`cargo xtask bench`) : le temps d'image doit baisser, puisque le tick ne bloque plus le rendu.
   Rien ne doit se dégrader.
 
+#### Le lot 4 découpé (après le lot 3, `7844bbd`)
+
+État du code : `VoxelGame` porte environ 80 champs. Une quarantaine sont à la fenêtre :
+- le rendu, la caméra et la souris ;
+- l'interface, le son et les effets ;
+- la réplique (`view`) ;
+- la main, la visée et la prédiction ;
+- les captures, le bench et le terrain lointain.
+
+Une trentaine sont au serveur : l'ECS, le monde, les mods, les joueurs, les fluides, les villages, les échanges, les sacs,
+les dimensions, la sauvegarde, les règles, ainsi que `replies` et `acting`. Quelques-uns sont mêlés : le mode (pause,
+titre, mort), les réglages, le pilotage `ctl` et le rechargement à chaud.
+
+Le code serveur lit encore la fenêtre à plusieurs endroits : `self.ui` est cité 259 fois dans 28 fichiers,
+`self.camera` 72 fois dans 19 fichiers, `self.target` 24 fois. Une bonne partie de ces lectures est dans les écrans
+(client), le reste est à trier.
+
+| Étape | Contenu |
+|---|---|
+| **4a. L'état de la fenêtre regroupé** | Les champs de la fenêtre passent dans `self.client` (`ClientSide`, module `client_side.rs`). Ce déplacement est mécanique et ne change aucun comportement, mais il rend visible chaque lecture de la fenêtre. |
+| **4b. Le serveur sans fenêtre** | Les champs du serveur passent dans `VoxelServer`, et les fonctions du serveur deviennent des méthodes de `VoxelServer`, module par module. Chaque accès du serveur à `client` devient un message (la plupart existent déjà : `Feedback`, `OpenScreen`...) ou une donnée du joueur. Un `VoxelServer` se construit sans fenêtre, si bien que `handle` se teste enfin pour deux joueurs. |
+| **4c. Le thread** | Le serveur est construit sur son thread, avec un pas fixe de 60 Hz. Le lien devient deux canaux, et les appels avec réponse (sauvegarde, fermeture, dimension) ont un délai maximal. |
+
 ### Lot 5 : le réseau local
 
 - `engine_net` :

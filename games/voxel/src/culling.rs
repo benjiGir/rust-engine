@@ -32,11 +32,11 @@ impl VoxelGame {
     /// Choisit les maillages à dessiner pour la caméra actuelle, vue avec ce rapport
     /// largeur / hauteur (celui de l'écran, ou d'une capture).
     pub(crate) fn update_visibility(&mut self, aspect: f32) {
-        if !self.culling.enabled {
-            self.renderer.set_visible_meshes(None);
+        if !self.client.culling.enabled {
+            self.client.renderer.set_visible_meshes(None);
             return;
         }
-        let frustum = Frustum::from_view_proj(self.camera.view_projection(aspect));
+        let frustum = Frustum::from_view_proj(self.client.camera.view_projection(aspect));
         let size = CHUNK_SIZE as f32;
         let in_view = |chunk: IVec3| {
             let min = chunk.as_vec3() * size;
@@ -44,31 +44,34 @@ impl VoxelGame {
         };
         let radius = self.view_streamer().config().view_radius + 1;
         let vertical = self.view_world().vertical();
-        let culling = &mut self.culling;
+        let culling = &mut self.client.culling;
         culling.chunks.clear();
         culling.graph.visible(
-            self.camera.position,
+            self.client.camera.position,
             radius,
             vertical,
             in_view,
             &mut culling.chunks,
         );
         culling.ids.clear();
-        culling
-            .ids
-            .extend(culling.chunks.iter().filter_map(|c| self.meshes.get(c)));
+        culling.ids.extend(
+            culling
+                .chunks
+                .iter()
+                .filter_map(|c| self.client.meshes.get(c)),
+        );
         // Les structures mobiles sont toujours dessinées (le frustum les écarte au besoin).
-        culling.ids.extend(self.grid_meshes.ids());
-        if let Some(far) = &self.far {
+        culling.ids.extend(self.client.grid_meshes.ids());
+        if let Some(far) = &self.client.far {
             culling.ids.extend(far.ids());
         }
-        self.renderer.set_visible_meshes(Some(&culling.ids));
+        self.client.renderer.set_visible_meshes(Some(&culling.ids));
     }
 
     /// F6 : allume ou éteint le culling des grottes.
     pub(crate) fn toggle_cave_culling(&mut self) {
-        self.culling.enabled = !self.culling.enabled;
-        let state = if self.culling.enabled {
+        self.client.culling.enabled = !self.client.culling.enabled;
+        let state = if self.client.culling.enabled {
             "activé"
         } else {
             "désactivé"

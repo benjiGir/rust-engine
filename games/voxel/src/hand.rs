@@ -19,7 +19,7 @@ impl crate::VoxelGame {
             .get::<Collider>(self.players.entity())
             .is_some_and(|c| c.on_ground)
             || player::mode(&self.ecs, self.players.entity()) == MoveMode::Fly;
-        self.hand.update(HandInput {
+        self.client.hand.update(HandInput {
             dt,
             speed: Vec2::new(velocity.x, velocity.z).length(),
             sprinting: ctx.input.key_held(KeyCode::ControlLeft),
@@ -27,11 +27,16 @@ impl crate::VoxelGame {
             mining: self.players.me_mut().mining.is_some() || self.players.me_mut().air_swing,
             // L'objet tenu : l'inventaire tel que le serveur l'a envoyé.
             selected: (
-                usize::from(self.view.me.inventory.selected),
-                self.view.me.inventory.selected_stack().map(|s| s.item),
+                usize::from(self.client.view.me.inventory.selected),
+                self.client
+                    .view
+                    .me
+                    .inventory
+                    .selected_stack()
+                    .map(|s| s.item),
             ),
-            yaw: self.camera.yaw,
-            pitch: self.camera.pitch,
+            yaw: self.client.camera.yaw,
+            pitch: self.client.camera.pitch,
         });
     }
 }

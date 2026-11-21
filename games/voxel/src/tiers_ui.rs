@@ -41,11 +41,11 @@ pub fn effects_line(tier: &TierDef) -> String {
 impl VoxelGame {
     /// La touche des paliers : ouvre l'écran, ou le referme.
     pub(crate) fn toggle_tiers_screen(&mut self) {
-        if self.ui.inventory_open && self.ui.screen == Screen::Tiers {
+        if self.client.ui.inventory_open && self.client.ui.screen == Screen::Tiers {
             self.close_screen();
-        } else if self.mouse_captured && !self.ui.inventory_open {
-            self.ui.screen = Screen::Tiers;
-            self.ui.inventory_open = true;
+        } else if self.client.mouse_captured && !self.client.ui.inventory_open {
+            self.client.ui.screen = Screen::Tiers;
+            self.client.ui.inventory_open = true;
         }
     }
 
@@ -53,7 +53,7 @@ impl VoxelGame {
     pub(crate) fn tiers_panel(&mut self, ui: &mut egui::Ui) {
         let data = adventure_data::current();
         // L'aventure telle que la vue du joueur la décrit.
-        let Some(progress) = self.view.me.vitals.as_ref().map(|v| v.tiers) else {
+        let Some(progress) = self.client.view.me.vitals.as_ref().map(|v| v.tiers) else {
             return;
         };
         let mut chosen = None;

@@ -232,9 +232,9 @@ impl VoxelGame {
             .ecs
             .get::<Velocity>(self.players.entity())
             .map_or(0.0, |v| Vec2::new(v.0.x, v.0.z).length());
-        self.water_fx.update(
+        self.client.water_fx.update(
             dt,
-            self.view.world(),
+            self.client.view.world(),
             Swimmer {
                 feet: body.position,
                 eye: body.eye(),

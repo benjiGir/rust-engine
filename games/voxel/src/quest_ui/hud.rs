@@ -18,7 +18,7 @@ impl VoxelGame {
         // Les quêtes sont le contenu du jeu ; la progression vient de la vue du joueur.
         let (Some(quests), Some(progress)) = (
             self.players.local().quest_book.quests(),
-            self.view.me.quests.clone(),
+            self.client.view.me.quests.clone(),
         ) else {
             return;
         };
@@ -33,10 +33,15 @@ impl VoxelGame {
         }
         let screen = ctx.content_rect().width();
         let offset = geometry::pin_offset(
-            self.view.me.vitals.as_ref().map_or(0, |v| v.effects.len()),
+            self.client
+                .view
+                .me
+                .vitals
+                .as_ref()
+                .map_or(0, |v| v.effects.len()),
             screen,
-            self.ui.toast.is_some(),
-            self.ui.target_bottom,
+            self.client.ui.toast.is_some(),
+            self.client.ui.target_bottom,
         );
         let width = geometry::pin_width(screen);
         let mobs = self

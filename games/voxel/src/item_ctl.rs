@@ -154,7 +154,10 @@ impl VoxelGame {
                 Ok(self.sheet_json())
             }
             Command::Hover(x, y) => {
-                self.ui.input.hover(engine_render::egui::pos2(x, y), 30);
+                self.client
+                    .ui
+                    .input
+                    .hover(engine_render::egui::pos2(x, y), 30);
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Equip(slot) => {
@@ -199,15 +202,15 @@ impl VoxelGame {
                 match panel {
                     Some(Panel::Open) => {
                         // On ouvre aussi l'inventaire, où est la fiche.
-                        self.ui.attributes.open = true;
-                        if !self.ui.inventory_open {
-                            self.ui.inventory_open = true;
-                            self.ui.screen = crate::ui::Screen::Inventory;
-                            self.mouse_captured = false;
+                        self.client.ui.attributes.open = true;
+                        if !self.client.ui.inventory_open {
+                            self.client.ui.inventory_open = true;
+                            self.client.ui.screen = crate::ui::Screen::Inventory;
+                            self.client.mouse_captured = false;
                         }
                     }
-                    Some(Panel::Close) => self.ui.attributes.open = false,
-                    Some(Panel::Modified(on)) => self.ui.attributes.modified_only = on,
+                    Some(Panel::Close) => self.client.ui.attributes.open = false,
+                    Some(Panel::Modified(on)) => self.client.ui.attributes.modified_only = on,
                     None => {}
                 }
                 Ok(self.attributes_json())

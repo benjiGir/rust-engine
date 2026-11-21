@@ -249,7 +249,7 @@ impl VoxelGame {
         // `world.ron` définitif est celui-ci (position conservée, dimension et arrivée notées).
         self.dims.leaving = Some(target.to_string());
         self.save_now();
-        self.request = Some(Request::Play(Launch {
+        self.client.request = Some(Request::Play(Launch {
             world: Some(root.dir().to_path_buf()),
             seed: None,
             title: false,

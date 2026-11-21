@@ -65,7 +65,7 @@ impl VoxelGame {
 
     /// La vue d'écran que la fenêtre a reçue.
     pub(crate) fn shown_screen(&self) -> Option<&ScreenView> {
-        self.view.me.screen.as_ref()
+        self.client.view.me.screen.as_ref()
     }
 
     /// `Trade` : faire l'échange `offer` de l'habitant ouvert, `times` fois au plus.

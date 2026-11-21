@@ -383,8 +383,8 @@ impl VoxelGame {
             .shown_container()
             .and_then(|c| c.cart)
             .is_some_and(|(kind, _)| kind == crate::carts::CartKind::Locomotive);
-        self.view.me.inventory.cursor.is_none()
-            && match self.ui.screen {
+        self.client.view.me.inventory.cursor.is_none()
+            && match self.client.ui.screen {
                 Screen::Chest(_) | Screen::Bag(_) | Screen::Controller(_) => true,
                 Screen::Cart(_) => !locomotive,
                 _ => false,
@@ -480,7 +480,7 @@ impl VoxelGame {
 
     /// Le titre de l'écran d'un conteneur.
     pub(crate) fn storage_title(&self) -> String {
-        match self.ui.screen {
+        match self.client.ui.screen {
             Screen::Chest(pos) => {
                 let block = self.streamer().world().block(pos);
                 let name = &self.registry.def(block).name;
@@ -713,7 +713,7 @@ impl VoxelGame {
         ui.horizontal(|ui| {
             ui.label("Recherche");
             ui.add(
-                egui::TextEdit::singleline(&mut self.ui.storage_search)
+                egui::TextEdit::singleline(&mut self.client.ui.storage_search)
                     .text_color(crate::skin::TEXT)
                     .desired_width(ui.available_width().min(220.0)),
             );
@@ -721,7 +721,7 @@ impl VoxelGame {
                 self.send_now(ClientMsg::Screen(ScreenAction::ControllerDeposit));
             }
         });
-        let query = self.ui.storage_search.clone();
+        let query = self.client.ui.storage_search.clone();
         let shown: Vec<(engine_voxel::ItemId, engine_voxel::Group)> = groups
             .into_iter()
             .filter_map(|g| Some((items.id(&g.item)?, g)))
@@ -748,7 +748,7 @@ impl VoxelGame {
         let Some((group, press)) = pressed else {
             return;
         };
-        let action = match (group, self.view.me.inventory.cursor) {
+        let action = match (group, self.client.view.me.inventory.cursor) {
             // La pile tenue est rangée dans les coffres.
             (_, Some(_)) => ScreenAction::ControllerPut,
             (Some((_, g)), None) => ScreenAction::ControllerTake {
@@ -957,7 +957,7 @@ impl VoxelGame {
         let actions = self.mods.block_changed(pos);
         self.apply_machine_actions(actions);
         self.players.me_mut().inventory.consume_selected();
-        self.target = None;
+        self.client.target = None;
         self.punch();
         self.sound("core:place_hard");
         self.toast(&format!("{} !", CHEST_TIERS[to].name));

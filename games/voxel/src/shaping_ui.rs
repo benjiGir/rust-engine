@@ -38,7 +38,7 @@ enum Input {
 impl VoxelGame {
     fn shaping_input(&self) -> Input {
         // La case d'entrée, d'après la vue de l'inventaire.
-        let Some(stack) = self.view.me.inventory.craft[0] else {
+        let Some(stack) = self.client.view.me.inventory.craft[0] else {
             return Input::Empty;
         };
         let def = self.content.items.get(stack.item);

@@ -100,7 +100,7 @@ impl VoxelGame {
                 }
                 self.open_screen(Screen::Shaping);
                 self.apply_replies();
-                self.mouse_captured = false;
+                self.client.mouse_captured = false;
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Pieces(pos) => {

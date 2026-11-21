@@ -54,7 +54,7 @@ impl VoxelGame {
         let updating = open
             .as_ref()
             .is_some_and(|m| m.owner == mod_id && m.at == at.pos);
-        if !updating && !self.ui.allow_mod_menu {
+        if !updating && !self.client.ui.allow_mod_menu {
             return;
         }
         if at.grid != engine_voxel::GridId::WORLD {
@@ -104,6 +104,7 @@ impl VoxelGame {
     /// La fenêtre range le menu que le serveur décrit (seulement s'il a changé).
     pub(crate) fn receive_mod_menu(&mut self, owner: String, at: IVec3, data: Vec<u8>) {
         if self
+            .client
             .ui
             .mod_menu
             .as_ref()
@@ -112,7 +113,7 @@ impl VoxelGame {
             return;
         }
         if let Ok(menu) = ModMenu::parse(&data) {
-            self.ui.mod_menu = Some(ModMenuState {
+            self.client.ui.mod_menu = Some(ModMenuState {
                 owner,
                 at,
                 menu,
@@ -124,14 +125,15 @@ impl VoxelGame {
     /// La fenêtre envoie au serveur les actions du joueur sur le menu ; le serveur rafraîchit les
     /// menus ouverts cinq fois par seconde, et transmet les pages d'options.
     pub(crate) fn flush_mod_ui(&mut self) {
-        let events = std::mem::take(&mut self.ui.mod_events);
+        let events = std::mem::take(&mut self.client.ui.mod_events);
         for (kind, id, value) in events {
             self.send_now(crate::protocol::ClientMsg::Screen(
                 crate::protocol::ScreenAction::ModEvent { kind, id, value },
             ));
         }
-        let options = std::mem::take(&mut self.ui.options_events);
-        if let (Some((owner, _)), false) = (self.ui.options_menu.clone(), options.is_empty()) {
+        let options = std::mem::take(&mut self.client.ui.options_events);
+        if let (Some((owner, _)), false) = (self.client.ui.options_menu.clone(), options.is_empty())
+        {
             for (kind, id, value) in options {
                 let actions = self.mods.options_event(&owner, kind, id, value);
                 self.apply_machine_actions(actions);
@@ -139,8 +141,8 @@ impl VoxelGame {
         }
         // Les réglages changés sont écrits au plus une fois par seconde (un curseur qu'on
         // fait glisser ne doit pas écrire à chaque image).
-        if self.ui.settings_saved.elapsed() >= Duration::from_secs(1) {
-            self.ui.settings_saved = Instant::now();
+        if self.client.ui.settings_saved.elapsed() >= Duration::from_secs(1) {
+            self.client.ui.settings_saved = Instant::now();
             self.mods.save_settings();
         }
         let due: Vec<_> = self
@@ -188,7 +190,7 @@ impl VoxelGame {
     /// et répond avec son menu.
     pub(crate) fn open_mod_options(&mut self, mod_id: &str) {
         self.mode = Mode::Paused(PausePage::ModOptions(mod_id.to_string()));
-        self.ui.options_menu = None;
+        self.client.ui.options_menu = None;
         let actions = self.mods.options_event(mod_id, UI_OPEN, 0, 0);
         self.apply_machine_actions(actions);
     }
@@ -200,7 +202,7 @@ impl VoxelGame {
             return;
         }
         match ModMenu::parse(data) {
-            Ok(menu) => self.ui.options_menu = Some((mod_id, menu)),
+            Ok(menu) => self.client.ui.options_menu = Some((mod_id, menu)),
             Err(err) => log::warn!("[mod {mod_id}] page d'options refusée : {err:#}"),
         }
     }
@@ -213,8 +215,8 @@ impl VoxelGame {
             let actions = self.mods.options_event(&id, UI_CLOSED, 0, 0);
             self.apply_machine_actions(actions);
         }
-        self.ui.options_menu = None;
-        self.ui.options_events.clear();
+        self.client.ui.options_menu = None;
+        self.client.ui.options_events.clear();
         self.mods.save_settings();
     }
 }

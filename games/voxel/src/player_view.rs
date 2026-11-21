@@ -329,7 +329,7 @@ impl VoxelGame {
                 screen,
                 quests: player.quest_book.progress(),
             };
-            self.view.player_views.step(id, update, &mut out);
+            self.client.view.player_views.step(id, update, &mut out);
             self.replies.extend(out.drain(..).map(|msg| (id, msg)));
         }
     }
@@ -377,19 +377,19 @@ impl VoxelGame {
     pub(crate) fn apply_feedback(&mut self, feedback: Feedback) {
         match feedback {
             Feedback::Sound(Sound::Key(key)) => {
-                if let Some(audio) = &mut self.audio {
+                if let Some(audio) = &mut self.client.audio {
                     audio.play(&key);
                 }
             }
             Feedback::Sound(Sound::Block { block, kind }) => {
-                if let Some(audio) = &mut self.audio {
+                if let Some(audio) = &mut self.client.audio {
                     audio.play_block(&self.registry, engine_voxel::BlockId(block), kind);
                 }
             }
             Feedback::Toast(text) => {
-                self.ui.toast = Some((text, Instant::now()));
+                self.client.ui.toast = Some((text, Instant::now()));
             }
-            Feedback::Punch => self.hand.punch(),
+            Feedback::Punch => self.client.hand.punch(),
         }
     }
 }

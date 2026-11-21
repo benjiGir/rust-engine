@@ -124,7 +124,9 @@ impl VoxelGame {
     /// (voir `stream_upload.rs`).
     pub(crate) fn update_far(&mut self, eye: Vec3) {
         let backlog = self.stream_stats().backlog();
-        let Some(far) = &mut self.far else { return };
+        let Some(far) = &mut self.client.far else {
+            return;
+        };
         far.streamer
             .set_allowance(far_allowance(backlog, far.threads));
         far.streamer.refresh(eye);

@@ -81,8 +81,8 @@ impl ChestLids {
 
 impl VoxelGame {
     pub(crate) fn update_chest_lids(&mut self) {
-        let target = match self.ui.screen {
-            Screen::Chest(pos) | Screen::Mod(pos) if self.ui.inventory_open => Some(pos),
+        let target = match self.client.ui.screen {
+            Screen::Chest(pos) | Screen::Mod(pos) if self.client.ui.inventory_open => Some(pos),
             _ => None,
         }
         .filter(|&pos| {
@@ -95,9 +95,9 @@ impl VoxelGame {
         let other =
             target.and_then(|pos| engine_voxel::double_chest::paired(self.view_streamer(), pos));
         let targets: Vec<IVec3> = target.into_iter().chain(other).collect();
-        let now = self.renderer.time;
-        let (closing, opening) = self.chest_lids.update(&targets, now);
-        if let Some(audio) = &mut self.audio {
+        let now = self.client.renderer.time;
+        let (closing, opening) = self.client.chest_lids.update(&targets, now);
+        if let Some(audio) = &mut self.client.audio {
             if closing {
                 audio.play(audio::CHEST_CLOSE);
             }
@@ -105,7 +105,7 @@ impl VoxelGame {
                 audio.play(audio::CHEST_OPEN);
             }
         }
-        self.renderer.chest_lids = self.chest_lids.sample(now);
+        self.client.renderer.chest_lids = self.client.chest_lids.sample(now);
     }
 }
 

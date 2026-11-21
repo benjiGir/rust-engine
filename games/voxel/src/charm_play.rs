@@ -92,12 +92,12 @@ impl VoxelGame {
 
     /// Chaque seconde : les charmes actifs de l'inventaire renouvellent leur effet et s'usent.
     pub(crate) fn update_charms(&mut self, dt: f32) {
-        self.enchant_ui.charm_clock += dt;
-        if self.enchant_ui.charm_clock < 1.0 {
+        self.client.enchant_ui.charm_clock += dt;
+        if self.client.enchant_ui.charm_clock < 1.0 {
             return;
         }
-        self.enchant_ui.charm_clock -= 1.0;
-        self.enchant_ui.charm_beats += 1;
+        self.client.enchant_ui.charm_clock -= 1.0;
+        self.client.enchant_ui.charm_beats += 1;
         let data = crate::adventure_data::current();
         if data.charms.is_empty() {
             return;
@@ -119,7 +119,12 @@ impl VoxelGame {
             };
             match potion.effect {
                 Effect::Healing => {
-                    if self.enchant_ui.charm_beats.is_multiple_of(HEAL_EVERY) {
+                    if self
+                        .client
+                        .enchant_ui
+                        .charm_beats
+                        .is_multiple_of(HEAL_EVERY)
+                    {
                         heal += potion.power * 0.5;
                     }
                 }

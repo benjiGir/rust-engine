@@ -264,7 +264,7 @@ impl VoxelGame {
                 };
                 self.open_screen(screen);
                 self.apply_replies();
-                self.mouse_captured = false;
+                self.client.mouse_captured = false;
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Pending(pos, key, min) => {
@@ -322,7 +322,7 @@ impl VoxelGame {
             .with_context(|| format!("créature inconnue « {key} »"))?;
         let feet = crate::player::body(&self.ecs, self.players.entity()).position;
         let distance = if invader { 18.0 } else { 5.0 };
-        let mut at: Vec3 = feet + self.camera.forward_flat() * distance;
+        let mut at: Vec3 = feet + self.client.camera.forward_flat() * distance;
         // Au sol : le premier bloc plein sous le point, vers le bas.
         {
             let shared = crate::shared::StreamerExt::streamer(&self.ecs);
@@ -341,7 +341,7 @@ impl VoxelGame {
             crate::elites::promote(&mut self.ecs, entity, &data, tier, false, &mut rng)
         };
         anyhow::ensure!(promoted, "{key} ne peut pas devenir élite");
-        if invader && let Some(audio) = &mut self.audio {
+        if invader && let Some(audio) = &mut self.client.audio {
             audio.play("core:cave_rumble");
             audio.play("core:enchant");
         }

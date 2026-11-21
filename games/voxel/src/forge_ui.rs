@@ -64,7 +64,7 @@ impl VoxelGame {
     pub(crate) fn salvage_panel(&mut self, ui: &mut egui::Ui) {
         let data = adventure_data::current();
         let items = self.content.items.clone();
-        let Some(held) = self.view.me.inventory.cursor else {
+        let Some(held) = self.client.view.me.inventory.cursor else {
             ui.label("Prends à la souris un objet à affixes (clic sur sa case, dans l'inventaire), puis reviens ici.");
             ui.label(
                 egui::RichText::new(
@@ -161,10 +161,10 @@ impl VoxelGame {
     pub(crate) fn reforge_panel(&mut self, ui: &mut egui::Ui) {
         let data = adventure_data::current();
         let items = self.content.items.clone();
-        let Some(vitals) = self.view.me.vitals.clone() else {
+        let Some(vitals) = self.client.view.me.vitals.clone() else {
             return;
         };
-        let inventory = self.view.me.inventory.as_inventory();
+        let inventory = self.client.view.me.inventory.as_inventory();
         let Some(held) = inventory.cursor else {
             ui.label("Prends à la souris un objet de base (outil ou armure sans affixe), puis reviens ici.");
             ui.label(

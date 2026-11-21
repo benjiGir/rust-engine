@@ -292,12 +292,15 @@ pub fn project(view_proj: glam::Mat4, rect: egui::Rect, world: Vec3) -> Option<e
 impl VoxelGame {
     /// Les noms des autres joueurs, au-dessus de leur tête.
     pub(crate) fn draw_name_tags(&self, ctx: &egui::Context) {
-        let now = self.view.entities.frame_now();
-        let players = self.view.entities.players(now);
+        let now = self.client.view.entities.frame_now();
+        let players = self.client.view.entities.players(now);
         if players.is_empty() {
             return;
         }
-        let view_proj = self.camera.view_projection(self.renderer.aspect());
+        let view_proj = self
+            .client
+            .camera
+            .view_projection(self.client.renderer.aspect());
         let rect = ctx.content_rect();
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Background,
@@ -305,7 +308,7 @@ impl VoxelGame {
         ));
         for (name, feet) in players {
             let head = feet + Vec3::Y * 2.15;
-            if head.distance(self.camera.position) > 64.0 {
+            if head.distance(self.client.camera.position) > 64.0 {
                 continue;
             }
             let Some(at) = project(view_proj, rect, head) else {

@@ -103,10 +103,10 @@ impl VoxelGame {
 
     /// L'objet en main et les lots proposés, avec leur prix.
     fn enchant_body(&mut self, ui: &mut egui::Ui, stats: &TableStats) {
-        let Some(vitals) = self.view.me.vitals.clone() else {
+        let Some(vitals) = self.client.view.me.vitals.clone() else {
             return;
         };
-        let Some(stack) = self.view.me.inventory.selected_stack() else {
+        let Some(stack) = self.client.view.me.inventory.selected_stack() else {
             ui.label("Tiens un outil, une armure, un livre ou un tome dans la barre d'objets, puis reviens.");
             return;
         };
@@ -137,7 +137,7 @@ impl VoxelGame {
             return;
         };
         let gem = items.id("core:sapphire");
-        let have_gems = gem.map_or(0, |g| self.view.me.inventory.as_inventory().count(g));
+        let have_gems = gem.map_or(0, |g| self.client.view.me.inventory.as_inventory().count(g));
         let points = vitals.points;
         ui.label(format!(
             "{} · {points} pts d'XP (niveau {}) · {}",
@@ -262,7 +262,7 @@ impl VoxelGame {
             )
             .weak(),
         );
-        if let Some(held) = self.view.me.inventory.cursor {
+        if let Some(held) = self.client.view.me.inventory.cursor {
             let items = self.content.items.clone();
             ui.separator();
             ui.label(format!("À la souris : {}", items.get(held.item).name));
@@ -341,7 +341,7 @@ impl VoxelGame {
             ui.label("Cette bibliothèque a disparu.");
             return;
         };
-        let inventory = self.view.me.inventory.as_inventory();
+        let inventory = self.client.view.me.inventory.as_inventory();
         let mut action = None;
         ui.label(
             egui::RichText::new(format!(
@@ -379,18 +379,21 @@ impl VoxelGame {
         ui.horizontal(|ui| {
             ui.label("Recherche");
             ui.add(
-                egui::TextEdit::singleline(&mut self.enchant_ui.search)
+                egui::TextEdit::singleline(&mut self.client.enchant_ui.search)
                     .desired_width(160.0)
                     .hint_text("nom de l'enchantement"),
             );
-            ui.checkbox(&mut self.enchant_ui.only_fitting, "Va sur l'objet en main");
+            ui.checkbox(
+                &mut self.client.enchant_ui.only_fitting,
+                "Va sur l'objet en main",
+            );
         });
         let held = inventory.selected_stack();
-        let needle = self.enchant_ui.search.trim().to_lowercase();
+        let needle = self.client.enchant_ui.search.trim().to_lowercase();
         let mut rows: Vec<(Enchantment, u32, u8)> = library.entries();
         rows.retain(|(kind, _, _)| {
             let name = kind.name().to_lowercase();
-            let fits = !self.enchant_ui.only_fitting
+            let fits = !self.client.enchant_ui.only_fitting
                 || held.is_some_and(|h| kind.applies_to(items.get(h.item)));
             fits && (needle.is_empty() || name.contains(&needle))
         });
@@ -420,6 +423,7 @@ impl VoxelGame {
                         ));
                         let reachable = library.extractable(kind);
                         let pick = self
+                            .client
                             .enchant_ui
                             .picks
                             .entry(kind.id())

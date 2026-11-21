@@ -685,7 +685,7 @@ impl VoxelGame {
     pub(crate) fn remote_intent(&mut self, dt: f32) -> Option<(Vec3, bool)> {
         let can_sprint = self.can_sprint();
         let walk = self.remote.walk.as_mut()?;
-        let forward = self.camera.forward_flat();
+        let forward = self.client.camera.forward_flat();
         let right = forward.cross(Vec3::Y);
         let direction = (forward * walk.forward + right * walk.right).normalize_or_zero();
         // Comme au clavier : affamé, on ne court plus.
@@ -861,7 +861,7 @@ impl VoxelGame {
             }
             Command::Swing => {
                 self.require_playing("swing")?;
-                self.hand.punch();
+                self.client.hand.punch();
                 Ok(ok())
             }
             other => self.execute_inner(other),
@@ -896,7 +896,8 @@ impl VoxelGame {
         let block_distance = acting
             .hit
             .map_or(self.players.me().gear.reach(), |h| h.distance);
-        self.view
+        self.client
+            .view
             .entities
             .hit(acting.eye, acting.forward, block_distance)
     }
@@ -950,12 +951,12 @@ impl VoxelGame {
                 Ok(self.state_json())
             }
             Command::Look(yaw, pitch) => {
-                self.camera.yaw = yaw.to_radians();
-                self.camera.pitch = pitch.to_radians().clamp(
+                self.client.camera.yaw = yaw.to_radians();
+                self.client.camera.pitch = pitch.to_radians().clamp(
                     -engine_render::Camera::MAX_PITCH,
                     engine_render::Camera::MAX_PITCH,
                 );
-                self.target = None;
+                self.client.target = None;
                 Ok(self.state_json())
             }
             Command::LookAt(point) => {
@@ -964,12 +965,12 @@ impl VoxelGame {
                 if direction == Vec3::ZERO {
                     bail!("lookat : le point est déjà dans l'œil");
                 }
-                self.camera.yaw = direction.z.atan2(direction.x);
-                self.camera.pitch = direction.y.asin().clamp(
+                self.client.camera.yaw = direction.z.atan2(direction.x);
+                self.client.camera.pitch = direction.y.asin().clamp(
                     -engine_render::Camera::MAX_PITCH,
                     engine_render::Camera::MAX_PITCH,
                 );
-                self.target = None;
+                self.client.target = None;
                 Ok(self.state_json())
             }
             Command::Walk(walk) => {
@@ -1030,7 +1031,8 @@ impl VoxelGame {
                 {
                     bail!("place : utiliser l'objet de porte pour poser les deux moitiés");
                 }
-                if let Some(parts) = self.paired_placement(pos, block, self.camera.forward()) {
+                if let Some(parts) = self.paired_placement(pos, block, self.client.camera.forward())
+                {
                     self.place_pair(parts)
                         .context("place : deux cases libres avec un support sont nécessaires")?;
                 } else if !self.edit(pos, block) {
@@ -1185,7 +1187,7 @@ impl VoxelGame {
             }
             Command::Carts => Ok(self.carts_json()),
             Command::Cart(kind, pos) => {
-                let look = self.camera.forward();
+                let look = self.client.camera.forward();
                 let entity =
                     crate::carts::place(&mut self.ecs, kind, pos, look).with_context(|| {
                         format!("cart : pas de rail en {} {} {}", pos.x, pos.y, pos.z)
@@ -1352,7 +1354,7 @@ impl VoxelGame {
                     .id(&key)
                     .with_context(|| format!("summon : créature inconnue « {key} »"))?;
                 let feet = player::body(&self.ecs, self.players.entity()).position;
-                let at = feet + self.camera.forward_flat() * 3.0;
+                let at = feet + self.client.camera.forward_flat() * 3.0;
                 crate::mobs::spawn_mob(&mut self.ecs, kind, at).context("summon : impossible")?;
                 Ok(format!("{{\"ok\":true,\"pos\":{}}}", vec3(at)))
             }
@@ -1362,7 +1364,7 @@ impl VoxelGame {
             }
             Command::UiTexts => Ok(format!(
                 "{{\"ok\":true,\"texts\":{}}}",
-                self.ui.input.texts_json()
+                self.client.ui.input.texts_json()
             )),
             Command::UiClick(x, y, right) => {
                 let button = if right {
@@ -1370,11 +1372,14 @@ impl VoxelGame {
                 } else {
                     engine_render::egui::PointerButton::Primary
                 };
-                self.ui.input.click(engine_render::egui::pos2(x, y), button);
+                self.client
+                    .ui
+                    .input
+                    .click(engine_render::egui::pos2(x, y), button);
                 Ok(ok())
             }
             Command::UiClickText(text, right) => {
-                let at = self.ui.input.find(&text).with_context(|| {
+                let at = self.client.ui.input.find(&text).with_context(|| {
                     format!("clicktext : aucun texte « {text} » à l'écran (voir texts)")
                 })?;
                 let button = if right {
@@ -1382,14 +1387,14 @@ impl VoxelGame {
                 } else {
                     engine_render::egui::PointerButton::Primary
                 };
-                self.ui.input.click(at, button);
+                self.client.ui.input.click(at, button);
                 Ok(format!(
                     "{{\"ok\":true,\"x\":{:.0},\"y\":{:.0}}}",
                     at.x, at.y
                 ))
             }
             Command::UiType(text) => {
-                self.ui.input.text(&text);
+                self.client.ui.input.text(&text);
                 Ok(ok())
             }
             Command::UiKey(name, mods) => {
@@ -1404,12 +1409,12 @@ impl VoxelGame {
                         other => bail!("key : modificateur inconnu « {other} » (ctrl, shift, alt)"),
                     }
                 }
-                self.ui.input.key(key, modifiers);
+                self.client.ui.input.key(key, modifiers);
                 Ok(ok())
             }
             Command::Console(line) => {
                 match line {
-                    Some(line) => self.ui.console.submitted.push(line),
+                    Some(line) => self.client.ui.console.submitted.push(line),
                     None => self.open_console(),
                 }
                 Ok(ok())
@@ -1470,7 +1475,7 @@ impl VoxelGame {
                 Ok(ok())
             }
             Command::OptionsEvent(kind, id, value) => {
-                self.ui.options_events.push((kind, id, value));
+                self.client.ui.options_events.push((kind, id, value));
                 Ok(ok())
             }
             Command::Hunger(food) => {
@@ -1484,15 +1489,16 @@ impl VoxelGame {
                 Ok(self.state_json())
             }
             Command::Culling(enabled) => {
-                self.culling.enabled = enabled;
+                self.client.culling.enabled = enabled;
                 Ok(ok())
             }
             Command::Screenshot(path, width, height) => {
                 let (ui, _) = self.build_ui(crate::ui::offscreen_input(width, height));
                 self.update_visibility(width as f32 / height as f32);
-                let capture = self
-                    .renderer
-                    .capture(&self.camera, width, height, Some(ui))?;
+                let capture =
+                    self.client
+                        .renderer
+                        .capture(&self.client.camera, width, height, Some(ui))?;
                 if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
                     std::fs::create_dir_all(dir)?;
                 }
@@ -1516,7 +1522,7 @@ impl VoxelGame {
             | Command::Place(None) => unreachable!("routées par `execute`"),
             Command::Quit => {
                 // L'application se ferme à la fin de l'image (voir `update`).
-                self.quit_at = Some(std::time::Instant::now());
+                self.client.quit_at = Some(std::time::Instant::now());
                 Ok(ok())
             }
         }
@@ -1528,10 +1534,10 @@ impl VoxelGame {
         let hit = engine_voxel::raycast(
             self.view_world(),
             eye,
-            self.camera.forward(),
+            self.client.camera.forward(),
             self.players.me().gear.reach(),
         );
-        self.target = hit;
+        self.client.target = hit;
         hit.context("aucun bloc visé à portée")
     }
 
@@ -1562,7 +1568,7 @@ impl VoxelGame {
             ))
             .name
             .clone();
-        let target = match self.target {
+        let target = match self.client.target {
             Some(hit) => format!(
                 "{{\"pos\":{},\"block\":{},\"face\":{},\"distance\":{:.2}}}",
                 ivec3(hit.block_pos),
@@ -1602,8 +1608,8 @@ impl VoxelGame {
             collider.on_ground,
             collider.in_liquid,
             collider.frozen,
-            self.camera.yaw.to_degrees(),
-            self.camera.pitch.to_degrees(),
+            self.client.camera.yaw.to_degrees(),
+            self.client.camera.pitch.to_degrees(),
             health.current,
             health.max,
             self.day.time,
@@ -1614,11 +1620,11 @@ impl VoxelGame {
             stats.loaded,
             stats.queued,
             self.world_idle(),
-            self.last_render.meshes_drawn,
-            self.last_render.meshes_hidden,
-            self.last_render.meshes_total,
-            self.last_render.triangles,
-            self.culling.enabled,
+            self.client.last_render.meshes_drawn,
+            self.client.last_render.meshes_hidden,
+            self.client.last_render.meshes_total,
+            self.client.last_render.triangles,
+            self.client.culling.enabled,
             self.players.me().vitals.air,
             self.players.me().vitals.burning,
             self.players.me().inventory.protection(&self.content.items),

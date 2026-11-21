@@ -138,7 +138,7 @@ impl VoxelGame {
 
     /// La vue du conteneur ouvert que la fenêtre a reçue.
     pub(crate) fn shown_container(&self) -> Option<&ContainerView> {
-        self.view.me.container.as_ref()
+        self.client.view.me.container.as_ref()
     }
 
     /// La pile d'une case du conteneur ouvert, telle que la fenêtre la voit.

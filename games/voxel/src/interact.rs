@@ -30,7 +30,9 @@ impl VoxelGame {
     /// Une flèche sur le bloc visé s'il est orienté (piston, inverseur, répéteur) : une barre
     /// claire dans sa direction, avec un bout plus vif devant.
     pub(crate) fn direction_hint(&self, out: &mut Vec<engine_render::CubeInstance>) {
-        let Some(hit) = self.target else { return };
+        let Some(hit) = self.client.target else {
+            return;
+        };
         let streamer = self.streamer();
         let block = streamer.world().block(hit.block_pos);
         let directional = matches!(
@@ -124,7 +126,7 @@ impl VoxelGame {
 
     /// La musique et les sons d'ambiance, selon l'endroit où se trouve le joueur.
     pub(crate) fn update_soundscape(&mut self, dt: f32) {
-        if self.audio.is_none() {
+        if self.client.audio.is_none() {
             return;
         }
         let feet = player::body(&self.ecs, self.players.entity()).position;
@@ -148,17 +150,19 @@ impl VoxelGame {
                     .any(|w| key.contains(w)),
             }
         };
-        let playing = self.music_until.is_some_and(|t| Instant::now() < t);
-        let cues = self.soundscape.update(dt, place, playing);
-        let Some(audio) = &mut self.audio else { return };
+        let playing = self.client.music_until.is_some_and(|t| Instant::now() < t);
+        let cues = self.client.soundscape.update(dt, place, playing);
+        let Some(audio) = &mut self.client.audio else {
+            return;
+        };
         audio.set_environment(place);
         for cue in cues {
             match cue {
                 soundscape::Cue::Music(key) => {
                     // Un morceau introuvable : on réessaiera plus tard.
                     let seconds = audio.play_ambient(key).unwrap_or(0.0);
-                    self.soundscape.started(seconds);
-                    self.music_until =
+                    self.client.soundscape.started(seconds);
+                    self.client.music_until =
                         Some(Instant::now() + std::time::Duration::from_secs_f32(seconds));
                 }
                 soundscape::Cue::Ambient(key) => {
@@ -197,13 +201,13 @@ impl VoxelGame {
     /// l'inventaire (ce qui n'y tient pas tombe par terre).
     pub(crate) fn close_screen(&mut self) {
         // Le serveur prévient le mod (`CloseMenu`, voir `close_menu`).
-        self.ui.mod_menu = None;
-        self.ui.browser.close();
-        self.ui.split = None;
+        self.client.ui.mod_menu = None;
+        self.client.ui.browser.close();
+        self.client.ui.split = None;
         // Le simulateur range la main et la grille d'artisanat (voir `intents.rs`).
         self.send_now(crate::protocol::ClientMsg::CloseMenu);
-        self.ui.inventory_open = false;
-        self.ui.screen = ui::Screen::Inventory;
+        self.client.ui.inventory_open = false;
+        self.client.ui.screen = ui::Screen::Inventory;
     }
 
     /// Un clic droit sur un levier, un bouton ou un répéteur.
@@ -224,9 +228,9 @@ impl VoxelGame {
         }
         let (used, actions) = self.mods.use_block(hit.block_pos);
         // Le script peut ouvrir son menu, mais seulement en réponse à ce clic.
-        self.ui.allow_mod_menu = true;
+        self.client.ui.allow_mod_menu = true;
         self.apply_machine_actions(actions);
-        self.ui.allow_mod_menu = false;
+        self.client.ui.allow_mod_menu = false;
         if used {
             self.punch();
             self.sound("core:place_hard");

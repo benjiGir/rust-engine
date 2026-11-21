@@ -9,24 +9,25 @@ use engine_render::egui::{self};
 
 impl VoxelGame {
     pub(crate) fn draw_target_info(&mut self, ctx: &egui::Context) -> f32 {
-        if !self.settings.target_info || !self.mouse_captured {
+        if !self.settings.target_info || !self.client.mouse_captured {
             return 12.0;
         }
         let ship = self.ship_hit();
         let block_distance = ship.map(|(_, h)| h.distance).unwrap_or_else(|| {
-            self.target
-                .map_or(self.view.me.vitals.as_ref().map_or(4.5, |v| v.reach), |h| {
-                    h.distance
-                })
+            self.client.target.map_or(
+                self.client.view.me.vitals.as_ref().map_or(4.5, |v| v.reach),
+                |h| h.distance,
+            )
         });
         // Ce qui est visé vient de la réplique des entités : la fiche d'une créature (nom, vie, élite)
         // aussi. Le wagon lit encore le serveur pour l'aperçu de son contenu (les menus, sous-lot 3d).
-        let aimed_id =
-            self.view
-                .entities
-                .hit(self.camera.position, self.camera.forward(), block_distance);
+        let aimed_id = self.client.view.entities.hit(
+            self.client.camera.position,
+            self.client.camera.forward(),
+            block_distance,
+        );
         let mob = aimed_id.and_then(|id| {
-            let view = self.view.entities.get(id)?;
+            let view = self.client.view.entities.get(id)?;
             match &view.kind {
                 crate::entities::EntityKind::Mob { kind, title } => {
                     Some((*kind, title.clone(), view.look))
@@ -121,7 +122,7 @@ impl VoxelGame {
                     .and_then(|c| c.block_entity(x, y, z))
                     .and_then(|e| e.caps.as_deref());
                 (block, lines(block, caps), summary(block, caps))
-            } else if let Some(hit) = self.target {
+            } else if let Some(hit) = self.client.target {
                 let s = self.view_streamer();
                 // La moitié droite d'un grand coffre montre l'inventaire de la gauche.
                 let pos = engine_voxel::double_chest::storage_pos(s, hit.block_pos);
@@ -139,7 +140,7 @@ impl VoxelGame {
                 .selected_item()
                 .and_then(|id| self.content.items.get(id).tool);
             let mut card = ui_info::block(def, held.as_ref());
-            if let Some(hit) = self.target.filter(|_| ship.is_none()) {
+            if let Some(hit) = self.client.target.filter(|_| ship.is_none()) {
                 self.describe_shaped(&mut card, &hit);
             }
             item = self.content.items.of_block(self.registry.base(block));
@@ -156,11 +157,11 @@ impl VoxelGame {
             4
         });
         let icon = item.map(|item| {
-            self.ui.icon(
+            self.client.ui.icon(
                 item,
                 &self.content.items,
                 &self.registry,
-                &self.block_textures,
+                &self.client.block_textures,
             )
         });
         let preview_icons: Vec<Option<egui::TextureId>> = preview
@@ -170,11 +171,11 @@ impl VoxelGame {
                     .iter()
                     .map(|(key, _)| {
                         let id = self.content.items.id(key)?;
-                        Some(self.ui.icon(
+                        Some(self.client.ui.icon(
                             id,
                             &self.content.items,
                             &self.registry,
-                            &self.block_textures,
+                            &self.client.block_textures,
                         ))
                     })
                     .collect()

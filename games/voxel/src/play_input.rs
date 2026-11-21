@@ -18,10 +18,10 @@ impl VoxelGame {
         let input = &ctx.input;
         let keys = &self.settings.keys;
         let mut bindings = vec![
-            (keys.key(Action::Forward), self.camera.forward_flat()),
-            (keys.key(Action::Back), -self.camera.forward_flat()),
-            (keys.key(Action::Right), self.camera.right()),
-            (keys.key(Action::Left), -self.camera.right()),
+            (keys.key(Action::Forward), self.client.camera.forward_flat()),
+            (keys.key(Action::Back), -self.client.camera.forward_flat()),
+            (keys.key(Action::Right), self.client.camera.right()),
+            (keys.key(Action::Left), -self.client.camera.right()),
         ];
         if vertical {
             bindings.push((keys.key(Action::Jump), Vec3::Y));
@@ -40,14 +40,14 @@ impl VoxelGame {
     /// Renvoie `true` si ce clic a servi à capturer la souris (il ne casse donc rien).
     pub(crate) fn handle_mouse_capture(&mut self, ctx: &mut Context) -> bool {
         let input = &ctx.input;
-        if !self.mouse_captured && input.mouse_pressed(MouseButton::Left) {
-            self.mouse_captured = true;
+        if !self.client.mouse_captured && input.mouse_pressed(MouseButton::Left) {
+            self.client.mouse_captured = true;
             ctx.set_cursor_captured(true);
             return true;
         }
         // Échap ne quitte jamais le jeu (on quitte par le menu) : elle rend seulement la souris.
-        if input.key_pressed(KeyCode::Escape) && self.mouse_captured {
-            self.mouse_captured = false;
+        if input.key_pressed(KeyCode::Escape) && self.client.mouse_captured {
+            self.client.mouse_captured = false;
             ctx.set_cursor_captured(false);
         }
         false
@@ -55,8 +55,8 @@ impl VoxelGame {
 
     pub(crate) fn look(&mut self, delta: Vec2) {
         let sensitivity = MOUSE_SENSITIVITY * self.settings.mouse_sensitivity;
-        self.camera.yaw += delta.x * sensitivity;
-        self.camera.pitch = (self.camera.pitch - delta.y * sensitivity)
+        self.client.camera.yaw += delta.x * sensitivity;
+        self.client.camera.pitch = (self.client.camera.pitch - delta.y * sensitivity)
             .clamp(-Camera::MAX_PITCH, Camera::MAX_PITCH);
     }
 
@@ -64,8 +64,8 @@ impl VoxelGame {
     /// vol et les réglages d'affichage.
     pub(crate) fn handle_keys(&mut self, ctx: &Context) {
         let input = &ctx.input;
-        if self.mouse_captured
-            && !self.ui.inventory_open
+        if self.client.mouse_captured
+            && !self.client.ui.inventory_open
             && input.key_pressed(self.settings.keys.key(Action::Drop))
         {
             let aim = self.window_aim();
@@ -73,23 +73,24 @@ impl VoxelGame {
         }
         // Le sac à dos : la même touche l'ouvre (le premier sac de l'inventaire) et le referme.
         if input.key_pressed(self.settings.keys.key(Action::Backpack))
-            && !self.ui.ctx.egui_wants_keyboard_input()
+            && !self.client.ui.ctx.egui_wants_keyboard_input()
         {
-            if self.ui.inventory_open && matches!(self.ui.screen, ui::Screen::Bag(_)) {
+            if self.client.ui.inventory_open && matches!(self.client.ui.screen, ui::Screen::Bag(_))
+            {
                 self.close_screen();
-            } else if self.mouse_captured && !self.ui.inventory_open {
+            } else if self.client.mouse_captured && !self.client.ui.inventory_open {
                 self.open_first_bag();
             }
         }
         // Les paliers du monde : la même touche ouvre l'écran et le referme.
         if input.key_pressed(self.settings.keys.key(Action::Tiers))
-            && !self.ui.ctx.egui_wants_keyboard_input()
+            && !self.client.ui.ctx.egui_wants_keyboard_input()
         {
             self.toggle_tiers_screen();
         }
         // Le livre de quêtes : la même touche l'ouvre et le referme.
         if input.key_pressed(self.settings.keys.key(Action::Quests))
-            && !self.ui.ctx.egui_wants_keyboard_input()
+            && !self.client.ui.ctx.egui_wants_keyboard_input()
         {
             self.toggle_quests_screen();
         }
@@ -110,22 +111,22 @@ impl VoxelGame {
             }
         }
         if input.key_pressed(KeyCode::F3) {
-            self.ui.inspector_open = !self.ui.inspector_open;
+            self.client.ui.inspector_open = !self.client.ui.inspector_open;
         }
         if input.key_pressed(KeyCode::F4) {
-            self.hand.visible = !self.hand.visible;
+            self.client.hand.visible = !self.client.hand.visible;
         }
         if input.key_pressed(KeyCode::F1) {
             let mesher = self.view_streamer().config().mesher.other();
             log::info!("maillage {} : on remaille tout", mesher.name());
-            self.view.replica_mut().set_mesher(mesher);
+            self.client.view.replica_mut().set_mesher(mesher);
         }
         if input.key_pressed(KeyCode::F6) {
             self.toggle_cave_culling();
         }
         if input.key_pressed(KeyCode::F2) {
-            self.renderer.frustum_culling = !self.renderer.frustum_culling;
-            let state = if self.renderer.frustum_culling {
+            self.client.renderer.frustum_culling = !self.client.renderer.frustum_culling;
+            let state = if self.client.renderer.frustum_culling {
                 "activé"
             } else {
                 "désactivé"
@@ -144,14 +145,14 @@ impl VoxelGame {
         // réplique) : le serveur refait lui-même son lancer de rayon dans `handle`.
         let target = raycast(
             self.view_world(),
-            self.camera.position,
-            self.camera.forward(),
+            self.client.camera.position,
+            self.client.camera.forward(),
             self.players.me().gear.reach(),
         );
-        self.target = target;
+        self.client.target = target;
         // `ctl hold` tient un bouton comme si la souris était capturée.
         let hold = self.remote.hold;
-        let captured = self.mouse_captured || hold.is_some();
+        let captured = self.client.mouse_captured || hold.is_some();
         let input = &ctx.input;
         let left_held = input.mouse_held(MouseButton::Left) || hold.is_some_and(|h| h.left);
         let left_pressed =
@@ -189,8 +190,8 @@ impl VoxelGame {
         // Manger : le bouton droit tenu avec un aliment en main (le message ne part que quand le
         // bouton change ; le simulateur mâche à chaque pas fixe).
         let eating = captured && !click_used && right_held;
-        if eating != self.eating_sent {
-            self.eating_sent = eating;
+        if eating != self.client.eating_sent {
+            self.client.eating_sent = eating;
             self.send(ClientMsg::Eat { held: eating });
         }
         self.flush_outbox();
@@ -208,12 +209,12 @@ impl VoxelGame {
             });
             // Les retours immédiats restent ici : le bras frappe, le coup résonne (sur une créature).
             let mob =
-                self.view.entities.get(id).is_some_and(|view| {
+                self.client.view.entities.get(id).is_some_and(|view| {
                     matches!(view.kind, crate::entities::EntityKind::Mob { .. })
                 });
             if mob {
-                self.hand.punch();
-                if let Some(audio) = &mut self.audio {
+                self.client.hand.punch();
+                if let Some(audio) = &mut self.client.audio {
                     audio.play("core:break_soft");
                 }
             }
@@ -226,7 +227,7 @@ impl VoxelGame {
     /// selon la dureté du bloc et l'outil en main ; à 1, `Dig Finish` part. Le simulateur compte
     /// de son côté et décide.
     fn predict_mining(&mut self, dt: f32) {
-        let Some(hit) = self.target else {
+        let Some(hit) = self.client.target else {
             self.stop_mining();
             return;
         };
