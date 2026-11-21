@@ -1002,13 +1002,13 @@ lot 4, viendra plus tard) :
   apparitions de créatures, ni sauvegardé dans `players/`.
 - La boucle : réseau, `frame`, chargement et envois, pas fixes à 60 Hz (cinq de rattrapage au plus), vues,
   réponses, sauvegarde automatique (`autosave` est passée au serveur) ; le reste du pas, il dort.
-- La console lit l'entrée standard : `list`, `say`, `kick`, `save`, `stop` (la fin de l'entrée aussi) ; l'arrêt fait
-  partir les joueurs (sauvegardés) puis sauvegarde le monde.
+- La console lit l'entrée standard : `list`, `say`, `kick`, `save`, `stop` (la fin de l'entrée, Ctrl+C et SIGTERM
+  aussi, par la crate `ctrlc`) ; l'arrêt fait partir les joueurs (sauvegardés) puis sauvegarde le monde.
 - L'hôte refuse au-delà du nombre de joueurs, et ceux qui ne sont pas sur la liste blanche.
 - Vérifié : un invité rejoint le serveur dédié, voit le monde et le message de la console, est renvoyé par `kick`
   (il revient au menu) ; `stop` sauvegarde.
 - **Reste** : le binaire lie encore winit, wgpu, egui et kira (la simulation dans sa propre crate, puis la règle
-  check-arch) ; Ctrl+C coupe sans sauvegarder (il faudrait la crate `ctrlc`, à télécharger) ; les opérateurs n'ont
+  check-arch) ; les opérateurs n'ont
   pas encore de commandes.
 
 

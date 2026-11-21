@@ -8,8 +8,8 @@
 //! l'entrée standard : `list`, `say`, `kick`, `save`, `stop`.
 //!
 //! Le binaire lie encore les bibliothèques d'affichage : la simulation sortira dans sa propre crate
-//! plus tard. `stop` (ou la fin de l'entrée standard) sauvegarde et arrête ; Ctrl+C coupe sans
-//! sauvegarder ce qui a changé depuis la dernière sauvegarde automatique (30 s au plus).
+//! plus tard. `stop`, la fin de l'entrée standard ou Ctrl+C (et SIGTERM) font partir les joueurs,
+//! sauvegardent et arrêtent.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -186,8 +186,14 @@ pub fn run() -> Result<()> {
         config.name, config.world, config.max_players
     );
 
-    // La console : une ligne de l'entrée standard par commande ; sa fin arrête le serveur.
+    // La console : une ligne de l'entrée standard par commande ; sa fin arrête le serveur. Ctrl+C
+    // (et SIGTERM) passent par le même chemin : un arrêt demandé, puis la sauvegarde.
     let (lines_tx, lines) = mpsc::channel::<Option<String>>();
+    let interrupt = lines_tx.clone();
+    ctrlc::set_handler(move || {
+        let _ = interrupt.send(Some("stop".to_string()));
+    })
+    .context("Ctrl+C ne peut pas être intercepté")?;
     std::thread::Builder::new()
         .name("console du serveur".into())
         .spawn(move || {
