@@ -305,22 +305,26 @@ impl VoxelGame {
     /// Fin d'image : chaque joueur reçoit ses jauges et son inventaire s'ils ont changé.
     pub(crate) fn replicate_player_views(&mut self) {
         let mut out = Vec::new();
-        let ids: Vec<PlayerId> = self.players.iter().map(|p| p.id).collect();
+        let ids: Vec<PlayerId> = self.server.players.iter().map(|p| p.id).collect();
         for id in ids {
             // Le conteneur se décrit avec l'état de ce joueur (son `open`).
-            let before = self.players.set_acting(Some(id));
+            let before = self.server.players.set_acting(Some(id));
             // Une bibliothèque ouverte range ce que les réseaux déposent dans sa case d'entrée.
-            if let Some(crate::ui::Screen::Library(pos)) = self.players.me().screen {
+            if let Some(crate::ui::Screen::Library(pos)) = self.server.players.me().screen {
                 self.absorb_library(pos);
             }
             let container = self.open_container_view();
             let screen = self.screen_view();
-            self.players.set_acting(before);
-            let Some(player) = self.players.get(id) else {
+            self.server.players.set_acting(before);
+            let Some(player) = self.server.players.get(id) else {
                 continue;
             };
-            let health = crate::player::health(&self.ecs, player.entity);
-            let vitals = vitals_of(player, [health.current, health.max], self.enchant_seed);
+            let health = crate::player::health(&self.server.ecs, player.entity);
+            let vitals = vitals_of(
+                player,
+                [health.current, health.max],
+                self.server.enchant_seed,
+            );
             let inventory = InventoryView::of(&player.inventory);
             let update = PlayerUpdate {
                 vitals,
@@ -330,46 +334,53 @@ impl VoxelGame {
                 quests: player.quest_book.progress(),
             };
             self.client.view.player_views.step(id, update, &mut out);
-            self.replies.extend(out.drain(..).map(|msg| (id, msg)));
+            self.server
+                .replies
+                .extend(out.drain(..).map(|msg| (id, msg)));
         }
     }
 
     /// Un son pour le joueur qui agit (celui du message en cours, sinon celui de la fenêtre).
     pub(crate) fn sound(&mut self, key: &str) {
-        let id = self.players.current_id();
-        self.replies
+        let id = self.server.players.current_id();
+        self.server
+            .replies
             .push((id, ServerMsg::Feedback(Feedback::Sound(Sound::key(key)))));
     }
 
     /// Un son placé en `at`, pour tous les joueurs à portée d'oreille.
     pub(crate) fn sound_near(&mut self, sound: Sound, at: Vec3) {
         let heard: Vec<PlayerId> = self
+            .server
             .players
             .iter()
             .filter(|p| {
-                crate::player::eye(&self.ecs, p.entity, 1.0).distance_squared(at)
+                crate::player::eye(&self.server.ecs, p.entity, 1.0).distance_squared(at)
                     <= HEARING * HEARING
             })
             .map(|p| p.id)
             .collect();
         for id in heard {
-            self.replies
+            self.server
+                .replies
                 .push((id, ServerMsg::Feedback(Feedback::Sound(sound.clone()))));
         }
     }
 
     /// Le bras du joueur qui agit frappe.
     pub(crate) fn punch(&mut self) {
-        let id = self.players.current_id();
-        self.replies
+        let id = self.server.players.current_id();
+        self.server
+            .replies
             .push((id, ServerMsg::Feedback(Feedback::Punch)));
     }
 
     /// Un message en bas de l'écran du joueur qui agit.
     pub(crate) fn toast(&mut self, text: &str) {
         log::info!("{text}");
-        let id = self.players.current_id();
-        self.replies
+        let id = self.server.players.current_id();
+        self.server
+            .replies
             .push((id, ServerMsg::Feedback(Feedback::Toast(text.to_string()))));
     }
 

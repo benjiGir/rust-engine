@@ -285,10 +285,10 @@ impl VoxelGame {
         self.client
             .renderer
             .set_vsync(std::env::var("VOXEL_BENCH_VSYNC").is_ok_and(|v| v == "1"));
-        self.day.time = 0.5;
-        self.day.speed = TimeSpeed::Frozen;
-        if player::mode(&self.ecs, self.players.entity()) != MoveMode::Fly {
-            player::toggle_mode(&mut self.ecs, self.players.entity());
+        self.server.day.time = 0.5;
+        self.server.day.speed = TimeSpeed::Frozen;
+        if player::mode(&self.server.ecs, self.server.players.entity()) != MoveMode::Fly {
+            player::toggle_mode(&mut self.server.ecs, self.server.players.entity());
         }
     }
 
@@ -322,8 +322,8 @@ impl VoxelGame {
         self.client.camera.yaw = yaw;
         self.client.camera.pitch = route.pitch.to_radians();
         player::set_eye(
-            &self.ecs,
-            self.players.entity(),
+            &self.server.ecs,
+            self.server.players.entity(),
             Vec3::new(flat.x, y, flat.z),
         );
     }
@@ -339,12 +339,15 @@ impl VoxelGame {
 
     /// Les trajets, calculés depuis le point d'apparition : les mêmes pour une graine.
     fn bench_routes(&self) -> Vec<Route> {
-        let spawn = (self.spawn.x as f32 + 0.5, self.spawn.z as f32 + 0.5);
+        let spawn = (
+            self.server.spawn.x as f32 + 0.5,
+            self.server.spawn.z as f32 + 0.5,
+        );
         let biome = |key: &str| {
             self.find_biome(key).map(|(x, z)| {
                 (
-                    (self.spawn.x + x) as f32 + 0.5,
-                    (self.spawn.z + z) as f32 + 0.5,
+                    (self.server.spawn.x + x) as f32 + 0.5,
+                    (self.server.spawn.z + z) as f32 + 0.5,
                 )
             })
         };

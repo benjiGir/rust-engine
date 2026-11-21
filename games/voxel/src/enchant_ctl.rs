@@ -162,6 +162,7 @@ impl VoxelGame {
                 let stats = self.table_stats(at);
                 let items = self.content.items.clone();
                 let stack = self
+                    .server
                     .players
                     .me_mut()
                     .inventory
@@ -178,7 +179,7 @@ impl VoxelGame {
                     subject,
                     &def.key,
                     stack.damage,
-                    self.enchant_seed,
+                    self.server.enchant_seed,
                     &stats,
                 ) else {
                     return Ok("{\"ok\":true,\"offers\":[]}".to_string());
@@ -269,17 +270,18 @@ impl VoxelGame {
                 Ok(format!("{{\"ok\":true,\"entries\":[{}]}}", rows.join(",")))
             }
             Command::Points(points) => {
-                self.players.me_mut().experience.points = points;
+                self.server.players.me_mut().experience.points = points;
                 Ok(format!(
                     "{{\"ok\":true,\"points\":{},\"level\":{}}}",
                     points,
-                    self.players.me_mut().experience.level().0
+                    self.server.players.me_mut().experience.level().0
                 ))
             }
             Command::Charms => {
                 let items = self.content.items.clone();
                 let data = crate::adventure_data::current();
                 let rows: Vec<String> = self
+                    .server
                     .players
                     .me_mut()
                     .inventory

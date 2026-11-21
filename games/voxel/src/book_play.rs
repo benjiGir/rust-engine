@@ -17,8 +17,8 @@ impl VoxelGame {
             return false;
         }
         let (Some(held), Some(target)) = (
-            self.players.me_mut().inventory.cursor,
-            *self.players.me_mut().inventory.slot_mut(slot),
+            self.server.players.me_mut().inventory.cursor,
+            *self.server.players.me_mut().inventory.slot_mut(slot),
         ) else {
             return false;
         };
@@ -39,11 +39,11 @@ impl VoxelGame {
                 self.toast("Ce livre n'apporte rien à cet objet");
                 return true;
             };
-            if let Some(stack) = self.players.me_mut().inventory.slot_mut(slot) {
+            if let Some(stack) = self.server.players.me_mut().inventory.slot_mut(slot) {
                 stack.damage = damage;
             }
             enchanting::release(held.damage);
-            self.players.me_mut().inventory.cursor = None;
+            self.server.players.me_mut().inventory.cursor = None;
             let names: Vec<String> = changed
                 .iter()
                 .map(|&(kind, level)| enchanting::label(kind, level))
@@ -60,17 +60,17 @@ impl VoxelGame {
             let (Some(blank), Some(enchanted)) = (items.id(BOOK), items.id(ENCHANTED_BOOK)) else {
                 return false;
             };
-            if !self.players.me_mut().inventory.remove(blank, 1) {
+            if !self.server.players.me_mut().inventory.remove(blank, 1) {
                 self.toast("Il faut un livre vierge dans l'inventaire");
                 return true;
             }
-            if let Some(stack) = self.players.me_mut().inventory.slot_mut(slot) {
+            if let Some(stack) = self.server.players.me_mut().inventory.slot_mut(slot) {
                 stack.damage = stripped;
             }
-            if let Some(cursor) = self.players.me_mut().inventory.cursor.as_mut() {
+            if let Some(cursor) = self.server.players.me_mut().inventory.cursor.as_mut() {
                 cursor.count -= 1;
                 if cursor.count == 0 {
-                    self.players.me_mut().inventory.cursor = None;
+                    self.server.players.me_mut().inventory.cursor = None;
                 }
             }
             self.give_or_drop(ItemStack {
@@ -89,7 +89,7 @@ impl VoxelGame {
     pub(crate) fn give_or_drop(&mut self, stack: ItemStack) {
         let left = self.collect_stack(stack);
         if left > 0 {
-            let at = crate::player::body(&self.ecs, self.players.entity())
+            let at = crate::player::body(&self.server.ecs, self.server.players.entity())
                 .position
                 .floor()
                 .as_ivec3();

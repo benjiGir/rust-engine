@@ -17,7 +17,7 @@ impl VoxelGame {
     pub(crate) fn draw_pinned_quests(&mut self, ctx: &egui::Context) {
         // Les quêtes sont le contenu du jeu ; la progression vient de la vue du joueur.
         let (Some(quests), Some(progress)) = (
-            self.players.local().quest_book.quests(),
+            self.server.players.local().quest_book.quests(),
             self.client.view.me.quests.clone(),
         ) else {
             return;
@@ -45,6 +45,7 @@ impl VoxelGame {
         );
         let width = geometry::pin_width(screen);
         let mobs = self
+            .server
             .ecs
             .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
             .clone();

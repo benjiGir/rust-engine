@@ -63,7 +63,7 @@ fn ratio(done: f32, total: f32) -> f32 {
 impl VoxelGame {
     /// Le conteneur ouvert par le joueur courant, décrit pour sa fenêtre.
     pub(crate) fn open_container_view(&mut self) -> Option<ContainerView> {
-        let (target, furnace, brewing, cart) = match self.players.me().open? {
+        let (target, furnace, brewing, cart) = match self.server.players.me().open? {
             OpenContainer::Chest(pos) => (Target::Block(pos), [0.0; 2], 0.0, None),
             OpenContainer::Machine(pos) => {
                 let (furnace, brewing) = {
@@ -82,7 +82,11 @@ impl VoxelGame {
                 (Target::Block(pos), furnace, brewing, None)
             }
             OpenContainer::Cart(entity) => {
-                let cart = self.ecs.get::<Cart>(entity).map(|c| (c.kind, c.burn))?;
+                let cart = self
+                    .server
+                    .ecs
+                    .get::<Cart>(entity)
+                    .map(|c| (c.kind, c.burn))?;
                 (Target::Cart(entity), [0.0; 2], 0.0, Some(cart))
             }
             OpenContainer::Bag(number) => (Target::Bag(number), [0.0; 2], 0.0, None),
@@ -106,11 +110,12 @@ impl VoxelGame {
         let items = self.content.items.clone();
         let made = match recipe {
             None => {
-                let grid = self.players.me_mut().inventory.craft_grid(size);
+                let grid = self.server.players.me_mut().inventory.craft_grid(size);
                 let Some(recipe) = self.content.recipes.find(&grid, size).cloned() else {
                     return;
                 };
-                self.players
+                self.server
+                    .players
                     .me_mut()
                     .inventory
                     .take_craft_result(&recipe, size, &items)
@@ -124,7 +129,8 @@ impl VoxelGame {
                 if recipe.grid_size() > size {
                     return;
                 }
-                self.players
+                self.server
+                    .players
                     .me_mut()
                     .inventory
                     .craft_from_book(&recipe, &items)
@@ -132,7 +138,11 @@ impl VoxelGame {
             }
         };
         if let Some((item, count)) = made {
-            self.players.me_mut().quest_book.note_crafted(item, count);
+            self.server
+                .players
+                .me_mut()
+                .quest_book
+                .note_crafted(item, count);
         }
     }
 

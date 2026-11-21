@@ -123,9 +123,9 @@ impl VoxelGame {
             return;
         }
         self.chat(&format!("> /{line}"));
-        self.command_reply = None;
+        self.server.command_reply = None;
         self.send_now(ClientMsg::Command(line.to_string()));
-        if let Some(reply) = self.command_reply.take() {
+        if let Some(reply) = self.server.command_reply.take() {
             self.chat(&reply.text);
         }
     }
@@ -148,15 +148,16 @@ impl VoxelGame {
             out.push('\n');
             out.push_str(help);
         }
-        for (mod_id, name, help) in self.mods.commands() {
+        for (mod_id, name, help) in self.server.mods.commands() {
             out.push_str(&format!("\n/{name} : {help} ({mod_id})"));
         }
         out
     }
 
     fn console_mods(&self) -> String {
-        let disabled = self.mods.disabled();
+        let disabled = self.server.mods.disabled();
         let lines: Vec<String> = self
+            .server
             .mods
             .mod_stats()
             .into_iter()
@@ -196,7 +197,7 @@ impl VoxelGame {
             };
         }
         // Une commande de mod : `nom`, ou `mod:nom` pour lever une ambiguïté.
-        let all = self.mods.commands();
+        let all = self.server.mods.commands();
         let (wanted_mod, wanted_name) = match name.split_once(':') {
             Some((m, n)) => (Some(m), n),
             None => (None, name),
@@ -208,7 +209,7 @@ impl VoxelGame {
         let Some((mod_id, command, _)) = found else {
             return say(format!("Commande inconnue : /{name} (voir /help)"));
         };
-        let (reply, actions) = self.mods.command(&mod_id, &command, args);
+        let (reply, actions) = self.server.mods.command(&mod_id, &command, args);
         self.apply_machine_actions(actions);
         say(reply.unwrap_or_else(|| "fait".to_string()))
     }

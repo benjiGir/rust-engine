@@ -173,7 +173,7 @@ impl VoxelGame {
     /// et achète celui-ci s'il est abordable.
     pub(crate) fn buy_enchant_offer(&mut self, pos: IVec3, index: usize) {
         let stats = self.table_stats(pos);
-        let Some(stack) = self.players.me().inventory.selected_stack() else {
+        let Some(stack) = self.server.players.me().inventory.selected_stack() else {
             return;
         };
         let items = self.content.items.clone();
@@ -187,7 +187,7 @@ impl VoxelGame {
             subject,
             &key,
             stack.damage,
-            self.enchant_seed,
+            self.server.enchant_seed,
             &stats,
         )
         .and_then(|list| list.into_iter().nth(index)) else {
@@ -213,23 +213,28 @@ impl VoxelGame {
     /// reçoit les enchantements, un livre ou un tome devient un livre enchanté.
     fn buy_offer(&mut self, offer: &Offer, gem: Option<engine_voxel::ItemId>) {
         let Some(gem) = gem else { return };
-        if self.players.me_mut().experience.points < offer.points
-            || !self.players.me_mut().inventory.remove(gem, offer.gems)
+        if self.server.players.me_mut().experience.points < offer.points
+            || !self
+                .server
+                .players
+                .me_mut()
+                .inventory
+                .remove(gem, offer.gems)
         {
             return;
         }
-        self.players.me_mut().experience.points -= offer.points;
-        let selected = self.players.me_mut().inventory.selected;
+        self.server.players.me_mut().experience.points -= offer.points;
+        let selected = self.server.players.me_mut().inventory.selected;
         let items = self.content.items.clone();
-        let Some(held) = self.players.me_mut().inventory.slots[selected] else {
+        let Some(held) = self.server.players.me_mut().inventory.slots[selected] else {
             return;
         };
         if BookKind::of_key(&items.get(held.item).key).is_some() {
             // Un livre vierge : un exemplaire est consommé, et un livre enchanté le remplace.
-            if let Some(slot) = self.players.me_mut().inventory.slots[selected].as_mut() {
+            if let Some(slot) = self.server.players.me_mut().inventory.slots[selected].as_mut() {
                 slot.count -= 1;
                 if slot.count == 0 {
-                    self.players.me_mut().inventory.slots[selected] = None;
+                    self.server.players.me_mut().inventory.slots[selected] = None;
                 }
             }
             if let Some(enchanted) = items.id(ENCHANTED_BOOK) {
@@ -239,11 +244,12 @@ impl VoxelGame {
                     damage: offer.apply(0),
                 });
             }
-        } else if let Some(slot) = self.players.me_mut().inventory.slots[selected].as_mut() {
+        } else if let Some(slot) = self.server.players.me_mut().inventory.slots[selected].as_mut() {
             slot.damage = offer.apply(slot.damage);
         }
         // La table propose autre chose la prochaine fois.
-        self.enchant_seed = self
+        self.server.enchant_seed = self
+            .server
             .enchant_seed
             .wrapping_mul(1664525)
             .wrapping_add(1013904223);
@@ -514,6 +520,7 @@ impl VoxelGame {
         self.absorb_library(pos);
         let book_id = self.content.items.id(ENCHANTED_BOOK);
         let Some(book) = self
+            .server
             .players
             .me()
             .inventory
@@ -524,7 +531,7 @@ impl VoxelGame {
         };
         match self.deposit_book(pos, &book) {
             Ok(()) => {
-                self.players.me_mut().inventory.cursor = None;
+                self.server.players.me_mut().inventory.cursor = None;
                 self.toast("Livre rangé dans la bibliothèque");
                 self.bell();
             }
@@ -536,15 +543,15 @@ impl VoxelGame {
         self.absorb_library(pos);
         let book_id = self.content.items.id(ENCHANTED_BOOK);
         let mut stored = 0;
-        for i in 0..self.players.me().inventory.slots.len() {
-            let Some(stack) = self.players.me().inventory.slots[i] else {
+        for i in 0..self.server.players.me().inventory.slots.len() {
+            let Some(stack) = self.server.players.me().inventory.slots[i] else {
                 continue;
             };
             if Some(stack.item) != book_id || !enchanting::is_enchanted(stack.damage) {
                 continue;
             }
             if self.deposit_book(pos, &stack).is_ok() {
-                self.players.me_mut().inventory.slots[i] = None;
+                self.server.players.me_mut().inventory.slots[i] = None;
                 stored += 1;
             }
         }
@@ -586,7 +593,8 @@ impl VoxelGame {
         let Some((mut library, _)) = self.library_state(pos) else {
             return;
         };
-        if !library.extract(kind, level) || !self.players.me_mut().inventory.remove(blank, 1) {
+        if !library.extract(kind, level) || !self.server.players.me_mut().inventory.remove(blank, 1)
+        {
             return;
         }
         self.write_library(pos, &library);

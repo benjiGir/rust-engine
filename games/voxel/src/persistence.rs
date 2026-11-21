@@ -82,21 +82,22 @@ impl VoxelGame {
     /// Où est un joueur et comment il va, tel qu'on l'écrit sur disque. Le joueur local regarde où
     /// regarde la caméra ; un autre, où regarde son corps.
     pub(crate) fn player_save(&self, player: &PlayerState) -> PlayerSave {
-        let local = player.id == self.players.local_id();
+        let local = player.id == self.server.players.local_id();
         let (yaw, pitch) = if local {
             (self.client.camera.yaw, self.client.camera.pitch)
         } else {
             let yaw = self
+                .server
                 .ecs
                 .get::<crate::components::Transform>(player.entity)
                 .map_or(0.0, |t| t.yaw);
             (yaw, 0.0)
         };
         PlayerSave {
-            position: crate::player::eye(&self.ecs, player.entity, 1.0).to_array(),
+            position: crate::player::eye(&self.server.ecs, player.entity, 1.0).to_array(),
             yaw,
             pitch,
-            mode: match crate::player::mode(&self.ecs, player.entity) {
+            mode: match crate::player::mode(&self.server.ecs, player.entity) {
                 MoveMode::Walk => "walk".into(),
                 MoveMode::Fly => "fly".into(),
             },
@@ -124,36 +125,43 @@ impl VoxelGame {
     /// L'état du jeu à écrire dans `world.ron`. Le joueur hôte (le local) y figure aussi, pour
     /// qu'une version du jeu sans fichiers de joueurs ouvre encore le monde.
     pub(crate) fn world_meta(&self) -> WorldMeta {
-        let host = self.players.me();
+        let host = self.server.players.me();
         WorldMeta {
             format_version: FORMAT_VERSION,
             // La graine du monde : celle du générateur de la dimension y ajoute son décalage.
-            seed: self.dims.base_seed,
-            time_of_day: self.day.time,
+            seed: self.server.dims.base_seed,
+            time_of_day: self.server.day.time,
             player: Some(self.player_save(host)),
             mods: loaded_mods(&self.registry),
             inventory: Vec::new(),
             items: Some(host.inventory.to_save(&self.content.items)),
-            difficulty: self.difficulty,
+            difficulty: self.server.difficulty,
             // En partance pour une autre dimension : `world.ron` annonce déjà l'arrivée (le jeu se
             // sauvegarde encore une fois en se déchargeant : il ne doit pas l'effacer).
             dimension: self
+                .server
                 .dims
                 .leaving
                 .clone()
-                .unwrap_or_else(|| self.dims.current.key.clone()),
-            arriving: self.dims.leaving.is_some(),
+                .unwrap_or_else(|| self.server.dims.current.key.clone()),
+            arriving: self.server.dims.leaving.is_some(),
             adventure: host.adventure.progress.to_save(),
-            generation: Some(self.dims.generation.clone()),
+            generation: Some(self.server.dims.generation.clone()),
         }
     }
 
     /// Écrit le fichier de chaque joueur dans `players/` (à la racine du monde).
     pub(crate) fn save_players(&self) {
-        let Some(store) = self.dims.meta_store.clone().or_else(|| self.store.clone()) else {
+        let Some(store) = self
+            .server
+            .dims
+            .meta_store
+            .clone()
+            .or_else(|| self.server.store.clone())
+        else {
             return;
         };
-        for player in self.players.iter().filter(|p| !p.ghost) {
+        for player in self.server.players.iter().filter(|p| !p.ghost) {
             if let Err(err) = store.save_player(&uuid_name(player.uuid), &self.player_file(player))
             {
                 log::error!("sauvegarde du joueur {} : {err:#}", player.name);
@@ -164,12 +172,12 @@ impl VoxelGame {
     /// Toutes les 30 secondes : lance une sauvegarde en tâche de fond. À chaque image :
     /// récupère le résultat de la précédente.
     pub(crate) fn autosave(&mut self) {
-        let Some(store) = self.store.clone() else {
+        let Some(store) = self.server.store.clone() else {
             return;
         };
         let polled = self.streamer_mut().poll_save();
         if let Some(result) = polled {
-            let elapsed = self.save_started.elapsed();
+            let elapsed = self.server.save_started.elapsed();
             match result {
                 Ok(report) => log::info!(
                     "sauvegarde : {} chunks, {} régions, {:.1} Ko, en {:.0?} (en tâche de fond)",
@@ -181,12 +189,13 @@ impl VoxelGame {
                 Err(err) => log::error!("sauvegarde échouée : {err:#}"),
             }
         }
-        if self.last_autosave.elapsed() < AUTOSAVE_INTERVAL {
+        if self.server.last_autosave.elapsed() < AUTOSAVE_INTERVAL {
             return;
         }
-        self.last_autosave = Instant::now();
+        self.server.last_autosave = Instant::now();
         // `world.ron` est minuscule : on l'écrit directement, à la racine du monde.
         let meta_store = self
+            .server
             .dims
             .meta_store
             .clone()
@@ -195,41 +204,44 @@ impl VoxelGame {
             log::error!("sauvegarde de world.ron : {err:#}");
         }
         self.save_players();
-        if let Err(err) = engine_voxel::save_grids(store.dir(), &self.mods.subgrids.borrow()) {
+        if let Err(err) = engine_voxel::save_grids(store.dir(), &self.server.mods.subgrids.borrow())
+        {
             log::error!("sauvegarde des structures mobiles : {err:#}");
         }
-        crate::carts::save(&self.ecs, store.dir());
+        crate::carts::save(&self.server.ecs, store.dir());
         self.save_backpacks();
         self.save_quests();
         self.save_item_data();
-        self.mods.save_world_data();
+        self.server.mods.save_world_data();
         if self.streamer_mut().begin_save() {
-            self.save_started = Instant::now();
+            self.server.save_started = Instant::now();
         }
     }
 
     /// Sauvegarde complète, en attendant la fin (à la fermeture du jeu).
     pub(crate) fn save_now(&mut self) {
         let _span = engine_trace::span("sauvegarde complète");
-        let Some(store) = self.store.clone() else {
+        let Some(store) = self.server.store.clone() else {
             return;
         };
         let start = Instant::now();
         let meta_store = self
+            .server
             .dims
             .meta_store
             .clone()
             .unwrap_or_else(|| store.clone());
         let meta = meta_store.save_meta(&self.world_meta());
         self.save_players();
-        if let Err(err) = engine_voxel::save_grids(store.dir(), &self.mods.subgrids.borrow()) {
+        if let Err(err) = engine_voxel::save_grids(store.dir(), &self.server.mods.subgrids.borrow())
+        {
             log::error!("sauvegarde des structures mobiles : {err:#}");
         }
-        crate::carts::save(&self.ecs, store.dir());
+        crate::carts::save(&self.server.ecs, store.dir());
         self.save_backpacks();
         self.save_quests();
         self.save_item_data();
-        self.mods.save_world_data();
+        self.server.mods.save_world_data();
         let saved = self.streamer_mut().save_blocking();
         match (meta, saved) {
             (Ok(()), Ok(report)) => log::info!(

@@ -22,7 +22,7 @@ const CHAPTERS_WIDTH: f32 = 152.0;
 impl VoxelGame {
     /// Un clic droit avec le guide en main : l'ouvre. `true` si c'était le guide.
     pub(crate) fn use_guide(&mut self) -> bool {
-        let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
+        let Some(stack) = self.server.players.me_mut().inventory.selected_stack() else {
             return false;
         };
         if self.content.items.get(stack.item).key != GUIDE_ITEM {

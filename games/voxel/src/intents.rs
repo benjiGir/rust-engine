@@ -186,13 +186,13 @@ impl VoxelGame {
     /// La visée de l'action en cours ; hors d'un message, celle de la fenêtre (le bloc visé de
     /// l'image et la caméra).
     pub(crate) fn aim(&self) -> ActingAim {
-        if let Some(aim) = self.acting {
+        if let Some(aim) = self.server.acting {
             return aim;
         }
         let eye = self.client.camera.position;
         let forward = self.client.camera.forward();
         ActingAim {
-            player: self.players.current_id(),
+            player: self.server.players.current_id(),
             eye,
             forward,
             hit: self.client.target,
@@ -204,7 +204,10 @@ impl VoxelGame {
 
     /// L'entité que retrouve le serveur sous ce numéro, si elle existe encore.
     pub(crate) fn server_entity(&self, id: NetId) -> Option<Entity> {
-        self.ecs.get_resource::<NetIds>()?.entity(&self.ecs, id)
+        self.server
+            .ecs
+            .get_resource::<NetIds>()?
+            .entity(&self.server.ecs, id)
     }
 
     /// La visée de la fenêtre, telle qu'elle part dans un message.
@@ -219,7 +222,7 @@ impl VoxelGame {
     /// après un `goto`), le regard de la caméra.
     pub(crate) fn body_aim(&self) -> Aim {
         Aim {
-            eye: player::eye(&self.ecs, self.players.entity(), 1.0),
+            eye: player::eye(&self.server.ecs, self.server.players.entity(), 1.0),
             forward: self.client.camera.forward(),
         }
     }
@@ -239,7 +242,7 @@ impl VoxelGame {
 
     /// Applique les messages du joueur local dans l'ordre, puis les réponses du simulateur.
     pub(crate) fn flush_outbox(&mut self) {
-        let local = self.players.local_id();
+        let local = self.server.players.local_id();
         let mut guard = 0;
         // Un message peut en provoquer d'autres (fermer un écran...) : on vide jusqu'au bout.
         while !self.client.outbox.is_empty() && guard < 64 {
@@ -250,7 +253,7 @@ impl VoxelGame {
         }
         // Les vues du joueur (inventaire, conteneur ouvert) suivent tout de suite : un clic dans un
         // écran se voit dès cette image.
-        if !self.replies.is_empty() || guard > 0 {
+        if !self.server.replies.is_empty() || guard > 0 {
             self.replicate_player_views();
         }
         self.apply_replies();
@@ -259,23 +262,25 @@ impl VoxelGame {
     /// Les réponses du simulateur au joueur de la fenêtre. Celles des autres joueurs partiront sur
     /// le réseau (lot 5).
     pub(crate) fn apply_replies(&mut self) {
-        let local = self.players.local_id();
-        for (player, reply) in std::mem::take(&mut self.replies) {
+        let local = self.server.players.local_id();
+        for (player, reply) in std::mem::take(&mut self.server.replies) {
             if player != local {
                 continue;
             }
             match reply {
                 ServerMsg::Correct { position } => {
-                    let entity = self.players.entity();
-                    if let Some(mut transform) = self.ecs.get_mut::<Transform>(entity) {
+                    let entity = self.server.players.entity();
+                    if let Some(mut transform) = self.server.ecs.get_mut::<Transform>(entity) {
                         transform.position = position;
                     }
-                    if let Some(mut previous) =
-                        self.ecs.get_mut::<components::PreviousPosition>(entity)
+                    if let Some(mut previous) = self
+                        .server
+                        .ecs
+                        .get_mut::<components::PreviousPosition>(entity)
                     {
                         previous.0 = position;
                     }
-                    if let Some(mut velocity) = self.ecs.get_mut::<Velocity>(entity) {
+                    if let Some(mut velocity) = self.server.ecs.get_mut::<Velocity>(entity) {
                         velocity.0 = Vec3::ZERO;
                     }
                     self.client.camera.position =
@@ -314,15 +319,15 @@ impl VoxelGame {
     /// Applique une intention du client. Tout ce que le simulateur touche pendant ce temps est
     /// l'état de `player`.
     pub(crate) fn handle(&mut self, player: PlayerId, msg: ClientMsg) {
-        if self.players.get(player).is_none() {
+        if self.server.players.get(player).is_none() {
             log::warn!("message d'un joueur inconnu ({player:?}) : ignoré");
             return;
         }
-        let previous_player = self.players.set_acting(Some(player));
-        let previous_aim = self.acting.take();
+        let previous_player = self.server.players.set_acting(Some(player));
+        let previous_aim = self.server.acting.take();
         self.apply(player, msg);
-        self.acting = previous_aim;
-        self.players.set_acting(previous_player);
+        self.server.acting = previous_aim;
+        self.server.players.set_acting(previous_player);
     }
 
     fn apply(&mut self, player: PlayerId, msg: ClientMsg) {
@@ -357,9 +362,9 @@ impl VoxelGame {
             ClientMsg::Use { aim, sneaking } => {
                 self.with_aim(player, aim, |game| game.handle_use(sneaking));
             }
-            ClientMsg::Eat { held } => self.players.me_mut().eating = held,
+            ClientMsg::Eat { held } => self.server.players.me_mut().eating = held,
             ClientMsg::SelectSlot(slot) => {
-                let inventory = &mut self.players.me_mut().inventory;
+                let inventory = &mut self.server.players.me_mut().inventory;
                 inventory.selected = usize::from(slot).min(inventory.slots.len() - 1);
             }
             ClientMsg::Drop { aim, all } => {
@@ -376,8 +381,8 @@ impl VoxelGame {
                 None => log::debug!("bouton de conteneur sans conteneur ouvert : ignoré"),
             },
             ClientMsg::ToggleUpgrade(slot) => {
-                if let Some(OpenContainer::Bag(number)) = self.players.me().open
-                    && let Some(bag) = self.backpacks.bag_mut(number)
+                if let Some(OpenContainer::Bag(number)) = self.server.players.me().open
+                    && let Some(bag) = self.server.backpacks.bag_mut(number)
                     && slot < 32
                 {
                     bag.disabled ^= 1 << slot;
@@ -386,12 +391,12 @@ impl VoxelGame {
             ClientMsg::Craft { size, recipe } => self.craft(size, recipe),
             ClientMsg::Screen(action) => self.screen_action(action),
             ClientMsg::Chat(text) => {
-                let name = self.players.me().name.clone();
+                let name = self.server.players.me().name.clone();
                 self.chat(&format!("<{name}> {text}"));
             }
             ClientMsg::Command(line) => self.handle_command(&line),
             ClientMsg::Respawn => {
-                if self.players.current_is_local() && self.players.me().dead {
+                if self.server.players.current_is_local() && self.server.players.me().dead {
                     self.respawn();
                 } else {
                     log::debug!("réapparition ignorée : le joueur n'est pas mort");
@@ -406,17 +411,17 @@ impl VoxelGame {
         let Some(acting) = self.resolve_aim(player, aim) else {
             return false;
         };
-        debug_assert_eq!(acting.player, self.players.current_id());
-        let previous = self.acting.replace(acting);
+        debug_assert_eq!(acting.player, self.server.players.current_id());
+        let previous = self.server.acting.replace(acting);
         action(self);
-        self.acting = previous;
+        self.server.acting = previous;
         true
     }
 
     /// Le lancer de rayon du simulateur, depuis l'œil et le regard du client.
     pub(crate) fn resolve_aim(&self, player: PlayerId, aim: Aim) -> Option<ActingAim> {
-        let state = self.players.get(player)?;
-        let server_eye = player::eye(&self.ecs, state.entity, 1.0);
+        let state = self.server.players.get(player)?;
+        let server_eye = player::eye(&self.server.ecs, state.entity, 1.0);
         if !eye_is_plausible(aim.eye, server_eye) {
             log::warn!(
                 "visée refusée : l'œil annoncé {:?} est loin de {:?}",
@@ -427,7 +432,7 @@ impl VoxelGame {
         }
         cast_aim(
             self.streamer().world(),
-            &self.ecs,
+            &self.server.ecs,
             player,
             aim,
             state.gear.reach(),
@@ -439,12 +444,12 @@ impl VoxelGame {
     /// Contrôle un mouvement que le client a déjà joué. Un refus ramène le joueur à sa dernière
     /// position acceptée.
     fn handle_move(&mut self, player: PlayerId, next: MoveSample) {
-        let Some(state) = self.players.get(player) else {
+        let Some(state) = self.server.players.get(player) else {
             return;
         };
         let Some(previous) = state.last_move else {
             // Le premier mouvement n'a rien à quoi se comparer.
-            self.players.me_mut().last_move = Some(next);
+            self.server.players.me_mut().last_move = Some(next);
             return;
         };
         let limits = MoveLimits::new(next.mode, state.gear.move_speed());
@@ -456,20 +461,20 @@ impl VoxelGame {
             })
         };
         match result {
-            Ok(()) => self.players.me_mut().last_move = Some(next),
+            Ok(()) => self.server.players.me_mut().last_move = Some(next),
             Err(refusal) => {
                 log::warn!(
                     "mouvement refusé ({refusal:?}) : retour en {}",
                     previous.position
                 );
-                self.replies.push((
+                self.server.replies.push((
                     player,
                     ServerMsg::Correct {
                         position: previous.position,
                     },
                 ));
                 if let MoveRefusal::Invalid = refusal {
-                    self.players.me_mut().last_move = None;
+                    self.server.players.me_mut().last_move = None;
                 }
             }
         }
@@ -478,7 +483,7 @@ impl VoxelGame {
     /// Le joueur a été déplacé par le jeu (réapparition, téléportation) : sa prochaine position
     /// n'est pas à comparer avec l'ancienne.
     pub(crate) fn forget_last_move(&mut self) {
-        self.players.local_mut().last_move = None;
+        self.server.players.local_mut().last_move = None;
     }
 
     // ----- Le minage -----
@@ -491,6 +496,7 @@ impl VoxelGame {
         // La vitesse de minage (Efficacité, affixes) est un attribut.
         Some(
             time / self
+                .server
                 .players
                 .me()
                 .gear
@@ -500,7 +506,7 @@ impl VoxelGame {
 
     fn handle_dig(&mut self, player: PlayerId, aim: Aim, phase: DigPhase, pos: IVec3) {
         match phase {
-            DigPhase::Abort => self.players.me_mut().dig = None,
+            DigPhase::Abort => self.server.players.me_mut().dig = None,
             DigPhase::Start => {
                 self.with_aim(player, aim, |game| {
                     let aimed = game.aim().hit.map(|hit| hit.block_pos);
@@ -508,13 +514,13 @@ impl VoxelGame {
                         log::debug!(
                             "minage refusé : le simulateur ne voit pas {pos} dans la visée"
                         );
-                        game.players.me_mut().dig = None;
+                        game.server.players.me_mut().dig = None;
                         return;
                     }
                     let block = game.streamer().world().block(pos);
                     // La première image est créditée comme chez le client (qui y a déjà avancé).
                     let first = game.client.frame_dt;
-                    game.players.me_mut().dig = game
+                    game.server.players.me_mut().dig = game
                         .mining_time(pos, block)
                         .map(|time| start_dig(pos, block, time, first));
                 });
@@ -525,11 +531,11 @@ impl VoxelGame {
 
     /// `Dig Finish` : le même bloc qu'au début, à portée, et assez de temps écoulé.
     fn finish_dig(&mut self, player: PlayerId, aim: Aim, pos: IVec3) {
-        let Some(dig) = self.players.me_mut().dig.take() else {
+        let Some(dig) = self.server.players.me_mut().dig.take() else {
             log::warn!("minage refusé : {pos} n'a pas été commencé");
             return;
         };
-        let reach = self.players.me().gear.reach();
+        let reach = self.server.players.me().gear.reach();
         let block_now = self.streamer().world().block(pos);
         if let Some(why) = dig_refusal(&dig, pos, block_now, aim.eye, reach) {
             // Au lot 3, le simulateur renverra l'état du bloc au client ; ici, un journal.
@@ -548,57 +554,58 @@ impl VoxelGame {
     /// avec l'outil qu'ils tiennent à ce moment.
     pub(crate) fn tick_digs(&mut self, dt: f32) {
         let digging: Vec<PlayerId> = self
+            .server
             .players
             .iter()
             .filter(|p| p.dig.is_some())
             .map(|p| p.id)
             .collect();
         for id in digging {
-            let previous = self.players.set_acting(Some(id));
-            if let Some(dig) = self.players.me().dig {
+            let previous = self.server.players.set_acting(Some(id));
+            if let Some(dig) = self.server.players.me().dig {
                 let time = self.mining_time(dig.pos, dig.block);
-                if let Some(state) = self.players.me_mut().dig.as_mut() {
+                if let Some(state) = self.server.players.me_mut().dig.as_mut() {
                     advance_dig(state, time, dt);
                 }
             }
-            self.players.set_acting(previous);
+            self.server.players.set_acting(previous);
         }
     }
 
     /// Le repas : le bouton tenu fait mâcher à chaque pas fixe.
     pub(crate) fn tick_eating(&mut self, dt: f32) {
-        let ids: Vec<PlayerId> = self.players.iter().map(|p| p.id).collect();
+        let ids: Vec<PlayerId> = self.server.players.iter().map(|p| p.id).collect();
         for id in ids {
-            let previous = self.players.set_acting(Some(id));
-            let holding = self.players.me().eating;
+            let previous = self.server.players.set_acting(Some(id));
+            let holding = self.server.players.me().eating;
             let progress = self.update_eating(holding, dt);
-            self.players.me_mut().eat_progress = progress;
-            self.players.set_acting(previous);
+            self.server.players.me_mut().eat_progress = progress;
+            self.server.players.set_acting(previous);
         }
     }
 
     /// Fabrique le message `Move` du joueur local après la physique d'un pas, et l'applique. Sans
     /// `VOXEL_CHECK_MOVES=1`, rien ne part.
     pub(crate) fn check_local_move(&mut self) {
-        if !self.check_moves {
+        if !self.server.check_moves {
             return;
         }
-        let entity = self.players.entity();
+        let entity = self.server.players.entity();
         // Les vols automatiques, les wagons et les structures portent le joueur : pas de contrôle.
         if self.client.autofly.is_some()
             || self.client.demo.is_some()
             || self.client.bench.is_some()
             || self.client.tour.is_some()
-            || self.ecs.has::<carts::Riding>(entity)
-            || player::frozen(&self.ecs, entity)
+            || self.server.ecs.has::<carts::Riding>(entity)
+            || player::frozen(&self.server.ecs, entity)
         {
-            self.players.local_mut().last_move = None;
+            self.server.players.local_mut().last_move = None;
             return;
         }
         let (Some(transform), Some(collider), Some(velocity)) = (
-            self.ecs.get::<Transform>(entity).map(|t| t.position),
-            self.ecs.get::<Collider>(entity).map(|c| *c),
-            self.ecs.get::<Velocity>(entity).map(|v| v.0),
+            self.server.ecs.get::<Transform>(entity).map(|t| t.position),
+            self.server.ecs.get::<Collider>(entity).map(|c| *c),
+            self.server.ecs.get::<Velocity>(entity).map(|v| v.0),
         ) else {
             return;
         };
@@ -608,8 +615,8 @@ impl VoxelGame {
             yaw: self.client.camera.yaw,
             pitch: self.client.camera.pitch,
             on_ground: collider.on_ground,
-            mode: player::mode(&self.ecs, entity),
-            step: self.sim_step,
+            mode: player::mode(&self.server.ecs, entity),
+            step: self.server.sim_step,
         };
         self.send_now(msg);
     }
@@ -623,15 +630,15 @@ impl VoxelGame {
         if aim.mob == Some(claimed) {
             let strike = self.strike_mob(claimed, aim.forward);
             if strike.is_some() {
-                self.exert(self.hunger_rules.attack);
+                self.exert(self.server.hunger_rules.attack);
             }
             if self.held_tool().is_some() {
                 self.wear_held();
             }
-            self.outcome = strike.map_or(Outcome::Nothing, Outcome::Struck);
+            self.server.outcome = strike.map_or(Outcome::Nothing, Outcome::Struck);
         } else if aim.mob.is_none() && self.aimed_cart() == Some(claimed) {
             if self.punch_cart() {
-                self.outcome = Outcome::Punched;
+                self.server.outcome = Outcome::Punched;
             }
         } else {
             log::debug!("coup refusé : le simulateur ne voit pas {claimed} dans la visée");
@@ -658,7 +665,7 @@ impl VoxelGame {
             || self.use_charm()
             || self.use_guide()
             || self.use_mod_item();
-        self.outcome = if used {
+        self.server.outcome = if used {
             Outcome::Used
         } else {
             self.place_at_target()
@@ -668,7 +675,7 @@ impl VoxelGame {
 
     /// Jette un exemplaire (ou toute la pile) en conservant son usure et son enchantement.
     pub(crate) fn throw_selected(&mut self, all: bool) {
-        let Some(stack) = self.players.me().inventory.selected_stack() else {
+        let Some(stack) = self.server.players.me().inventory.selected_stack() else {
             return;
         };
         let aim = self.aim();
@@ -678,16 +685,16 @@ impl VoxelGame {
         }
         let count = if all { stack.count } else { 1 };
         for _ in 0..count {
-            self.players.me_mut().inventory.consume_selected();
+            self.server.players.me_mut().inventory.consume_selected();
         }
         let seed = self.next_random();
         let entity = drops::spawn(
-            &mut self.ecs,
+            &mut self.server.ecs,
             inventory::ItemStack { count, ..stack },
             center,
             seed,
         );
-        if let Some(mut velocity) = self.ecs.get_mut::<components::Velocity>(entity) {
+        if let Some(mut velocity) = self.server.ecs.get_mut::<components::Velocity>(entity) {
             velocity.0 = aim.forward * 3.5 + Vec3::Y;
         }
         self.punch();
@@ -709,7 +716,8 @@ impl VoxelGame {
         self.click_target(target, button.into());
         // Un four ou un alambic dort peut-être : on le réveille au prochain tick.
         if let SlotRef::Container(pos, _) = target {
-            self.mods
+            self.server
+                .mods
                 .machines
                 .schedule(engine_voxel::GridPos::world(pos), 1);
         }
@@ -717,7 +725,7 @@ impl VoxelGame {
 
     /// La case désignée par un message, si le joueur courant peut la toucher.
     fn slot_ref(&self, slot: SlotTarget) -> Option<SlotRef> {
-        slot_ref_for(self.players.me(), slot, &|id| self.server_entity(id))
+        slot_ref_for(self.server.players.me(), slot, &|id| self.server_entity(id))
     }
 
     /// Ouvre un écran pour le joueur courant : le serveur note ce qu'il a ouvert (un conteneur, une
@@ -734,11 +742,13 @@ impl VoxelGame {
             Screen::Bag(number) => Some(OpenContainer::Bag(number)),
             _ => None,
         };
-        let me = self.players.me_mut();
+        let me = self.server.players.me_mut();
         me.open = open;
         me.screen = Some(screen);
-        let id = self.players.current_id();
-        self.replies.push((id, ServerMsg::OpenScreen(screen)));
+        let id = self.server.players.current_id();
+        self.server
+            .replies
+            .push((id, ServerMsg::OpenScreen(screen)));
     }
 
     /// La fenêtre ouvre l'écran que le serveur lui a ouvert.
@@ -758,14 +768,15 @@ impl VoxelGame {
     /// pas tombe par terre), et le conteneur n'est plus ouvert.
     pub(crate) fn close_menu(&mut self) {
         self.forget_mod_menu();
-        self.players.me_mut().open = None;
-        self.players.me_mut().screen = None;
+        self.server.players.me_mut().open = None;
+        self.server.players.me_mut().screen = None;
         let loose = self
+            .server
             .players
             .me_mut()
             .inventory
             .put_away(&self.content.items);
-        let at = player::body(&self.ecs, self.players.entity())
+        let at = player::body(&self.server.ecs, self.server.players.entity())
             .position
             .floor()
             .as_ivec3()
@@ -785,7 +796,7 @@ impl VoxelGame {
             return;
         }
         let (name, args) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
-        self.command_reply = Some(self.console_reply(&name.to_lowercase(), args.trim()));
+        self.server.command_reply = Some(self.console_reply(&name.to_lowercase(), args.trim()));
     }
 
     /// La case de l'interface, telle qu'elle part dans un message.
@@ -795,7 +806,11 @@ impl VoxelGame {
             SlotRef::Open(index) => SlotTarget::Open(index),
             SlotRef::Container(pos, index) => SlotTarget::Block { pos, index },
             SlotRef::Cart(cart, index) => SlotTarget::Cart {
-                cart: self.ecs.get::<NetId>(cart).map_or(NetId(0), |id| *id),
+                cart: self
+                    .server
+                    .ecs
+                    .get::<NetId>(cart)
+                    .map_or(NetId(0), |id| *id),
                 index,
             },
             SlotRef::Bag(number, index) => SlotTarget::Bag { number, index },

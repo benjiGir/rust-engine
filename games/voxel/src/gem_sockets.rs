@@ -99,11 +99,11 @@ impl VoxelGame {
         let data = crate::adventure_data::current();
         let items = self.content.items.clone();
         let outcome = {
-            let mut cursor = self.players.me_mut().inventory.cursor;
-            let target = self.players.me_mut().inventory.slot_mut(slot);
+            let mut cursor = self.server.players.me_mut().inventory.cursor;
+            let target = self.server.players.me_mut().inventory.slot_mut(slot);
             let outcome = use_on(&data, &items, &mut cursor, target);
             if outcome != Outcome::Ignored {
-                self.players.me_mut().inventory.cursor = cursor;
+                self.server.players.me_mut().inventory.cursor = cursor;
             }
             outcome
         };
@@ -125,10 +125,11 @@ impl VoxelGame {
                     if let Some(id) = items.id(&key) {
                         let left = self.collect_stack(ItemStack::new(id, 1));
                         if left > 0 {
-                            let at = crate::player::body(&self.ecs, self.players.entity())
-                                .position
-                                .floor()
-                                .as_ivec3();
+                            let at =
+                                crate::player::body(&self.server.ecs, self.server.players.entity())
+                                    .position
+                                    .floor()
+                                    .as_ivec3();
                             self.drop_stack(at, ItemStack::new(id, left));
                         }
                     }

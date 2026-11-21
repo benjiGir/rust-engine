@@ -33,6 +33,7 @@ impl VoxelGame {
         let quest = &quests.quests[index];
         let status = statuses[index];
         let mobs = self
+            .server
             .ecs
             .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
             .clone();
@@ -241,6 +242,7 @@ impl VoxelGame {
                             ..
                         } if !done => {
                             let carried: u32 = self
+                                .server
                                 .players
                                 .me()
                                 .inventory

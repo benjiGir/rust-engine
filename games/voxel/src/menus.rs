@@ -472,13 +472,13 @@ impl VoxelGame {
                     self.mode = Mode::Paused(PausePage::Options);
                 }
                 // Les mods qui ont une page d'options.
-                let mods = self.mods.options_mods.clone();
+                let mods = self.server.mods.options_mods.clone();
                 for (id, name) in mods {
                     if button(ui, &format!("Options : {name}")) {
                         self.open_mod_options(&id);
                     }
                 }
-                let label = if self.store.is_some() {
+                let label = if self.server.store.is_some() {
                     "Sauvegarder et retourner au menu"
                 } else {
                     "Retourner au menu"
@@ -501,6 +501,7 @@ impl VoxelGame {
             }
             PausePage::ModOptions(id) => {
                 let title = self
+                    .server
                     .mods
                     .options_mods
                     .iter()

@@ -354,6 +354,7 @@ impl VoxelGame {
                 Press::Secondary => 1,
             };
             let left = self
+                .server
                 .players
                 .me_mut()
                 .inventory

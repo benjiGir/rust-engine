@@ -223,14 +223,16 @@ impl WaterFx {
 impl VoxelGame {
     /// Met les effets de l'eau à jour avec l'état du joueur.
     pub(crate) fn update_water_fx(&mut self, dt: f32) {
-        let body = player::body(&self.ecs, self.players.entity());
+        let body = player::body(&self.server.ecs, self.server.players.entity());
         let (splash, swimming) = self
+            .server
             .ecs
-            .get::<Collider>(self.players.entity())
+            .get::<Collider>(self.server.players.entity())
             .map_or((0.0, false), |c| (c.splash, c.in_liquid));
         let speed = self
+            .server
             .ecs
-            .get::<Velocity>(self.players.entity())
+            .get::<Velocity>(self.server.players.entity())
             .map_or(0.0, |v| Vec2::new(v.0.x, v.0.z).length());
         self.client.water_fx.update(
             dt,

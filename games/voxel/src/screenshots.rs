@@ -367,15 +367,15 @@ impl VoxelGame {
         let ready = self.world_idle();
         match stage {
             Stage::Move => {
-                self.day.time = shot.time;
-                self.day.speed = TimeSpeed::Frozen;
-                if player::mode(&self.ecs, self.players.entity()) != MoveMode::Fly {
-                    player::toggle_mode(&mut self.ecs, self.players.entity());
+                self.server.day.time = shot.time;
+                self.server.day.speed = TimeSpeed::Frozen;
+                if player::mode(&self.server.ecs, self.server.players.entity()) != MoveMode::Fly {
+                    player::toggle_mode(&mut self.server.ecs, self.server.players.entity());
                 }
                 let (eye, yaw, pitch) = self.viewpoint(shot.scene);
                 player::set_eye(
-                    &self.ecs,
-                    self.players.entity(),
+                    &self.server.ecs,
+                    self.server.players.entity(),
                     eye + self.origin().as_vec3(),
                 );
                 self.client.ui.inventory_open = matches!(
@@ -507,7 +507,7 @@ impl VoxelGame {
 
     /// Les scènes sont décrites autour de (0, 0) : on les place au point d'apparition.
     pub(crate) fn origin(&self) -> IVec3 {
-        IVec3::new(self.spawn.x, 0, self.spawn.z)
+        IVec3::new(self.server.spawn.x, 0, self.server.spawn.z)
     }
 
     /// La hauteur du sol, en coordonnées de scène.
@@ -722,6 +722,7 @@ impl VoxelGame {
             Scene::Mobs => {
                 // Quelques créatures posées devant la caméra (en plus de celles du hasard).
                 let registry = self
+                    .server
                     .ecs
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .clone();
@@ -742,7 +743,7 @@ impl VoxelGame {
                     let y = self.ground(px, pz) as f32 + 1.0;
                     let o = self.origin().as_vec3();
                     crate::mobs::spawn_mob(
-                        &mut self.ecs,
+                        &mut self.server.ecs,
                         kind,
                         o + Vec3::new(px as f32 + 0.5, y, pz as f32 + 0.5),
                     );
@@ -776,23 +777,24 @@ impl VoxelGame {
         use crate::inventory::ItemStack;
         let items = self.content.items.clone();
         let stack = |key: &str, count: u32| items.id(key).map(|i| ItemStack::new(i, count));
-        self.players.me_mut().inventory.craft = [None; 9];
+        self.server.players.me_mut().inventory.craft = [None; 9];
         match scene {
             Scene::Inventory => {
-                self.players.me_mut().inventory.craft[0] = stack("core:oak_log", 3);
-                self.players.me_mut().inventory.armor[0] = stack("core:iron_helmet", 1);
-                self.players.me_mut().inventory.armor[1] = stack("core:copper_chestplate", 1);
+                self.server.players.me_mut().inventory.craft[0] = stack("core:oak_log", 3);
+                self.server.players.me_mut().inventory.armor[0] = stack("core:iron_helmet", 1);
+                self.server.players.me_mut().inventory.armor[1] =
+                    stack("core:copper_chestplate", 1);
                 self.client.ui.screen = crate::ui::Screen::Inventory;
             }
             Scene::Workbench => {
                 // Une pioche en bois : trois planches en haut, deux bâtons au milieu.
                 for i in [0, 1, 2] {
-                    self.players.me_mut().inventory.craft[i] = stack("core:oak_planks", 2);
+                    self.server.players.me_mut().inventory.craft[i] = stack("core:oak_planks", 2);
                 }
                 for i in [4, 7] {
-                    self.players.me_mut().inventory.craft[i] = stack("core:stick", 2);
+                    self.server.players.me_mut().inventory.craft[i] = stack("core:stick", 2);
                 }
-                self.players.me_mut().inventory.add(
+                self.server.players.me_mut().inventory.add(
                     items.id("core:oak_planks").unwrap(),
                     12,
                     &items,
@@ -811,7 +813,7 @@ impl VoxelGame {
                     return;
                 };
                 self.streamer_mut().set_block(pos, block);
-                let actions = self.mods.block_changed(pos);
+                let actions = self.server.mods.block_changed(pos);
                 self.apply_machine_actions(actions);
                 let fill: Vec<(usize, &str, u32)> = if scene == Scene::Furnace {
                     vec![(0, "core:raw_iron", 6), (1, "core:coal", 3)]
@@ -840,11 +842,12 @@ impl VoxelGame {
                 }
                 if scene == Scene::Furnace {
                     // Quelques secondes de cuisson : un lingot sorti, le suivant en cours.
-                    self.mods
+                    self.server
+                        .mods
                         .machines
                         .schedule(engine_voxel::GridPos::world(pos), 1);
                     for _ in 0..3 * 300 {
-                        let (actions, _) = self.mods.fixed_step(self.client.camera.position);
+                        let (actions, _) = self.server.mods.fixed_step(self.client.camera.position);
                         self.apply_machine_actions(actions);
                     }
                     self.client.ui.screen = crate::ui::Screen::Furnace(pos);
@@ -855,6 +858,7 @@ impl VoxelGame {
             Scene::Trade => {
                 // Un fermier tout près, de quoi payer certaines offres et pas d'autres.
                 let registry = self
+                    .server
                     .ecs
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .clone();
@@ -868,28 +872,37 @@ impl VoxelGame {
                         self.ground(x, z) as f32 + 1.0,
                         z as f32 + 0.5,
                     );
-                let Some(mob) = crate::mobs::spawn_mob(&mut self.ecs, kind, at) else {
+                let Some(mob) = crate::mobs::spawn_mob(&mut self.server.ecs, kind, at) else {
                     return;
                 };
                 let uses: Vec<u32> = self
+                    .server
                     .trades
                     .for_mob("core:farmer")
                     .iter()
                     .enumerate()
                     .map(|(i, t)| if i == 2 { 0 } else { t.uses })
                     .collect();
-                self.ecs.insert(mob, crate::components::Trader { uses });
-                self.players.me_mut().inventory.add(
+                self.server
+                    .ecs
+                    .insert(mob, crate::components::Trader { uses });
+                self.server.players.me_mut().inventory.add(
                     items.id("core:gold_ingot").unwrap(),
                     3,
                     &items,
                 );
-                self.players
-                    .me_mut()
-                    .inventory
-                    .add(items.id("core:wheat").unwrap(), 45, &items);
-                crate::entities::NetIds::assign(&mut self.ecs);
-                if let Some(id) = self.ecs.get::<crate::entities::NetId>(mob).map(|id| *id) {
+                self.server.players.me_mut().inventory.add(
+                    items.id("core:wheat").unwrap(),
+                    45,
+                    &items,
+                );
+                crate::entities::NetIds::assign(&mut self.server.ecs);
+                if let Some(id) = self
+                    .server
+                    .ecs
+                    .get::<crate::entities::NetId>(mob)
+                    .map(|id| *id)
+                {
                     self.client.ui.screen = crate::ui::Screen::Trade(id);
                 }
                 self.client.ui.trade_selected = 4;
@@ -949,7 +962,7 @@ impl VoxelGame {
                                 water,
                                 Some(full),
                             );
-                            self.fluids.wake(o + IVec3::new(dx, dy, dz));
+                            self.server.fluids.wake(o + IVec3::new(dx, dy, dz));
                         }
                     }
                 }
@@ -974,7 +987,7 @@ impl VoxelGame {
                 for dy in 0..9 {
                     self.streamer_mut()
                         .set_fluid(o + IVec3::new(0, dy, 0), water, Some(full));
-                    self.fluids.wake(o + IVec3::new(0, dy, 0));
+                    self.server.fluids.wake(o + IVec3::new(0, dy, 0));
                 }
                 for dx in 1..4 {
                     self.streamer_mut()
@@ -997,13 +1010,13 @@ impl VoxelGame {
                     for dx in 0..3 {
                         self.streamer_mut()
                             .set_fluid(o + IVec3::new(dx, 0, dz), water, Some(full));
-                        self.fluids.wake(o + IVec3::new(dx, 0, dz));
+                        self.server.fluids.wake(o + IVec3::new(dx, 0, dz));
                         self.streamer_mut().set_fluid(
                             o + IVec3::new(9 - dx, 0, dz),
                             lava,
                             Some(full),
                         );
-                        self.fluids.wake(o + IVec3::new(9 - dx, 0, dz));
+                        self.server.fluids.wake(o + IVec3::new(9 - dx, 0, dz));
                     }
                 }
                 150
@@ -1034,16 +1047,16 @@ impl VoxelGame {
                     }
                 }
                 put(self, IVec3::new(5, 2, 3), BlockId::AIR);
-                self.fluids.wake(o + IVec3::new(5, 2, 3));
-                self.fluids.wake(o + IVec3::new(5, 3, 3));
+                self.server.fluids.wake(o + IVec3::new(5, 2, 3));
+                self.server.fluids.wake(o + IVec3::new(5, 3, 3));
                 60
             }
         };
         let start = Instant::now();
         let mut processed = 0;
         for _ in 0..steps {
-            let report = self.fluids.step(
-                &mut self.world.borrow_mut(),
+            let report = self.server.fluids.step(
+                &mut self.server.world.borrow_mut(),
                 std::time::Duration::from_millis(50),
             );
             processed += report.processed;
@@ -1051,7 +1064,7 @@ impl VoxelGame {
         log::info!(
             "fluides ({which:?}) : {steps} étapes, {processed} cellules calculées en {:.1} ms, {} encore actives",
             start.elapsed().as_secs_f64() * 1000.0,
-            self.fluids.active()
+            self.server.fluids.active()
         );
     }
 
@@ -1066,15 +1079,15 @@ impl VoxelGame {
         };
         // La case de la barre qui contient l'objet voulu (ou une case vide).
         let slot = (0..crate::inventory::HOTBAR)
-            .find(|&i| self.players.me_mut().inventory.slots[i].map(|s| s.item) == wanted)
+            .find(|&i| self.server.players.me_mut().inventory.slots[i].map(|s| s.item) == wanted)
             .unwrap_or(0);
         if wanted.is_none() {
-            self.players.me_mut().inventory.slots[8] = None;
+            self.server.players.me_mut().inventory.slots[8] = None;
         } else {
-            self.players.me_mut().inventory.slots[slot] =
+            self.server.players.me_mut().inventory.slots[slot] =
                 wanted.map(|item| crate::inventory::ItemStack::new(item, 1));
         }
-        self.players.me_mut().inventory.selected = if wanted.is_none() { 8 } else { slot };
+        self.server.players.me_mut().inventory.selected = if wanted.is_none() { 8 } else { slot };
         self.client.hand.equip = 0.0;
         self.client.hand.swing = None;
         self.client.hand.walk_amount = 0.0;
@@ -1103,7 +1116,7 @@ impl VoxelGame {
         let base = IVec3::new(x, self.ground(x, z) + 1, z) + self.origin();
         let place = |game: &mut Self, pos: IVec3, block: BlockId| {
             if game.streamer_mut().set_block(pos, block) {
-                let actions = game.mods.block_changed(pos);
+                let actions = game.server.mods.block_changed(pos);
                 game.apply_machine_actions(actions);
             }
         };
@@ -1131,11 +1144,14 @@ impl VoxelGame {
         if let Some(breaker) = breaker {
             let at = base + IVec3::new(3, 0, 0);
             place(self, at, breaker);
-            let actions = self.mods.dispatch(&engine_mods::ModEvent::BlockPlaced {
-                at: engine_voxel::GridPos::world(at),
-                block: breaker,
-                facing: IVec3::X,
-            });
+            let actions = self
+                .server
+                .mods
+                .dispatch(&engine_mods::ModEvent::BlockPlaced {
+                    at: engine_voxel::GridPos::world(at),
+                    block: breaker,
+                    facing: IVec3::X,
+                });
             self.apply_machine_actions(actions);
             place(self, at + IVec3::NEG_X, clock);
             for dy in 0..3 {
@@ -1145,7 +1161,7 @@ impl VoxelGame {
         // Une seconde et quart de machines (25 ticks) : l'horloge s'allume (tick 20),
         // ses lampes aussi.
         for _ in 0..75 {
-            let (actions, _) = self.mods.fixed_step(self.client.camera.position);
+            let (actions, _) = self.server.mods.fixed_step(self.client.camera.position);
             self.apply_machine_actions(actions);
         }
     }

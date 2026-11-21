@@ -126,7 +126,7 @@ impl VoxelGame {
             }
             Command::Op(op) => {
                 // Le contrôleur n'a pas de cases : seuls Déposer et Maj + clic y ont un sens.
-                if let Some(OpenContainer::Controller(pos)) = self.players.me().open {
+                if let Some(OpenContainer::Controller(pos)) = self.server.players.me().open {
                     match op {
                         Op::Deposit => self.controller_deposit(pos, None),
                         Op::QuickIn(slot) => self.controller_deposit(pos, Some(slot)),
@@ -142,7 +142,7 @@ impl VoxelGame {
             }
             Command::Drops => {
                 let mut list = Vec::new();
-                self.ecs
+                self.server.ecs
                     .query::<(&crate::components::Transform, &crate::drops::DroppedItem)>()
                     .for_each(|_, (t, d)| {
                         list.push(format!(
@@ -185,9 +185,9 @@ impl VoxelGame {
                     (None, _) => {
                         let items = self.content.items.clone();
                         crate::backpacks::carried(
-                            &self.players.me_mut().inventory,
+                            &self.server.players.me_mut().inventory,
                             &items,
-                            &mut self.backpacks,
+                            &mut self.server.backpacks,
                         )
                         .first()
                         .map(|c| c.number)
@@ -195,6 +195,7 @@ impl VoxelGame {
                     }
                 };
                 let bag = self
+                    .server
                     .backpacks
                     .bag(number)
                     .with_context(|| format!("bag : pas de sac numéro {number}"))?;

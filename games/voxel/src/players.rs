@@ -362,12 +362,13 @@ impl crate::VoxelGame {
     /// Les centres de chargement du monde du serveur : un par joueur. Le serveur ne maille pas : le
     /// maillage de la fenêtre se fait dans sa réplique (voir `client_world.rs`), qui suit la caméra.
     pub(crate) fn stream_views(&self) -> Vec<engine_voxel::View> {
-        self.players
+        self.server
+            .players
             .iter()
             .map(|p| {
-                let local = p.id == self.players.local_id();
+                let local = p.id == self.server.players.local_id();
                 engine_voxel::View {
-                    position: crate::player::eye(&self.ecs, p.entity, 1.0),
+                    position: crate::player::eye(&self.server.ecs, p.entity, 1.0),
                     forward: if local {
                         self.client.camera.forward()
                     } else {

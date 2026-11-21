@@ -31,7 +31,7 @@ const COUPLING_REACH: f32 = 6.0;
 impl VoxelGame {
     /// La clé de l'objet tenu en main.
     fn held_key(&self) -> Option<String> {
-        let item = self.players.me().inventory.selected_item()?;
+        let item = self.server.players.me().inventory.selected_item()?;
         Some(self.content.items.get(item).key.clone())
     }
 
@@ -40,8 +40,8 @@ impl VoxelGame {
         let aim = self.aim();
         let block_distance = aim
             .hit
-            .map_or(self.players.me().gear.reach(), |hit| hit.distance);
-        carts::hit_cart(&self.ecs, aim.eye, aim.forward, block_distance).map(|(e, _)| e)
+            .map_or(self.server.players.me().gear.reach(), |hit| hit.distance);
+        carts::hit_cart(&self.server.ecs, aim.eye, aim.forward, block_distance).map(|(e, _)| e)
     }
 
     /// Un clic droit : poser un wagon sur un rail, atteler, monter ou ouvrir un wagon.
@@ -58,13 +58,18 @@ impl VoxelGame {
         let Some(entity) = self.aimed_cart() else {
             return false;
         };
-        let Some(kind) = self.ecs.get::<Cart>(entity).map(|c| c.kind) else {
+        let Some(kind) = self.server.ecs.get::<Cart>(entity).map(|c| c.kind) else {
             return false;
         };
         if kind == CartKind::Minecart {
             self.ride(entity)
         } else {
-            let Some(id) = self.ecs.get::<crate::entities::NetId>(entity).map(|id| *id) else {
+            let Some(id) = self
+                .server
+                .ecs
+                .get::<crate::entities::NetId>(entity)
+                .map(|id| *id)
+            else {
                 return false;
             };
             self.open_screen(ui::Screen::Cart(id));
@@ -84,7 +89,8 @@ impl VoxelGame {
         // Pas de deux wagons au même endroit.
         let spot = hit.block_pos.as_vec3() + Vec3::new(0.5, 0.1, 0.5);
         let mut crowded = false;
-        self.ecs
+        self.server
+            .ecs
             .query::<(&Transform, &Cart)>()
             .for_each(|_, (t, _)| crowded |= t.position.distance(spot) < 0.9);
         if crowded {
@@ -92,10 +98,10 @@ impl VoxelGame {
             return false;
         }
         let look = aim.forward;
-        if carts::place(&mut self.ecs, kind, hit.block_pos, look).is_none() {
+        if carts::place(&mut self.server.ecs, kind, hit.block_pos, look).is_none() {
             return false;
         }
-        self.players.me_mut().inventory.consume_selected();
+        self.server.players.me_mut().inventory.consume_selected();
         self.punch();
         self.sound("core:place_hard");
         true
@@ -103,11 +109,11 @@ impl VoxelGame {
 
     /// S'asseoir dans un wagonnet.
     pub(crate) fn ride(&mut self, cart: Entity) -> bool {
-        if player::mode(&self.ecs, self.players.entity()) == MoveMode::Fly {
+        if player::mode(&self.server.ecs, self.server.players.entity()) == MoveMode::Fly {
             self.toast("Pas en vol");
             return false;
         }
-        if carts::board(&mut self.ecs, self.players.entity(), cart) {
+        if carts::board(&mut self.server.ecs, self.server.players.entity(), cart) {
             self.punch();
             self.toast("Maj : descendre. Avancer : pousser.");
             true
@@ -119,39 +125,47 @@ impl VoxelGame {
 
     /// Descendre du wagonnet (Maj).
     pub(crate) fn dismount(&mut self) -> bool {
-        if !self.ecs.has::<carts::Riding>(self.players.entity()) {
+        if !self
+            .server
+            .ecs
+            .has::<carts::Riding>(self.server.players.entity())
+        {
             return false;
         }
-        carts::dismount(&mut self.ecs, self.players.entity());
+        carts::dismount(&mut self.server.ecs, self.server.players.entity());
         true
     }
 
     /// Un clic de l'attelage sur un wagon : le premier est retenu, le second est relié au premier.
     fn couple_click(&mut self, entity: Entity) -> bool {
         let first = self
+            .server
             .ecs
             .resource::<CartPending>()
             .0
-            .filter(|&e| self.ecs.is_alive(e));
+            .filter(|&e| self.server.ecs.is_alive(e));
         let Some(first) = first else {
-            self.ecs.resource_mut::<CartPending>().0 = Some(entity);
+            self.server.ecs.resource_mut::<CartPending>().0 = Some(entity);
             self.toast("Attelage : choisis un second wagon");
             return true;
         };
-        self.ecs.resource_mut::<CartPending>().0 = None;
+        self.server.ecs.resource_mut::<CartPending>().0 = None;
         if first == entity {
             self.toast("Attelage annulé");
             return true;
         }
         let position = |world: &engine_ecs::World, e| world.get::<Transform>(e).map(|t| t.position);
-        let (Some(a), Some(b)) = (position(&self.ecs, first), position(&self.ecs, entity)) else {
+        let (Some(a), Some(b)) = (
+            position(&self.server.ecs, first),
+            position(&self.server.ecs, entity),
+        ) else {
             return true;
         };
         if a.distance(b) > COUPLING_REACH {
             self.toast("Ces wagons sont trop éloignés");
             return true;
         }
-        match carts::toggle_coupling(&self.ecs, first, entity) {
+        match carts::toggle_coupling(&self.server.ecs, first, entity) {
             Some(true) => self.toast("Wagons attelés"),
             Some(false) => self.toast("Wagons détachés"),
             None => {}
@@ -166,7 +180,7 @@ impl VoxelGame {
             return false;
         };
         let broken = {
-            let Some(mut cart) = self.ecs.get_mut::<Cart>(entity) else {
+            let Some(mut cart) = self.server.ecs.get_mut::<Cart>(entity) else {
                 return false;
             };
             let broken = cart.hurt > 0.0;
@@ -184,14 +198,15 @@ impl VoxelGame {
     /// Casse un wagon : son objet et son contenu tombent à sa place.
     pub(crate) fn break_cart(&mut self, entity: Entity) {
         let Some((kind, position)) = self
+            .server
             .ecs
             .get::<Cart>(entity)
             .map(|c| c.kind)
-            .zip(self.ecs.get::<Transform>(entity).map(|t| t.position))
+            .zip(self.server.ecs.get::<Transform>(entity).map(|t| t.position))
         else {
             return;
         };
-        let contents = carts::remove(&mut self.ecs, entity);
+        let contents = carts::remove(&mut self.server.ecs, entity);
         let at = (position + Vec3::Y * 0.3).floor().as_ivec3();
         let items = self.content.items.clone();
         if let Some(id) = items.id(&kind.item_key()) {
@@ -213,7 +228,7 @@ impl VoxelGame {
 
     /// Chaque image : la vitesse maximale des options, et Maj pour descendre.
     pub(crate) fn update_carts(&mut self, ctx: &Context) {
-        if let Some(mut config) = self.ecs.get_resource_mut::<CartConfig>() {
+        if let Some(mut config) = self.server.ecs.get_resource_mut::<CartConfig>() {
             config.max_speed = self
                 .settings
                 .cart_max_speed
@@ -230,15 +245,15 @@ impl VoxelGame {
 
     /// À chaque pas fixe : les signaux des rails détecteurs, puis (de temps en temps) les chargeurs.
     pub(crate) fn update_cart_blocks(&mut self) {
-        if self.ecs.get_resource::<CartSignals>().is_none() {
+        if self.server.ecs.get_resource::<CartSignals>().is_none() {
             return;
         }
-        let pending = std::mem::take(&mut self.ecs.resource_mut::<CartSignals>().pending);
+        let pending = std::mem::take(&mut self.server.ecs.resource_mut::<CartSignals>().pending);
         for (pos, on) in pending {
-            self.mods.set_power(pos, if on { 15 } else { 0 });
+            self.server.mods.set_power(pos, if on { 15 } else { 0 });
         }
         let due = {
-            let mut signals = self.ecs.resource_mut::<CartSignals>();
+            let mut signals = self.server.ecs.resource_mut::<CartSignals>();
             signals.tick += 1;
             signals.tick.is_multiple_of(LOADER_EVERY)
         };
@@ -253,8 +268,8 @@ impl VoxelGame {
         // est sur le rail voisin, pour que l'accélérateur finisse de le pousser.
         let mut present: Vec<(Entity, IVec3, bool)> = Vec::new();
         let mut hoppers: Vec<(Entity, IVec3)> = Vec::new();
-        for entity in carts::all(&self.ecs) {
-            let Some(cart) = self.ecs.get::<Cart>(entity) else {
+        for entity in carts::all(&self.server.ecs) {
+            let Some(cart) = self.server.ecs.get::<Cart>(entity) else {
                 continue;
             };
             if matches!(cart.kind, CartKind::Chest | CartKind::Hopper)
@@ -294,14 +309,14 @@ impl VoxelGame {
             }
         }
         // Le signal : allumé quand le travail est fini, éteint sinon (ou si le wagon est parti).
-        let previous = std::mem::take(&mut self.ecs.resource_mut::<CartSignals>().loaders);
+        let previous = std::mem::take(&mut self.server.ecs.resource_mut::<CartSignals>().loaders);
         for &at in finished.difference(&previous) {
-            self.mods.set_power(at, 15);
+            self.server.mods.set_power(at, 15);
         }
         for &at in previous.difference(&finished) {
-            self.mods.set_power(at, 0);
+            self.server.mods.set_power(at, 0);
         }
-        self.ecs.resource_mut::<CartSignals>().loaders = finished;
+        self.server.ecs.resource_mut::<CartSignals>().loaders = finished;
     }
 
     /// Le wagon trémie prend quelques objets du conteneur en `above`.
@@ -314,7 +329,7 @@ impl VoxelGame {
         else {
             return;
         };
-        if let Some(mut cargo) = self.ecs.get_mut::<CartCargo>(cart) {
+        if let Some(mut cargo) = self.server.ecs.get_mut::<CartCargo>(cart) {
             move_items(source, &mut cargo.0, LOADER_BATCH);
         }
     }
@@ -329,7 +344,7 @@ impl VoxelGame {
         let Some(block_inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut()) else {
             return false;
         };
-        let Some(mut cargo) = self.ecs.get_mut::<CartCargo>(cart) else {
+        let Some(mut cargo) = self.server.ecs.get_mut::<CartCargo>(cart) else {
             return false;
         };
         let (from, to) = if load {
@@ -346,14 +361,15 @@ impl VoxelGame {
     /// Les wagons autour du joueur, pour la commande `carts`.
     pub(crate) fn carts_json(&self) -> String {
         let mut list = Vec::new();
-        for entity in carts::all(&self.ecs) {
+        for entity in carts::all(&self.server.ecs) {
             let (Some(cart), Some(transform)) = (
-                self.ecs.get::<Cart>(entity),
-                self.ecs.get::<Transform>(entity),
+                self.server.ecs.get::<Cart>(entity),
+                self.server.ecs.get::<Transform>(entity),
             ) else {
                 continue;
             };
             let items: u32 = self
+                .server
                 .ecs
                 .get::<CartCargo>(entity)
                 .map_or(0, |c| c.0.slots.iter().flatten().map(|s| s.count).sum());
@@ -383,9 +399,9 @@ impl VoxelGame {
 
     /// Le wagon de ce numéro.
     pub(crate) fn cart_by_id(&self, id: u32) -> Option<Entity> {
-        carts::all(&self.ecs)
+        carts::all(&self.server.ecs)
             .into_iter()
-            .find(|&e| self.ecs.get::<Cart>(e).is_some_and(|c| c.id == id))
+            .find(|&e| self.server.ecs.get::<Cart>(e).is_some_and(|c| c.id == id))
     }
 
     /// Est-ce un rail détecteur allumé ? (pour les essais)
@@ -393,6 +409,7 @@ impl VoxelGame {
     pub(crate) fn detector_lit(&self, pos: IVec3) -> bool {
         rail_at(&*self.streamer(), pos).is_some_and(|r| r.kind == RailKind::Detector)
             && self
+                .server
                 .ecs
                 .get_resource::<CartSignals>()
                 .is_some_and(|s| s.lit.contains(&pos))

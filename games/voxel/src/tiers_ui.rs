@@ -126,6 +126,7 @@ impl VoxelGame {
     pub(crate) fn choose_tier(&mut self, index: u8) {
         let data = adventure_data::current();
         if self
+            .server
             .players
             .me_mut()
             .adventure

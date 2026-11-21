@@ -299,7 +299,7 @@ impl VoxelGame {
     /// Détache du monde la structure qui contient `pos`.
     pub(crate) fn assemble(&mut self, pos: IVec3) -> Result<GridId, String> {
         let terrain = terrain_blocks(&self.registry);
-        let shared = self.mods.subgrids.clone();
+        let shared = self.server.mods.subgrids.clone();
         let id = {
             let mut subs = shared.borrow_mut();
             engine_voxel::extract(&mut self.streamer_mut(), &mut subs, pos, &|b| {
@@ -312,13 +312,19 @@ impl VoxelGame {
         let grid = subs.get(id).expect("grille créée").borrow();
         let active: Vec<GridPos> = grid
             .cells()
-            .filter(|c| self.mods.machines.has_behavior(grid.world().block(*c)))
+            .filter(|c| {
+                self.server
+                    .mods
+                    .machines
+                    .has_behavior(grid.world().block(*c))
+            })
             .map(|c| GridPos::new(id, c))
             .collect();
         drop(grid);
         let mut actions = Vec::new();
-        let grids = Grids::with_subgrids(&self.world, &subs);
-        self.mods
+        let grids = Grids::with_subgrids(&self.server.world, &subs);
+        self.server
+            .mods
             .machines
             .grid_blocks_loaded(grids, &active, &mut actions);
         drop(subs);
@@ -329,7 +335,7 @@ impl VoxelGame {
 
     /// Repose une structure dans le monde. Renvoie le nombre de blocs posés.
     pub(crate) fn disassemble(&mut self, id: GridId) -> Result<usize, String> {
-        let shared = self.mods.subgrids.clone();
+        let shared = self.server.mods.subgrids.clone();
         let grid = shared
             .borrow_mut()
             .remove(id)
@@ -341,14 +347,14 @@ impl VoxelGame {
                 return Err(err.to_string());
             }
         };
-        if self.helm == Some(id) {
-            self.helm = None;
+        if self.server.helm == Some(id) {
+            self.server.helm = None;
         }
         // Les machines se réveillent à leur nouvelle place.
         for pos in &placed {
             let block = self.streamer().world().block(*pos);
-            if self.mods.machines.has_behavior(block) {
-                let actions = self.mods.block_changed(*pos);
+            if self.server.mods.machines.has_behavior(block) {
+                let actions = self.server.mods.block_changed(*pos);
                 self.apply_machine_actions(actions);
             }
         }
@@ -358,7 +364,7 @@ impl VoxelGame {
 
     /// Le bloc de structure visé, s'il est plus près que celui du monde.
     pub(crate) fn ship_hit(&self) -> Option<(GridId, engine_voxel::RayHit)> {
-        let subs = self.mods.subgrids.borrow();
+        let subs = self.server.mods.subgrids.borrow();
         let aim = self.aim();
         let (origin, direction) = (aim.eye, aim.forward);
         let mut best: Option<(GridId, engine_voxel::RayHit)> = None;
@@ -368,7 +374,7 @@ impl VoxelGame {
                 grid.world(),
                 grid.to_local(origin),
                 grid.direction_to_local(direction),
-                self.players.me().gear.reach(),
+                self.server.players.me().gear.reach(),
             );
             if let Some(hit) = hit
                 && best.is_none_or(|(_, b)| hit.distance < b.distance)
@@ -387,7 +393,7 @@ impl VoxelGame {
             return false;
         };
         let (block, behavior) = {
-            let subs = self.mods.subgrids.borrow();
+            let subs = self.server.mods.subgrids.borrow();
             let grid = subs.get(id).expect("identifiant connu").borrow();
             let def = self
                 .registry
@@ -400,20 +406,20 @@ impl VoxelGame {
                 Err(err) => self.toast(&err),
             },
             "core:helm" => {
-                if self.helm == Some(id) {
-                    self.helm = None;
+                if self.server.helm == Some(id) {
+                    self.server.helm = None;
                     self.toast("Barre lâchée");
                 } else {
-                    self.helm = Some(id);
+                    self.server.helm = Some(id);
                     self.toast("À la barre : gauche et droite pour tourner");
                 }
             }
             _ => {
                 let used = behavior.is_some() && {
-                    let subs = self.mods.subgrids.borrow();
-                    let grids = Grids::with_subgrids(&self.world, &subs);
+                    let subs = self.server.mods.subgrids.borrow();
+                    let grids = Grids::with_subgrids(&self.server.world, &subs);
                     let mut actions = Vec::new();
-                    let used = self.mods.machines.use_grid_block(
+                    let used = self.server.mods.machines.use_grid_block(
                         grids,
                         GridPos::new(id, hit.block_pos),
                         &mut actions,
@@ -442,6 +448,7 @@ impl VoxelGame {
         match self.assemble(hit.block_pos) {
             Ok(id) => {
                 let size = self
+                    .server
                     .mods
                     .subgrids
                     .borrow()
@@ -456,10 +463,10 @@ impl VoxelGame {
 
     /// La barre : gauche et droite, tant que le pilote reste près de sa structure.
     pub(crate) fn update_ships(&mut self, ctx: &Context) {
-        let player = player::body(&self.ecs, self.players.entity()).position;
+        let player = player::body(&self.server.ecs, self.server.players.entity()).position;
         let mut steer = 0.0;
-        if let Some(id) = self.helm {
-            let near = self.mods.subgrids.borrow().get(id).is_some_and(|g| {
+        if let Some(id) = self.server.helm {
+            let near = self.server.mods.subgrids.borrow().get(id).is_some_and(|g| {
                 let g = g.borrow();
                 g.to_local(player).distance(g.pivot) < g.len() as f32 + 10.0
             });
@@ -468,15 +475,16 @@ impl VoxelGame {
                 steer = f32::from(ctx.input.key_held(keys.key(Action::Right)) as u8)
                     - f32::from(ctx.input.key_held(keys.key(Action::Left)) as u8);
             } else {
-                self.helm = None;
+                self.server.helm = None;
             }
         }
-        if let Some(mut control) = self.ecs.get_resource_mut::<ShipControl>() {
-            control.grid = control.forced.map(|f| f.0).or(self.helm);
+        if let Some(mut control) = self.server.ecs.get_resource_mut::<ShipControl>() {
+            control.grid = control.forced.map(|f| f.0).or(self.server.helm);
             control.steer = control.forced.map_or(steer, |f| f.1);
         }
         // La caméra tourne avec la structure qui porte le joueur.
         let turn = self
+            .server
             .ecs
             .get_resource_mut::<ShipEvents>()
             .map(|mut e| std::mem::take(&mut e.player_turn))

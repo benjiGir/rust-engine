@@ -438,6 +438,7 @@ impl VoxelGame {
         let quest = &quests.quests[index];
         let progress = self.client.view.me.quests.clone().unwrap_or_default();
         let mobs = self
+            .server
             .ecs
             .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
             .clone();

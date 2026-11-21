@@ -50,7 +50,7 @@ impl VoxelGame {
             log::warn!("[mod {mod_id}] menu refusé : {err:#}");
             return;
         }
-        let open = self.players.me().mod_menu.clone();
+        let open = self.server.players.me().mod_menu.clone();
         let updating = open
             .as_ref()
             .is_some_and(|m| m.owner == mod_id && m.at == at.pos);
@@ -61,7 +61,7 @@ impl VoxelGame {
             return;
         }
         let last_refresh = open.map_or_else(Instant::now, |m| m.last_refresh);
-        self.players.me_mut().mod_menu = Some(OpenModMenu {
+        self.server.players.me_mut().mod_menu = Some(OpenModMenu {
             owner: mod_id,
             at: at.pos,
             data: data.to_vec(),
@@ -75,29 +75,32 @@ impl VoxelGame {
     /// Un script ferme son menu : chez chaque joueur qui l'a ouvert.
     pub(crate) fn close_mod_menu_of(&mut self, mod_id: &str) {
         let ids: Vec<_> = self
+            .server
             .players
             .iter()
             .filter(|p| p.mod_menu.as_ref().is_some_and(|m| m.owner == mod_id))
             .map(|p| p.id)
             .collect();
         for id in ids {
-            let before = self.players.set_acting(Some(id));
+            let before = self.server.players.set_acting(Some(id));
             self.forget_mod_menu();
-            self.players.me_mut().screen = None;
-            self.players.set_acting(before);
-            self.replies
+            self.server.players.me_mut().screen = None;
+            self.server.players.set_acting(before);
+            self.server
+                .replies
                 .push((id, crate::protocol::ServerMsg::CloseScreen));
         }
     }
 
     /// Dit au mod que le menu du joueur courant est fermé, et l'oublie (`CloseMenu`).
     pub(crate) fn forget_mod_menu(&mut self) {
-        let Some(state) = self.players.me_mut().mod_menu.take() else {
+        let Some(state) = self.server.players.me_mut().mod_menu.take() else {
             return;
         };
-        let actions = self
-            .mods
-            .ui_event(&state.owner, UI_CLOSED, GridPos::world(state.at), 0, 0);
+        let actions =
+            self.server
+                .mods
+                .ui_event(&state.owner, UI_CLOSED, GridPos::world(state.at), 0, 0);
         self.apply_machine_actions(actions);
     }
 
@@ -135,7 +138,7 @@ impl VoxelGame {
         if let (Some((owner, _)), false) = (self.client.ui.options_menu.clone(), options.is_empty())
         {
             for (kind, id, value) in options {
-                let actions = self.mods.options_event(&owner, kind, id, value);
+                let actions = self.server.mods.options_event(&owner, kind, id, value);
                 self.apply_machine_actions(actions);
             }
         }
@@ -143,9 +146,10 @@ impl VoxelGame {
         // fait glisser ne doit pas écrire à chaque image).
         if self.client.ui.settings_saved.elapsed() >= Duration::from_secs(1) {
             self.client.ui.settings_saved = Instant::now();
-            self.mods.save_settings();
+            self.server.mods.save_settings();
         }
         let due: Vec<_> = self
+            .server
             .players
             .iter()
             .filter(|p| {
@@ -156,18 +160,19 @@ impl VoxelGame {
             .map(|p| p.id)
             .collect();
         for id in due {
-            let before = self.players.set_acting(Some(id));
-            if let Some(m) = &mut self.players.me_mut().mod_menu {
+            let before = self.server.players.set_acting(Some(id));
+            if let Some(m) = &mut self.server.players.me_mut().mod_menu {
                 m.last_refresh = Instant::now();
             }
             self.send_mod_ui(UI_REFRESH, 0, 0);
-            self.players.set_acting(before);
+            self.server.players.set_acting(before);
         }
     }
 
     /// Transmet une action au mod du menu ouvert par le joueur courant.
     pub(crate) fn send_mod_ui(&mut self, kind: i32, id: i32, value: i32) {
         let Some((owner, at)) = self
+            .server
             .players
             .me()
             .mod_menu
@@ -177,6 +182,7 @@ impl VoxelGame {
             return;
         };
         let actions = self
+            .server
             .mods
             .ui_event(&owner, kind, GridPos::world(at), id, value);
         self.apply_machine_actions(actions);
@@ -191,7 +197,7 @@ impl VoxelGame {
     pub(crate) fn open_mod_options(&mut self, mod_id: &str) {
         self.mode = Mode::Paused(PausePage::ModOptions(mod_id.to_string()));
         self.client.ui.options_menu = None;
-        let actions = self.mods.options_event(mod_id, UI_OPEN, 0, 0);
+        let actions = self.server.mods.options_event(mod_id, UI_OPEN, 0, 0);
         self.apply_machine_actions(actions);
     }
 
@@ -212,11 +218,11 @@ impl VoxelGame {
     pub(crate) fn leave_mod_options(&mut self) {
         if let Mode::Paused(PausePage::ModOptions(id)) = &self.mode {
             let id = id.clone();
-            let actions = self.mods.options_event(&id, UI_CLOSED, 0, 0);
+            let actions = self.server.mods.options_event(&id, UI_CLOSED, 0, 0);
             self.apply_machine_actions(actions);
         }
         self.client.ui.options_menu = None;
         self.client.ui.options_events.clear();
-        self.mods.save_settings();
+        self.server.mods.save_settings();
     }
 }

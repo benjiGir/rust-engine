@@ -57,7 +57,8 @@ impl VoxelGame {
         };
         let cart = if mob.is_none() {
             aimed.filter(|&c| {
-                self.ecs
+                self.server
+                    .ecs
                     .get::<crate::carts::Cart>(c)
                     .is_some_and(|cart| cart.kind.slots() > 1)
             })
@@ -65,9 +66,14 @@ impl VoxelGame {
             None
         };
         let mut card = if let Some(cart) = cart {
-            let kind = self.ecs.get::<crate::carts::Cart>(cart).map(|c| c.kind);
+            let kind = self
+                .server
+                .ecs
+                .get::<crate::carts::Cart>(cart)
+                .map(|c| c.kind);
             if want_preview {
                 preview = self
+                    .server
                     .ecs
                     .get::<crate::carts::CartCargo>(cart)
                     .map(|c| crate::chest_preview::summarize(&c.0.slots, c.0.slots.len()));
@@ -79,7 +85,7 @@ impl VoxelGame {
                 lines: Vec::new(),
             }
         } else if let Some((kind, title, look)) = mob {
-            let registry = self.ecs.resource::<std::sync::Arc<MobRegistry>>();
+            let registry = self.server.ecs.resource::<std::sync::Arc<MobRegistry>>();
             let Some(def) = registry.get(kind) else {
                 return 12.0;
             };
@@ -109,7 +115,7 @@ impl VoxelGame {
             }
         } else {
             let (block, caps, found) = if let Some((id, hit)) = ship {
-                let grids = self.mods.subgrids.borrow();
+                let grids = self.server.mods.subgrids.borrow();
                 let Some(grid) = grids.get(id) else {
                     return 12.0;
                 };
@@ -134,6 +140,7 @@ impl VoxelGame {
             };
             let def = self.registry.def(block);
             let held = self
+                .server
                 .players
                 .me_mut()
                 .inventory

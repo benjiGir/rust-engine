@@ -147,6 +147,7 @@ impl VoxelGame {
     fn quest_lookup(&mut self, id: &str) -> Result<(Arc<Quests>, usize)> {
         self.open_quests();
         let quests = self
+            .server
             .players
             .me_mut()
             .quest_book
@@ -165,6 +166,7 @@ impl VoxelGame {
             Command::Done(id) => {
                 let (quests, index) = self.quest_lookup(&id)?;
                 let forced = self
+                    .server
                     .players
                     .me_mut()
                     .quest_book
@@ -199,6 +201,7 @@ impl VoxelGame {
                     })
                     .context("quest check : cette quête n'a pas de case à cocher")?;
                 let checked = self
+                    .server
                     .players
                     .me_mut()
                     .quest_book
@@ -223,6 +226,7 @@ impl VoxelGame {
             Command::Choose(id, reward, option) => {
                 let (quests, index) = self.quest_lookup(&id)?;
                 let chosen = self
+                    .server
                     .players
                     .me_mut()
                     .quest_book
@@ -241,7 +245,8 @@ impl VoxelGame {
                 if let Some(id) = &id {
                     self.quest_lookup(id)?;
                 }
-                self.players
+                self.server
+                    .players
                     .me_mut()
                     .quest_book
                     .progress_mut()?
@@ -269,6 +274,7 @@ impl VoxelGame {
             Command::Pin(id) => {
                 self.quest_lookup(&id)?;
                 let changed = self
+                    .server
                     .players
                     .me_mut()
                     .quest_book
@@ -279,7 +285,7 @@ impl VoxelGame {
                 }
                 Ok(format!(
                     "{{\"ok\":true,\"pinned\":{}}}",
-                    self.players.me_mut().quest_book.pinned_json()
+                    self.server.players.me_mut().quest_book.pinned_json()
                 ))
             }
         }
@@ -288,12 +294,14 @@ impl VoxelGame {
     /// L'état des quêtes : celles d'un chapitre, une seule, ou toutes.
     fn quest_list(&mut self, filter: Option<&str>) -> Result<String> {
         let quests = self
+            .server
             .players
             .me_mut()
             .quest_book
             .quests()
             .context("quêtes pas chargées")?;
         let progress = self
+            .server
             .players
             .me_mut()
             .quest_book
@@ -306,7 +314,7 @@ impl VoxelGame {
             Some(id) => match quests.chapter(id) {
                 Some(chapter) => {
                     // Le dernier chapitre regardé : le livre s'y rouvrira (phase 2).
-                    if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
+                    if let Ok(progress) = self.server.players.me_mut().quest_book.progress_mut() {
                         progress.set_last_chapter(id);
                     }
                     chapter.quests.clone()
@@ -368,7 +376,7 @@ impl VoxelGame {
             "{{\"ok\":true,\"pending\":{},\"unknown\":[{}],\"pinned\":{},\"chapters\":[{}],\"quests\":[{}]}}",
             progress.pending(&quests).len(),
             unknown.join(","),
-            self.players.me_mut().quest_book.pinned_json(),
+            self.server.players.me_mut().quest_book.pinned_json(),
             chapters.join(","),
             rows.join(",")
         ))

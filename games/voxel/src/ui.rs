@@ -486,7 +486,8 @@ impl VoxelGame {
                     && !self.try_book_click(slot, click)
                     && !self.try_charm_recharge(slot, click)
                 {
-                    self.players
+                    self.server
+                        .players
                         .me_mut()
                         .inventory
                         .click(slot, &self.content.items, click);
@@ -583,12 +584,11 @@ impl VoxelGame {
         let selected_slot = usize::from(self.client.view.me.inventory.selected);
         let held_stack = self.client.view.me.inventory.selected_stack();
         // La barre sous le réticule : le minage, ou le repas en cours.
-        if let Some(progress) = self
+        if let Some(progress) = self.server.players.me_mut().mining.map(|(_, p)| p).or(self
+            .server
             .players
             .me_mut()
-            .mining
-            .map(|(_, p)| p)
-            .or(self.players.me_mut().eat_progress)
+            .eat_progress)
         {
             egui::Area::new(egui::Id::unique("mining"))
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 26.0))
@@ -646,7 +646,7 @@ impl VoxelGame {
                 Color32::from_rgba_unmultiplied(200, 0, 0, (flash * 70.0) as u8),
             );
         }
-        let air = vitals.air / self.survival.air.max(0.01);
+        let air = vitals.air / self.server.survival.air.max(0.01);
         let burning = vitals.burning;
         let [health_now, health_max] = vitals.health;
         egui::Area::new(egui::Id::unique("hud"))
@@ -675,8 +675,9 @@ impl VoxelGame {
                     let heart = if burning { skin::GOLD } else { skin::RED };
                     // À droite, la réserve de nourriture, couleur blé.
                     let squares = (health_max / 2.0).ceil().clamp(1.0, 20.0) as usize;
-                    let food_squares =
-                        (self.hunger_rules.max_food / 2.0).ceil().clamp(1.0, 20.0) as usize;
+                    let food_squares = (self.server.hunger_rules.max_food / 2.0)
+                        .ceil()
+                        .clamp(1.0, 20.0) as usize;
                     let hotbar_width = HOTBAR as f32 * crate::ui_layout::slot_size(ctx)
                         + (HOTBAR - 1) as f32 * 2.0;
                     let step = ((hotbar_width - 24.0) / (squares + food_squares) as f32).min(16.0);
@@ -694,7 +695,8 @@ impl VoxelGame {
                         (
                             squares as f32 * step + gap,
                             food_squares,
-                            vitals.food / self.hunger_rules.max_food.max(1.0) * food_squares as f32,
+                            vitals.food / self.server.hunger_rules.max_food.max(1.0)
+                                * food_squares as f32,
                             food,
                         ),
                     ];
@@ -1005,7 +1007,8 @@ impl VoxelGame {
         ui.label(
             egui::RichText::new(format!(
                 "Protection : {}",
-                self.players
+                self.server
+                    .players
                     .me_mut()
                     .inventory
                     .protection(&self.content.items)
@@ -1112,7 +1115,7 @@ impl VoxelGame {
 
     /// La pile rangée dans une case d'un wagon.
     pub(crate) fn cart_stack(&self, cart: Entity, index: usize) -> Option<ItemStack> {
-        let cargo = self.ecs.get::<crate::carts::CartCargo>(cart)?;
+        let cargo = self.server.ecs.get::<crate::carts::CartCargo>(cart)?;
         let stored = cargo.0.slots.get(index)?.as_ref()?;
         Some(ItemStack {
             item: self.content.items.id(&stored.item)?,
@@ -1124,17 +1127,18 @@ impl VoxelGame {
     /// Un clic sur une case d'un wagon.
     fn click_cart(&mut self, cart: Entity, index: usize, click: Click) -> bool {
         let mut slot = self.cart_stack(cart, index);
-        let mut cursor = self.players.me_mut().inventory.cursor.take();
+        let mut cursor = self.server.players.me_mut().inventory.cursor.take();
         // Une locomotive n'accepte que du combustible.
         let fuel = self
+            .server
             .ecs
             .get::<crate::carts::Cart>(cart)
             .is_some_and(|c| c.kind == crate::carts::CartKind::Locomotive);
         let accepts = |item: ItemId| !fuel || self.content.smelting.burn_ticks(item).is_some();
         click_slot(&mut slot, &mut cursor, &self.content.items, accepts, click);
-        self.players.me_mut().inventory.cursor = cursor;
+        self.server.players.me_mut().inventory.cursor = cursor;
         let items = self.content.items.clone();
-        if let Some(mut cargo) = self.ecs.get_mut::<crate::carts::CartCargo>(cart)
+        if let Some(mut cargo) = self.server.ecs.get_mut::<crate::carts::CartCargo>(cart)
             && let Some(target) = cargo.0.slots.get_mut(index)
         {
             *target = slot.map(|s| engine_voxel::ItemStack {
@@ -1162,7 +1166,7 @@ impl VoxelGame {
             return;
         };
         let inventory = self.client.view.me.inventory.as_inventory();
-        let trades = self.trades.for_mob(&key).to_vec();
+        let trades = self.server.trades.for_mob(&key).to_vec();
         let items = self.content.items.clone();
         let item_name = |item: engine_voxel::ItemId| items.get(item).name.clone();
         ui.label(egui::RichText::new(name).strong().size(18.0));
@@ -1385,7 +1389,7 @@ impl VoxelGame {
 
     /// L'inspecteur (F3) : mesures, et les entités avec leurs composants modifiables.
     fn draw_inspector(&mut self, ctx: &egui::Context) {
-        let eye = player::eye(&self.ecs, self.players.entity(), 1.0);
+        let eye = player::eye(&self.server.ecs, self.server.players.entity(), 1.0);
         let chunk = engine_voxel::World::chunk_containing(eye);
         let streamer_stats = self.stream_stats();
         let target_light = self
@@ -1423,11 +1427,11 @@ impl VoxelGame {
                     ));
                     ui.end_row();
                     ui.label("Entités");
-                    ui.label(self.ecs.len().to_string());
+                    ui.label(self.server.ecs.len().to_string());
                     ui.end_row();
                     ui.label("Créatures");
-                    let mobs = self.ecs.resource::<Arc<MobRegistry>>().clone();
-                    let mut census: Vec<String> = crate::mobs::census(&self.ecs)
+                    let mobs = self.server.ecs.resource::<Arc<MobRegistry>>().clone();
+                    let mut census: Vec<String> = crate::mobs::census(&self.server.ecs)
                         .into_iter()
                         .filter_map(|(kind, n)| mobs.get(kind).map(|d| format!("{} × {n}", d.name)))
                         .collect();
@@ -1439,11 +1443,11 @@ impl VoxelGame {
                     });
                     ui.end_row();
                     ui.label("Heure");
-                    ui.label(self.day.clock());
+                    ui.label(self.server.day.clock());
                     ui.end_row();
                 });
                 ui.collapsing("Systèmes", |ui| {
-                    for timing in self.schedule.timings() {
+                    for timing in self.server.schedule.timings() {
                         ui.label(format!(
                             "{:?} · {} : {:.3} ms",
                             timing.stage,
@@ -1456,13 +1460,13 @@ impl VoxelGame {
                 egui::ScrollArea::vertical()
                     .max_height(360.0)
                     .show(ui, |ui| {
-                        let mobs = self.ecs.resource::<Arc<MobRegistry>>().clone();
-                        let mut entities: Vec<Entity> = self.ecs.entities().collect();
+                        let mobs = self.server.ecs.resource::<Arc<MobRegistry>>().clone();
+                        let mut entities: Vec<Entity> = self.server.ecs.entities().collect();
                         entities.sort();
                         for entity in entities {
-                            let name = entity_name(&self.ecs, entity, &mobs);
+                            let name = entity_name(&self.server.ecs, entity, &mobs);
                             ui.collapsing(format!("{name} {entity}"), |ui| {
-                                inspect_components(&self.ecs, entity, ui);
+                                inspect_components(&self.server.ecs, entity, ui);
                             });
                         }
                     });

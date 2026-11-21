@@ -8,7 +8,7 @@ impl VoxelGame {
     pub(crate) fn draw_conduit_contents(&mut self, out: &mut Vec<CubeInstance>) {
         self.client
             .conduit_fx
-            .ingest(self.mods.machines.take_visual_transfers());
+            .ingest(self.server.mods.machines.take_visual_transfers());
         let streamer = self.client.view.replica();
         let Some(fluids) = streamer.world().fluids() else {
             return;
@@ -26,7 +26,7 @@ impl VoxelGame {
             out,
             limit,
         );
-        let grids = self.mods.subgrids.borrow();
+        let grids = self.server.mods.subgrids.borrow();
         for id in grids.ids() {
             let Some(cell) = grids.get(id) else {
                 continue;

@@ -63,10 +63,11 @@ impl VoxelGame {
         match command {
             Command::Add(name, at) => {
                 let feet = at.unwrap_or_else(|| {
-                    let body = player::body(&self.ecs, self.players.local().entity).position;
+                    let body =
+                        player::body(&self.server.ecs, self.server.players.local().entity).position;
                     body + self.client.camera.forward_flat() * 4.0
                 });
-                let number = self.players.iter().filter(|p| p.ghost).count() + 1;
+                let number = self.server.players.iter().filter(|p| p.ghost).count() + 1;
                 let name = name.unwrap_or_else(|| format!("Fantôme {number}"));
                 self.add_ghost(&name, feet);
                 Ok(format!(
@@ -77,6 +78,7 @@ impl VoxelGame {
             }
             Command::Remove(who) => {
                 let gone: Vec<(PlayerId, String)> = self
+                    .server
                     .players
                     .iter()
                     .filter(|p| p.ghost && who.as_ref().is_none_or(|w| *w == p.name))
@@ -92,11 +94,12 @@ impl VoxelGame {
             }
             Command::List => {
                 let rows: Vec<String> = self
+                    .server
                     .players
                     .iter()
                     .filter(|p| p.ghost)
                     .map(|p| {
-                        let at = player::body(&self.ecs, p.entity).position;
+                        let at = player::body(&self.server.ecs, p.entity).position;
                         format!("{{\"name\":{},\"pos\":{}}}", json_str(&p.name), vec3(at))
                     })
                     .collect();
@@ -108,8 +111,8 @@ impl VoxelGame {
     /// Ajoute un joueur serveur sans fenêtre, les pieds en `feet`.
     pub(crate) fn add_ghost(&mut self, name: &str, feet: Vec3) -> PlayerId {
         let eye = feet + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT;
-        let entity = player::spawn(&mut self.ecs, eye, MoveMode::Walk);
-        let id = self.players.next_id();
+        let entity = player::spawn(&mut self.server.ecs, eye, MoveMode::Walk);
+        let id = self.server.players.next_id();
         let mut state = PlayerState::new(
             PlayerIdentity {
                 id,
@@ -119,28 +122,32 @@ impl VoxelGame {
             entity,
             Inventory::default(),
             Gear::new(BaseAttributes::default()),
-            &self.survival,
-            &self.hunger_rules,
+            &self.server.survival,
+            &self.server.hunger_rules,
         );
         state.ghost = true;
-        self.players.add(state);
-        self.players.sync_ecs(&mut self.ecs);
+        self.server.players.add(state);
+        self.server.players.sync_ecs(&mut self.server.ecs);
         id
     }
 
     /// Retire un joueur (et son entité) ; le client oublie ce qu'il lui avait envoyé.
     pub(crate) fn remove_ghost(&mut self, id: PlayerId) {
-        if let Some(state) = self.players.remove(id) {
-            self.ecs.despawn(state.entity);
-            self.players.sync_ecs(&mut self.ecs);
+        if let Some(state) = self.server.players.remove(id) {
+            self.server.ecs.despawn(state.entity);
+            self.server.players.sync_ecs(&mut self.server.ecs);
             self.client.view.forget_player(id);
         }
     }
 
     /// Un fantôme garde toute sa vie : il reste une cible tant qu'on ne le retire pas.
     pub(crate) fn keep_ghosts_alive(&mut self) {
-        for ghost in self.players.iter().filter(|p| p.ghost) {
-            if let Some(mut health) = self.ecs.get_mut::<crate::components::Health>(ghost.entity) {
+        for ghost in self.server.players.iter().filter(|p| p.ghost) {
+            if let Some(mut health) = self
+                .server
+                .ecs
+                .get_mut::<crate::components::Health>(ghost.entity)
+            {
                 health.current = health.max;
             }
         }

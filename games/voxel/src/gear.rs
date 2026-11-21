@@ -245,12 +245,21 @@ impl VoxelGame {
     /// À chaque pas : recalcule les attributs si l'équipement a changé, aligne la vie maximale du
     /// joueur, et rend la vie de la régénération.
     pub(crate) fn refresh_gear(&mut self, dt: f32) {
-        let me = self.players.me_mut();
+        let me = self.server.players.me_mut();
         me.gear
             .refresh(&me.inventory, &self.content.items, &me.effects);
-        let max = self.players.me_mut().gear.value(Attribute::MaxHealth);
-        let regen = self.players.me_mut().gear.value(Attribute::Regen);
-        if let Some(mut health) = self.ecs.get_mut::<Health>(self.players.entity()) {
+        let max = self
+            .server
+            .players
+            .me_mut()
+            .gear
+            .value(Attribute::MaxHealth);
+        let regen = self.server.players.me_mut().gear.value(Attribute::Regen);
+        if let Some(mut health) = self
+            .server
+            .ecs
+            .get_mut::<Health>(self.server.players.entity())
+        {
             if (health.max - max).abs() > f32::EPSILON {
                 health.max = max;
                 health.current = health.current.min(max);
@@ -263,23 +272,25 @@ impl VoxelGame {
 
     /// Les points d'armure d'une créature (0 par défaut).
     fn mob_armor(&self, mob: Entity) -> f32 {
-        self.ecs
+        self.server
+            .ecs
             .get::<Mob>(mob)
             .and_then(|m| {
-                self.ecs
+                self.server
+                    .ecs
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .get(m.kind)
                     .map(|d| d.armor)
             })
             .unwrap_or(0.0)
-            + crate::elites::armor_of(&self.ecs, mob)
+            + crate::elites::armor_of(&self.server.ecs, mob)
     }
 
     /// Un coup du joueur sur une créature : critique, armure de la cible (que la perforation
     /// contourne), recul, puis vol de vie. `None` si la créature vient d'être frappée.
     pub(crate) fn strike_mob(&mut self, mob: Entity, from: Vec3) -> Option<Strike> {
         let roll = engine_voxel::Rng64::new(self.next_random()).next_f32();
-        let attrs = self.players.me().gear.attrs();
+        let attrs = self.server.players.me().gear.attrs();
         let (damage, crit) = attributes::roll_hit(
             attrs.value(Attribute::Damage),
             attrs.value(Attribute::CritChance),
@@ -290,15 +301,15 @@ impl VoxelGame {
             damage,
             self.mob_armor(mob),
             attrs.pierce(),
-            self.survival.armor_per_point,
-            self.survival.armor_max,
+            self.server.survival.armor_per_point,
+            self.server.survival.armor_max,
         );
         let steal = attrs.value(Attribute::LifeSteal);
-        if !crate::mobs::damage_mob(&mut self.ecs, mob, dealt, from) {
+        if !crate::mobs::damage_mob(&mut self.server.ecs, mob, dealt, from) {
             return None;
         }
-        let me = self.players.current_id();
-        self.ecs.insert(mob, crate::players::LastHitBy(me));
+        let me = self.server.players.current_id();
+        self.server.ecs.insert(mob, crate::players::LastHitBy(me));
         let healed = attributes::life_steal(dealt, steal);
         if healed > 0.0 {
             self.heal(healed);
@@ -315,7 +326,12 @@ impl VoxelGame {
 
     /// Le butin d'une pile avec la chance de butin du joueur.
     pub(crate) fn loot_count(&mut self, count: u32) -> u32 {
-        let loot = self.players.me_mut().gear.value(Attribute::LootChance);
+        let loot = self
+            .server
+            .players
+            .me_mut()
+            .gear
+            .value(Attribute::LootChance);
         if loot <= 0.0 {
             return count;
         }
@@ -325,12 +341,21 @@ impl VoxelGame {
 
     /// L'expérience gagnée avec le gain d'expérience du joueur.
     pub(crate) fn scaled_xp(&self, points: u32) -> u32 {
-        attributes::scaled_xp(points, self.players.me().gear.value(Attribute::XpGain))
+        attributes::scaled_xp(
+            points,
+            self.server.players.me().gear.value(Attribute::XpGain),
+        )
     }
 
     /// Sauvegarde les fiches d'objets dans la racine du monde (si quelque chose a changé).
     pub(crate) fn save_item_data(&mut self) {
-        let Some(root) = self.dims.meta_store.clone().or_else(|| self.store.clone()) else {
+        let Some(root) = self
+            .server
+            .dims
+            .meta_store
+            .clone()
+            .or_else(|| self.server.store.clone())
+        else {
             return;
         };
         if let Err(err) = item_data::save_if_dirty(root.dir()) {

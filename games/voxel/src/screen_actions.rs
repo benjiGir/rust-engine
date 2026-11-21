@@ -32,17 +32,19 @@ pub enum ScreenView {
 impl VoxelGame {
     /// La vue de l'écran ouvert par le joueur courant, si cet écran en a une.
     pub(crate) fn screen_view(&self) -> Option<ScreenView> {
-        match self.players.me().screen? {
+        match self.server.players.me().screen? {
             Screen::Trade(id) => {
                 let mob = self.server_entity(id)?;
                 let key = self.mob_key(mob)?;
-                let kind = self.ecs.get::<crate::components::Mob>(mob)?.kind;
+                let kind = self.server.ecs.get::<crate::components::Mob>(mob)?.kind;
                 let name = self
+                    .server
                     .ecs
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .get(kind)
                     .map_or_else(|| key.clone(), |d| d.name.clone());
                 let uses = self
+                    .server
                     .ecs
                     .get::<crate::components::Trader>(mob)
                     .map(|t| t.uses.clone())
@@ -50,6 +52,7 @@ impl VoxelGame {
                 Some(ScreenView::Trade { key, name, uses })
             }
             Screen::Mod(_) => self
+                .server
                 .players
                 .me()
                 .mod_menu
@@ -76,29 +79,33 @@ impl VoxelGame {
         let Some(key) = self.mob_key(mob) else {
             return;
         };
-        let Some(trade) = self.trades.for_mob(&key).get(offer).cloned() else {
+        let Some(trade) = self.server.trades.for_mob(&key).get(offer).cloned() else {
             return;
         };
         let items = self.content.items.clone();
         let mut done = 0;
         for _ in 0..times.min(64) {
             let left = self
+                .server
                 .ecs
                 .get::<crate::components::Trader>(mob)
                 .and_then(|t| t.uses.get(offer).copied())
                 .unwrap_or(0);
-            let Some(overflow) =
-                crate::trading::execute(&mut self.players.me_mut().inventory, &items, &trade, left)
-            else {
+            let Some(overflow) = crate::trading::execute(
+                &mut self.server.players.me_mut().inventory,
+                &items,
+                &trade,
+                left,
+            ) else {
                 break;
             };
-            if let Some(mut trader) = self.ecs.get_mut::<crate::components::Trader>(mob)
+            if let Some(mut trader) = self.server.ecs.get_mut::<crate::components::Trader>(mob)
                 && let Some(uses) = trader.uses.get_mut(offer)
             {
                 *uses = left - 1;
             }
             if overflow > 0 {
-                let at = crate::player::body(&self.ecs, self.players.entity())
+                let at = crate::player::body(&self.server.ecs, self.server.players.entity())
                     .position
                     .floor()
                     .as_ivec3();
@@ -113,7 +120,7 @@ impl VoxelGame {
 
     /// Applique un geste d'écran du joueur courant.
     pub(crate) fn screen_action(&mut self, action: ScreenAction) {
-        let screen = self.players.me().screen;
+        let screen = self.server.players.me().screen;
         match (action, screen) {
             (ScreenAction::EnchantBuy { offer }, Some(Screen::Enchant(pos))) => {
                 self.buy_enchant_offer(pos, usize::from(offer));
@@ -138,7 +145,7 @@ impl VoxelGame {
                     .rarities
                     .len()
                     .saturating_sub(1);
-                self.players.me_mut().adventure.forge_rarity = rarity.min(max as u8);
+                self.server.players.me_mut().adventure.forge_rarity = rarity.min(max as u8);
             }
             (ScreenAction::ReforgeChoose(draw), Some(Screen::Reforge)) => {
                 self.reforge_choose(usize::from(draw));

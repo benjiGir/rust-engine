@@ -185,20 +185,21 @@ impl VoxelGame {
     /// portail où le joueur se tient depuis assez longtemps.
     pub(crate) fn update_dimensions(&mut self, dt: f32) {
         // Le ciel de la dimension (couleur et lumière fixes, ou le cycle du jour).
-        let sky = self.dims.current.sky.clone();
-        self.day
+        let sky = self.server.dims.current.sky.clone();
+        self.server
+            .day
             .set_dimension_sky(sky.color.map(Vec3::from), sky.daylight);
         if self.mode != crate::Mode::Playing {
             return;
         }
-        if let Some((cell, block)) = self.dims.pending_arrival {
+        if let Some((cell, block)) = self.server.dims.pending_arrival {
             let loaded = self
                 .streamer()
                 .world()
                 .chunk(engine_voxel::World::chunk_containing(cell.as_vec3()))
                 .is_some();
             if loaded {
-                self.dims.pending_arrival = None;
+                self.server.dims.pending_arrival = None;
                 let done = self.edit(cell, block);
                 log::info!(
                     "bloc d'arrivée en {cell} : {}",
@@ -206,7 +207,7 @@ impl VoxelGame {
                 );
             }
         }
-        let feet = crate::player::body(&self.ecs, self.players.entity()).position;
+        let feet = crate::player::body(&self.server.ecs, self.server.players.entity()).position;
         let cells = [feet.floor().as_ivec3(), (feet + Vec3::Y).floor().as_ivec3()];
         let portal = {
             let streamer = self.streamer();
@@ -216,13 +217,13 @@ impl VoxelGame {
         };
         match portal {
             None => {
-                self.dims.portal_timer = 0.0;
-                self.dims.portal_armed = true;
+                self.server.dims.portal_timer = 0.0;
+                self.server.dims.portal_armed = true;
             }
-            Some(target) if self.dims.portal_armed => {
-                self.dims.portal_timer += dt;
-                if self.dims.portal_timer >= PORTAL_TIME {
-                    self.dims.portal_timer = 0.0;
+            Some(target) if self.server.dims.portal_armed => {
+                self.server.dims.portal_timer += dt;
+                if self.server.dims.portal_timer >= PORTAL_TIME {
+                    self.server.dims.portal_timer = 0.0;
                     self.travel(&target);
                 }
             }
@@ -233,21 +234,21 @@ impl VoxelGame {
     /// Passe dans une dimension : sauvegarde le monde ouvert, note l'arrivée dans `world.ron`, puis
     /// recharge le monde (voir le début de ce fichier). Refusé dans un monde sans sauvegarde.
     pub(crate) fn travel(&mut self, target: &str) -> bool {
-        let Some(root) = self.dims.meta_store.clone() else {
+        let Some(root) = self.server.dims.meta_store.clone() else {
             log::warn!("les dimensions demandent un monde sauvegardé (pas le monde jetable)");
             return false;
         };
-        if target == self.dims.current.key {
+        if target == self.server.dims.current.key {
             return false;
         }
-        if self.dims.registry.get(target).is_none() {
+        if self.server.dims.registry.get(target).is_none() {
             log::warn!("dimension « {target} » inconnue");
             return false;
         }
         log::info!("passage vers la dimension « {target} »");
         // Les chunks de la dimension quittée, puis le joueur : `save_now` écrit les deux, et le
         // `world.ron` définitif est celui-ci (position conservée, dimension et arrivée notées).
-        self.dims.leaving = Some(target.to_string());
+        self.server.dims.leaving = Some(target.to_string());
         self.save_now();
         self.client.request = Some(Request::Play(Launch {
             world: Some(root.dir().to_path_buf()),
@@ -261,7 +262,12 @@ impl VoxelGame {
 
     /// Les noms des dimensions du monde, pour `ctl` et la console.
     pub(crate) fn dimension_names(&self) -> Vec<String> {
-        self.dims.registry.iter().map(|d| d.key.clone()).collect()
+        self.server
+            .dims
+            .registry
+            .iter()
+            .map(|d| d.key.clone())
+            .collect()
     }
 }
 

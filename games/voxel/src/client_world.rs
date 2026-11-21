@@ -188,7 +188,7 @@ impl VoxelGame {
     /// Ce que le regard de la fenêtre touche parmi les entités qu'elle voit : la créature la plus
     /// proche, sinon le wagon, avant le bloc visé (ou la portée). `None` : rien à frapper.
     pub(crate) fn window_entity(&self) -> Option<NetId> {
-        let reach = self.players.local().gear.reach();
+        let reach = self.server.players.local().gear.reach();
         let distance = self.client.target.map_or(reach, |hit| hit.distance);
         self.client.view.entities.hit(
             self.client.camera.position,
@@ -202,22 +202,25 @@ impl VoxelGame {
     /// aussitôt (voir `apply_replies`) : le lien est la liste `replies`, vidée à chaque pas.
     pub(crate) fn replicate_entities(&mut self) {
         self.client.view.tick += 1;
-        NetIds::assign(&mut self.ecs);
+        NetIds::assign(&mut self.server.ecs);
         self.keep_ghosts_alive();
-        let players = &self.players;
-        let all = collect(&self.ecs, &self.mods.subgrids.borrow(), &|entity| {
-            players.by_entity(entity).map(|p| p.name.clone())
-        });
+        let players = &self.server.players;
+        let all = collect(
+            &self.server.ecs,
+            &self.server.mods.subgrids.borrow(),
+            &|entity| players.by_entity(entity).map(|p| p.name.clone()),
+        );
         let view = &mut self.client.view;
         let interval = view.entities.interval();
         let mut out = Vec::new();
-        for player in self.players.iter() {
+        for player in self.server.players.iter() {
             // Le joueur n'a rien reçu du monde avant le premier envoi de chunks.
             let Some(sender) = view.senders.get(&player.id) else {
                 continue;
             };
             let knows = |column| sender.has_column(column);
             let position = self
+                .server
                 .ecs
                 .get::<crate::components::Transform>(player.entity)
                 .map_or(glam::Vec3::ZERO, |t| t.position);
@@ -230,7 +233,8 @@ impl VoxelGame {
                 .entry(player.id)
                 .or_insert_with(|| EntityTracker::new(interval))
                 .step(view.tick, &viewer, &all, &mut out);
-            self.replies
+            self.server
+                .replies
                 .extend(out.drain(..).map(|msg| (player.id, msg)));
         }
         self.apply_replies();
@@ -242,8 +246,8 @@ impl VoxelGame {
         let changes = self.streamer_mut().take_changes();
         let radius = self.client.view.replica().config().view_radius;
         let mut updates = Vec::new();
-        for player in self.players.iter() {
-            let eye = crate::player::eye(&self.ecs, player.entity, 1.0);
+        for player in self.server.players.iter() {
+            let eye = crate::player::eye(&self.server.ecs, player.entity, 1.0);
             let sender = self
                 .client
                 .view
@@ -251,13 +255,13 @@ impl VoxelGame {
                 .entry(player.id)
                 .or_insert_with(|| ChunkSender::new(radius));
             sender.step(
-                &self.world.borrow(),
+                &self.server.world.borrow(),
                 World::chunk_containing(eye),
                 &changes,
                 &mut updates,
             );
             // Les messages des autres joueurs partiront sur le réseau (lot 5).
-            self.replies.extend(
+            self.server.replies.extend(
                 updates
                     .drain(..)
                     .map(|update| (player.id, update_msg(update))),
@@ -265,7 +269,7 @@ impl VoxelGame {
         }
         self.replicate_player_views();
         self.apply_replies();
-        let eye = crate::player::eye(&self.ecs, self.players.entity(), 1.0);
+        let eye = crate::player::eye(&self.server.ecs, self.server.players.entity(), 1.0);
         let view = View {
             position: eye,
             forward: self.client.camera.forward(),

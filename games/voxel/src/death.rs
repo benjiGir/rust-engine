@@ -28,12 +28,13 @@ impl VoxelGame {
     /// À chaque pas : la vie à 0, c'est la mort.
     pub(crate) fn check_death(&mut self) {
         if self.mode != Mode::Playing
-            || self.players.me().dead
-            || player::health(&self.ecs, self.players.entity()).current > 0.0
+            || self.server.players.me().dead
+            || player::health(&self.server.ecs, self.server.players.entity()).current > 0.0
         {
             return;
         }
         let message = self
+            .server
             .players
             .me_mut()
             .vitals
@@ -42,24 +43,24 @@ impl VoxelGame {
         // Ce qu'il tenait à la souris et la grille d'artisanat reviennent dans l'inventaire, puis
         // tout tombe là où le joueur est mort. La fenêtre ferme son écran en recevant `Died`.
         self.close_menu();
-        let feet = player::body(&self.ecs, self.players.entity())
+        let feet = player::body(&self.server.ecs, self.server.players.entity())
             .position
             .floor()
             .as_ivec3();
-        let stacks = self.players.me_mut().inventory.take_all();
+        let stacks = self.server.players.me_mut().inventory.take_all();
         let dropped: u32 = stacks.iter().map(|s| s.count).sum();
         for stack in stacks {
             self.drop_stack(feet, stack);
         }
-        self.players.me_mut().mining = None;
-        self.players.me_mut().hunger.chewing = None;
+        self.server.players.me_mut().mining = None;
+        self.server.players.me_mut().hunger.chewing = None;
         // L'expérience est perdue.
-        let (level, _) = self.players.me_mut().experience.level();
-        self.players.me_mut().experience = crate::survival::Experience::default();
+        let (level, _) = self.server.players.me_mut().experience.level();
+        self.server.players.me_mut().experience = crate::survival::Experience::default();
         log::info!("{message} ({dropped} objets lâchés en {feet}, niveau {level} perdu)");
-        self.players.me_mut().dead = true;
-        let id = self.players.current_id();
-        self.replies.push((
+        self.server.players.me_mut().dead = true;
+        let id = self.server.players.current_id();
+        self.server.replies.push((
             id,
             crate::protocol::ServerMsg::Died {
                 message: message.to_string(),
@@ -71,19 +72,24 @@ impl VoxelGame {
     pub(crate) fn respawn(&mut self) {
         let feet = self.respawn_point();
         player::set_eye(
-            &self.ecs,
-            self.players.entity(),
+            &self.server.ecs,
+            self.server.players.entity(),
             feet + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT,
         );
-        if let Some(mut health) = self.ecs.get_mut::<Health>(self.players.entity()) {
+        if let Some(mut health) = self
+            .server
+            .ecs
+            .get_mut::<Health>(self.server.players.entity())
+        {
             health.current = health.max;
         }
-        self.players.me_mut().vitals = Vitals::new(&self.survival);
-        self.players.me_mut().hunger = Hunger::new(&self.hunger_rules);
-        self.players.me_mut().effects.clear();
-        self.players.me_mut().dead = false;
-        let id = self.players.current_id();
-        self.replies
+        self.server.players.me_mut().vitals = Vitals::new(&self.server.survival);
+        self.server.players.me_mut().hunger = Hunger::new(&self.server.hunger_rules);
+        self.server.players.me_mut().effects.clear();
+        self.server.players.me_mut().dead = false;
+        let id = self.server.players.current_id();
+        self.server
+            .replies
             .push((id, crate::protocol::ServerMsg::Respawned));
         // Le jeu a déplacé le joueur : son prochain mouvement n'est pas à comparer à l'ancien.
         self.forget_last_move();
@@ -92,15 +98,15 @@ impl VoxelGame {
 
     /// Où réapparaître : sur le lit (s'il n'a pas été cassé), sinon au point de départ.
     fn respawn_point(&mut self) -> Vec3 {
-        if let Some(bed) = self.players.me_mut().bed {
+        if let Some(bed) = self.server.players.me_mut().bed {
             let head = bed::head_at(self.streamer().world(), bed);
             if let Some(head) = head {
                 return head.as_vec3() + Vec3::new(0.5, 1.0, 0.5);
             }
-            self.players.me_mut().bed = None;
+            self.server.players.me_mut().bed = None;
             self.toast("Votre lit a disparu : retour au point de départ");
         }
-        let spawn = self.spawn;
+        let spawn = self.server.spawn;
         Vec3::new(
             spawn.x as f32 + 0.5,
             spawn.y as f32 + 1.4,
@@ -115,8 +121,8 @@ impl VoxelGame {
         let Some(head) = head else {
             return false;
         };
-        self.players.me_mut().bed = Some(head);
-        if !self.day.is_night() {
+        self.server.players.me_mut().bed = Some(head);
+        if !self.server.day.is_night() {
             self.toast("Point de réapparition fixé");
             return true;
         }
@@ -124,7 +130,7 @@ impl VoxelGame {
             self.toast("Impossible de dormir : des créatures rôdent");
             return true;
         }
-        self.day.time = MORNING;
+        self.server.day.time = MORNING;
         self.toast("Vous avez dormi jusqu'au matin");
         true
     }
@@ -132,11 +138,13 @@ impl VoxelGame {
     /// Une créature hostile à moins de [`MONSTER_RADIUS`] blocs ?
     fn monster_nearby(&self, center: Vec3) -> bool {
         let registry = self
+            .server
             .ecs
             .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
             .clone();
         let mut found = false;
-        self.ecs
+        self.server
+            .ecs
             .query::<(&Transform, &Mob)>()
             .for_each(|_, (transform, mob)| {
                 let hostile = registry.get(mob.kind).is_some_and(|d| d.hostile);
@@ -193,7 +201,7 @@ impl VoxelGame {
             ui.label(RichText::new(message).size(18.0).color(crate::skin::MUTED));
             ui.add_space(12.0);
             respawn = button(ui, "Réapparaître");
-            let label = if self.store.is_some() {
+            let label = if self.server.store.is_some() {
                 "Sauvegarder et retourner au menu"
             } else {
                 "Retourner au menu"

@@ -125,6 +125,7 @@ impl VoxelGame {
     pub(crate) fn open_quest_book(&mut self, chapter: Option<&str>) -> Result<()> {
         self.open_quests();
         let quests = self
+            .server
             .players
             .me_mut()
             .quest_book
@@ -143,6 +144,7 @@ impl VoxelGame {
         // Une revue tout de suite : les objets portés comptent dès l'ouverture.
         self.refresh_quests();
         let last = self
+            .server
             .players
             .me_mut()
             .quest_book
@@ -191,7 +193,7 @@ impl VoxelGame {
     pub(crate) fn quests_button(&mut self, ui: &mut egui::Ui) {
         // Ce qui attend d'être récupéré, d'après la progression que le serveur a envoyée.
         let waiting = match (
-            self.players.local().quest_book.quests(),
+            self.server.players.local().quest_book.quests(),
             &self.client.view.me.quests,
         ) {
             (Some(quests), Some(progress)) => Some(progress.pending(&quests).len()),
@@ -223,7 +225,7 @@ impl VoxelGame {
         self.open_quests();
         // Les quêtes sont le contenu du jeu ; la progression vient de la vue du joueur.
         let (Some(quests), Some(progress)) = (
-            self.players.local().quest_book.quests(),
+            self.server.players.local().quest_book.quests(),
             self.client.view.me.quests.clone(),
         ) else {
             return;
@@ -631,14 +633,14 @@ impl VoxelGame {
 
     /// `ScreenAction::Quest` : le serveur applique un geste du livre au joueur courant.
     pub(crate) fn quest_act(&mut self, act: QuestAct) {
-        let Some(quests) = self.players.me().quest_book.quests() else {
+        let Some(quests) = self.server.players.me().quest_book.quests() else {
             return;
         };
         let count = quests.quests.len();
         let quest_ok = |q: u32| (q as usize) < count;
         match act {
             QuestAct::LastChapter(id) => {
-                if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
+                if let Ok(progress) = self.server.players.me_mut().quest_book.progress_mut() {
                     progress.set_last_chapter(&id);
                 }
             }
@@ -656,7 +658,7 @@ impl VoxelGame {
                 });
             }
             QuestAct::Check(quest, task) if quest_ok(quest) => {
-                if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
+                if let Ok(progress) = self.server.players.me_mut().quest_book.progress_mut() {
                     progress.check(&quests, quest as usize, task as usize);
                 }
                 self.refresh_quests();
@@ -666,13 +668,14 @@ impl VoxelGame {
                 self.hand_in_quest(quest as usize, task as usize);
             }
             QuestAct::Choose(quest, reward, option) if quest_ok(quest) => {
-                if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
+                if let Ok(progress) = self.server.players.me_mut().quest_book.progress_mut() {
                     progress.choose(&quests, quest as usize, reward as usize, option as usize);
                 }
             }
             QuestAct::Pin(quest) if quest_ok(quest) => {
                 let id = quests.quests[quest as usize].id.clone();
                 let changed = self
+                    .server
                     .players
                     .me_mut()
                     .quest_book
@@ -786,7 +789,7 @@ impl VoxelGame {
     /// dessus, sa fiche ouverte.
     pub(crate) fn select_quest(&mut self, id: &str) -> Result<()> {
         self.open_quests();
-        let Some(quests) = self.players.me_mut().quest_book.quests() else {
+        let Some(quests) = self.server.players.me_mut().quest_book.quests() else {
             bail!("quêtes pas chargées");
         };
         let Some(index) = quests.index(id) else {
@@ -815,7 +818,7 @@ impl VoxelGame {
     /// quête est dessinée (en points, comme `click x y`).
     pub(crate) fn quest_screen_json(&self) -> String {
         let state = &self.client.ui.quests;
-        let quests = self.players.me().quest_book.quests();
+        let quests = self.server.players.me().quest_book.quests();
         let id_of = |q: usize| {
             quests
                 .as_ref()

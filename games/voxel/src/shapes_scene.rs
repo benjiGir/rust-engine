@@ -277,13 +277,17 @@ impl VoxelGame {
     /// L'écran de l'établi de taille : du chêne dans la case d'entrée.
     pub(crate) fn build_shaping_screen(&mut self) {
         let items = self.content.items.clone();
-        self.players.me_mut().inventory.craft = [None; 9];
+        self.server.players.me_mut().inventory.craft = [None; 9];
         if let Some(planks) = items.id("core:oak_planks") {
-            self.players.me_mut().inventory.craft[0] = Some(ItemStack::new(planks, 24));
+            self.server.players.me_mut().inventory.craft[0] = Some(ItemStack::new(planks, 24));
         }
         for (key, count) in [("core:stone", 12), ("core:glass", 6)] {
             if let Some(item) = items.id(key) {
-                self.players.me_mut().inventory.add(item, count, &items);
+                self.server
+                    .players
+                    .me_mut()
+                    .inventory
+                    .add(item, count, &items);
             }
         }
         // Quelques pièces déjà taillées, pour voir leurs noms et leurs icônes.
@@ -293,7 +297,7 @@ impl VoxelGame {
         ] {
             if let Some(item) = items.id(kind) {
                 let number = crate::shape_materials::number_of(material);
-                self.players.me_mut().inventory.add_stack(
+                self.server.players.me_mut().inventory.add_stack(
                     ItemStack {
                         item,
                         count: 6,

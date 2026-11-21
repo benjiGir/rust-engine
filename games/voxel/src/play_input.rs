@@ -95,14 +95,18 @@ impl VoxelGame {
             self.toggle_quests_screen();
         }
         if input.key_pressed(self.settings.keys.key(Action::Time)) {
-            self.day.cycle_speed();
-            log::info!("temps {} ({})", self.day.speed.name(), self.day.clock());
+            self.server.day.cycle_speed();
+            log::info!(
+                "temps {} ({})",
+                self.server.day.speed.name(),
+                self.server.day.clock()
+            );
         }
         if input.key_pressed(self.settings.keys.key(Action::Fly)) {
-            player::toggle_mode(&mut self.ecs, self.players.entity());
+            player::toggle_mode(&mut self.server.ecs, self.server.players.entity());
             log::info!(
                 "mode {}",
-                player::mode(&self.ecs, self.players.entity()).name()
+                player::mode(&self.server.ecs, self.server.players.entity()).name()
             );
         }
         for (i, key) in HOTBAR_KEYS.iter().enumerate() {
@@ -147,7 +151,7 @@ impl VoxelGame {
             self.view_world(),
             self.client.camera.position,
             self.client.camera.forward(),
-            self.players.me().gear.reach(),
+            self.server.players.me().gear.reach(),
         );
         self.client.target = target;
         // `ctl hold` tient un bouton comme si la souris était capturée.
@@ -166,7 +170,7 @@ impl VoxelGame {
         let click_used = click_used && hold.is_none();
         // Le minage : le bouton gauche maintenu sur le même bloc.
         let mining = captured && !click_used && left_held;
-        self.players.local_mut().air_swing = false;
+        self.server.players.local_mut().air_swing = false;
         if !mining {
             self.stop_mining();
         }
@@ -178,7 +182,8 @@ impl VoxelGame {
                 self.press_attack(dt);
             }
             // Rien à frapper ni à casser : le bras donne un coup dans le vide, tant que le bouton est tenu.
-            self.players.local_mut().air_swing = mining && self.players.local().mining.is_none();
+            self.server.players.local_mut().air_swing =
+                mining && self.server.players.local().mining.is_none();
             // Un clic droit : une porte, un lit, un conteneur, sinon poser.
             if right_pressed {
                 let sneaking =
@@ -238,7 +243,7 @@ impl VoxelGame {
             self.stop_mining();
             return;
         };
-        let progress = match self.players.local().mining {
+        let progress = match self.server.players.local().mining {
             Some((p, progress)) if p == pos => Some(progress),
             _ => None,
         };
@@ -257,7 +262,7 @@ impl VoxelGame {
             progress.unwrap_or(0.0) + dt / time
         };
         if progress >= 1.0 {
-            self.players.local_mut().mining = None;
+            self.server.players.local_mut().mining = None;
             let aim = self.window_aim();
             self.send(ClientMsg::Dig {
                 aim,
@@ -266,13 +271,13 @@ impl VoxelGame {
                 face: hit.normal,
             });
         } else {
-            self.players.local_mut().mining = Some((pos, progress));
+            self.server.players.local_mut().mining = Some((pos, progress));
         }
     }
 
     /// Le minage s'arrête avant la fin (bouton lâché, un menu s'ouvre, plus de bloc visé).
     pub(crate) fn stop_mining(&mut self) {
-        if let Some((pos, _)) = self.players.local_mut().mining.take() {
+        if let Some((pos, _)) = self.server.players.local_mut().mining.take() {
             let aim = self.window_aim();
             self.send(ClientMsg::Dig {
                 aim,

@@ -45,7 +45,7 @@ impl VoxelGame {
     fn give_back(&mut self, stack: ItemStack) {
         let left = self.collect_stack(stack);
         if left > 0 {
-            let at = crate::player::body(&self.ecs, self.players.entity())
+            let at = crate::player::body(&self.server.ecs, self.server.players.entity())
                 .position
                 .floor()
                 .as_ivec3();
@@ -121,7 +121,7 @@ impl VoxelGame {
     pub(crate) fn salvage_cursor(&mut self) {
         let data = adventure_data::current();
         let items = self.content.items.clone();
-        let Some(held) = self.players.me().inventory.cursor else {
+        let Some(held) = self.server.players.me().inventory.cursor else {
             return;
         };
         if !forge_tables::can_salvage(held.damage) {
@@ -131,7 +131,7 @@ impl VoxelGame {
         let Some(got) = forge_tables::salvage(&data, held.damage, &mut rng) else {
             return;
         };
-        self.players.me_mut().inventory.cursor = None;
+        self.server.players.me_mut().inventory.cursor = None;
         let shard_name = items
             .id(&got.shard)
             .map_or(got.shard.clone(), |id| items.get(id).name.clone());
@@ -259,14 +259,14 @@ impl VoxelGame {
     pub(crate) fn reforge_choose(&mut self, index: usize) {
         let data = adventure_data::current();
         let items = self.content.items.clone();
-        let Some(held) = self.players.me().inventory.cursor else {
+        let Some(held) = self.server.players.me().inventory.cursor else {
             return;
         };
         let def = items.get(held.item);
         if !forge_tables::can_reforge(def, held.damage) {
             return;
         }
-        let rarity = self.players.me().adventure.forge_rarity;
+        let rarity = self.server.players.me().adventure.forge_rarity;
         let Some(cost) = forge_tables::reforge_cost(&data, rarity) else {
             return;
         };
@@ -274,7 +274,7 @@ impl VoxelGame {
             return;
         };
         let dust = forge_tables::dust_item(&items);
-        let me = self.players.me();
+        let me = self.server.players.me();
         let purse = Purse {
             shards: me.inventory.count(shard_id),
             dust: dust.map_or(0, |id| me.inventory.count(id)),
@@ -292,10 +292,16 @@ impl VoxelGame {
         let Some(draw) = draws.get(index).cloned() else {
             return;
         };
-        if !self.players.me_mut().experience.spend_levels(cost.levels) {
+        if !self
+            .server
+            .players
+            .me_mut()
+            .experience
+            .spend_levels(cost.levels)
+        {
             return;
         }
-        let me = self.players.me_mut();
+        let me = self.server.players.me_mut();
         me.inventory.remove(shard_id, cost.shards);
         if let Some(dust) = dust {
             me.inventory.remove(dust, cost.dust);
