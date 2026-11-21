@@ -287,6 +287,7 @@ impl VoxelGame {
                 ServerMsg::Turn(turn) => self.client.camera.yaw += turn,
                 ServerMsg::Feedback(feedback) => self.apply_feedback(feedback),
                 ServerMsg::Chat(line) => self.show_chat(&line),
+                ServerMsg::PlayerList(names) => self.client.online = names,
                 ServerMsg::ModOptions { mod_id, data } => self.show_mod_options(mod_id, &data),
                 ServerMsg::ModHud { mod_id, id, bar } => self.receive_mod_hud(mod_id, id, bar),
                 ServerMsg::OpenScreen(screen) => self.show_screen(screen),

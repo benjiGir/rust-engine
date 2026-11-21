@@ -270,6 +270,7 @@ impl VoxelServer {
             net.peers.insert(id, connection);
         }
         self.tell_everyone(&format!("{name} a rejoint la partie"));
+        self.send_player_list();
     }
 
     /// Un joueur venu du réseau : son fichier de `players/` s'il est déjà venu, sinon le point de
@@ -362,6 +363,22 @@ impl VoxelServer {
         }
         log::info!("{name} est parti ({reason})");
         self.tell_everyone(&format!("{name} a quitté la partie"));
+        self.send_player_list();
+    }
+
+    /// La liste des joueurs, à tous (les fantômes n'y sont pas).
+    pub(crate) fn send_player_list(&mut self) {
+        let names: Vec<String> = self
+            .players
+            .iter()
+            .filter(|p| !p.ghost)
+            .map(|p| p.name.clone())
+            .collect();
+        let ids: Vec<_> = self.players.iter().map(|p| p.id).collect();
+        for id in ids {
+            self.replies
+                .push((id, ServerMsg::PlayerList(names.clone())));
+        }
     }
 
     /// Une ligne de chat pour tous les joueurs.
@@ -498,6 +515,16 @@ mod tests {
         assert_eq!(server.net.as_ref().unwrap().peer_count(), 1);
         let entity = server.players.get(id).unwrap().entity;
         assert!(server.ecs.has::<crate::components::Predicted>(entity));
+        // La liste des joueurs arrive à chacun.
+        let names = wait_for(
+            &mut server,
+            &client,
+            |bytes| match postcard::from_bytes::<ServerMsg>(bytes).ok()? {
+                ServerMsg::PlayerList(names) => Some(names),
+                _ => None,
+            },
+        );
+        assert!(names.contains(&"Alice".to_string()) && names.len() == 2);
         // Le monde arrive : des chunks, encodés pour le réseau.
         wait_for(&mut server, &client, |bytes| {
             matches!(

@@ -55,6 +55,8 @@ pub struct GameUi {
     /// La page d'options d'un mod, ouverte depuis la pause : (mod, menu).
     pub options_menu: Option<(String, engine_mods::ModMenu)>,
     pub options_events: Vec<(i32, i32, i32)>,
+    /// Tab est tenu : la liste des joueurs s'affiche.
+    pub show_players: bool,
     /// Les clics et touches simulés par `ctl`.
     pub input: crate::ui_input::UiInput,
     /// L'explorateur de recettes (voir `recipe_browser.rs`).
@@ -174,6 +176,7 @@ impl GameUi {
             mod_hud: Default::default(),
             console: Default::default(),
             options_menu: None,
+            show_players: false,
             options_events: Vec::new(),
             input: Default::default(),
             browser: Default::default(),
@@ -311,6 +314,7 @@ impl VoxelGame {
             if self.mode == crate::Mode::Playing && !self.client.ui.inventory_open {
                 self.draw_hud(ui.ctx());
                 self.draw_name_tags(ui.ctx());
+                self.draw_player_list(ui.ctx());
                 self.draw_pinned_quests(ui.ctx());
             }
             self.draw_toast(ui.ctx());

@@ -956,7 +956,16 @@ lot 4, viendra plus tard) :
     parties annoncées et prend une adresse (le port 25 600 par défaut) ;
   - la poignée de main se fait avant de quitter le monde du menu (même contenu, même empreinte) : un refus ou un
     hôte absent laisse au menu, avec la raison ; la perte de l'hôte ramène au menu.
-- **5e-2 (à faire)** : le nom au-dessus des autres joueurs, la liste (Tab), le chat (T), `ctl` limité à l'hôte.
+- **5e-2, en jeu (réalisé)** :
+  - le nom au-dessus des autres joueurs existait (entité `Player { name }`) ;
+  - `ServerMsg::PlayerList` à chaque arrivée et départ ; la liste s'affiche tant que Tab est tenu ;
+  - en partie réseau (hôte ouvert ou invité), une ligne de console sans `/` part en chat à tous ; en solo, la
+    barre oblique reste facultative. La console s'ouvre avec Entrée ou `/` (T règle déjà la vitesse du temps) ;
+  - chez un invité, `ctl` n'accepte que les commandes de la fenêtre (état, marche, regard, clics, touches, console,
+    capture, pause, quitter) ;
+  - vérifié à deux fenêtres : le chat de l'invité s'affiche chez les deux.
+- **Reste pour le lot 5** : `--port` dans `cargo xtask ctl` (aujourd'hui `VOXEL_CONTROL=port`), les permissions des
+  invités (tricheries, commandes par un exécuteur côté serveur), le contrôle de la taille des grilles d'artisanat.
 
 
 - `engine_net` :

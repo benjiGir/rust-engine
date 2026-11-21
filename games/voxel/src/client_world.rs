@@ -104,6 +104,7 @@ impl ClientWorld {
             | ServerMsg::OpenScreen(_)
             | ServerMsg::CloseScreen
             | ServerMsg::Chat(_)
+            | ServerMsg::PlayerList(_)
             | ServerMsg::ModOptions { .. }
             | ServerMsg::ModHud { .. } => {}
             // Les entités : Tick, Spawn, Despawn, Moves, EntityState, GridBlocks.

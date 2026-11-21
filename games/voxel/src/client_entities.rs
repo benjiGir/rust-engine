@@ -222,6 +222,7 @@ impl ClientEntities {
             | ServerMsg::OpenScreen(_)
             | ServerMsg::CloseScreen
             | ServerMsg::Chat(_)
+            | ServerMsg::PlayerList(_)
             | ServerMsg::ModOptions { .. }
             | ServerMsg::ModHud { .. }
             | ServerMsg::Chunk { .. }

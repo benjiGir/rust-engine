@@ -753,6 +753,30 @@ impl VoxelGame {
     /// `respawn`, `throw`, `place` sans coordonnées) fabriquent les mêmes messages que ses entrées ;
     /// `break` et `place x y z bloc` passent par la console (`Command`), comme `/give` ou `/tp`.
     pub(crate) fn execute(&mut self, command: Command) -> Result<String> {
+        // Un invité n'a qu'une coquille de serveur (voir `net_client.rs`) : seules les commandes de la
+        // fenêtre (état, clics, touches, capture) ont un sens chez lui.
+        let window_only = matches!(
+            command,
+            Command::Help
+                | Command::State
+                | Command::Wait(_)
+                | Command::Look(..)
+                | Command::Walk(..)
+                | Command::Stop
+                | Command::UiTexts
+                | Command::UiClick(..)
+                | Command::UiClickText(..)
+                | Command::UiType(_)
+                | Command::UiKey(..)
+                | Command::Pause
+                | Command::Resume
+                | Command::Screenshot(..)
+                | Command::Console(_)
+                | Command::Quit
+        );
+        if !self.hosting() && !window_only {
+            bail!("commande de l'hôte : cette fenêtre a rejoint une partie");
+        }
         match command {
             Command::Break(pos) => {
                 let pos = match pos {

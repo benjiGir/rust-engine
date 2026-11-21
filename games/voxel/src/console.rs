@@ -94,6 +94,7 @@ impl VoxelGame {
 
     /// Ouvre la console sur Entrée ou `/`, et exécute les lignes validées.
     pub(crate) fn update_console(&mut self, ctx: &mut Context) {
+        self.client.ui.show_players = ctx.input.key_held(KeyCode::Tab);
         let free = self.mode == crate::Mode::Playing && !self.client.ui.inventory_open;
         if free && (ctx.input.key_pressed(KeyCode::Enter) || ctx.input.key_pressed(KeyCode::Slash))
         {
@@ -118,6 +119,15 @@ impl VoxelGame {
     /// Exécute une ligne : `/commande arguments` (la barre oblique est facultative). La ligne part
     /// au simulateur dans un message `Command` ; la console affiche l'écho et la réponse.
     pub(crate) fn run_console_line(&mut self, line: &str) {
+        // En partie réseau (hôte ouvert ou invité), une ligne sans `/` part en chat à tous.
+        let networked = !self.hosting() || self.server.net.is_some();
+        if networked && !line.trim_start().starts_with('/') {
+            let text = line.trim();
+            if !text.is_empty() {
+                self.send_now(ClientMsg::Chat(text.to_string()));
+            }
+            return;
+        }
         let line = line.trim().trim_start_matches('/').trim();
         if line.is_empty() {
             return;
@@ -128,6 +138,27 @@ impl VoxelGame {
         if let Some(reply) = self.server.command_reply.take() {
             self.server.chat(&reply.text);
         }
+    }
+
+    /// La liste des joueurs de la partie, tant que Tab est tenu (en partie réseau).
+    pub(crate) fn draw_player_list(&self, ctx: &egui::Context) {
+        if !self.client.ui.show_players || self.client.online.is_empty() {
+            return;
+        }
+        egui::Area::new(egui::Id::unique("player_list"))
+            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 40.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                crate::skin::panel().show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(format!("Joueurs ({})", self.client.online.len()))
+                            .strong(),
+                    );
+                    for name in &self.client.online {
+                        ui.label(name);
+                    }
+                });
+            });
     }
 
     /// Les lignes récentes, au-dessus de la barre d'objets (console fermée).

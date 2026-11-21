@@ -103,6 +103,8 @@ pub(crate) struct ClientSide {
     pub(crate) remote: Option<crate::net_client::RemoteLink>,
     /// L'écoute des parties annoncées, ouverte sur l'écran « Multijoueur ».
     pub(crate) lan: Option<engine_net::Discovery>,
+    /// Les joueurs de la partie (`ServerMsg::PlayerList`), montrés tant que Tab est tenu.
+    pub(crate) online: Vec<String>,
     /// Le corps du joueur, simulé ici (voir `predicted.rs`).
     pub(crate) body: crate::predicted::PredictedBody,
 }

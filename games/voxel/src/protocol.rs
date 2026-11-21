@@ -341,6 +341,8 @@ pub enum ServerMsg {
     CloseScreen,
     /// Une ligne pour la console du joueur.
     Chat(String),
+    /// Les joueurs de la partie (leurs noms), à chaque arrivée et départ : la liste de Tab.
+    PlayerList(Vec<String>),
     /// La page d'options d'un mod (les octets de son menu).
     ModOptions {
         mod_id: String,

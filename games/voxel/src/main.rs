@@ -469,6 +469,7 @@ impl VoxelGame {
                 body,
                 remote,
                 lan: None,
+                online: Vec::new(),
                 mining: None,
                 air_swing: false,
                 steer_sent: 0.0,
