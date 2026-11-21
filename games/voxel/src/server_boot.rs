@@ -415,6 +415,7 @@ pub(crate) mod tests {
             title: false,
             difficulty: None,
             dimension: None,
+            join: None,
         };
         let settings = settings::Settings::default();
         VoxelServer::boot(&launch, &settings, 1.0 / 60.0, false, false)

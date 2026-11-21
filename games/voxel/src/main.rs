@@ -101,6 +101,7 @@ mod intents;
 mod interact;
 mod item_ctl;
 mod launch;
+mod net_client;
 mod net_ctl;
 mod net_host;
 mod predicted;
@@ -302,7 +303,47 @@ impl VoxelGame {
             autofly.is_some(),
             demo.is_some(),
         )?;
-        let (server, yaw, pitch, seed) = (boot.server, boot.yaw, boot.pitch, boot.seed);
+        let (mut server, mut yaw, mut pitch, mut seed) =
+            (boot.server, boot.yaw, boot.pitch, boot.seed);
+        // Un invité : la poignée de main avec l'hôte, puis la coquille refaite sur sa graine (le
+        // terrain lointain en dépend) et le joueur placé où l'hôte l'accueille (voir `net_client.rs`).
+        let mut remote = None;
+        if let Some(address) = &launch.join {
+            // `VOXEL_NAME` et `VOXEL_UUID` : un second joueur sur la même machine (essais).
+            let name = std::env::var("VOXEL_NAME").unwrap_or_else(|_| settings.player_name.clone());
+            let uuid = std::env::var("VOXEL_UUID")
+                .ok()
+                .and_then(|u| players::parse_uuid(&u))
+                .or_else(|| players::parse_uuid(&settings.player_uuid))
+                .unwrap_or_default();
+            let joined = net_client::join(address, &server, &name, uuid)?;
+            if joined.seed != seed {
+                let shell = Launch {
+                    seed: Some(joined.seed),
+                    world: None,
+                    join: None,
+                    ..launch.clone()
+                };
+                server = VoxelServer::boot(&shell, &settings, ctx.fixed_dt, false, false)?.server;
+                seed = joined.seed;
+            }
+            let entity = server.players.entity();
+            player::set_eye(
+                &server.ecs,
+                entity,
+                joined.feet + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT,
+            );
+            if joined.fly != (player::mode(&server.ecs, entity) == MoveMode::Fly) {
+                player::toggle_mode(&mut server.ecs, entity);
+            }
+            (yaw, pitch) = (joined.yaw, joined.pitch);
+            wire::set_registry(server.registry.clone());
+            log::info!(
+                "partie de {address} rejointe (joueur {:?})",
+                joined.link.player
+            );
+            remote = Some(joined.link);
+        }
         let registry = server.registry.clone();
         let assets = assets_dir();
         let block_textures = assets::load_textures(&registry);
@@ -425,6 +466,7 @@ impl VoxelGame {
                 frame_dt: 0.0,
                 eating_sent: false,
                 body,
+                remote,
                 mining: None,
                 air_swing: false,
                 steer_sent: 0.0,
@@ -444,7 +486,13 @@ impl VoxelGame {
     /// La simulation, à 60 Hz exactement : les entrées du joueur, puis les systèmes.
     fn fixed_update(&mut self, ctx: &mut Context) {
         match self.mode {
-            // En pause, le monde s'arrête.
+            // En pause, le monde s'arrête ; ouvert au réseau local, il continue pour les autres
+            // joueurs (le joueur de la fenêtre ne bouge plus).
+            Mode::Paused(_) if self.server.net.is_some() => {
+                self.server.fixed_step(ctx.fixed_dt);
+                self.apply_replies();
+                return;
+            }
             Mode::Paused(_) => return,
             // Le monde du menu vit (créatures, machines), sans joueur aux commandes ; de
             // même quand le joueur est mort.
@@ -455,10 +503,12 @@ impl VoxelGame {
                     Vec3::ZERO,
                     false,
                 );
-                self.server
-                    .schedule
-                    .run(Stage::FixedUpdate, &mut self.server.ecs);
-                self.server.step_fluids();
+                if self.hosting() {
+                    self.server
+                        .schedule
+                        .run(Stage::FixedUpdate, &mut self.server.ecs);
+                    self.server.step_fluids();
+                }
                 self.replicate_entities();
                 return;
             }
@@ -494,7 +544,9 @@ impl VoxelGame {
         };
         // La fenêtre joue le mouvement de son joueur et l'envoie (voir `predicted.rs`).
         self.predict_move(walk, jump, ctx.fixed_dt);
-        self.server.fixed_step(ctx.fixed_dt);
+        if self.hosting() {
+            self.server.fixed_step(ctx.fixed_dt);
+        }
         self.footsteps(ctx.fixed_dt);
         self.apply_replies();
     }
@@ -516,7 +568,9 @@ impl VoxelGame {
     fn update(&mut self, ctx: &mut Context, dt: f32) {
         self.client.frame_dt = dt;
         // Les joueurs du réseau local : arrivées, messages, départs (voir `net_host.rs`).
-        self.server.poll_net();
+        if self.hosting() {
+            self.server.poll_net();
+        }
         // Les options attendent une touche : la prochaine pressée est la nouvelle
         // (Échap annule).
         let mut escape = ctx.input.key_pressed(KeyCode::Escape);
@@ -642,7 +696,9 @@ impl VoxelGame {
         if self.client.demo.is_some() {
             self.run_demo(dt);
         }
-        self.autosave();
+        if self.hosting() {
+            self.autosave();
+        }
         let changes = self.hot_reload.as_mut().and_then(|h| h.poll());
         if ctx.input.key_pressed(KeyCode::F5) {
             log::info!("F5 : rechargement de tous les assets");
@@ -664,15 +720,19 @@ impl VoxelGame {
 
         // Le travail du serveur à chaque image : l'heure, la météo, les villages, les systèmes de
         // l'image et les événements (voir `server_step.rs`).
-        // En pause, le monde s'arrête : l'heure, les potions et les villages aussi.
-        if !matches!(self.mode, Mode::Paused(_)) {
+        // En pause, le monde s'arrête : l'heure, les potions et les villages aussi (sauf ouvert au
+        // réseau local).
+        let paused = matches!(self.mode, Mode::Paused(_)) && self.server.net.is_none();
+        if self.hosting() && !paused {
             self.server.frame(dt);
         }
 
         // Tout le travail du monde côté thread principal : on le chronomètre.
         let start = Instant::now();
         let eye = self.client.body.eye(1.0);
-        self.server.stream_world();
+        if self.hosting() {
+            self.server.stream_world();
+        }
         self.update_far(eye);
         self.sync_world_view();
         let streamed = Instant::now();
@@ -932,6 +992,7 @@ impl Game for App {
                         title: false,
                         difficulty: None,
                         dimension: None,
+                        join: None,
                     }),
                     1 => Request::Title,
                     _ => Request::Quit,

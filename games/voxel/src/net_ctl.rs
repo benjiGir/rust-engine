@@ -39,11 +39,15 @@ impl VoxelGame {
                     .players
                     .iter()
                     .map(|p| {
+                        let feet = crate::player::body(&self.server.ecs, p.entity).position;
                         format!(
-                            "{{\"id\":{},\"name\":{},\"ghost\":{}}}",
+                            "{{\"id\":{},\"name\":{},\"ghost\":{},\"pos\":[{:.2},{:.2},{:.2}]}}",
                             p.id.0,
                             crate::control::json_str(&p.name),
-                            p.ghost
+                            p.ghost,
+                            feet.x,
+                            feet.y,
+                            feet.z
                         )
                     })
                     .collect();

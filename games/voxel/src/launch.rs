@@ -17,6 +17,8 @@ pub struct Launch {
     pub difficulty: Option<u8>,
     /// La dimension où arriver (`None` : celle que le monde sauvegardé indique, sinon celle de départ).
     pub dimension: Option<String>,
+    /// Rejoindre la partie d'un hôte (« adresse:port ») au lieu d'ouvrir un monde (voir `net_client.rs`).
+    pub join: Option<String>,
 }
 
 impl Launch {
@@ -33,7 +35,8 @@ impl Launch {
         .iter()
         .any(|v| std::env::var(v).is_ok());
         let named = std::env::var("VOXEL_WORLD").is_ok();
-        if !automatic && !named {
+        let join = std::env::var("VOXEL_JOIN").ok().filter(|a| !a.is_empty());
+        if !automatic && !named && join.is_none() {
             return None;
         }
         Some(Self {
@@ -43,6 +46,7 @@ impl Launch {
             title: false,
             difficulty: None,
             dimension: None,
+            join,
         })
     }
 
@@ -54,6 +58,7 @@ impl Launch {
             title: true,
             difficulty: None,
             dimension: None,
+            join: None,
         }
     }
 }

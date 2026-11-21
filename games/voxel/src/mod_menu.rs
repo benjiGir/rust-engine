@@ -84,7 +84,9 @@ impl VoxelGame {
             }
         }
         // Le serveur écrit les réglages et rafraîchit les menus ouverts (même en pause).
-        self.server.refresh_mod_menus();
+        if self.hosting() {
+            self.server.refresh_mod_menus();
+        }
     }
 }
 

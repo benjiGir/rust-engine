@@ -98,6 +98,9 @@ pub(crate) struct ClientSide {
     /// L'horloge et la météo que voit la fenêtre, copiées du serveur (voir `sky_view.rs`).
     pub(crate) day: crate::daytime::DayCycle,
     pub(crate) weather: crate::weather::Weather,
+    /// Le lien avec l'hôte, pour un invité (voir `net_client.rs`) ; `None` : cette fenêtre fait
+    /// tourner le monde.
+    pub(crate) remote: Option<crate::net_client::RemoteLink>,
     /// Le corps du joueur, simulé ici (voir `predicted.rs`).
     pub(crate) body: crate::predicted::PredictedBody,
 }

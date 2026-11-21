@@ -269,6 +269,7 @@ impl crate::server_side::VoxelServer {
             title: false,
             difficulty: None,
             dimension: Some(target.to_string()),
+            join: None,
         }));
         true
     }

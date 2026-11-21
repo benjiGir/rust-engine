@@ -17,10 +17,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 static REGISTRY: RwLock<Option<Arc<BlockRegistry>>> = RwLock::new(None);
 
 /// Le registre avec lequel les structures reçues sont relues.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "le client réseau (lot 5d) l'enregistre")
-)]
 pub fn set_registry(registry: Arc<BlockRegistry>) {
     *REGISTRY.write().unwrap_or_else(|e| e.into_inner()) = Some(registry);
 }

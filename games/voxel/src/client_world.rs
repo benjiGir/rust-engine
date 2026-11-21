@@ -186,7 +186,9 @@ impl VoxelGame {
     /// Un pas fixe : le serveur dit à chaque joueur ce qui change parmi les entités (voir
     /// `server_sends.rs`), et la fenêtre applique ce qui la concerne.
     pub(crate) fn replicate_entities(&mut self) {
-        self.server.send_entities();
+        if self.hosting() {
+            self.server.send_entities();
+        }
         self.apply_replies();
     }
 
@@ -195,14 +197,16 @@ impl VoxelGame {
     pub(crate) fn sync_world_view(&mut self) {
         // Ce que le serveur a laissé pour la fenêtre : les durées des éditions (mesures), et un
         // changement de dimension à faire (recharger le monde).
-        for time in std::mem::take(&mut self.server.edit_times) {
-            self.client.frame_stats.record_edit(time);
+        if self.hosting() {
+            for time in std::mem::take(&mut self.server.edit_times) {
+                self.client.frame_stats.record_edit(time);
+            }
+            if let Some(request) = self.server.travel.take() {
+                self.client.request = Some(request);
+            }
+            self.server.send_world();
+            self.server.replicate_player_views();
         }
-        if let Some(request) = self.server.travel.take() {
-            self.client.request = Some(request);
-        }
-        self.server.send_world();
-        self.server.replicate_player_views();
         self.apply_replies();
         let eye = self.client.body.eye(1.0);
         let view = View {

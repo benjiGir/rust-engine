@@ -233,13 +233,20 @@ impl VoxelGame {
         while !self.client.outbox.is_empty() && guard < 64 {
             guard += 1;
             for msg in std::mem::take(&mut self.client.outbox) {
-                self.server.handle(local, msg);
+                // Un invité envoie ses messages à l'hôte (voir `net_client.rs`).
+                if self.hosting() {
+                    self.server.handle(local, msg);
+                } else {
+                    self.send_remote(&msg);
+                }
             }
-            self.run_pending_commands();
+            if self.hosting() {
+                self.run_pending_commands();
+            }
         }
         // Les vues du joueur (inventaire, conteneur ouvert) suivent tout de suite : un clic dans un
         // écran se voit dès cette image.
-        if !self.server.replies.is_empty() || guard > 0 {
+        if self.hosting() && (!self.server.replies.is_empty() || guard > 0) {
             self.server.replicate_player_views();
         }
         self.apply_replies();
@@ -258,8 +265,14 @@ impl VoxelGame {
     /// Les réponses du simulateur au joueur de la fenêtre. Celles des autres joueurs partiront sur
     /// le réseau (lot 5).
     pub(crate) fn apply_replies(&mut self) {
-        // Celles des joueurs du réseau partent sur leur connexion (voir `net_host.rs`).
-        for reply in self.server.route_replies() {
+        // Celles des joueurs du réseau partent sur leur connexion (voir `net_host.rs`) ; un invité
+        // reçoit les siennes de l'hôte.
+        let replies = if self.hosting() {
+            self.server.route_replies()
+        } else {
+            self.receive_remote()
+        };
+        for reply in replies {
             match reply {
                 ServerMsg::Correct {
                     position,
@@ -710,8 +723,12 @@ impl crate::server_side::VoxelServer {
             return;
         }
         // Les commandes du jeu passent encore par le pilotage de la fenêtre (`ctl`) : la fenêtre
-        // hôte les exécute juste après ce message (`run_pending_commands`). Un exécuteur côté
-        // serveur viendra avec le réseau (lot 5).
+        // hôte les exécute juste après ce message (`run_pending_commands`), sur son propre joueur.
+        // Celles d'un joueur du réseau sont refusées tant qu'il n'y a pas d'exécuteur côté serveur.
+        if !self.players.current_is_local() {
+            self.chat("Les commandes sont réservées à l'hôte pour l'instant");
+            return;
+        }
         self.pending_commands.push(line.to_string());
     }
 
@@ -858,7 +875,7 @@ impl crate::server_side::VoxelServer {
             }
             ClientMsg::Command(line) => self.handle_command(&line),
             ClientMsg::Respawn => {
-                if self.players.current_is_local() && self.players.me().dead {
+                if self.players.me().dead {
                     self.respawn();
                 } else {
                     log::debug!("réapparition ignorée : le joueur n'est pas mort");

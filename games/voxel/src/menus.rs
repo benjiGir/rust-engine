@@ -287,6 +287,7 @@ impl VoxelGame {
                                                 title: false,
                                                 difficulty: None,
                                                 dimension: None,
+                                                join: None,
                                             }));
                                         }
                                     }
@@ -374,6 +375,7 @@ impl VoxelGame {
                             title: false,
                             difficulty: Some(difficulty),
                             dimension: None,
+                            join: None,
                         }));
                     }
                 }

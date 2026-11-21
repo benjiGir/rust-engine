@@ -938,7 +938,19 @@ lot 4, viendra plus tard) :
     départ.
   - Reste pour plus tard : l'annonce sur le réseau local (avec l'écran « Rejoindre », 5d), le bouton du menu pause,
     les permissions (tricheries, commandes).
-- **5d** : rejoindre : une fenêtre sans serveur local, les outils de l'hôte refusés en invité.
+- **5d, rejoindre (réalisé, `net_client.rs`)** :
+  - `VOXEL_JOIN=adresse:port` lance la fenêtre en invité (`VOXEL_NAME`, `VOXEL_UUID` : un second joueur sur la
+    même machine) ;
+  - l'invité garde une **coquille** de serveur : construite pour le contenu (et refaite sur la graine de l'hôte,
+    pour le terrain lointain), elle n'avance jamais. `hosting()` est faux : la boucle saute le pas du serveur,
+    `frame`, le chargement, les envois, la sauvegarde ; les messages partent sur la connexion, les réponses en
+    arrivent (`receive_remote`) ; une connexion perdue ramène au menu ;
+  - côté hôte : les commandes de console d'un invité sont refusées (elles s'exécuteraient sur l'hôte), un invité
+    mort peut réapparaître, et la pause n'arrête plus le monde quand la partie est ouverte ;
+  - vérifié avec deux fenêtres : l'invité voit le monde de l'hôte et son inventaire, marche (l'hôte le voit
+    bouger), part (l'hôte le sauvegarde).
+- **5e (à faire)** : l'annonce sur le réseau local et l'écran « Rejoindre », le bouton « Ouvrir au réseau local »
+  du menu pause, le nom au-dessus des autres joueurs, la liste (Tab), le chat (T), `ctl` limité à l'hôte.
 
 
 - `engine_net` :
