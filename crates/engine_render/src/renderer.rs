@@ -24,7 +24,7 @@ use crate::mesh::{self, ColorVertex, Vertex};
 use crate::sky::{Sky, SkyPass};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-/// Côté par défaut des textures de blocs. Un pack peut utiliser 32 pixels.
+/// Côté par défaut des textures de blocs. Un pack peut utiliser 32 ou 64 pixels.
 pub const TEXTURE_SIZE: u32 = 16;
 
 /// Résolutions RGBA prises en charge par le rendu et les icônes.
@@ -32,6 +32,7 @@ pub fn texture_side(pixels: &[u8]) -> Option<u32> {
     match pixels.len() {
         1024 => Some(16),
         4096 => Some(32),
+        16384 => Some(64),
         _ => None,
     }
 }
@@ -247,6 +248,7 @@ pub struct Fog {
 /// (retiré de la `HashMap`), Rust appelle `Drop` sur ses deux `wgpu::Buffer`,
 /// qui rendent leur mémoire au GPU. C'est le RAII, comme `using` en C# mais automatique.
 struct GpuMesh {
+    casts_shadow: bool,
     /// Où sont ses sommets et ses indices dans l'arène (opaques, puis translucides).
     slice: Slice,
     /// Son entrée dans la table des origines : origine, lacet et base des textures (32 octets).
@@ -292,6 +294,8 @@ struct CameraUniform {
     /// Immersion, altitude de la surface, couverture nuageuse, ciel dynamique actif.
     water: [f32; 4],
     chest_lids: [[f32; 4]; 4],
+    shadow_projection: [[f32; 4]; 4],
+    shadow_strength: [f32; 4],
 }
 
 pub struct Renderer {
@@ -310,8 +314,10 @@ pub struct Renderer {
     instance_buffer: wgpu::Buffer,
     instance_capacity: usize,
     instance_count: u32,
-    chunk_pipeline: wgpu::RenderPipeline,
-    translucent_pipeline: wgpu::RenderPipeline,
+    chunk_pipelines: ChunkPipelines,
+    sun_shadows: crate::sun_shadows::SunShadows,
+    sun_rays: crate::sun_rays::SunRays,
+    lighting: crate::shader_pack::Lighting,
     format: wgpu::TextureFormat,
     camera_layout: wgpu::BindGroupLayout,
     texture_layout: wgpu::BindGroupLayout,
@@ -439,21 +445,7 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let camera_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("camera"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                // Le fragment shader des chunks lit aussi la caméra (pour le brouillard).
-                // Oublier une étape ici est une erreur de validation à la création du pipeline.
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
+        let camera_layout = camera_bind_layout(&device);
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("camera"),
             layout: &camera_layout,
@@ -484,27 +476,7 @@ impl Renderer {
 
         // Les textures des blocs : un « tableau de textures » (une couche par texture)
         // et un échantillonneur, liés au groupe 1 des shaders de chunks.
-        let texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("block textures"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2Array,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let texture_layout = block_texture_layout(&device);
         let texture_bind_group = create_texture_bind_group(&device, &queue, &texture_layout, &[]);
         let cube_shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
         let cube_groups = [Some(&camera_layout), Some(&texture_layout)];
@@ -527,10 +499,13 @@ impl Renderer {
             true,
         );
 
-        let (chunk_pipeline, translucent_pipeline) = create_chunk_pipelines(
+        let sun_shadows = crate::sun_shadows::SunShadows::new(&device);
+        let sun_rays = crate::sun_rays::SunRays::new(&device, &sun_shadows.layout, format);
+        let chunk_pipelines = create_chunk_pipelines(
             &device,
             &camera_layout,
             &texture_layout,
+            &sun_shadows.layout,
             format,
             CHUNK_SHADER_SOURCE,
         );
@@ -626,8 +601,10 @@ impl Renderer {
             instance_buffer,
             instance_capacity,
             instance_count: 0,
-            chunk_pipeline,
-            translucent_pipeline,
+            chunk_pipelines,
+            sun_shadows,
+            sun_rays,
+            lighting: Default::default(),
             format,
             camera_layout,
             texture_layout,
@@ -693,13 +670,43 @@ impl Renderer {
             &self.device,
             &self.camera_layout,
             &self.texture_layout,
+            &self.sun_shadows.layout,
             self.format,
             source,
         );
         if let Some(error) = pollster::block_on(scope.pop()) {
             anyhow::bail!("shader invalide, l'ancien est gardé :\n{error}");
         }
-        (self.chunk_pipeline, self.translucent_pipeline) = pipelines;
+        self.chunk_pipelines = pipelines;
+        Ok(())
+    }
+
+    /// Valide les deux passes avant de remplacer le rendu. Une erreur laisse
+    /// tous les pipelines du pack précédent en place.
+    pub fn reload_shaders(&mut self, sources: &crate::ShaderSources<'_>) -> Result<()> {
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let terrain = create_chunk_pipelines(
+            &self.device,
+            &self.camera_layout,
+            &self.texture_layout,
+            &self.sun_shadows.layout,
+            self.format,
+            &sources.terrain,
+        );
+        let sky =
+            self.sky_pass
+                .prepare_pipelines(&self.device, self.format, DEPTH_FORMAT, &sources.sky);
+        if let Some(error) = pollster::block_on(scope.pop()) {
+            anyhow::bail!("pack de shaders invalide :\n{error}");
+        }
+        self.chunk_pipelines = terrain;
+        self.lighting = sources.lighting;
+        self.sun_shadows
+            .set_enabled(&self.device, self.lighting.needs_shadows());
+        if !self.lighting.sun_rays {
+            self.sun_rays.release();
+        }
+        self.sky_pass.set_pipelines(sky);
         Ok(())
     }
 
@@ -871,6 +878,7 @@ impl Renderer {
         self.meshes.insert(
             id,
             GpuMesh {
+                casts_shadow: scale <= 1.0,
                 slice,
                 slot,
                 opaque_count: indices.len() as u32,
@@ -1004,6 +1012,49 @@ impl Renderer {
     /// Dessine la scène dans `view` (l'écran ou une texture) et envoie les commandes.
     /// `&self` suffit : wgpu ne demande qu'une référence partagée pour envoyer des données
     /// (`write_buffer`) ou des commandes (`submit`) au GPU.
+    fn encode_sun_shadow(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        projection: glam::Mat4,
+        timing: Option<wgpu::RenderPassTimestampWrites<'_>>,
+        stats: &mut RenderStats,
+    ) {
+        // Un arbre hors de l'image peut ombrager le premier plan. Le tri se
+        // fait dans le champ solaire et ignore l'occlusion propre à la caméra.
+        let frustum = Frustum::from_view_proj(projection);
+        let mut casters: Vec<_> = self
+            .meshes
+            .values()
+            .filter(|mesh| {
+                mesh.casts_shadow && mesh.opaque_count != 0 && frustum.intersects(&mesh.bounds)
+            })
+            .collect();
+        casters.sort_unstable_by_key(|mesh| (mesh.slice.page, mesh.slice.first_index));
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("ombres solaires"),
+            color_attachments: &[],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: self.sun_shadows.view(),
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: timing,
+            ..Default::default()
+        });
+        pass.set_pipeline(&self.chunk_pipelines.shadow);
+        pass.set_bind_group(0, &self.camera_bind_group, &[]);
+        pass.set_bind_group(1, &self.texture_bind_group, &[]);
+        let mut chunks = ChunkDraws::new(&self.arena, &self.origins);
+        chunks.begin(&mut pass);
+        for mesh in casters {
+            chunks.draw(&mut pass, mesh, 0, mesh.opaque_count, stats);
+            stats.triangles += (mesh.opaque_count / 3) as usize;
+        }
+    }
+
     fn draw_scene(
         &mut self,
         view: &wgpu::TextureView,
@@ -1030,6 +1081,24 @@ impl Renderer {
             end: 2e30,
         });
         let sky = self.clear_color;
+        let overcast = self.sky.map_or(0.0, |sky| sky.overcast);
+        let rays_enabled = self.lighting.sun_rays && self.sky.is_some() && self.underwater < 0.95;
+        let shadow = self
+            .sun_shadows
+            .frame(
+                camera,
+                self.sun,
+                self.lighting.moonlight && self.sky.is_some(),
+                overcast,
+            )
+            .filter(|frame| frame.moon || self.lighting.sun_shadows || rays_enabled);
+        let rays = shadow.filter(|_| rays_enabled);
+        let shadow_strength = shadow
+            .filter(|frame| self.lighting.sun_shadows || frame.moon)
+            .map_or(0.0, |frame| frame.strength);
+        let moon = shadow
+            .filter(|frame| frame.moon)
+            .map_or(0.0, |frame| frame.strength);
         let uniform = CameraUniform {
             view_proj: view_proj.to_cols_array_2d(),
             camera_fog_start: camera.position.extend(fog.start).to_array(),
@@ -1043,6 +1112,10 @@ impl Renderer {
                 if self.sky.is_some() { 1.0 } else { 0.0 },
             ],
             chest_lids: self.chest_lids,
+            shadow_projection: shadow
+                .map_or(glam::Mat4::IDENTITY, |frame| frame.projection)
+                .to_cols_array_2d(),
+            shadow_strength: [shadow_strength, moon, crate::sun_shadows::DEPTH_SPAN, 0.0],
         };
         let frustum = Frustum::from_view_proj(view_proj);
         if let Some(timer) = &mut self.gpu_timer {
@@ -1111,19 +1184,31 @@ impl Renderer {
             .gpu_timer
             .as_ref()
             .and_then(|timer| timer.pass_writes());
-        if draw_sky.is_some() {
-            // Le chronomètre du décor inclut aussi la passe des nuages.
-            let cloud_timing =
-                scene_timing
-                    .as_mut()
-                    .map(|timing| wgpu::RenderPassTimestampWrites {
-                        query_set: timing.query_set,
-                        beginning_of_pass_write_index: timing.beginning_of_pass_write_index.take(),
-                        end_of_pass_write_index: None,
-                    });
-            self.sky_pass
-                .encode_clouds(&self.device, &mut encoder, size, cloud_timing);
+        // Le chronomètre commence à la première passe du décor. Après les
+        // ombres, la passe des nuages ne doit plus écrire le même timestamp.
+        let mut begin_timing = || {
+            let timing = scene_timing.as_mut()?;
+            Some(wgpu::RenderPassTimestampWrites {
+                query_set: timing.query_set,
+                beginning_of_pass_write_index: Some(timing.beginning_of_pass_write_index.take()?),
+                end_of_pass_write_index: None,
+            })
+        };
+        if let Some(shadow) = shadow {
+            self.encode_sun_shadow(&mut encoder, shadow.projection, begin_timing(), &mut stats);
         }
+        if draw_sky.is_some() {
+            self.sky_pass
+                .encode_clouds(&self.device, &mut encoder, size, begin_timing());
+        }
+        let rays_timing = rays.and_then(|_| {
+            let timing = scene_timing.as_mut()?;
+            Some(wgpu::RenderPassTimestampWrites {
+                query_set: timing.query_set,
+                beginning_of_pass_write_index: None,
+                end_of_pass_write_index: Some(timing.end_of_pass_write_index.take()?),
+            })
+        });
         {
             // La passe de rendu emprunte `encoder` : ce bloc la termine avant `finish()`.
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1145,7 +1230,10 @@ impl Renderer {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: scene_timing,
+                timestamp_writes: scene_timing.filter(|timing| {
+                    timing.beginning_of_pass_write_index.is_some()
+                        || timing.end_of_pass_write_index.is_some()
+                }),
                 ..Default::default()
             });
             // La caméra est partagée par les deux pipelines (même bind group).
@@ -1182,7 +1270,8 @@ impl Renderer {
             // On regroupe par page de l'arène : une page se lie une seule fois, puis chaque
             // chunk n'est plus qu'un `draw_indexed` (plage d'indices, `base_vertex`, origine).
             pass.set_bind_group(1, &self.texture_bind_group, &[]);
-            pass.set_pipeline(&self.chunk_pipeline);
+            pass.set_pipeline(&self.chunk_pipelines.opaque);
+            pass.set_bind_group(2, self.sun_shadows.binding(), &[]);
             let mut opaque: Vec<&GpuMesh> = Vec::with_capacity(visible.len());
             for mesh in &visible {
                 stats.meshes_drawn += 1;
@@ -1219,7 +1308,8 @@ impl Renderer {
                 .collect();
             // `total_cmp` : une comparaison complète des flottants (gère NaN), à l'envers.
             translucent.sort_by(|a, b| b.0.total_cmp(&a.0));
-            pass.set_pipeline(&self.translucent_pipeline);
+            pass.set_pipeline(&self.chunk_pipelines.translucent);
+            pass.set_bind_group(2, self.sun_shadows.binding(), &[]);
             // Le tri du plus loin au plus proche est conservé : on ne regroupe que les
             // voisins consécutifs d'une même page (la liaison de page est sautée alors).
             chunks.begin(&mut pass);
@@ -1248,9 +1338,61 @@ impl Renderer {
                     (self.index_count / 3 * (self.instance_count - self.opaque_instances)) as usize;
             }
 
-            // En dernier, par-dessus le décor.
-            self.lines
-                .draw(&mut pass, self.outline.is_some(), self.crosshair);
+            if rays.is_none() {
+                self.lines
+                    .draw(&mut pass, self.outline.is_some(), self.crosshair);
+            }
+        }
+
+        if let Some(shadow) = rays {
+            let brightness = if shadow.moon { 0.30 } else { self.sun.daylight };
+            let intensity =
+                brightness * shadow.strength * (1.0 - self.underwater) * (1.0 - overcast * 0.86);
+            self.sun_rays.encode(
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                crate::sun_rays::RayFrame {
+                    size,
+                    depth: depth_view,
+                    surface: view,
+                    shadows: self.sun_shadows.binding(),
+                    view_projection: view_proj,
+                    shadow_projection: shadow.projection,
+                    eye: camera.position,
+                    direction: self.sun.direction.normalize_or_zero()
+                        * if shadow.moon { -1.0 } else { 1.0 },
+                    intensity,
+                    moon: shadow.moon,
+                },
+                rays_timing,
+            );
+            if self.outline.is_some() || self.crosshair {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("contours et réticule"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    ..Default::default()
+                });
+                pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                self.lines
+                    .draw(&mut pass, self.outline.is_some(), self.crosshair);
+            }
         }
 
         if let Some(timer) = &self.gpu_timer {
@@ -1481,7 +1623,7 @@ fn create_depth_texture_view(device: &wgpu::Device, width: u32, height: u32) -> 
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: DEPTH_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     });
     texture.create_view(&wgpu::TextureViewDescriptor::default())
@@ -1556,16 +1698,63 @@ impl<'a> ChunkDraws<'a> {
     }
 }
 
-/// Crée un pipeline. Les deux pipelines du renderer ne diffèrent que par
-/// leur shader et le format de leurs sommets ; le reste de l'état est commun.
-/// Les deux pipelines des chunks (opaque et translucide), à partir du source WGSL.
+fn camera_bind_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("camera"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            // Le fragment shader des chunks lit aussi la caméra (pour le brouillard).
+            // Oublier une étape ici est une erreur de validation à la création du pipeline.
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    })
+}
+
+fn block_texture_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("block textures"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    })
+}
+
+struct ChunkPipelines {
+    opaque: wgpu::RenderPipeline,
+    translucent: wgpu::RenderPipeline,
+    shadow: wgpu::RenderPipeline,
+}
+
+/// Les passes des chunks à partir du même source WGSL et des mêmes sommets.
 fn create_chunk_pipelines(
     device: &wgpu::Device,
     camera_layout: &wgpu::BindGroupLayout,
     texture_layout: &wgpu::BindGroupLayout,
+    shadow_layout: &wgpu::BindGroupLayout,
     format: wgpu::TextureFormat,
     source: &str,
-) -> (wgpu::RenderPipeline, wgpu::RenderPipeline) {
+) -> ChunkPipelines {
     // Un sommet compact (voir `ColorVertex`) : position (u16), normale (i8 → -1..1),
     // couleur et lumière (u8 → 0..1), couche de texture. Le GPU convertit lui-même les
     // formats `Snorm` et `Unorm`.
@@ -1589,7 +1778,12 @@ fn create_chunk_pipelines(
         label: Some("chunk shader"),
         source: wgpu::ShaderSource::Wgsl(source.into()),
     });
-    let groups = [Some(camera_layout), Some(texture_layout)];
+    let caster_groups = [Some(camera_layout), Some(texture_layout)];
+    let groups = [
+        Some(camera_layout),
+        Some(texture_layout),
+        Some(shadow_layout),
+    ];
     let opaque = create_pipeline(device, &groups, format, &shader, &layouts, "chunks", false);
     // Même shader, mais avec mélange alpha et sans écriture de profondeur.
     let translucent = create_pipeline(
@@ -1601,7 +1795,12 @@ fn create_chunk_pipelines(
         "translucent chunks",
         true,
     );
-    (opaque, translucent)
+    let shadow = crate::sun_shadows::depth_pipeline(device, &caster_groups, &shader, &layouts);
+    ChunkPipelines {
+        opaque,
+        translucent,
+        shadow,
+    }
 }
 
 /// Crée le tableau de textures (couche 0 blanche, puis `layers`) avec ses mipmaps.
@@ -1786,10 +1985,10 @@ mod texture_pack_tests {
     use super::*;
 
     #[test]
-    fn rgba_sizes_and_the_full_mip_chain_keep_the_32_pixel_image() {
-        let mut data = [180, 90, 30, 255].repeat(32 * 32);
-        assert_eq!(texture_side(&data), Some(32));
-        for side in [32, 16, 8, 4, 2, 1] {
+    fn rgba_sizes_and_the_full_mip_chain_keep_the_64_pixel_image() {
+        let mut data = [180, 90, 30, 255].repeat(64 * 64);
+        assert_eq!(texture_side(&data), Some(64));
+        for side in [64, 32, 16, 8, 4, 2, 1] {
             assert_eq!(data.len(), side * side * 4);
             assert!(
                 data.as_chunks::<4>()
@@ -1799,13 +1998,14 @@ mod texture_pack_tests {
             );
             data = downsample(&data, side as u32);
         }
+        assert_eq!(texture_side(&[0; 4096]), Some(32));
         assert_eq!(texture_side(&[0; 1024]), Some(16));
         assert_eq!(texture_side(&[0; 4]), None);
     }
 
     #[test]
-    #[ignore = "nécessite un adaptateur GPU ; lancer explicitement pour valider l'upload 16/32"]
-    fn gpu_texture_pack_32_uploads_all_mips_and_can_return_to_16() {
+    #[ignore = "nécessite un adaptateur GPU pour vérifier les trois résolutions"]
+    fn gpu_texture_packs_upload_all_mips_and_can_return_to_16() {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -1835,12 +2035,58 @@ mod texture_pack_tests {
             ],
         });
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        for side in [16, 32, 16] {
+        for side in [16, 32, 64, 16] {
             let layers = vec![[120, 180, 90, 255].repeat(side * side); 3];
             let _binding = create_texture_bind_group(&device, &queue, &layout, &layers);
             queue.submit([]);
         }
         device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        assert!(pollster::block_on(scope.pop()).is_none());
+    }
+}
+
+#[cfg(test)]
+mod shadow_pipeline_tests {
+    use super::*;
+
+    // Le backend de validation de wgpu contrôle l'interface du shader, les
+    // formats et les groupes de ressources sur les machines sans adaptateur.
+    #[test]
+    fn terrain_and_depth_pipelines_share_the_resources_with_a_shadow_map() {
+        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let camera = camera_bind_layout(&device);
+        let textures = block_texture_layout(&device);
+        let layers = vec![[120, 180, 90, 255].repeat(64 * 64)];
+        let packed_textures = create_texture_bind_group(&device, &queue, &textures, &layers);
+        let mut shadow = crate::sun_shadows::SunShadows::new(&device);
+        shadow.set_enabled(&device, true);
+        let pipelines = create_chunk_pipelines(
+            &device,
+            &camera,
+            &textures,
+            &shadow.layout,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            CHUNK_SHADER_SOURCE,
+        );
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: shadow.view(),
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+            pass.set_pipeline(&pipelines.shadow);
+            pass.set_bind_group(1, &packed_textures, &[]);
+        }
+        queue.submit([encoder.finish()]);
         assert!(pollster::block_on(scope.pop()).is_none());
     }
 }

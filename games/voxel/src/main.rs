@@ -18,7 +18,7 @@
 //!
 //! Variables d'environnement :
 //! - `VOXEL_SEED=123` : la graine du monde (42 par défaut).
-//! - `VOXEL_TEXTURE_PACK=classic|earth32` : impose le pack de textures pour cette exécution (sans écrire `settings.ron`).
+//! - `VOXEL_TEXTURE_PACK=classic|earth32|earth64` : impose le pack de textures au lancement.
 //! - `VOXEL_RADIUS=24` : le rayon de vue en chunks (16 par défaut).
 //! - `VOXEL_ASSETS=chemin` : le dossier `assets` (les mods sont dans `../mods`).
 //! - `VOXEL_AUTOFLY=1` : vol automatique, pour mesurer le chargement.
@@ -123,6 +123,7 @@ mod quests;
 mod recipe_browser;
 mod screenshots;
 mod settings;
+mod shader_packs;
 mod shape_ctl;
 mod shape_materials;
 mod shaped_play;
@@ -1361,14 +1362,20 @@ impl App {
 impl Game for App {
     fn new(ctx: &mut Context) -> Result<Self> {
         // `?` remonte l'erreur au moteur, qui l'affichera à la fermeture.
-        let renderer = Renderer::new(ctx.window.clone())?;
+        let mut renderer = Renderer::new(ctx.window.clone())?;
         let mut settings = settings::Settings::load(&project_root());
-        // `VOXEL_TEXTURE_PACK=classic|earth32` : un pack imposé pour cette exécution (captures de recette),
-        // sans toucher à `settings.ron` : seules les actions du menu des options l'écrivent.
+        // Pour les captures, `VOXEL_TEXTURE_PACK` peut supplanter la préférence au lancement.
         match std::env::var("VOXEL_TEXTURE_PACK").as_deref() {
+            Ok("earth64") => settings.texture_pack = settings::TexturePack::Earth64,
             Ok("earth32") => settings.texture_pack = settings::TexturePack::Earth32,
             Ok("classic") => settings.texture_pack = settings::TexturePack::Classic,
             _ => {}
+        }
+        if let Some(pack) = settings.shader_pack.as_deref()
+            && let Err(error) = shader_packs::apply(&mut renderer, &assets_dir(), Some(pack))
+        {
+            log::warn!("pack de shaders {pack} : {error:#}. Rendu standard utilisé.");
+            settings.shader_pack = None;
         }
         let launch = Launch::from_env().unwrap_or_else(Launch::title);
         Ok(Self {
@@ -1478,11 +1485,13 @@ impl VoxelGame {
             self.mods.reload_scripts();
         }
         if changes.shader {
-            let result = std::fs::read_to_string(engine_render::CHUNK_SHADER_PATH)
-                .map_err(anyhow::Error::from)
-                .and_then(|source| self.renderer.reload_chunk_shader(&source));
+            let result = shader_packs::reload(
+                &mut self.renderer,
+                &assets_dir(),
+                self.settings.shader_pack.as_deref(),
+            );
             match result {
-                Ok(()) => log::info!("shader des chunks rechargé"),
+                Ok(()) => log::info!("shaders rechargés"),
                 Err(err) => log::error!("{err:#}"),
             }
         }

@@ -308,7 +308,10 @@ pub fn menu(ctx: &egui::Context, title: &str, width: f32, add: impl FnOnce(&mut 
         .frame(egui::Frame::NONE.inner_margin(8))
         .fixed_pos(egui::pos2(safe.center().x - width * 0.5, y))
         .fixed_size(egui::vec2(width, safe.bottom() - y))
-        .vscroll(!matches!(title, "Options" | "Packs de textures"))
+        .vscroll(!matches!(
+            title,
+            "Options" | "Packs de textures" | "Packs de shaders"
+        ))
         .title_bar(false)
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
@@ -705,6 +708,49 @@ mod tests {
         }
     }
 
+    #[test]
+    fn display_options_open_the_shader_selector() {
+        let ctx = egui::Context::default();
+        crate::skin::apply(&ctx);
+        let mut settings = crate::settings::Settings::default();
+        let mut target = None;
+        let mut opened = false;
+        for frame in 0..6 {
+            let mut input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800., 600.),
+                )),
+                ..Default::default()
+            };
+            if (3..=4).contains(&frame) {
+                let pos = target.expect("bouton des shaders visible");
+                input.events.push(egui::Event::PointerMoved(pos));
+                input.events.push(egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: frame == 3,
+                    modifiers: Default::default(),
+                });
+            }
+            let mut output = ctx.run_ui(input, |ui| {
+                menu(ui.ctx(), "Options", 640., |ui| {
+                    opened |= crate::ui_options::panel(ui, &mut settings, &mut None)
+                        == crate::ui_options::Navigation::Shaders;
+                });
+            });
+            output.textures_delta.clear();
+            for shape in output.shapes {
+                if let egui::Shape::Text(text) = shape.shape
+                    && text.galley.text() == "Packs de shaders…"
+                    && shape.clip_rect.contains_rect(text.visual_bounding_rect())
+                {
+                    target = Some(text.visual_bounding_rect().center());
+                }
+            }
+        }
+        assert!(opened);
+    }
     #[test]
     fn scrolling_a_short_options_window_reaches_the_return_button() {
         let ctx = egui::Context::default();

@@ -1,11 +1,24 @@
 # Packs de textures
 
-Depuis le menu principal : **Packs de textures… → Terre, ardoise et cuivre · 32 × 32
-→ Appliquer**, puis ouvrir ou créer un monde. Le choix est mémorisé dans les options
-du joueur et s'applique aussi aux mondes déjà enregistrés. Pour revenir au rendu
-d'origine, sélectionner **Classique · 16 × 16** puis appliquer.
+Dans le menu principal, ouvrir **Packs de textures…**, choisir un pack puis
+sélectionner **Appliquer** avant d'ouvrir ou de créer un monde. Le jeu mémorise
+la préférence. **Classique · 16 × 16** restaure le rendu d'origine.
 
-Le pack fourni comprend **462 PNG RGBA en 32 × 32**, couvrant les textures de blocs,
+## Sous-bois et forge · 64 × 64
+
+**Sous-bois et forge · 64 × 64** propose 592 textures de blocs, de créatures et d’objets. Les pépites
+métalliques et les éclats de cristal se détachent sur la roche fracturée. Les sols mêlent
+humus, aiguilles, brins et grains. Les nuances du bois suivent les fibres, le
+métal a des piqûres de surface et le four porte un dépôt de suie. Les ombres
+de faible échelle sont calculées par le générateur à partir du relief des
+matières. Les herbes, fougères et fleurs de prairie sont dessinées en 64 pixels. Le reste du catalogue reprend les dessins existants avec un affinage des contours par Scale2x.
+
+Le générateur `cargo run -p assetgen -- --pack64-only` écrit les PNG et le
+manifeste dans `texture_packs/earth-copper-64/`.
+
+## Terre, ardoise et cuivre · 32 × 32
+
+Les PNG RGBA du pack couvrent les textures de blocs,
 les icônes d'objets et les matières des animaux et ennemis du jeu et des mods de référence.
 Les principales matières sont
 redessinées directement en 32 : touffes d'herbe, terre caillouteuse et racines,
@@ -28,7 +41,7 @@ Les PNG et le manifeste sont générés et versionnés. Pour les reproduire :
 cargo run -p assetgen -- --pack32-only
 ```
 
-La commande `--textures-only` régénère les dessins de base **et** ce pack. Modifier
+La commande `--textures-only` régénère les dessins de base et les deux packs. Modifier
 `tools/assetgen/src/texture_pack32.rs` et ses modules dans `texture_pack32/`
 pour faire évoluer les dessins 32 × 32.
 F5 et le rechargement automatique prennent aussi en compte ses images.

@@ -15,6 +15,9 @@ struct Camera {
     // Immersion, altitude de la surface, couverture nuageuse et ciel dynamique actif.
     water: vec4<f32>,
     chest_lids: array<vec4<f32>, 4>,
+    shadow_projection: mat4x4<f32>,
+    // x : poids de l’ombre, y : lumière lunaire, z : profondeur de la carte en blocs.
+    shadow_strength: vec4<f32>,
 };
 
 @group(0) @binding(0)
@@ -25,6 +28,8 @@ var<uniform> camera: Camera;
 var block_textures: texture_2d_array<f32>;
 @group(1) @binding(1)
 var block_sampler: sampler;
+@group(2) @binding(0) var sun_depth: texture_depth_2d;
+@group(2) @binding(1) var sun_compare: sampler_comparison;
 
 struct VertexIn {
     // Position dans le chunk : (p + 8) × 1024 ; w : index du bloc animé (x + 32z + 1024y).
@@ -92,8 +97,7 @@ fn rotate_axis(v: vec3<f32>, axis: vec3<f32>, angle: f32) -> vec3<f32> {
     return v * c + cross(axis, v) * sin(angle) + axis * dot(axis, v) * (1.0 - c);
 }
 
-@vertex
-fn vs_main(vertex: VertexIn) -> VertexOut {
+fn project_vertex(vertex: VertexIn, projection: mat4x4<f32>) -> VertexOut {
     var out: VertexOut;
     var local = vec3<f32>(vertex.position.xyz) / POSITION_SCALE - vec3<f32>(POSITION_BIAS);
     if vertex.uv_base.w > 1.0 {
@@ -162,7 +166,7 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
         position.x += sin(t * 1.7 + p.x * 0.6 + p.z * 0.35) * amount;
         position.z += cos(t * 1.3 + p.z * 0.55 + p.x * 0.25) * amount;
     }
-    out.clip_position = camera.view_proj * vec4<f32>(position, 1.0);
+    out.clip_position = projection * vec4<f32>(position, 1.0);
     out.color = vertex.color;
     out.normal = normal;
     out.world_position = world;
@@ -175,6 +179,16 @@ fn vs_main(vertex: VertexIn) -> VertexOut {
     out.flags = vertex.texture & ~TEXTURE_MASK;
     out.side_tint = vertex.position.w;
     return out;
+}
+
+@vertex
+fn vs_main(vertex: VertexIn) -> VertexOut {
+    return project_vertex(vertex, camera.view_proj);
+}
+
+@vertex
+fn vs_sun_shadow(vertex: VertexIn) -> VertexOut {
+    return project_vertex(vertex, camera.shadow_projection);
 }
 
 // Un niveau de lumière (0 à 1) vers une luminosité. Chaque niveau en moins divise
@@ -254,7 +268,7 @@ fn reflected_sky(ray: vec3<f32>, sun: vec3<f32>) -> vec3<f32> {
     return mix(haze, color, camera.water.w);
 }
 
-fn water_surface(in: VertexOut, albedo: vec4<f32>, light: vec3<f32>, sun: vec3<f32>) -> vec4<f32> {
+fn water_surface(in: VertexOut, albedo: vec4<f32>, light: vec3<f32>, sun: vec3<f32>, visibility: f32) -> vec4<f32> {
     let time = camera.sun_color.w;
     let to_eye = camera.position_fog_start.xyz - in.world_position;
     let distance = max(length(to_eye), 0.001);
@@ -268,7 +282,10 @@ fn water_surface(in: VertexOut, albedo: vec4<f32>, light: vec3<f32>, sun: vec3<f
     if top && calm < 1.0 {
         let fine = 1.0 - smoothstep(7.0, 33.0, distance / max(abs(view.y) * 1.6, 0.33));
         let drift = flow * smoothstep(0.012, 0.24, slope) * time * 0.48;
-        let gradient = wave_gradient(in.world_position.xz - drift, time, fine);
+        let p = in.world_position.xz - drift;
+        let swell_dir = vec2<f32>(0.29, -0.19);
+        let swell = cos(dot(p, swell_dir) - time * 0.57);
+        let gradient = wave_gradient(p, time, fine) + swell_dir * (0.10 * swell);
         normal = normalize(normal - vec3<f32>(gradient.x, 0.0, gradient.y) * (1.0 - calm) * (1.0 - fall));
     }
     normal = select(-normal, normal, dot(normal, view) >= 0.0);
@@ -288,7 +305,11 @@ fn water_surface(in: VertexOut, albedo: vec4<f32>, light: vec3<f32>, sun: vec3<f
     let depth = in.water_depth;
     // L'angle du rayon dans l'eau suit Snell : la traversée ne devient pas infinie au ras de l'eau.
     let path = depth * inverseSqrt(1.0 - 0.56 * (1.0 - angle * angle));
-    let absorb = 0.035 + 0.93 * (1.0 - exp(-path * (0.17 + albedo.a * 0.22)));
+    // Le rouge est absorbé plus vite que le bleu. Les petits fonds laissent
+    // apparaître le lit de la rivière, même à travers une ride.
+    let extinction = vec3<f32>(0.51, 0.22, 0.14) * (0.8 + albedo.a);
+    let transmission = exp(-path * extinction);
+    let absorb = 1.0 - 0.985 * dot(transmission, vec3<f32>(0.21, 0.72, 0.07));
     let depth_tint = mix(vec3<f32>(0.98, 1.20, 1.07), vec3<f32>(0.45, 0.78, 0.92), smoothstep(0.2, 4.0, depth));
     let body = albedo.rgb * depth_tint * light;
 
@@ -296,10 +317,17 @@ fn water_surface(in: VertexOut, albedo: vec4<f32>, light: vec3<f32>, sun: vec3<f
     let moon_night = smoothstep(0.13, 0.35, -sun.y) * camera.water.w;
     let warm = exp(-20.0 * sun.y * sun.y);
     let sun_tint = mix(vec3<f32>(1.0, 0.95, 0.81), vec3<f32>(1.0, 0.52, 0.23), warm);
-    let solar = exp2(-mix(730.0, 205.0, calm) * (1.0 - clamp(dot(reflection, sun), 0.0, 1.0)));
+    // Un cœur brillant entouré d'un reflet plus diffus sur les vaguelettes.
+    let sun_offset = 1.0 - clamp(dot(reflection, sun), 0.0, 1.0);
+    let solar = 0.78 * exp2(-mix(850.0, 250.0, calm) * sun_offset)
+        + 0.22 * exp2(-85.0 * sun_offset);
     let lunar = exp2(-430.0 * (1.0 - clamp(dot(reflection, -sun), 0.0, 1.0)));
     let open_sky = (1.0 - camera.water.z) * (1.0 - camera.water.z) * sky_visible;
-    let glint = (sun_tint * solar * sun_day * 0.82 + vec3<f32>(0.30, 0.48, 0.77) * lunar * moon_night * 0.27)
+    let moon_pack = camera.shadow_strength.y;
+    let moon_color = mix(vec3<f32>(0.30, 0.48, 0.77), vec3<f32>(0.40, 0.61, 0.92), moon_pack);
+    let moon_glint = moon_color * lunar * moon_night
+        * mix(0.27, 0.65 * visibility, moon_pack);
+    let glint = (sun_tint * solar * sun_day * visibility * 0.82 + moon_glint)
         * open_sky * (1.0 - immersed) * (1.0 - fall);
     let alpha = absorb * (1.0 - fresnel) + fresnel;
     let opaque_glint = max(glint.r, max(glint.g, glint.b));
@@ -318,9 +346,31 @@ fn water_surface(in: VertexOut, albedo: vec4<f32>, light: vec3<f32>, sun: vec3<f
     return vec4<f32>(surface_color, surface_alpha);
 }
 
-@fragment
-fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-    let time = camera.sun_color.w;
+// Entrées de l'effet de terrain V1. Couleurs RGB linéaires, distances en blocs.
+struct TerrainEffect {
+    lit: vec3<f32>,
+    alpha: f32,
+    position: vec3<f32>,
+    normal: vec3<f32>,
+    fog_color: vec3<f32>,
+    fog: f32,
+    distance: f32,
+    daylight: f32,
+    sun: vec3<f32>,
+    time: f32,
+    water: bool,
+    underwater: f32,
+    eye: vec3<f32>,
+    water_depth: f32,
+};
+
+// VOXEL_PACK_BEGIN
+fn voxel_terrain(input: TerrainEffect) -> vec4<f32> {
+    return vec4(mix(input.lit, input.fog_color, input.fog), input.alpha);
+}
+// VOXEL_PACK_END
+
+fn block_uv(in: VertexOut) -> vec2<f32> {
     var uv = face_uv(in.tex_position, in.tex_normal);
     // Un rail : le même dessin tourné d'un, deux ou trois quarts de tour (sens horaire, vu d'en haut).
     let turns = (in.flags >> TURN_SHIFT) & 3u;
@@ -332,10 +382,86 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         }
         uv = cell + t;
     }
-    let is_water = (in.flags & FLAG_WATER) != 0u;
-    if is_water {
-        uv *= 0.18;
+    return uv;
+}
+
+@fragment
+fn fs_sun_shadow(in: VertexOut) {
+    if (in.flags & FLAG_CUTOUT) != 0u && (in.flags & FLAG_FILLED) == 0u {
+        let mask = textureSampleLevel(block_textures, block_sampler, block_uv(in), in.texture, 0.0);
+        if mask.a < 0.5 {
+            discard;
+        }
     }
+}
+
+// Un disque fixe répartit les prélèvements autour du point éclairé.
+const SHADOW_DISK = array(
+    vec2(-0.88, -0.34), vec2(-0.37, -0.86), vec2(0.38, -0.85), vec2(0.89, -0.36),
+    vec2(0.88, 0.34), vec2(0.37, 0.86), vec2(-0.38, 0.85), vec2(-0.89, 0.36),
+);
+const SHADOW_MAX_RADIUS: f32 = 3.65;
+
+fn filtered_shadow(uv: vec2<f32>, reference: f32) -> f32 {
+    let size = textureDimensions(sun_depth);
+    let texel = 1.0 / vec2<f32>(size);
+    let center = textureSampleCompareLevel(sun_depth, sun_compare, uv, reference);
+    var probes = center;
+    for (var i = 0u; i < 4u; i++) {
+        let offset = SHADOW_DISK[i * 2u] * SHADOW_MAX_RADIUS;
+        probes += textureSampleCompareLevel(sun_depth, sun_compare, uv + texel * offset, reference);
+    }
+    // L'intérieur de l'ombre et les surfaces entièrement éclairées n'ont
+    // pas besoin de la recherche de l'obstacle ni du filtre complet.
+    if probes <= 0.001 || probes >= 4.999 {
+        return center;
+    }
+
+    var blockers = 0.0;
+    var total = 0.0;
+    let pixel_max = vec2<i32>(size) - 1;
+    for (var i = 0u; i < 5u; i++) {
+        let offset = SHADOW_DISK[(i * 2u) % 8u] * (SHADOW_MAX_RADIUS + 0.35) * f32(i != 4u);
+        let pixel = clamp(vec2<i32>(floor(uv * vec2<f32>(size) + offset)), vec2(0), pixel_max);
+        let depth = textureLoad(sun_depth, pixel, 0);
+        if depth < reference {
+            total += reference - depth;
+            blockers += 1.0;
+        }
+    }
+    // Un contact reste net. L'ombre s'ouvre quand la lumière parcourt
+    // plusieurs blocs entre l'obstacle et la surface qui la reçoit.
+    let gap = total * camera.shadow_strength.z / max(blockers, 1.0);
+    let radius = mix(1.48, SHADOW_MAX_RADIUS, smoothstep(0.45, 7.2, gap));
+    var result = center;
+    for (var i = 0u; i < 8u; i++) {
+        let offset = SHADOW_DISK[i] * radius;
+        result += textureSampleCompareLevel(sun_depth, sun_compare, uv + texel * offset, reference);
+    }
+    return result / 9.0;
+}
+
+// Le décalage évite l'auto-ombrage et la limite de la carte reste fondue.
+fn solar_visibility(world: vec3<f32>, normal: vec3<f32>) -> f32 {
+    let strength = camera.shadow_strength.x;
+    if strength <= 0.0 {
+        return 1.0;
+    }
+    let p = (camera.shadow_projection * vec4(world + normal * 0.035, 1.0)).xyz;
+    let edge = max(abs(p.x), abs(p.y));
+    if edge >= 0.995 || p.z <= 0.0 || p.z >= 1.0 {
+        return 1.0;
+    }
+    let uv = vec2(0.5 + 0.5 * p.x, 0.5 - 0.5 * p.y);
+    let coverage = (1.0 - smoothstep(0.76, 0.995, edge)) * strength;
+    return mix(1.0, filtered_shadow(uv, p.z - 0.00013), coverage);
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    let time = camera.sun_color.w;
+    let is_water = (in.flags & FLAG_WATER) != 0u;
+    let uv = block_uv(in) * select(1.0, 0.18, is_water);
     let dx = dpdx(uv);
     let dy = dpdy(uv);
     var texel: vec4<f32>;
@@ -385,7 +511,14 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // éclaire plus les faces tournées vers lui (éclairage diffus) ; sous l'horizon,
     // il n'éclaire plus directement.
     let facing = max(dot(normalize(in.normal), sun_direction), 0.0) * step(0.0, sun_direction.y);
-    let sky = brightness(in.light.x) * daylight * (0.6 + 0.4 * facing) * camera.sun_color.rgb;
+    let visibility = solar_visibility(in.world_position, normalize(in.normal));
+    let lunar = camera.shadow_strength.y;
+    let diffuse = 0.6 + 0.4 * facing;
+    let solar_light = diffuse - (1.0 - visibility) * (diffuse - 0.29);
+    let moon_facing = max(dot(normalize(in.normal), -sun_direction), 0.0);
+    let lunar_light = 0.44 + (0.27 + 0.80 * moon_facing) * visibility;
+    let sky = brightness(in.light.x) * daylight * mix(solar_light, lunar_light, lunar)
+        * camera.sun_color.rgb;
     // Les torches : une lumière chaude, la même jour et nuit.
     let torch = brightness(in.light.y) * vec3<f32>(1.0, 0.82, 0.6);
     // Un peu de lumière partout, pour ne jamais voir du noir complet.
@@ -397,7 +530,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     var lit = albedo.rgb * light;
     var alpha = albedo.a;
     if is_water {
-        let surface = water_surface(in, albedo, light, sun_direction);
+        let surface = water_surface(in, albedo, light, sun_direction, visibility);
         lit = surface.rgb;
         alpha = surface.a;
     }
@@ -432,5 +565,20 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         // Le brouillard du ciel n'a plus de sens sous l'eau : c'est la couleur de l'eau.
         fog *= 1.0 - underwater;
     }
-    return vec4<f32>(mix(lit, camera.fog_color_end.rgb, fog), alpha);
+    return voxel_terrain(TerrainEffect(
+        lit,
+        alpha,
+        in.world_position,
+        normalize(in.normal),
+        camera.fog_color_end.rgb,
+        fog,
+        length(offset),
+        daylight,
+        sun_direction,
+        time,
+        is_water,
+        underwater,
+        camera.position_fog_start.xyz,
+        in.water_depth,
+    ));
 }

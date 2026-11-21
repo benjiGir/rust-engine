@@ -21,15 +21,15 @@ fn hash(x: usize, y: usize, seed: u64) -> u64 {
     n = (n ^ (n >> 16)).wrapping_mul(0x7feb352d);
     n ^ (n >> 15)
 }
-fn read(path: &Path) -> Result<(usize, Vec<Pixel>)> {
+pub(crate) fn read(path: &Path) -> Result<(usize, Vec<Pixel>)> {
     let mut decoder = png::Decoder::new(BufReader::new(fs::File::open(path)?));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = decoder.read_info()?;
     let mut buf = vec![0; reader.output_buffer_size().context("taille PNG")?];
     let info = reader.next_frame(&mut buf)?;
     ensure!(
-        info.width == info.height && matches!(info.width, 16 | 32),
-        "PNG source attendu en 16 ou 32 : {}",
+        info.width == info.height && matches!(info.width, 16 | 32 | 64),
+        "PNG source attendu en 16, 32 ou 64 : {}",
         path.display()
     );
     let pixels = match info.color_type {
@@ -44,16 +44,16 @@ fn read(path: &Path) -> Result<(usize, Vec<Pixel>)> {
     };
     Ok((info.width as usize, pixels))
 }
-fn save(path: &Path, pixels: &[Pixel]) -> Result<()> {
+pub(crate) fn save(path: &Path, side: u32, pixels: &[Pixel]) -> Result<()> {
     fs::create_dir_all(path.parent().unwrap())?;
-    let mut enc = png::Encoder::new(BufWriter::new(fs::File::create(path)?), 32, 32);
+    let mut enc = png::Encoder::new(BufWriter::new(fs::File::create(path)?), side, side);
     enc.set_color(png::ColorType::Rgba);
     enc.set_depth(png::BitDepth::Eight);
     enc.write_header()?
         .write_image_data(&pixels.iter().flatten().copied().collect::<Vec<_>>())?;
     Ok(())
 }
-fn quantize(c: i32) -> u8 {
+pub(crate) fn quantize(c: i32) -> u8 {
     ((c.clamp(0, 255) as f32 / 255.0 * 31.0).round() / 31.0 * 255.0).round() as u8
 }
 fn linear(c: u8) -> f64 {
@@ -230,7 +230,7 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
                     .join(&namespace)
                     .join(kind)
                     .join(source.file_name().unwrap());
-                save(&target, &pixels)?;
+                save(&target, SIDE as u32, &pixels)?;
                 paths.push(target);
             }
         }

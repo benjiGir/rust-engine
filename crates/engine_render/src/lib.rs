@@ -14,7 +14,10 @@ mod gpu_timer;
 mod lines;
 mod mesh;
 mod renderer;
+mod shader_pack;
 mod sky;
+mod sun_rays;
+mod sun_shadows;
 
 pub use arena::ArenaStats;
 pub use camera::Camera;
@@ -24,7 +27,8 @@ pub use renderer::{
     CHUNK_SHADER_PATH, CHUNK_SHADER_SOURCE, Capture, CubeInstance, Fog, HandInstance, MeshId,
     RenderStats, Renderer, Sun, TEXTURE_SIZE, UiFrame, texture_side,
 };
-pub use sky::Sky;
+pub use shader_pack::{ShaderEffects, ShaderSources};
+pub use sky::{SKY_SHADER_PATH, SKY_SHADER_SOURCE, Sky};
 // Le jeu construit son interface avec la même version d'egui que le renderer.
 pub use egui;
 
@@ -42,6 +46,7 @@ mod tests {
             include_str!("shader.wgsl"),
             include_str!("hand.wgsl"),
             include_str!("sky.wgsl"),
+            crate::sun_rays::SOURCE,
         ] {
             let module = wgpu::naga::front::wgsl::parse_str(source)
                 .unwrap_or_else(|error| panic!("{}", error.emit_to_string(source)));

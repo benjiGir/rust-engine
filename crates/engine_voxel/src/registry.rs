@@ -1370,7 +1370,7 @@ impl BlockRegistry {
     /// Les fichiers absents reviennent aux ressources du jeu ou du mod.
     pub fn set_visual_pack(&mut self, assets: Option<PathBuf>, size: u32) -> Result<()> {
         anyhow::ensure!(
-            matches!(size, 16 | 32),
+            matches!(size, 16 | 32 | 64),
             "résolution de pack non prise en charge : {size}"
         );
         if let Some(root) = &assets {

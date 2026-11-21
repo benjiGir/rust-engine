@@ -19,10 +19,10 @@ fn missing_texture_at(size: u32) -> Vec<u8> {
         .collect()
 }
 
-/// Lit un PNG RGBA, en conservant sa résolution 16 × 16 ou 32 × 32.
+/// Lit un PNG RGBA, en conservant sa résolution 16 × 16, 32 × 32 ou 64 × 64.
 pub(crate) fn load_png(path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
     let image = image::open(path)?.to_rgba8();
-    let image = if matches!(image.dimensions(), (16, 16) | (32, 32)) {
+    let image = if matches!(image.dimensions(), (16, 16) | (32, 32) | (64, 64)) {
         image
     } else {
         log::warn!(
@@ -78,6 +78,31 @@ pub(crate) fn load_png_at(path: &std::path::Path, side: u32) -> anyhow::Result<V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_64_pack_loads_native_blocks_plants_and_items() {
+        use crate::settings::TexturePack;
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut registry = crate::test_registry();
+        crate::texture_packs::configure(&mut registry, TexturePack::Earth64, &root);
+        let pack = root.join("texture_packs/earth-copper-64");
+        assert_eq!(registry.texture_size(), 64);
+        for (key, kind) in [("core:stone", "textures"), ("core:iron_axe", "items")] {
+            let path = registry.asset_path(key, kind, "png").unwrap();
+            assert!(path.starts_with(&pack));
+            assert_eq!(load_png(&path).unwrap().len(), 64 * 64 * 4);
+        }
+        for key in ["core:cactus_side", "core:tall_grass", "core:poppy"] {
+            let path = registry.asset_path(key, "textures", "png").unwrap();
+            assert!(path.starts_with(&pack));
+            assert_eq!(load_png(&path).unwrap().len(), 64 * 64 * 4);
+        }
+        assert!(
+            load_textures(&registry)
+                .iter()
+                .all(|p| p.len() == 64 * 64 * 4)
+        );
+    }
 
     #[test]
     fn the_32_pack_keeps_native_layers_and_missing_overrides_fall_back() {

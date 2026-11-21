@@ -17,5 +17,8 @@ pollster = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
 
+[dev-dependencies]
+wgpu = { workspace = true, features = ["noop"] }
+
 [lints]
 workspace = true

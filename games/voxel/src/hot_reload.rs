@@ -79,6 +79,12 @@ impl Changes {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             match path.extension().and_then(|e| e.to_str()) {
                 Some("wgsl") => changes.shader = true,
+                Some("ron")
+                    if name == "pack.ron"
+                        && path.components().any(|c| c.as_os_str() == "shader_packs") =>
+                {
+                    changes.shader = true;
+                }
                 Some("png") => changes.textures = true,
                 Some("wav" | "ogg") => changes.sounds = true,
                 Some("wasm") => changes.scripts = true,
@@ -185,6 +191,7 @@ mod tests {
     fn file_types_decide_what_to_reload() {
         let paths = [
             PathBuf::from("crates/engine_render/src/chunk_shader.wgsl"),
+            PathBuf::from("assets/shader_packs/crepuscule/terrain.wgsl"),
             PathBuf::from("assets/core/textures/dirt.png"),
             PathBuf::from("assets/core/notes.txt"),
         ];
@@ -199,6 +206,8 @@ mod tests {
                 scripts: false,
             }
         );
+        let pack = [PathBuf::from("assets/shader_packs/crepuscule/pack.ron")];
+        assert!(Changes::from_paths(&pack).shader);
         let ron = [
             PathBuf::from("mods/example/blocks.ron"),
             PathBuf::from("saves/world/world.ron"),

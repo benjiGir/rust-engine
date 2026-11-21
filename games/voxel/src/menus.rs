@@ -34,12 +34,17 @@ pub enum TitlePage {
     TexturePacks {
         selected: crate::settings::TexturePack,
     },
+    ShaderPacks {
+        selection: crate::shader_packs::Selection,
+        from_options: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PausePage {
     Main,
     Options,
+    ShaderPacks(crate::shader_packs::Selection),
     /// La page d'options d'un mod (son identifiant).
     ModOptions(String),
 }
@@ -184,7 +189,7 @@ impl VoxelGame {
             title,
             if title == "Voxel" {
                 500.0
-            } else if title == "Options" || title == "Packs de textures" {
+            } else if matches!(title, "Options" | "Packs de textures" | "Packs de shaders") {
                 640.0
             } else if title == "Mondes" {
                 600.0
@@ -210,9 +215,17 @@ impl VoxelGame {
                         error: None,
                     });
                 }
-                if button(ui, "Packs de textures…") {
+                let (textures, shaders) =
+                    crate::ui_layout::paired_buttons(ui, "Packs de textures…", "Packs de shaders…");
+                if textures {
                     self.mode = Mode::Title(TitlePage::TexturePacks {
                         selected: self.settings.texture_pack,
+                    });
+                }
+                if shaders {
+                    self.mode = Mode::Title(TitlePage::ShaderPacks {
+                        selection: self.shader_selection(),
+                        from_options: false,
                     });
                 }
                 ui.add_space(10.0);
@@ -391,6 +404,61 @@ impl VoxelGame {
                     crate::texture_packs::Action::None => TitlePage::TexturePacks { selected },
                 });
             }
+            TitlePage::ShaderPacks {
+                mut selection,
+                from_options,
+            } => {
+                self.mode = Mode::Title(if self.shader_panel(ctx, &mut selection) {
+                    if from_options {
+                        TitlePage::Options
+                    } else {
+                        TitlePage::Main
+                    }
+                } else {
+                    TitlePage::ShaderPacks {
+                        selection,
+                        from_options,
+                    }
+                });
+            }
+        }
+    }
+
+    fn shader_selection(&self) -> crate::shader_packs::Selection {
+        crate::shader_packs::Selection::open(
+            &crate::assets_dir(),
+            self.settings.shader_pack.as_deref(),
+        )
+    }
+
+    fn shader_panel(
+        &mut self,
+        ctx: &egui::Context,
+        selection: &mut crate::shader_packs::Selection,
+    ) -> bool {
+        use crate::shader_packs::{self, Action};
+        let mut action = Action::None;
+        Self::menu_window(ctx, "Packs de shaders", |ui| {
+            action = shader_packs::panel(ui, selection, self.settings.shader_pack.as_deref());
+        });
+        match action {
+            Action::None => false,
+            Action::Back => true,
+            Action::Apply => match shader_packs::apply(
+                &mut self.renderer,
+                &crate::assets_dir(),
+                selection.selected.as_deref(),
+            ) {
+                Ok(()) => {
+                    self.settings.shader_pack.clone_from(&selection.selected);
+                    self.settings.save(&project_root());
+                    true
+                }
+                Err(error) => {
+                    selection.error = Some(format!("{error:#}"));
+                    false
+                }
+            },
         }
     }
 
@@ -424,6 +492,13 @@ impl VoxelGame {
                     self.mode = Mode::Paused(PausePage::Main);
                 }
             }),
+            PausePage::ShaderPacks(mut selection) => {
+                self.mode = Mode::Paused(if self.shader_panel(ctx, &mut selection) {
+                    PausePage::Options
+                } else {
+                    PausePage::ShaderPacks(selection)
+                });
+            }
             PausePage::ModOptions(id) => {
                 let title = self
                     .mods
@@ -461,9 +536,21 @@ impl VoxelGame {
     /// Les options, communes au menu principal et à la pause. Renvoie `true` quand on
     /// clique « Retour » (les options sont alors enregistrées et appliquées).
     fn options_panel(&mut self, ui: &mut egui::Ui) -> bool {
-        let back = crate::ui_options::panel(ui, &mut self.settings, &mut self.waiting_key);
+        let navigation = crate::ui_options::panel(ui, &mut self.settings, &mut self.waiting_key);
         self.apply_settings();
-        if back {
+        if navigation == crate::ui_options::Navigation::Shaders {
+            self.waiting_key = None;
+            let selection = self.shader_selection();
+            self.mode = if matches!(self.mode, Mode::Title(_)) {
+                Mode::Title(TitlePage::ShaderPacks {
+                    selection,
+                    from_options: true,
+                })
+            } else {
+                Mode::Paused(PausePage::ShaderPacks(selection))
+            };
+        }
+        if navigation == crate::ui_options::Navigation::Back {
             self.waiting_key = None;
             self.settings.save(&project_root());
             self.renderer.set_vsync(self.settings.vsync);

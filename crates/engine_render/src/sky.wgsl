@@ -239,6 +239,22 @@ fn atmosphere(ray: vec3<f32>, sun: vec3<f32>, overcast: f32) -> vec3<f32> {
     return color + glow * (1.0 - overcast) * (0.17 + 0.20 * twilight) * separation;
 }
 
+// Entrées de l'effet de ciel V1, après composition des nuages.
+struct SkyEffect {
+    color: vec3<f32>,
+    ray: vec3<f32>,
+    sun: vec3<f32>,
+    overcast: f32,
+    underwater: f32,
+    time: f32,
+};
+
+// VOXEL_PACK_BEGIN
+fn voxel_sky(input: SkyEffect) -> vec3<f32> {
+    return input.color;
+}
+// VOXEL_PACK_END
+
 @fragment
 fn fs_sky(in: SkyVertex) -> @location(0) vec4<f32> {
     let ray = normalize(in.ray);
@@ -290,5 +306,6 @@ fn fs_sky(in: SkyVertex) -> @location(0) vec4<f32> {
     color = mix(color, haze, sky.horizon.w);
     // Léger tramage avant la conversion sRGB pour adoucir les dégradés sombres.
     let dither = (jitter - 0.5) * 0.0011;
-    return vec4(max(color + dither, vec3(0.0)), 1.0);
+    let tinted = voxel_sky(SkyEffect(color, ray, sun, overcast, sky.horizon.w, sky.weather.z));
+    return vec4(max(tinted + dither, vec3(0.0)), 1.0);
 }

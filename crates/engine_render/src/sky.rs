@@ -31,6 +31,9 @@ struct SkyUniform {
     seed: u32,
 }
 
+pub const SKY_SHADER_SOURCE: &str = include_str!("sky.wgsl");
+pub const SKY_SHADER_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/sky.wgsl");
+
 const CLOUD_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 struct CloudTarget {
@@ -42,6 +45,7 @@ struct CloudTarget {
 pub(crate) struct SkyPass {
     pipeline: wgpu::RenderPipeline,
     uniform: wgpu::Buffer,
+    uniform_layout: wgpu::BindGroupLayout,
     binding: wgpu::BindGroup,
     cloud_pipeline: wgpu::RenderPipeline,
     cloud_layout: wgpu::BindGroupLayout,
@@ -55,7 +59,6 @@ impl SkyPass {
         format: wgpu::TextureFormat,
         depth_format: wgpu::TextureFormat,
     ) -> Self {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("sky.wgsl"));
         let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("uniforme du ciel"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -90,49 +93,14 @@ impl SkyPass {
                 },
             ],
         });
-        let create_pipeline = |entry, target: wgpu::TextureFormat, layouts, depth_stencil| {
-            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some(entry),
-                bind_group_layouts: layouts,
-                ..Default::default()
-            });
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(entry),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_sky"),
-                    buffers: &[],
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some(entry),
-                    targets: &[Some(target.into())],
-                    compilation_options: Default::default(),
-                }),
-                primitive: Default::default(),
-                depth_stencil,
-                multisample: Default::default(),
-                multiview_mask: None,
-                cache: None,
-            })
-        };
-        let sky_layouts = [Some(&uniform_layout), Some(&cloud_layout)];
-        let cloud_layouts = [Some(&uniform_layout)];
-        let pipeline = create_pipeline(
-            "fs_sky",
+        let (pipeline, cloud_pipeline) = pipelines(
+            device,
             format,
-            &sky_layouts[..],
-            Some(wgpu::DepthStencilState {
-                format: depth_format,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::Equal),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
+            depth_format,
+            &uniform_layout,
+            &cloud_layout,
+            SKY_SHADER_SOURCE,
         );
-        let cloud_pipeline = create_pipeline("fs_clouds", CLOUD_FORMAT, &cloud_layouts[..], None);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("paramètres du ciel"),
             size: size_of::<SkyUniform>() as u64,
@@ -156,12 +124,37 @@ impl SkyPass {
         Self {
             pipeline,
             uniform,
+            uniform_layout,
             binding,
             cloud_pipeline,
             cloud_layout,
             cloud_sampler,
             clouds: None,
         }
+    }
+
+    pub(crate) fn prepare_pipelines(
+        &self,
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        depth_format: wgpu::TextureFormat,
+        source: &str,
+    ) -> (wgpu::RenderPipeline, wgpu::RenderPipeline) {
+        pipelines(
+            device,
+            format,
+            depth_format,
+            &self.uniform_layout,
+            &self.cloud_layout,
+            source,
+        )
+    }
+
+    pub(crate) fn set_pipelines(
+        &mut self,
+        pipelines: (wgpu::RenderPipeline, wgpu::RenderPipeline),
+    ) {
+        (self.pipeline, self.cloud_pipeline) = pipelines;
     }
 
     /// `horizon` garde la couleur de fond du monde (rgb) et l'immersion (w).
@@ -266,4 +259,62 @@ impl SkyPass {
         pass.set_bind_group(1, &clouds.binding, &[]);
         pass.draw(0..3, 0..1);
     }
+}
+
+fn pipelines(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    depth_format: wgpu::TextureFormat,
+    uniform_layout: &wgpu::BindGroupLayout,
+    cloud_layout: &wgpu::BindGroupLayout,
+    source: &str,
+) -> (wgpu::RenderPipeline, wgpu::RenderPipeline) {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("shader du ciel"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    let create_pipeline = |entry, target: wgpu::TextureFormat, layouts, depth_stencil| {
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some(entry),
+            bind_group_layouts: layouts,
+            ..Default::default()
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(entry),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_sky"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some(entry),
+                targets: &[Some(target.into())],
+                compilation_options: Default::default(),
+            }),
+            primitive: Default::default(),
+            depth_stencil,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        })
+    };
+    let sky_layouts = [Some(uniform_layout), Some(cloud_layout)];
+    let cloud_layouts = [Some(uniform_layout)];
+    let pipeline = create_pipeline(
+        "fs_sky",
+        format,
+        &sky_layouts[..],
+        Some(wgpu::DepthStencilState {
+            format: depth_format,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::Equal),
+            stencil: Default::default(),
+            bias: Default::default(),
+        }),
+    );
+    let cloud_pipeline = create_pipeline("fs_clouds", CLOUD_FORMAT, &cloud_layouts[..], None);
+    (pipeline, cloud_pipeline)
 }

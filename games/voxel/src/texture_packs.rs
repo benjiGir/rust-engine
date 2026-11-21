@@ -4,7 +4,20 @@ use engine_render::egui::{self, TextureHandle};
 use engine_voxel::BlockRegistry;
 use serde::Deserialize;
 use std::{collections::HashMap, path::Path};
-const FOLDER: &str = "texture_packs/earth-copper-32";
+const PACKS: [TexturePack; 3] = [
+    TexturePack::Classic,
+    TexturePack::Earth32,
+    TexturePack::Earth64,
+];
+
+fn details(pack: TexturePack) -> Option<(&'static str, u32)> {
+    match pack {
+        TexturePack::Classic => None,
+        TexturePack::Earth32 => Some(("earth-copper-32", 32)),
+        TexturePack::Earth64 => Some(("earth-copper-64", 64)),
+    }
+}
+
 #[derive(Deserialize)]
 struct Manifest {
     id: String,
@@ -12,29 +25,27 @@ struct Manifest {
     resolution: u32,
     description: String,
 }
-fn manifest(root: &Path) -> Option<Manifest> {
-    ron::from_str(&std::fs::read_to_string(root.join(FOLDER).join("pack.ron")).ok()?).ok()
+fn manifest(folder: &Path) -> Option<Manifest> {
+    ron::from_str(&std::fs::read_to_string(folder.join("pack.ron")).ok()?).ok()
 }
 pub fn available(root: &Path, pack: TexturePack) -> bool {
-    match pack {
-        TexturePack::Classic => true,
-        TexturePack::Earth32 => {
-            manifest(root).is_some_and(|p| p.id == "earth-copper-32" && p.resolution == 32)
-                && root
-                    .join(FOLDER)
-                    .join("assets/core/textures/grass_top.png")
-                    .is_file()
-        }
-    }
+    details(pack).is_none_or(|(id, size)| {
+        let folder = root.join("texture_packs").join(id);
+        manifest(&folder).is_some_and(|p| p.id == id && p.resolution == size)
+            && folder.join("assets/core/textures/grass_top.png").is_file()
+    })
 }
 pub fn configure(registry: &mut BlockRegistry, pack: TexturePack, root: &Path) {
-    let (path, size) = if pack == TexturePack::Earth32 && available(root, pack) {
-        (Some(root.join(FOLDER).join("assets")), 32)
-    } else {
-        if pack == TexturePack::Earth32 {
-            log::warn!("pack 32 absent ou invalide : textures classiques utilisées");
+    let (path, size) = match details(pack) {
+        Some((id, size)) if available(root, pack) => (
+            Some(root.join("texture_packs").join(id).join("assets")),
+            size,
+        ),
+        Some((id, _)) => {
+            log::warn!("pack {id} absent ou invalide : textures classiques utilisées");
+            (None, 16)
         }
-        (None, 16)
+        None => (None, 16),
     };
     if let Err(err) = registry.set_visual_pack(path, size) {
         log::warn!("pack graphique : {err}");
@@ -50,10 +61,10 @@ fn previews(ctx: &egui::Context, root: &Path, pack: TexturePack) -> Vec<TextureH
     let handles = cache
         .entry(key)
         .or_insert_with(|| {
-            let base = match pack {
-                TexturePack::Classic => root.join("assets/core"),
-                TexturePack::Earth32 => root.join(FOLDER).join("assets/core"),
-            };
+            let base = details(pack).map_or_else(
+                || root.join("assets/core"),
+                |(id, _)| root.join("texture_packs").join(id).join("assets/core"),
+            );
             [
                 ("textures", "grass_top"),
                 ("textures", "stone"),
@@ -126,15 +137,22 @@ pub fn panel(
                         );
                         ui.add_space(8.0);
                     }
-                    for pack in [TexturePack::Classic, TexturePack::Earth32] {
+                    for pack in PACKS {
                         let enabled = available(root, pack);
                         let selected = *draft == pack;
-                        let title = match pack {
-                            TexturePack::Classic => "Classique · 16 × 16".to_string(),
-                            TexturePack::Earth32 => manifest(root)
-                                .map_or("Matières détaillées · 32 × 32".into(), |p| {
-                                    format!("{} · 32 × 32", p.name)
-                                }),
+                        let (title, description) = match details(pack) {
+                            None => (
+                                "Classique · 16 × 16".to_owned(),
+                                "Les dessins d'origine, pour le rendu le plus léger.".to_owned(),
+                            ),
+                            Some((id, size)) => {
+                                let info = manifest(&root.join("texture_packs").join(id));
+                                let (name, description) = info.map_or_else(
+                                    || ("Matières détaillées".into(), String::new()),
+                                    |p| (p.name, p.description),
+                                );
+                                (format!("{name} · {size} × {size}"), description)
+                            }
                         };
                         let card_width = ui.available_width();
                         egui::Frame::new()
@@ -160,17 +178,6 @@ pub fn panel(
                                     );
                                 });
                                 if !compact {
-                                    let description = match pack {
-                                TexturePack::Classic => {
-                                    "Les dessins d'origine, pour le rendu le plus léger."
-                                        .to_string()
-                                }
-                                TexturePack::Earth32 => manifest(root).map_or(
-                                    "Dessins natifs : matières travaillées et nouveaux profils d’équipement."
-                                        .into(),
-                                    |p| p.description,
-                                ),
-                            };
                                     ui.label(
                                         egui::RichText::new(description)
                                             .size(12.0)
@@ -235,6 +242,11 @@ mod tests {
     }
     #[test]
     fn a_click_selects_the_optional_pack_and_apply_returns_the_selection() {
+        click_and_apply(TexturePack::Earth32, "Terre, ardoise");
+        click_and_apply(TexturePack::Earth64, "Sous-bois et forge");
+    }
+
+    fn click_and_apply(expected: TexturePack, label: &str) {
         let ctx = egui::Context::default();
         crate::skin::apply(&ctx);
         let mut draft = TexturePack::Classic;
@@ -276,7 +288,7 @@ mod tests {
             );
             for shape in &output.shapes {
                 if let egui::Shape::Text(text) = &shape.shape {
-                    if text.galley.text().starts_with("Terre, ardoise") {
+                    if text.galley.text().starts_with(label) {
                         target = Some(text.visual_bounding_rect().center());
                     }
                     if text.galley.text() == "Appliquer" {
@@ -286,7 +298,7 @@ mod tests {
             }
             output.textures_delta.clear();
         }
-        assert_eq!(draft, TexturePack::Earth32);
+        assert_eq!(draft, expected);
         assert_eq!(action, Action::Apply);
     }
 
@@ -345,7 +357,7 @@ mod tests {
             registry
                 .asset_path("core:grass_top", "textures", "png")
                 .unwrap()
-                .starts_with(root.join(FOLDER))
+                .starts_with(root.join("texture_packs/earth-copper-32"))
         );
         assert_eq!(
             registry.asset_path("core:step_soft", "sounds", "wav"),

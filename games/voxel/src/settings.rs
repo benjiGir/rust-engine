@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TexturePack {
     Earth32,
+    Earth64,
     #[default]
     #[serde(other)]
     Classic,
@@ -233,6 +234,7 @@ pub fn key_name(key: KeyCode) -> Option<&'static str> {
 pub struct Settings {
     /// Pack graphique choisi dans le menu, appliqué à l'ouverture d'un monde.
     pub texture_pack: TexturePack,
+    pub shader_pack: Option<String>,
     /// Rayon de chargement, en chunks (appliqué au prochain monde chargé).
     pub render_distance: i32,
     /// Jusqu'où on dessine le terrain lointain simplifié, en chunks (0 : pas de terrain
@@ -262,6 +264,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             texture_pack: TexturePack::Classic,
+            shader_pack: None,
             render_distance: 16,
             far_distance: 64,
             fov: 70.0,
@@ -328,6 +331,7 @@ mod tests {
         let loaded: Settings = ron::from_str("(fov:80.0,show_arm:false)").unwrap();
         assert_eq!(loaded.ui_scale, 1.0);
         assert_eq!(loaded.texture_pack, TexturePack::Classic);
+        assert_eq!(loaded.shader_pack, None);
         assert!(loaded.target_info);
         assert!(
             loaded.chest_preview,
@@ -360,7 +364,8 @@ mod tests {
         assert_eq!(settings.keys.key(Action::Forward), KeyCode::KeyW);
         settings.keys.set(Action::Forward, KeyCode::ArrowUp);
         settings.fov = 90.0;
-        settings.texture_pack = TexturePack::Earth32;
+        settings.texture_pack = TexturePack::Earth64;
+        settings.shader_pack = Some("crepuscule".into());
         settings.save(&dir);
         let back = Settings::load(&dir);
         assert_eq!(back, settings);

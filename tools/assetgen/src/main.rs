@@ -14,6 +14,7 @@ mod magic_items;
 mod ore_veins;
 mod sounds;
 mod texture_pack32;
+mod texture_pack64;
 mod textures;
 mod wool_palette;
 
@@ -29,15 +30,19 @@ fn main() -> Result<()> {
         args.is_empty()
             || args == ["--textures-only"]
             || args == ["--sounds-only"]
-            || args == ["--pack32-only"],
-        "usage : cargo run -p assetgen -- [--textures-only|--sounds-only|--pack32-only]"
+            || args == ["--pack32-only"]
+            || args == ["--pack64-only"],
+        "usage : cargo run -p assetgen -- [--textures-only|--sounds-only|--pack32-only|--pack64-only]"
     );
     let mut written: Vec<PathBuf> = Vec::new();
-    if args != ["--sounds-only"] && args != ["--pack32-only"] {
+    if args.is_empty() || args == ["--textures-only"] {
         written.extend(textures::generate(&root)?);
     }
-    if args != ["--sounds-only"] {
+    if args.is_empty() || args == ["--textures-only"] || args == ["--pack32-only"] {
         written.extend(texture_pack32::generate(&root)?);
+    }
+    if args.is_empty() || args == ["--textures-only"] || args == ["--pack64-only"] {
+        written.extend(texture_pack64::generate(&root)?);
     }
     if args.is_empty() || args == ["--sounds-only"] {
         written.extend(sounds::generate(&root)?);

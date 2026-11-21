@@ -155,7 +155,7 @@ const INK: [f32; 3] = [0.12, 0.16, 0.18];
 
 /// Bruit périodique interpolé : les deux bords ont les mêmes valeurs, sans cadre
 /// ni gros îlot contrasté qui dessine une case à chaque répétition.
-fn periodic_noise(x: f32, y: f32, cells: i32, seed: u64) -> f32 {
+pub(crate) fn periodic_noise(x: f32, y: f32, cells: i32, seed: u64) -> f32 {
     let ix = x.floor() as i32;
     let iy = y.floor() as i32;
     let smooth = |v: f32| v * v * (3.0 - 2.0 * v);

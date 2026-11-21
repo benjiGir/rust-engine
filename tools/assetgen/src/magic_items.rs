@@ -50,7 +50,7 @@ fn wand(x: f32, y: f32, side: usize) -> Option<Color> {
     let (dx, dy) = (x - 2.4, y - 13.3);
     let k = std::f32::consts::FRAC_1_SQRT_2;
     let (along, across) = ((dx - dy) * k, (dx + dy) * k);
-    let detailed = side == 32;
+    let detailed = side >= 32;
     let jewel = if detailed { 12.4 } else { 12.1 };
     let shoulder = ((along - jewel) / 3.10).abs();
     let crystal_width = 1.90 - (shoulder - 0.18).max(0.0) * 1.84;

@@ -32,16 +32,33 @@ fn row(ui: &mut egui::Ui, label: &str, control: impl FnOnce(&mut egui::Ui)) {
     });
 }
 
+#[derive(PartialEq, Eq)]
+pub enum Navigation {
+    Stay,
+    Shaders,
+    Back,
+}
+
 /// Corps défilant et bouton Retour toujours hors de la zone défilante.
-pub fn panel(ui: &mut egui::Ui, s: &mut Settings, waiting: &mut Option<Action>) -> bool {
+pub fn panel(ui: &mut egui::Ui, s: &mut Settings, waiting: &mut Option<Action>) -> Navigation {
     let tab = categories(ui);
+    let mut navigation = Navigation::Stay;
     egui::ScrollArea::vertical()
         .id_salt("options_body")
         .max_height((ui.ctx().content_rect().height() - 210.0).max(30.0))
         .min_scrolled_height(0.0)
-        .show(ui, |ui| controls(ui, s, waiting, tab));
+        .show(ui, |ui| {
+            if tab == 0 && crate::skin::menu_button(ui, "Packs de shaders…") {
+                navigation = Navigation::Shaders;
+            }
+            controls(ui, s, waiting, tab);
+        });
     ui.add_space(4.0);
-    crate::skin::menu_button(ui, "Retour")
+    if crate::skin::menu_button(ui, "Retour") {
+        Navigation::Back
+    } else {
+        navigation
+    }
 }
 
 fn categories(ui: &mut egui::Ui) -> usize {

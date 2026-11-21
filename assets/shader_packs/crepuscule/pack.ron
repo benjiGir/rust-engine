@@ -1,0 +1,10 @@
+(
+    api: 1,
+    name: "Crépuscule",
+    description: "Rayons dans le feuillage, ombres portées et nuits éclairées par la lune.",
+    sun_shadows: true,
+    sun_rays: true,
+    moonlight: true,
+    terrain: Some("terrain.wgsl"),
+    sky: Some("sky.wgsl"),
+)

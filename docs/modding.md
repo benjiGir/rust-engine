@@ -1344,15 +1344,22 @@ range son orientation et son état dans `data`, casse le bloc devant lui et donn
 
 ## Packs graphiques optionnels
 
-Le menu principal permet de choisir le pack classique 16 × 16 ou le pack 32 × 32
-fourni avec le jeu, avant l'ouverture d'un monde. La sélection est une préférence
+Le menu principal permet de choisir entre les packs 16 × 16, 32 × 32 et 64 × 64
+avant l'ouverture d'un monde. La sélection est une préférence
 visuelle du joueur, indépendante des sauvegardes. Voir
 [`texture_packs/README.md`](../texture_packs/README.md).
 
 Un remplacement graphique réside dans
-`texture_packs/earth-copper-32/assets/<namespace>/textures/<nom>.png` ou
+`texture_packs/earth-copper-32/assets/<namespace>/textures/<nom>.png` (ou
+`earth-copper-64` pour le pack 64) ou
 `.../items/<nom>.png`. Les noms restent ceux des assets du mod ; aucun nouveau
 champ n'est requis dans `blocks.ron`. Les PNG absents reviennent aux images du mod.
 Le tableau de textures GPU utilise la résolution du pack choisi : une texture
-16 × 16 non remplacée est agrandie au plus proche voisin dans le pack 32.
+16 × 16 non remplacée est agrandie au plus proche voisin dans les packs 32 et 64.
 Le pack ne remplace pas les scripts, sons, recettes ou définitions de blocs.
+
+## Packs de shaders
+
+Le menu principal charge les packs WGSL de `assets/shader_packs/`. Voir
+[la référence des packs de shaders](shader-packs.md) pour le manifeste et les
+fonctions qui personnalisent le terrain, l'eau et le ciel.
