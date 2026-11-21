@@ -13,7 +13,7 @@ mod item_models;
 #[path = "../src/skin.rs"]
 #[allow(dead_code)]
 mod skin;
-#[path = "../src/tone.rs"]
+#[path = "../../voxel_sim/src/tone.rs"]
 #[allow(dead_code)]
 mod tone;
 use anyhow::{Context as _, Result};

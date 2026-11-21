@@ -39,200 +39,110 @@
 //! - `VOXEL_DEMO=1` : le joueur marche, saute, casse et pose des blocs tout seul
 //!   (macOS empêche les outils de test d'envoyer des touches).
 
-mod adventure;
 mod adventure_ctl;
-mod adventure_data;
-mod affixes;
-mod aquatic;
 mod assets;
-mod attributes;
 mod attributes_ui;
 mod audio;
-mod backpack_block;
-mod backpacks;
 mod backpacks_window;
 mod bench;
-mod book_play;
-mod bot;
-mod bot_swarm;
-mod breeding;
-mod bucket_play;
-mod cart_play;
 mod cart_play_window;
-mod carts;
-mod charm_play;
-mod charms;
 mod chest_lids;
 mod chest_preview;
 mod client_entities;
 mod client_side;
 mod client_world;
-mod common;
-mod components;
 mod console;
-mod console_server;
-mod container_view;
 mod container_view_window;
-mod content;
 mod control;
 mod culling;
-mod daytime;
 mod death;
-mod death_server;
-mod dedicated;
-mod dimensions;
 mod dimensions_window;
-mod drops;
-mod elites;
-mod enchant_books;
 mod enchant_ctl;
-mod enchant_data;
-mod enchant_effects;
-mod enchant_library;
-mod enchant_table;
 mod enchant_ui;
-mod enchant_ui_server;
-mod enchanting;
-mod entities;
 mod entity_render;
-mod events;
 mod far_terrain;
-mod forge_tables;
 mod forge_ui;
-mod forge_ui_server;
-mod gear;
-mod gem_sockets;
-mod gems;
-mod ghosts;
 mod ghosts_window;
-mod guide;
 mod guide_ui;
-mod guide_ui_server;
 mod hand;
 mod hand_model;
-mod hot_reload;
-mod intents;
 mod intents_window;
 mod interact;
-mod interact_server;
 mod item_ctl;
-mod json_text;
 mod key_codes;
-mod launch;
 mod mob_render;
 #[cfg(test)]
-mod multiplayer_tests;
+mod mob_render_tests;
 mod net_client;
 mod net_ctl;
-mod net_host;
-mod net_join;
-mod predicted;
 mod predicted_window;
-mod screens;
-mod server_boot;
-mod server_commands;
-mod server_sends;
-mod server_side;
-mod server_step;
-mod sky_view;
 mod sky_view_window;
-mod sound_ids;
 mod stream_upload;
-mod texture_pack_config;
 mod texture_packs;
-mod tone;
 mod ui_inspect;
 mod weather_render;
-mod wire;
-mod world_edit;
 pub use launch::{Launch, Request};
 mod conduit_fx;
 mod conduit_render;
-mod inventory;
 mod item_art;
-mod item_data;
 mod item_models;
 mod menus;
-mod mob_brains;
-mod mob_model;
-mod mobs;
-mod mod_menu;
 mod mod_menu_window;
-mod modding;
-mod movement;
-mod navigation;
-mod paired_play;
-mod persistence;
 mod play_input;
-mod player;
 mod player_api;
-mod player_api_server;
-mod player_view;
 mod player_view_window;
-mod players;
-mod potions;
-mod projectiles;
-mod protocol;
 mod quest_ctl;
-mod quest_play;
-mod quest_progress;
 mod quest_ui;
-mod quest_ui_server;
-mod quests;
 mod recipe_browser;
-mod screen_actions;
 mod screen_actions_window;
 mod screenshots;
-mod settings;
 mod shader_packs;
 mod shape_ctl;
-mod shape_materials;
-mod shaped_play;
 mod shaped_play_window;
 mod shapes_scene;
 mod shaping_ui;
-mod shaping_ui_server;
-mod shared;
-mod sheep_colors;
-mod ships;
 mod ships_window;
 mod skin;
-mod soundscape;
-mod spawning;
-mod stats;
 mod storage_ctl;
 mod storage_ui;
-mod storage_ui_server;
-mod stress;
-mod survival;
-mod tiers;
 mod tiers_ui;
-mod tiers_ui_server;
-mod trading;
-mod transfer;
 mod ui;
 mod ui_info;
 mod ui_input;
 mod ui_layout;
 mod ui_options;
-mod ui_server;
 mod ui_target;
 mod ui_widgets;
-mod villagers;
 mod water_fx;
-mod weather;
 
 use crate::key_codes::KeyCodes;
-#[cfg(test)]
-pub(crate) use common::test_registry;
-#[allow(unused_imports)]
-pub(crate) use common::{
-    DEFAULT_SEED, EventReaders, FLY_ALTITUDE, assets_dir, env_parse, load_registry, project_root,
-};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
+#[cfg(test)]
+pub(crate) use voxel_sim::test_registry;
+#[allow(unused_imports)]
+pub(crate) use voxel_sim::{
+    DEFAULT_SEED, EventReaders, FLY_ALTITUDE, assets_dir, env_parse, load_registry, project_root,
+};
+#[allow(unused_imports)]
+pub(crate) use voxel_sim::{
+    adventure, adventure_data, affixes, aquatic, attributes, backpack_block, backpacks, book_play,
+    bot, bot_swarm, breeding, bucket_play, cart_play, carts, charm_play, charms, common,
+    components, console_server, container_view, content, daytime, death_server, dedicated,
+    dimensions, drops, elites, enchant_books, enchant_data, enchant_effects, enchant_library,
+    enchant_table, enchant_ui_server, enchanting, entities, events, forge_tables, forge_ui_server,
+    gear, gem_sockets, gems, ghosts, guide, guide_ui_server, hot_reload, intents, interact_server,
+    inventory, item_data, json_text, launch, mob_brains, mob_model, mobs, mod_menu, modding,
+    movement, navigation, net_host, net_join, paired_play, persistence, player, player_api_server,
+    player_view, players, potions, predicted, projectiles, protocol, quest_play, quest_progress,
+    quest_ui_server, quests, screen_actions, screens, server_boot, server_commands, server_sends,
+    server_side, server_step, settings, shape_materials, shaped_play, shaping_ui_server, shared,
+    sheep_colors, ships, sky_view, sound_ids, soundscape, spawning, stats, storage_ui_server,
+    stress, survival, texture_pack_config, tiers, tiers_ui_server, tone, trading, transfer,
+    ui_server, villagers, weather, wire, world_edit,
+};
 
 use anyhow::Result;
 use engine_core::winit::dpi::PhysicalSize;
@@ -248,8 +158,6 @@ use glam::{IVec3, Vec2, Vec3};
 
 use client_side::ClientSide;
 use components::{Collider, Transform};
-use daytime::DayCycle;
-use events::BlockPlaced;
 use mobs::MobRegistry;
 use player::{FLY_SPEED, FLY_SPRINT_FACTOR, MoveMode, SPRINT_SPEED, WALK_SPEED};
 use server_side::VoxelServer;

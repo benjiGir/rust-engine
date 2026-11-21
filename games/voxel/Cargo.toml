@@ -15,6 +15,7 @@ engine_mods = { workspace = true }
 engine_net = { workspace = true }
 engine_ecs = { workspace = true }
 engine_inspect = { workspace = true }
+voxel_sim = { workspace = true }
 egui-winit = { workspace = true }
 serde = { workspace = true }
 ron = { workspace = true }
@@ -30,6 +31,9 @@ kira = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
+
+[dev-dependencies]
+voxel_sim = { workspace = true, features = ["testing"] }
 
 [lints]
 workspace = true

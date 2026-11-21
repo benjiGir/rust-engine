@@ -4,11 +4,11 @@
 mod assets;
 #[allow(dead_code)]
 mod common;
-#[path = "../src/mob_model.rs"]
+#[path = "../../voxel_sim/src/mob_model.rs"]
 mod mob_model;
 #[path = "../src/mob_render.rs"]
 mod mob_render;
-#[path = "../src/sheep_colors.rs"]
+#[path = "../../voxel_sim/src/sheep_colors.rs"]
 #[allow(dead_code)]
 mod sheep_colors;
 use anyhow::{Context, Result};

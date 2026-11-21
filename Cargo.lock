@@ -4114,7 +4114,29 @@ dependencies = [
  "postcard",
  "ron",
  "serde",
+ "voxel_sim",
  "winit",
+]
+
+[[package]]
+name = "voxel_sim"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossbeam-channel",
+ "ctrlc",
+ "engine_ecs",
+ "engine_inspect",
+ "engine_mods",
+ "engine_net",
+ "engine_trace",
+ "engine_voxel",
+ "glam",
+ "log",
+ "notify",
+ "postcard",
+ "ron",
+ "serde",
 ]
 
 [[package]]

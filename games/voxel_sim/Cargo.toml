@@ -1,0 +1,30 @@
+[package]
+name = "voxel_sim"
+description = "La simulation du jeu voxel, sans fenêtre : le serveur, le monde, les joueurs, le protocole. Le jeu (fenêtre) et le serveur dédié s'en servent."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+postcard = { workspace = true }
+engine_trace = { workspace = true }
+engine_voxel = { workspace = true }
+engine_mods = { workspace = true }
+engine_net = { workspace = true }
+engine_ecs = { workspace = true }
+engine_inspect = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }
+ctrlc = { workspace = true }
+glam = { workspace = true }
+notify = { workspace = true }
+crossbeam-channel = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+
+[features]
+# Les aides de test (mondes de créatures, quêtes livrées, registre complet), pour les tests du jeu.
+testing = []
+
+[lints]
+workspace = true

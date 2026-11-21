@@ -1061,8 +1061,14 @@ Une règle de Rust décide du reste : les méthodes d'un type se définissent da
   (`assets_dir`, `project_root`, `env_parse`, `load_registry`, `EventReaders`, `DEFAULT_SEED`, `FLY_ALTITUDE`)
   passent dans `common.rs` (réexportés par `main.rs`), et son dernier bloc `impl VoxelServer` dans `world_edit.rs`.
   108 modules de simulation, qui contiennent tout le code du serveur, ne citent plus la fenêtre.
-- **S3, la crate** : `games/voxel_sim` (bibliothèque) reçoit les modules de simulation ; le jeu les réexporte à la
-  racine (`pub(crate) use voxel_sim::inventory;`…), donc `crate::inventory::…` ne change pas dans la fenêtre.
+- **S3c, la crate (réalisé)** : `games/voxel_sim` (bibliothèque) reçoit les 108 modules de simulation (`git mv`) ;
+  leurs `pub(crate)` deviennent `pub`, `lib.rs` réexporte ce que la racine du jeu exposait (`assets_dir`,
+  `Launch`, les événements…). Le jeu réexporte les modules à sa racine (`pub(crate) use voxel_sim::{…}`), donc
+  `crate::inventory::…` ne change pas dans la fenêtre. Les aides de test de la simulation (mondes de créatures,
+  quêtes livrées, registre complet) sont visibles du jeu par la fonction `testing` (dépendance de test) ; les six
+  tests de créatures qui touchent au dessin passent dans le jeu (`mob_render_tests.rs`). Les exemples incluent les
+  fichiers déplacés depuis `../../voxel_sim/src`. `voxel_sim` ne tire aucune bibliothèque d'affichage, même
+  indirectement, et rejoint la règle `HEADLESS` de check-arch.
 - **S4, le binaire** : `voxel-server` dans `voxel_sim`, et la règle check-arch (`HEADLESS`).
 
 ### Lot 7 : tester et mesurer

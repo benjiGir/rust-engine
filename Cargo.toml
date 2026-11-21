@@ -21,6 +21,7 @@ members = [
     "crates/engine_inspect",
     "crates/engine_inspect_derive",
     "games/voxel",
+    "games/voxel_sim",
     "tools/assetgen",
 ]
 
@@ -41,6 +42,7 @@ engine_mods = { path = "crates/engine_mods" }
 mod_sdk = { path = "crates/mod_sdk" }
 engine_trace = { path = "crates/engine_trace" }
 engine_net = { path = "crates/engine_net" }
+voxel_sim = { path = "games/voxel_sim" }
 engine_inspect = { path = "crates/engine_inspect" }
 engine_inspect_derive = { path = "crates/engine_inspect_derive" }
 winit = "0.30.13"
