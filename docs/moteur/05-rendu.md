@@ -5,7 +5,9 @@
 Le rendu se fait en deux temps, sur deux crates :
 
 1. **`engine_voxel`** transforme les blocs en triangles (le **maillage**), sur les threads de fond. Il ne
-   connaît pas le GPU.
+   connaît pas le GPU. Dans le jeu, ce maillage se fait dans la **réplique** du monde du client (les chunks
+   que le serveur lui envoie, voir `03-monde.md`) : le serveur ne maille rien, et tout ce que la fenêtre
+   dessine ou vise lit la réplique.
 2. **`engine_render`** envoie ces triangles au GPU avec **wgpu** (Metal sur Mac, Vulkan, DirectX 12) et les
    dessine en plusieurs passes, avec des shaders WGSL.
 

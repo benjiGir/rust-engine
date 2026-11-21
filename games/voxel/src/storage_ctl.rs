@@ -17,8 +17,9 @@ use anyhow::{Context as _, Result, bail};
 use glam::IVec3;
 
 use crate::VoxelGame;
-use crate::storage_ui::Op;
-use crate::ui::Screen;
+use crate::players::OpenContainer;
+use crate::screens::Screen;
+use crate::storage_ui_server::Op;
 
 /// Une commande du stockage, lue par `control.rs`.
 #[derive(Debug, Clone, PartialEq)]
@@ -94,7 +95,7 @@ fn slots_json(
             let _ = items;
             out.push(format!(
                 "[{i},{},{},{}]",
-                crate::control::json_str(&s.item),
+                crate::json_text::json_str(&s.item),
                 s.count,
                 s.damage
             ));
@@ -111,42 +112,43 @@ impl VoxelGame {
                 if !self.open_first_bag() {
                     bail!("backpack : aucun sac à dos dans l'inventaire");
                 }
-                let Screen::Bag(number) = self.ui.screen else {
+                let Screen::Bag(number) = self.client.ui.screen else {
                     bail!("backpack : le sac ne s'est pas ouvert");
                 };
                 Ok(format!("{{\"ok\":true,\"bag\":{number}}}"))
             }
             Command::PlaceBag => {
                 self.aimed()?;
-                if !self.place_backpack() {
+                if !self.server.place_backpack() {
                     bail!("placebag : il faut un sac à dos en main");
                 }
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Op(op) => {
                 // Le contrôleur n'a pas de cases : seuls Déposer et Maj + clic y ont un sens.
-                if let Screen::Controller(pos) = self.ui.screen {
+                if let Some(OpenContainer::Controller(pos)) = self.server.players.me().open {
                     match op {
-                        Op::Deposit => self.controller_deposit(pos, None),
-                        Op::QuickIn(slot) => self.controller_deposit(pos, Some(slot)),
+                        Op::Deposit => self.server.controller_deposit(pos, None),
+                        Op::QuickIn(slot) => self.server.controller_deposit(pos, Some(slot)),
                         _ => bail!("le contrôleur ne connaît que deposit et quickmove"),
                     }
                     return Ok("{\"ok\":true}".to_string());
                 }
-                let target = self
+                self.server
                     .open_target()
                     .context("aucun conteneur ouvert (coffre, wagon ou sac)")?;
-                self.storage_transfer(target, op);
+                // Le même chemin que les boutons de l'écran.
+                self.send_now(crate::protocol::ClientMsg::ContainerOp(op));
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Drops => {
                 let mut list = Vec::new();
-                self.ecs
+                self.server.ecs
                     .query::<(&crate::components::Transform, &crate::drops::DroppedItem)>()
                     .for_each(|_, (t, d)| {
                         list.push(format!(
                             "{{\"item\":{},\"count\":{},\"damage\":{},\"pos\":[{:.2},{:.2},{:.2}],\"age\":{:.1}}}",
-                            crate::control::json_str(&self.content.items.get(d.stack.item).key),
+                            crate::json_text::json_str(&self.client.content.items.get(d.stack.item).key),
                             d.stack.count,
                             d.stack.damage,
                             t.position.x,
@@ -158,38 +160,43 @@ impl VoxelGame {
                 Ok(format!("{{\"ok\":true,\"drops\":[{}]}}", list.join(",")))
             }
             Command::Capture(on) => {
-                self.mouse_captured = on;
+                self.client.mouse_captured = on;
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Container(pos) => {
-                let streamer = self.streamer();
+                let streamer = self.server.streamer();
                 let inventory = streamer
                     .block_entity(pos)
                     .and_then(|e| e.caps.as_ref()?.inventory.as_ref())
                     .with_context(|| format!("container : pas d'inventaire en {pos}"))?;
                 let block = streamer.world().block(pos);
-                let layout = engine_voxel::layout_of(&self.registry, block);
+                let layout = engine_voxel::layout_of(&self.client.registry, block);
                 Ok(format!(
                     "{{\"ok\":true,\"block\":{},\"slots\":{},\"main\":{},\"upgrades\":{},\"items\":{}}}",
-                    crate::control::json_str(&self.registry.def(block).key),
+                    crate::json_text::json_str(&self.client.registry.def(block).key),
                     inventory.slots.len(),
                     layout.map_or(inventory.slots.len(), |l| l.main),
                     layout.map_or(0, |l| l.upgrades),
-                    slots_json(&self.content.items, &inventory.slots),
+                    slots_json(&self.client.content.items, &inventory.slots),
                 ))
             }
             Command::Bag(number) => {
-                let number = match (number, self.ui.screen) {
+                let number = match (number, self.client.ui.screen) {
                     (Some(n), _) | (None, Screen::Bag(n)) => n,
                     (None, _) => {
-                        let items = self.content.items.clone();
-                        crate::backpacks::carried(&self.inventory, &items, &mut self.backpacks)
-                            .first()
-                            .map(|c| c.number)
-                            .context("bag : aucun sac numéroté (ouvrir un sac avec `backpack`)")?
+                        let items = self.client.content.items.clone();
+                        crate::backpacks::carried(
+                            &self.server.players.me_mut().inventory,
+                            &items,
+                            &mut self.server.backpacks,
+                        )
+                        .first()
+                        .map(|c| c.number)
+                        .context("bag : aucun sac numéroté (ouvrir un sac avec `backpack`)")?
                     }
                 };
                 let bag = self
+                    .server
                     .backpacks
                     .bag(number)
                     .with_context(|| format!("bag : pas de sac numéro {number}"))?;
@@ -199,7 +206,7 @@ impl VoxelGame {
                     bag.slots.len(),
                     bag.layout().main,
                     bag.disabled,
-                    slots_json(&self.content.items, &bag.slots),
+                    slots_json(&self.client.content.items, &bag.slots),
                 ))
             }
         }

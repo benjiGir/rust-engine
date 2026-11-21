@@ -27,7 +27,7 @@ seconde : c'est la méthode « *Fix Your Timestep!* » de Glenn Fiedler (`crates
   secondes de retard après une pause du système).
 - Tant que l'accumulateur contient un pas entier, on joue un `fixed_update` et on retire un pas.
 - Le reste, rapporté à un pas, donne `alpha` (0 à 1) : la caméra et les créatures sont dessinées
-  **entre** leur position du pas précédent et celle du pas courant. À 144 images par seconde, le joueur
+  **entre** leur position du pas précédent et celle du pas courant (pour les créatures, entre les deux derniers échantillons de la réplique des entités). À 144 images par seconde, le joueur
   glisse sans à-coups alors que la physique ne tourne qu'à 60 Hz.
 
 Plusieurs fréquences se dérivent du pas de 60 Hz :
@@ -79,6 +79,8 @@ sequenceDiagram
 3. Équipement, ramassage des objets, sacs, quêtes.
 4. `mods.fixed_step` : un pas sur trois, le **tick des machines** (natives et scripts WebAssembly).
 5. Fluides, blocs des wagons, vie, faim, aventure, charmes, pas, mort.
+6. Fin du pas : `replicate_entities` numérote les entités neuves (`NetId`) et envoie à chaque joueur ce qui entre
+   dans sa portée, en sort, bouge ou change d'apparence (voir `03-monde.md`, « Les entités vues par le client »).
 
 ### Ce que fait `update` (chaque image)
 
@@ -87,8 +89,10 @@ la météo, les effets de l'eau, les habitants des villages proches, l'ambiance 
 structures mobiles et les wagons, le vol libre, **le lancer de rayon** (le bloc visé), le minage et la
 chaîne du clic droit (wagon → structure → porte → lit → conteneur → machine → habitant → animal →
 houe → engrais → charme → guide → objet de mod → **poser un bloc**), l'animation du bras, la sauvegarde
-automatique, le rechargement à chaud, puis le **streaming** : `update_view` dit au streamer où regarde la
-caméra, et les maillages prêts partent vers le GPU.
+automatique, le rechargement à chaud, puis le **streaming** : `update_views` dit au streamer du serveur où
+sont les joueurs (une vue par joueur, sans maillage), un expéditeur par joueur envoie les chunks (et les
+changements de l'image) à la **réplique** du client, qui les remaille tout de suite, et les maillages prêts
+partent vers le GPU (voir `03-monde.md`, « Le serveur et la réplique »).
 
 ## L'ECS écrit à la main
 
@@ -157,7 +161,8 @@ Le `RefCell` vérifie à l'exécution qu'on ne l'emprunte pas en écriture deux 
 | `MoveIntent` | joueur, créatures | où l'entité veut aller (clavier ou IA) |
 | `Health` | joueur, créatures | vie |
 | `Player`, `Flying` | joueur | marqueurs (vol libre) |
-| `PreviousPosition` | ce qui bouge | la position du pas précédent, pour interpoler avec `alpha` |
+| `PreviousPosition` | ce qui bouge | la position du pas précédent (physique ; le rendu interpole la réplique des entités, voir `03-monde.md`) |
+| `NetId` | ce qui est répliqué | le numéro réseau donné par le serveur (créatures, objets, wagons, projectiles, joueurs) |
 | `Mob`, `Wander`, `MobAnim`, `Hurt` | créatures | sorte, errance, animation, recul après un coup |
 | `Love`, `BreedCooldown`, `Baby` | animaux | élevage |
 | `BrainGoal`, `BrainState` | créatures dirigées par un script | but et mémoire fournis par le mod |

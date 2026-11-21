@@ -13,15 +13,15 @@
 //!
 //! Le matériau d'une pièce est un numéro de la palette du monde (voir `shape_materials.rs`).
 
+#[allow(unused_imports)]
+pub(crate) use crate::screens::SHAPING_TABLE as TABLE;
 use engine_render::egui;
 use engine_voxel::shaped::{self, Family, PieceKind};
 
 use crate::VoxelGame;
 use crate::inventory::{ItemStack, Slot};
+use crate::protocol::{ClientMsg, ScreenAction};
 use crate::shape_materials;
-
-/// L'établi de taille.
-pub const TABLE: &str = "core:shaping_table";
 
 /// Ce que contient la case d'entrée.
 enum Input {
@@ -36,10 +36,11 @@ enum Input {
 
 impl VoxelGame {
     fn shaping_input(&self) -> Input {
-        let Some(stack) = self.inventory.craft[0] else {
+        // La case d'entrée, d'après la vue de l'inventaire.
+        let Some(stack) = self.client.view.me.inventory.craft[0] else {
             return Input::Empty;
         };
-        let def = self.content.items.get(stack.item);
+        let def = self.client.content.items.get(stack.item);
         if let Some(kind) = shape_materials::kind_of(def) {
             return match shape_materials::key_of(stack.damage) {
                 Some(material) => Input::Pieces(kind, material, stack.count),
@@ -49,7 +50,7 @@ impl VoxelGame {
         let Some(block) = def.block else {
             return Input::Refused(def.name.clone(), "ce n'est pas un bloc");
         };
-        match shaped::why_not_shapeable(self.registry.def(block)) {
+        match shaped::why_not_shapeable(self.client.registry.def(block)) {
             None => Input::Block(def.key.clone(), def.name.clone()),
             Some(reason) => Input::Refused(def.name.clone(), reason),
         }
@@ -83,7 +84,7 @@ impl VoxelGame {
                     );
                 }
                 Input::Pieces(kind, material, count) => {
-                    let name = shape_materials::material_name(&self.registry, material);
+                    let name = shape_materials::material_name(&self.client.registry, material);
                     ui.strong(format!("{} × {count}", kind.name()));
                     ui.label(format!("En {}.", name.to_lowercase()));
                 }
@@ -122,7 +123,7 @@ impl VoxelGame {
 
     /// Une entrée de la grille : l'icône de la pièce et son rendement ; un clic taille.
     fn shape_entry(&mut self, ui: &mut egui::Ui, kind: PieceKind, number: u32) {
-        let Some(item) = self.content.items.id(kind.key()) else {
+        let Some(item) = self.client.content.items.id(kind.key()) else {
             return;
         };
         let preview = ItemStack {
@@ -134,9 +135,10 @@ impl VoxelGame {
             ui.set_width(crate::ui_layout::slot_size(ui.ctx()) + 30.0);
             if self.stack_widget(ui, Some(preview), false).is_some() {
                 let all = ui.input(|i| i.modifiers.shift);
-                if let Err(why) = self.carve(Slot::Craft(0), kind, all) {
-                    self.toast(&why);
-                }
+                self.send_now(ClientMsg::Screen(ScreenAction::Carve {
+                    piece: kind.key().to_string(),
+                    all,
+                }));
             }
             ui.label(
                 egui::RichText::new(format!("{}\n×{}", kind.name(), kind.per_block())).small(),
@@ -158,73 +160,14 @@ impl VoxelGame {
             );
             return;
         }
-        let name = shape_materials::material_name(&self.registry, material);
+        let name = shape_materials::material_name(&self.client.registry, material);
         let all = ui.input(|i| i.modifiers.shift);
         let wanted = if all { blocks } else { 1 };
         let clicked = ui
             .button(format!("{} bloc(s) : {}", wanted, name.to_lowercase()))
             .clicked();
-        if clicked && let Err(why) = self.rebuild(Slot::Craft(0), all) {
-            self.toast(&why);
+        if clicked {
+            self.send_now(ClientMsg::Screen(ScreenAction::Rebuild { all }));
         }
-    }
-
-    /// Taille des blocs de `slot` en pièces de la sorte `kind` : un bloc, ou toute la pile. `Err`
-    /// dit pourquoi rien n'est fait.
-    pub(crate) fn carve(&mut self, slot: Slot, kind: PieceKind, all: bool) -> Result<u32, String> {
-        let Some(stack) = *self.inventory.slot_mut(slot) else {
-            return Err("rien à tailler".into());
-        };
-        let def = self.content.items.get(stack.item);
-        let key = def.key.clone();
-        let block = def
-            .block
-            .ok_or_else(|| format!("« {} » n'est pas un bloc", def.name))?;
-        if let Some(reason) = shaped::why_not_shapeable(self.registry.def(block)) {
-            return Err(format!("« {} » ne se taille pas : {reason}", def.name));
-        }
-        let piece = self.content.items.id(kind.key()).ok_or("pièce inconnue")?;
-        let blocks = if all { stack.count } else { 1 };
-        let made = ItemStack {
-            item: piece,
-            count: blocks * kind.per_block(),
-            damage: shape_materials::number_of(&key),
-        };
-        *self.inventory.slot_mut(slot) = (stack.count > blocks).then_some(ItemStack {
-            count: stack.count - blocks,
-            ..stack
-        });
-        self.give_or_drop(made);
-        if let Some(audio) = &mut self.audio {
-            audio.play("core:place_hard");
-        }
-        Ok(made.count)
-    }
-
-    /// Refait des blocs pleins avec les pièces de `slot` : un bloc, ou tous ceux que la pile permet.
-    pub(crate) fn rebuild(&mut self, slot: Slot, all: bool) -> Result<u32, String> {
-        let Some(stack) = *self.inventory.slot_mut(slot) else {
-            return Err("rien à reconstituer".into());
-        };
-        let kind = shape_materials::kind_of(self.content.items.get(stack.item))
-            .ok_or("ce ne sont pas des pièces")?;
-        let material = shape_materials::key_of(stack.damage).ok_or("pièces sans matière")?;
-        let item = self
-            .content
-            .items
-            .id(&material)
-            .ok_or_else(|| format!("« {material} » n'existe plus"))?;
-        let possible = stack.count / kind.per_block();
-        if possible == 0 {
-            return Err(format!("il faut {} pièces pour un bloc", kind.per_block()));
-        }
-        let blocks = if all { possible } else { 1 };
-        let left = stack.count - blocks * kind.per_block();
-        *self.inventory.slot_mut(slot) = (left > 0).then_some(ItemStack {
-            count: left,
-            ..stack
-        });
-        self.give_or_drop(ItemStack::new(item, blocks));
-        Ok(blocks)
     }
 }

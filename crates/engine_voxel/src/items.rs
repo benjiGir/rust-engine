@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::block::BlockId;
 use crate::registry::BlockRegistry;
@@ -19,7 +19,9 @@ use crate::registry::BlockRegistry;
 const BUILTIN_ITEMS: &str = include_str!("../../../assets/core/items.ron");
 
 /// Le numéro d'un objet dans le registre.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize,
+)]
 pub struct ItemId(pub u16);
 
 /// Les sortes d'outils. Chaque bloc a son outil préféré (`tool` dans `blocks.ron`).

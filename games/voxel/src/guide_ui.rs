@@ -1,10 +1,12 @@
 //! L'écran du Guide du voyageur : les chapitres à gauche, la page à droite, et sous le texte les
 //! objets dont un clic ouvre les recettes dans l'explorateur. Le contenu est dans `guide.rs`.
 
+#[allow(unused_imports)]
+use crate::guide_ui_server::*;
 use engine_render::egui;
 
 use crate::VoxelGame;
-use crate::guide::{GUIDE_ITEM, expand_keys};
+use crate::guide::expand_keys;
 use crate::inventory::ItemStack;
 use crate::recipe_browser::Lookup;
 use crate::ui::{Press, Screen};
@@ -20,32 +22,20 @@ pub struct GuideState {
 const CHAPTERS_WIDTH: f32 = 152.0;
 
 impl VoxelGame {
-    /// Un clic droit avec le guide en main : l'ouvre. `true` si c'était le guide.
-    pub(crate) fn use_guide(&mut self) -> bool {
-        let Some(stack) = self.inventory.selected_stack() else {
-            return false;
-        };
-        if self.content.items.get(stack.item).key != GUIDE_ITEM {
-            return false;
-        }
-        self.open_guide();
-        true
-    }
-
     /// Ouvre le guide à la page où on l'avait laissé.
     pub(crate) fn open_guide(&mut self) {
-        self.ui.screen = Screen::Guide;
-        self.ui.inventory_open = true;
+        self.client.ui.screen = Screen::Guide;
+        self.client.ui.inventory_open = true;
     }
 
     /// Le corps de l'écran du guide.
     pub(crate) fn guide_panel(&mut self, ui: &mut egui::Ui) {
-        let guide = self.content.guide.clone();
+        let guide = self.client.content.guide.clone();
         if guide.chapters.is_empty() {
             ui.label("Ce guide est vide.");
             return;
         }
-        let state = &mut self.ui.guide;
+        let state = &mut self.client.ui.guide;
         state.chapter = state.chapter.min(guide.chapters.len() - 1);
         let chapter = &guide.chapters[state.chapter];
         state.page = state.page.min(chapter.pages.len() - 1);
@@ -124,10 +114,10 @@ impl VoxelGame {
                 });
             });
         });
-        self.ui.guide.chapter = chapter_index;
-        self.ui.guide.page = page_index;
+        self.client.ui.guide.chapter = chapter_index;
+        self.client.ui.guide.page = page_index;
         if let Some(item) = open {
-            self.ui.browser.open(item, Lookup::Recipes);
+            self.client.ui.browser.open(item, Lookup::Recipes);
         }
     }
 }

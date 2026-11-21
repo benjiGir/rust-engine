@@ -41,7 +41,7 @@ impl VoxelGame {
     /// pierre et de chêne, une pente de chêne, une pente de pierre qui monte jusqu'au niveau 10, une pente
     /// retournée sous un linteau, des microblocs, du verre.
     pub(crate) fn build_shapes(&mut self) {
-        let Some(stone) = self.registry.id("core:stone") else {
+        let Some(stone) = self.client.registry.id("core:stone") else {
             return;
         };
         let base = self.ground(SPOT.0, SPOT.1) + LIFT + 1;
@@ -71,7 +71,7 @@ impl VoxelGame {
                     log::warn!("pièce refusée en {pos}");
                 }
             }
-            shaped::store(&mut game.streamer_mut(), pos, &shaped);
+            shaped::store(&mut game.server.streamer_mut(), pos, &shaped);
         };
         // Une dalle de chêne sur une dalle de pierre.
         put(
@@ -154,7 +154,7 @@ impl VoxelGame {
                     log::warn!("pièce refusée en {pos}");
                 }
             }
-            shaped::store(&mut game.streamer_mut(), pos, &shaped);
+            shaped::store(&mut game.server.streamer_mut(), pos, &shaped);
         };
         let sample = Piece::sample;
         let cuboid = |kind, min, max, count| Piece::cuboid(kind, min, max, count);
@@ -276,14 +276,18 @@ impl VoxelGame {
 
     /// L'écran de l'établi de taille : du chêne dans la case d'entrée.
     pub(crate) fn build_shaping_screen(&mut self) {
-        let items = self.content.items.clone();
-        self.inventory.craft = [None; 9];
+        let items = self.client.content.items.clone();
+        self.server.players.me_mut().inventory.craft = [None; 9];
         if let Some(planks) = items.id("core:oak_planks") {
-            self.inventory.craft[0] = Some(ItemStack::new(planks, 24));
+            self.server.players.me_mut().inventory.craft[0] = Some(ItemStack::new(planks, 24));
         }
         for (key, count) in [("core:stone", 12), ("core:glass", 6)] {
             if let Some(item) = items.id(key) {
-                self.inventory.add(item, count, &items);
+                self.server
+                    .players
+                    .me_mut()
+                    .inventory
+                    .add(item, count, &items);
             }
         }
         // Quelques pièces déjà taillées, pour voir leurs noms et leurs icônes.
@@ -293,7 +297,7 @@ impl VoxelGame {
         ] {
             if let Some(item) = items.id(kind) {
                 let number = crate::shape_materials::number_of(material);
-                self.inventory.add_stack(
+                self.server.players.me_mut().inventory.add_stack(
                     ItemStack {
                         item,
                         count: 6,
@@ -303,6 +307,6 @@ impl VoxelGame {
                 );
             }
         }
-        self.ui.screen = crate::ui::Screen::Shaping;
+        self.client.ui.screen = crate::screens::Screen::Shaping;
     }
 }

@@ -6,13 +6,15 @@
 //! envahisseurs) et la rareté du butin ; celles qui sont déjà là ne changent pas. Les règles sont dans
 //! `tiers.rs`, les données dans `tiers.ron`.
 
+#[allow(unused_imports)]
+use crate::tiers_ui_server::*;
 use engine_render::egui;
 
 use crate::VoxelGame;
 use crate::adventure_data::{self, TierDef};
+use crate::screens::Screen;
 use crate::skin;
 use crate::tiers;
-use crate::ui::Screen;
 
 /// Les couleurs de l'écran : le cadre de l'inventaire est clair, il lui faut du texte sombre.
 const DONE: egui::Color32 = egui::Color32::from_rgb(40, 110, 50);
@@ -41,18 +43,21 @@ pub fn effects_line(tier: &TierDef) -> String {
 impl VoxelGame {
     /// La touche des paliers : ouvre l'écran, ou le referme.
     pub(crate) fn toggle_tiers_screen(&mut self) {
-        if self.ui.inventory_open && self.ui.screen == Screen::Tiers {
+        if self.client.ui.inventory_open && self.client.ui.screen == Screen::Tiers {
             self.close_screen();
-        } else if self.mouse_captured && !self.ui.inventory_open {
-            self.ui.screen = Screen::Tiers;
-            self.ui.inventory_open = true;
+        } else if self.client.mouse_captured && !self.client.ui.inventory_open {
+            self.client.ui.screen = Screen::Tiers;
+            self.client.ui.inventory_open = true;
         }
     }
 
     /// Le corps de l'écran : une carte par palier.
     pub(crate) fn tiers_panel(&mut self, ui: &mut egui::Ui) {
         let data = adventure_data::current();
-        let progress = self.adventure.progress;
+        // L'aventure telle que la vue du joueur la décrit.
+        let Some(progress) = self.client.view.me.vitals.as_ref().map(|v| v.tiers) else {
+            return;
+        };
         let mut chosen = None;
         ui.label(
             egui::RichText::new(
@@ -112,17 +117,10 @@ impl VoxelGame {
                     }
                 });
         }
-        if let Some(index) = chosen
-            && self.adventure.progress.select(index, &data.tiers)
-        {
-            let name = data
-                .tier(index)
-                .map_or("?", |t| t.name.as_str())
-                .to_string();
-            self.toast(&format!("Palier : {name}"));
-            if let Some(audio) = &mut self.audio {
-                audio.play("core:enchant");
-            }
+        if let Some(index) = chosen {
+            self.send_now(crate::protocol::ClientMsg::Screen(
+                crate::protocol::ScreenAction::Tier(index),
+            ));
         }
     }
 }

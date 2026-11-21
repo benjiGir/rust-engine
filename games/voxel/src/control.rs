@@ -13,17 +13,19 @@
 //!
 //! Idée reprise d'Horizon (`docs/agent-control.md`), réécrite ici.
 
+pub(crate) use crate::json_text::json_str;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, bail};
 use crossbeam_channel::{Receiver, Sender};
-use engine_core::Context;
 use engine_voxel::BlockId;
 use glam::{IVec3, Vec3};
 
+use crate::intents::Outcome;
 use crate::player::{self, MoveMode, SPRINT_SPEED, WALK_SPEED};
+use crate::protocol::ClientMsg;
 use crate::{Mode, VoxelGame};
 
 /// Le port par défaut (`VOXEL_CONTROL=1`).
@@ -33,7 +35,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-36 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin|select|ui|view|close ... | questpin id | screen quests [chapitre] | shape forme [n|all] | rebuild [all] | shaping | pieces x y z | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hold left|right|off | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin|select|ui|view|close ... | questpin id | screen quests [chapitre] | shape forme [n|all] | rebuild [all] | shaping | pieces x y z | ghost [nom] [x y z] | ghost remove [nom] | ghost list | host [port] | players | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -180,8 +182,12 @@ pub enum Command {
     /// Un coup au joueur (armure et invulnérabilité comprises).
     /// Dégâts, et les points d'armure que ce coup contourne (perforation).
     Damage(f32, f32),
-    /// Manger tout de suite l'aliment tenu.
+    /// Manger l'aliment tenu : le bouton de repas est tenu le temps d'un repas (1,6 s de jeu).
     Eat,
+    /// Tenir un bouton de la souris sur ce qui est visé, comme si la souris était capturée :
+    /// `Some(false)` le gauche (miner, frapper), `Some(true)` le droit (utiliser, manger) ;
+    /// `None` les lâche.
+    Hold(Option<bool>),
     /// Les créatures proches : type, position, vie.
     Mobs,
     /// Frapper la créature (ou le wagon) visée (comme un clic gauche).
@@ -217,6 +223,9 @@ pub enum Command {
     Quests(crate::quest_ctl::Command),
     /// Les commandes des formes : tailler, reconstituer, lire une case (voir `shape_ctl.rs`).
     Shapes(crate::shape_ctl::Command),
+    /// Les joueurs fantômes : ajouter, retirer, lister (voir `ghosts.rs`).
+    Ghosts(crate::ghosts::Command),
+    Net(crate::net_ctl::Command),
     /// Les commandes de l'enchantement avancé : stats de table, livres, bibliothèque (voir `enchant_ctl.rs`).
     Enchanting(crate::enchant_ctl::Command),
     /// Les textes affichés (avec leur position en points), pour viser un bouton.
@@ -493,6 +502,15 @@ pub fn parse(line: &str) -> Result<Command> {
             })?)
         }
         "eat" => Command::Eat,
+        "hold" => {
+            count(&[1])?;
+            match args[0] {
+                "left" => Command::Hold(Some(false)),
+                "right" => Command::Hold(Some(true)),
+                "off" => Command::Hold(None),
+                other => bail!("hold : left, right ou off (pas « {other} »)"),
+            }
+        }
         "mobs" => Command::Mobs,
         "attack" => Command::Attack,
         "swing" => Command::Swing,
@@ -617,7 +635,15 @@ pub fn parse(line: &str) -> Result<Command> {
                             Some(command) => Command::Quests(command?),
                             None => match crate::shape_ctl::parse(other, &args) {
                                 Some(command) => Command::Shapes(command?),
-                                None => bail!("commande inconnue « {other} » (voir `help`)"),
+                                None => match crate::ghosts::parse(other, &args) {
+                                    Some(command) => Command::Ghosts(command?),
+                                    None => match crate::net_ctl::parse(other, &args) {
+                                        Some(command) => Command::Net(command?),
+                                        None => {
+                                            bail!("commande inconnue « {other} » (voir `help`)")
+                                        }
+                                    },
+                                },
                             },
                         },
                     },
@@ -644,14 +670,27 @@ pub struct Remote {
     walk: Option<Walk>,
     /// Les `wait` en cours : le temps de jeu restant, et à qui répondre.
     waits: Vec<(f32, Request)>,
+    /// `eat` : le temps de jeu qu'il reste avant de lâcher le bouton de repas.
+    eat_release: Option<f32>,
+    /// `hold` : les boutons de la souris tenus par la commande.
+    pub(crate) hold: Option<Hold>,
+}
+
+/// Les boutons que `hold` tient.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Hold {
+    pub left: bool,
+    pub right: bool,
+    /// Le premier tour : le bouton vient d'être pressé (un clic, pas seulement tenu).
+    pub fresh: bool,
 }
 
 impl VoxelGame {
     /// L'intention de marche commandée pour ce pas de simulation, s'il y en a une.
     pub(crate) fn remote_intent(&mut self, dt: f32) -> Option<(Vec3, bool)> {
-        let can_sprint = self.can_sprint();
+        let can_sprint = self.server.can_sprint();
         let walk = self.remote.walk.as_mut()?;
-        let forward = self.camera.forward_flat();
+        let forward = self.client.camera.forward_flat();
         let right = forward.cross(Vec3::Y);
         let direction = (forward * walk.forward + right * walk.right).normalize_or_zero();
         // Comme au clavier : affamé, on ne court plus.
@@ -659,7 +698,7 @@ impl VoxelGame {
             SPRINT_SPEED
         } else {
             WALK_SPEED
-        } * self.gear.move_speed();
+        } * self.server.players.me_mut().gear.move_speed();
         let intent = (direction * speed, walk.jump);
         walk.seconds -= dt;
         if walk.seconds <= 0.0 {
@@ -670,6 +709,13 @@ impl VoxelGame {
 
     /// Fait avancer les `wait` : ceux qui sont écoulés répondent avec l'état du jeu.
     pub(crate) fn update_remote(&mut self, dt: f32) {
+        if let Some(left) = &mut self.remote.eat_release {
+            *left -= dt;
+            if *left <= 0.0 {
+                self.remote.eat_release = None;
+                self.send_now(ClientMsg::Eat { held: false });
+            }
+        }
         if self.remote.waits.is_empty() {
             return;
         }
@@ -686,7 +732,7 @@ impl VoxelGame {
     }
 
     /// Exécute une commande et y répond (tout de suite, sauf `wait`).
-    pub(crate) fn run_command(&mut self, ctx: &mut Context, request: Request) {
+    pub(crate) fn run_command(&mut self, request: Request) {
         let _span = engine_trace::span("commande");
         log::debug!("commande : {}", request.line);
         let command = match parse(&request.line) {
@@ -697,14 +743,205 @@ impl VoxelGame {
             self.remote.waits.push((seconds, request));
             return;
         }
-        let json = match self.execute(ctx, command) {
+        let json = match self.execute(command) {
             Ok(json) => json,
             Err(err) => error(&format!("{err:#}")),
         };
         request.reply(json);
     }
 
-    pub(crate) fn execute(&mut self, ctx: &mut Context, command: Command) -> Result<String> {
+    /// Exécute une commande. Celles qui simulent le joueur (`use`, `attack`, `select`, `eat`,
+    /// `respawn`, `throw`, `place` sans coordonnées) fabriquent les mêmes messages que ses entrées ;
+    /// `break` et `place x y z bloc` passent par la console (`Command`), comme `/give` ou `/tp`.
+    pub(crate) fn execute(&mut self, command: Command) -> Result<String> {
+        // Un invité n'a qu'une coquille de serveur (voir `net_client.rs`) : seules les commandes de la
+        // fenêtre (état, clics, touches, capture) ont un sens chez lui.
+        let window_only = matches!(
+            command,
+            Command::Help
+                | Command::State
+                | Command::Wait(_)
+                | Command::Look(..)
+                | Command::Walk(..)
+                | Command::Stop
+                | Command::UiTexts
+                | Command::UiClick(..)
+                | Command::UiClickText(..)
+                | Command::UiType(_)
+                | Command::UiKey(..)
+                | Command::Pause
+                | Command::Resume
+                | Command::Screenshot(..)
+                | Command::Console(_)
+                | Command::Quit
+        );
+        if !self.hosting() && !window_only {
+            bail!("commande de l'hôte : cette fenêtre a rejoint une partie");
+        }
+        match command {
+            Command::Break(pos) => {
+                let pos = match pos {
+                    Some(pos) => pos,
+                    None => self.aimed()?.block_pos,
+                };
+                self.through_console(format!("break {} {} {}", pos.x, pos.y, pos.z))
+            }
+            Command::Place(Some((pos, key))) => {
+                self.through_console(format!("place {} {} {} {key}", pos.x, pos.y, pos.z))
+            }
+            Command::Place(None) => {
+                self.require_playing("place")?;
+                self.server.outcome = Outcome::Nothing;
+                let aim = self.body_aim();
+                self.send_now(ClientMsg::Use {
+                    aim,
+                    sneaking: false,
+                });
+                match self.server.outcome {
+                    Outcome::Placed(pos) => Ok(format!("{{\"ok\":true,\"pos\":{}}}", ivec3(pos))),
+                    Outcome::Nothing => {
+                        bail!("place : impossible ici (rien en main, pas de place, pas de support)")
+                    }
+                    _ => Ok("{\"ok\":true,\"used\":true}".to_string()),
+                }
+            }
+            Command::Use => {
+                self.require_playing("use")?;
+                self.server.outcome = Outcome::Nothing;
+                let aim = self.body_aim();
+                self.send_now(ClientMsg::Use {
+                    aim,
+                    sneaking: false,
+                });
+                match self.server.outcome {
+                    Outcome::Placed(pos) => {
+                        Ok(format!("{{\"ok\":true,\"placed\":{}}}", ivec3(pos)))
+                    }
+                    Outcome::Nothing => bail!("use : rien à faire ici"),
+                    _ => Ok(ok()),
+                }
+            }
+            Command::Attack => {
+                self.require_playing("attack")?;
+                let aim = self.body_aim();
+                // Ce que le client dit viser : la créature, sinon le wagon, sous le regard.
+                let entity = self
+                    .claimed_target(aim)
+                    .context("attack : aucune créature ni aucun wagon visé à portée")?;
+                self.server.outcome = Outcome::Nothing;
+                self.send_now(ClientMsg::Attack { aim, entity });
+                match self.server.outcome {
+                    Outcome::Struck(strike) => Ok(format!(
+                        "{{\"ok\":true,\"damage\":{:.1},\"crit\":{},\"healed\":{:.2}}}",
+                        strike.damage, strike.crit, strike.healed
+                    )),
+                    Outcome::Punched => Ok(ok()),
+                    _ => bail!("attack : la créature vient d'être frappée (invulnérable)"),
+                }
+            }
+            Command::Select(slot) => {
+                self.require_playing("select")?;
+                self.send_now(ClientMsg::SelectSlot(slot.min(usize::from(u8::MAX)) as u8));
+                Ok(self.state_json())
+            }
+            Command::Eat => {
+                self.require_playing("eat")?;
+                // L'aliment en main, sinon le premier de l'inventaire.
+                let items = &self.client.content.items;
+                let is_food = |slot: &Option<crate::inventory::ItemStack>| {
+                    slot.is_some_and(|s| items.get(s.item).food.is_some())
+                };
+                let inventory = &self.server.players.me().inventory;
+                let index = if is_food(&inventory.slots[inventory.selected]) {
+                    inventory.selected
+                } else {
+                    inventory
+                        .slots
+                        .iter()
+                        .position(is_food)
+                        .context("eat : aucun aliment dans l'inventaire")?
+                };
+                if !self
+                    .server
+                    .players
+                    .me()
+                    .hunger
+                    .hungry(&self.server.hunger_rules)
+                {
+                    bail!("eat : rassasié");
+                }
+                if index != self.server.players.me().inventory.selected {
+                    self.send_now(ClientMsg::SelectSlot(index as u8));
+                }
+                self.send_now(ClientMsg::Eat { held: true });
+                // Le bouton reste tenu le temps d'un repas, puis il est lâché (`update_remote`).
+                self.remote.eat_release = Some(self.server.hunger_rules.eat_time + 0.15);
+                Ok(self.state_json())
+            }
+            Command::Hold(button) => {
+                self.require_playing("hold")?;
+                self.remote.hold = button.map(|right| Hold {
+                    left: !right,
+                    right,
+                    fresh: true,
+                });
+                Ok(ok())
+            }
+            Command::Respawn => {
+                if !matches!(self.mode, Mode::Dead(_)) {
+                    bail!("respawn : le joueur n'est pas mort");
+                }
+                self.send_now(ClientMsg::Respawn);
+                Ok(self.state_json())
+            }
+            Command::Swing => {
+                self.require_playing("swing")?;
+                self.client.hand.punch();
+                Ok(ok())
+            }
+            other => self.execute_inner(other),
+        }
+    }
+
+    /// Une ligne de console envoyée au simulateur dans un message `Command` ; la réponse JSON de la
+    /// commande revient par `command_reply`.
+    fn through_console(&mut self, line: String) -> Result<String> {
+        self.require_playing(line.split_whitespace().next().unwrap_or("commande"))?;
+        self.server.command_reply = None;
+        self.send_now(ClientMsg::Command(line));
+        self.server
+            .command_reply
+            .take()
+            .and_then(|reply| reply.json)
+            .unwrap_or_else(|| Err(anyhow::anyhow!("la commande n'a pas répondu")))
+    }
+
+    fn require_playing(&self, name: &str) -> Result<()> {
+        if self.mode != Mode::Playing {
+            bail!(
+                "{name} : pas en jeu (menu ou pause) : lancer un monde, par exemple avec VOXEL_WORLD"
+            );
+        }
+        Ok(())
+    }
+
+    /// Ce que le regard désigne pour un coup : la créature, sinon le wagon, plus près que le bloc. Comme
+    /// la fenêtre, `ctl` choisit dans ce que le client voit (la réplique des entités).
+    fn claimed_target(&self, aim: crate::protocol::Aim) -> Option<crate::entities::NetId> {
+        let acting = self
+            .server
+            .resolve_aim(self.server.players.local_id(), aim)?;
+        let block_distance = acting
+            .hit
+            .map_or(self.server.players.me().gear.reach(), |h| h.distance);
+        self.client
+            .view
+            .entities
+            .hit(acting.eye, acting.forward, block_distance)
+    }
+
+    /// Les commandes qui ne simulent pas une entrée du joueur (et celles de la console).
+    pub(crate) fn execute_inner(&mut self, command: Command) -> Result<String> {
         let playing = self.mode == Mode::Playing;
         let needs_world = !matches!(
             command,
@@ -734,38 +971,35 @@ impl VoxelGame {
             Command::Help => Ok(format!("{{\"ok\":true,\"help\":{}}}", json_str(HELP))),
             Command::State | Command::Wait(_) => Ok(self.state_json()),
             Command::Goto(feet) => {
-                player::set_eye(
-                    &self.ecs,
-                    self.player,
-                    feet + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT,
-                );
+                self.place_eye(feet + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT);
+                self.server.forget_last_move();
                 Ok(self.state_json())
             }
             Command::Look(yaw, pitch) => {
-                self.camera.yaw = yaw.to_radians();
-                self.camera.pitch = pitch.to_radians().clamp(
+                self.client.camera.yaw = yaw.to_radians();
+                self.client.camera.pitch = pitch.to_radians().clamp(
                     -engine_render::Camera::MAX_PITCH,
                     engine_render::Camera::MAX_PITCH,
                 );
-                self.target = None;
+                self.client.target = None;
                 Ok(self.state_json())
             }
             Command::LookAt(point) => {
-                let eye = player::eye(&self.ecs, self.player, 1.0);
+                let eye = self.client.body.eye(1.0);
                 let direction = (point - eye).normalize_or_zero();
                 if direction == Vec3::ZERO {
                     bail!("lookat : le point est déjà dans l'œil");
                 }
-                self.camera.yaw = direction.z.atan2(direction.x);
-                self.camera.pitch = direction.y.asin().clamp(
+                self.client.camera.yaw = direction.z.atan2(direction.x);
+                self.client.camera.pitch = direction.y.asin().clamp(
                     -engine_render::Camera::MAX_PITCH,
                     engine_render::Camera::MAX_PITCH,
                 );
-                self.target = None;
+                self.client.target = None;
                 Ok(self.state_json())
             }
             Command::Walk(walk) => {
-                if player::mode(&self.ecs, self.player) == MoveMode::Fly {
+                if self.client.body.mode == MoveMode::Fly {
                     bail!("walk : en vol, utiliser goto ou `mode walk`");
                 }
                 self.remote.walk = Some(walk);
@@ -776,14 +1010,14 @@ impl VoxelGame {
                 Ok(ok())
             }
             Command::Block(pos) => {
-                let streamer = self.streamer();
+                let streamer = self.server.streamer();
                 let world = streamer.world();
                 let block = world.block(pos);
                 let (sky, light) = world.light(pos);
                 Ok(format!(
                     "{{\"ok\":true,\"pos\":{},\"block\":{},\"loaded\":{},\"light\":[{sky},{light}]}}",
                     ivec3(pos),
-                    json_str(&self.registry.def(block).key),
+                    json_str(&self.client.registry.def(block).key),
                     streamer.is_generated(engine_voxel::World::chunk_containing(pos.as_vec3())),
                 ))
             }
@@ -792,12 +1026,12 @@ impl VoxelGame {
                     Some(pos) => pos,
                     None => self.aimed()?.block_pos,
                 };
-                let block = self.streamer().world().block(pos);
+                let block = self.server.streamer().world().block(pos);
                 if block.is_air() {
                     bail!("break : rien à casser en {}", ivec3(pos));
                 }
-                let key = self.registry.def(block).key.clone();
-                if !self.break_block(pos) {
+                let key = self.client.registry.def(block).key.clone();
+                if !self.server.break_block(pos) {
                     bail!("break : {key} est incassable ou hors du monde chargé");
                 }
                 Ok(format!(
@@ -806,39 +1040,37 @@ impl VoxelGame {
                     ivec3(pos)
                 ))
             }
-            Command::Place(None) => {
-                self.aimed()?;
-                let pos = self.place_at_target().context(
-                    "place : impossible ici (rien en main, pas de place, pas de support)",
-                )?;
-                Ok(format!("{{\"ok\":true,\"pos\":{}}}", ivec3(pos)))
-            }
             Command::Place(Some((pos, key))) => {
                 let block = self
+                    .client
                     .registry
                     .id(&key)
                     .with_context(|| format!("place : bloc inconnu « {key} »"))?;
                 if block == BlockId::AIR {
                     bail!("place : pour enlever un bloc, utiliser break");
                 }
-                if engine_voxel::bed::is_part(&self.registry, block) {
+                if engine_voxel::bed::is_part(&self.client.registry, block) {
                     bail!("place : utiliser core:bed pour poser le lit entier");
                 }
-                if engine_voxel::door::is_door(self.registry.def(block))
-                    && !self.registry.def(block).placeable
+                if engine_voxel::door::is_door(self.client.registry.def(block))
+                    && !self.client.registry.def(block).placeable
                 {
                     bail!("place : utiliser l'objet de porte pour poser les deux moitiés");
                 }
-                if let Some(parts) = self.paired_placement(pos, block, self.camera.forward()) {
-                    self.place_pair(parts)
+                if let Some(parts) =
+                    self.server
+                        .paired_placement(pos, block, self.client.camera.forward())
+                {
+                    self.server
+                        .place_pair(parts)
                         .context("place : deux cases libres avec un support sont nécessaires")?;
-                } else if !self.edit(pos, block) {
+                } else if !self.server.edit(pos, block) {
                     bail!("place : {} est hors du monde chargé", ivec3(pos));
                 }
                 Ok(format!("{{\"ok\":true,\"pos\":{}}}", ivec3(pos)))
             }
             Command::Stock(pos, slot, key, amount, wear) => {
-                let mut streamer = self.streamer_mut();
+                let mut streamer = self.server.streamer_mut();
                 let inventory = streamer
                     .block_entity_mut(pos)
                     .and_then(|e| e.caps.as_mut())
@@ -857,24 +1089,27 @@ impl VoxelGame {
             }
             Command::Give(key, amount) => {
                 let item = self
+                    .client
                     .content
                     .items
                     .id(&key)
                     .with_context(|| format!("give : objet inconnu « {key} »"))?;
-                let left = self.inventory.add(item, amount, &self.content.items);
+                let left = self.server.players.me_mut().inventory.add(
+                    item,
+                    amount,
+                    &self.client.content.items,
+                );
                 Ok(format!(
                     "{{\"ok\":true,\"given\":{},\"full\":{left}}}",
                     amount - left
                 ))
             }
-            Command::Select(slot) => {
-                // Pour les essais : une case hors de la barre peut être tenue en main.
-                self.inventory.selected = slot.min(self.inventory.slots.len().saturating_sub(1));
-                Ok(self.state_json())
-            }
             Command::Inventory => {
-                let items = &self.content.items;
+                let items = &self.client.content.items;
                 let slots: Vec<String> = self
+                    .server
+                    .players
+                    .me_mut()
                     .inventory
                     .slots
                     .iter()
@@ -892,24 +1127,24 @@ impl VoxelGame {
                     .collect();
                 Ok(format!(
                     "{{\"ok\":true,\"selected\":{},\"slots\":[{}]}}",
-                    self.inventory.selected + 1,
+                    self.server.players.me_mut().inventory.selected + 1,
                     slots.join(",")
                 ))
             }
             Command::Mode(mode) => {
-                if player::mode(&self.ecs, self.player) != mode {
-                    player::toggle_mode(&mut self.ecs, self.player);
+                if self.client.body.mode != mode {
+                    self.toggle_fly();
                 }
                 self.remote.walk = None;
                 Ok(self.state_json())
             }
             Command::Time(time) => {
-                self.day.time = time;
+                self.server.day.time = time;
                 Ok(self.state_json())
             }
             Command::Inspect(pos) => {
-                let streamer = self.streamer();
-                let block = json_str(&self.registry.def(streamer.world().block(pos)).key);
+                let streamer = self.server.streamer();
+                let block = json_str(&self.client.registry.def(streamer.world().block(pos)).key);
                 let Some(caps) = streamer
                     .block_entity(pos)
                     .and_then(|e| e.caps.as_deref().map(|c| (e.power, c)))
@@ -965,17 +1200,21 @@ impl VoxelGame {
                 ))
             }
             Command::Assemble(pos) => {
-                let id = self.assemble(pos).map_err(|e| anyhow::anyhow!(e))?;
+                let id = self.server.assemble(pos).map_err(|e| anyhow::anyhow!(e))?;
                 Ok(format!("{{\"ok\":true,\"ship\":{}}}", id.0))
             }
             Command::Land(id) => {
                 let placed = self
+                    .server
                     .disassemble(engine_voxel::GridId(id))
                     .map_err(|e| anyhow::anyhow!(e))?;
                 Ok(format!("{{\"ok\":true,\"placed\":{placed}}}"))
             }
             Command::Steer(id, value) => {
-                if let Some(mut control) = self.ecs.get_resource_mut::<crate::ships::ShipControl>()
+                if let Some(mut control) = self
+                    .server
+                    .ecs
+                    .get_resource_mut::<crate::ships::ShipControl>()
                 {
                     control.forced = (value != 0.0).then_some((engine_voxel::GridId(id), value));
                 }
@@ -983,12 +1222,13 @@ impl VoxelGame {
             }
             Command::Carts => Ok(self.carts_json()),
             Command::Cart(kind, pos) => {
-                let look = self.camera.forward();
-                let entity =
-                    crate::carts::place(&mut self.ecs, kind, pos, look).with_context(|| {
+                let look = self.client.camera.forward();
+                let entity = crate::carts::place(&mut self.server.ecs, kind, pos, look)
+                    .with_context(|| {
                         format!("cart : pas de rail en {} {} {}", pos.x, pos.y, pos.z)
                     })?;
                 let id = self
+                    .server
                     .ecs
                     .get::<crate::carts::Cart>(entity)
                     .map_or(0, |c| c.id);
@@ -1000,9 +1240,10 @@ impl VoxelGame {
                         .cart_by_id(id)
                         .with_context(|| format!("ride : pas de wagon {id}"))?,
                     None => {
-                        let feet = player::body(&self.ecs, self.player).position;
+                        let feet = self.client.body.body.position;
                         let mut best: Option<(f32, engine_ecs::Entity)> = None;
-                        self.ecs
+                        self.server
+                            .ecs
                             .query::<(&crate::components::Transform, &crate::carts::Cart)>()
                             .for_each(|e, (t, c)| {
                                 let d = t.position.distance(feet);
@@ -1017,7 +1258,7 @@ impl VoxelGame {
                             .context("ride : aucun wagonnet libre")?
                     }
                 };
-                if !self.ride(entity) {
+                if !self.server.ride(entity) {
                     bail!(
                         "ride : impossible de monter (vol, wagon plein ou ce n'est pas un wagonnet)"
                     );
@@ -1025,7 +1266,7 @@ impl VoxelGame {
                 Ok(ok())
             }
             Command::Dismount => {
-                if !self.dismount() {
+                if !self.server.dismount() {
                     bail!("dismount : le joueur n'est pas dans un wagon");
                 }
                 Ok(ok())
@@ -1034,7 +1275,7 @@ impl VoxelGame {
                 let (Some(x), Some(y)) = (self.cart_by_id(a), self.cart_by_id(b)) else {
                     bail!("couple : wagon inconnu (voir carts)");
                 };
-                let linked = crate::carts::toggle_coupling(&self.ecs, x, y)
+                let linked = crate::carts::toggle_coupling(&self.server.ecs, x, y)
                     .context("couple : il faut deux wagons différents")?;
                 Ok(format!("{{\"ok\":true,\"coupled\":{linked}}}"))
             }
@@ -1043,6 +1284,7 @@ impl VoxelGame {
                     .cart_by_id(id)
                     .with_context(|| format!("cartstock : pas de wagon {id}"))?;
                 let mut cargo = self
+                    .server
                     .ecs
                     .get_mut::<crate::carts::CartCargo>(entity)
                     .context("cartstock : ce wagon n'a pas d'inventaire")?;
@@ -1050,7 +1292,7 @@ impl VoxelGame {
                 Ok(format!("{{\"ok\":true,\"put\":{put}}}"))
             }
             Command::Ships => {
-                let subs = self.mods.subgrids.borrow();
+                let subs = self.server.mods.subgrids.borrow();
                 let list: Vec<String> = subs
                     .ids()
                     .iter()
@@ -1069,15 +1311,15 @@ impl VoxelGame {
                 Ok(format!("{{\"ok\":true,\"ships\":[{}]}}", list.join(",")))
             }
             Command::Networks => {
-                let stats = self.mods.machines.networks().stats();
+                let stats = self.server.mods.machines.networks().stats();
                 Ok(format!(
                     "{{\"ok\":true,\"networks\":{},\"conduits\":{},\"endpoints\":{},\"rebuilt\":{}}}",
                     stats.networks, stats.conduits, stats.endpoints, stats.rebuilt
                 ))
             }
             Command::Structures(radius) => {
-                let feet = player::body(&self.ecs, self.player).position;
-                let streamer = self.streamer();
+                let feet = self.client.body.body.position;
+                let streamer = self.server.streamer();
                 let generator = streamer.generator();
                 let list: Vec<String> = generator
                     .structure_sites_near(feet.x.floor() as i32, feet.z.floor() as i32, radius)
@@ -1103,11 +1345,11 @@ impl VoxelGame {
                 ))
             }
             Command::Weather(sky) => {
-                self.weather.set(sky);
+                self.server.weather.set(sky);
                 Ok(format!("{{\"ok\":true,\"weather\":\"{}\"}}", sky.name()))
             }
             Command::Damage(amount, pierce) => {
-                let dealt = self.hurt_player_pierced(
+                let dealt = self.server.hurt_player_pierced(
                     amount,
                     crate::survival::DamageCause::Command,
                     crate::attributes::Pierce::flat(pierce),
@@ -1119,12 +1361,13 @@ impl VoxelGame {
             }
             Command::Mobs => {
                 let registry = self
+                    .server
                     .ecs
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .clone();
                 let mut mobs: Vec<(f32, String)> = Vec::new();
-                let eye = player::eye(&self.ecs, self.player, 1.0);
-                self.ecs
+                let eye = self.client.body.eye(1.0);
+                self.server.ecs
                     .query::<(&crate::components::Transform, &crate::components::Health, &crate::components::Mob)>()
                     .for_each(|_, (transform, health, mob)| {
                         let key = registry.get(mob.kind).map_or("?", |d| d.key.as_str());
@@ -1143,41 +1386,26 @@ impl VoxelGame {
                 let list: Vec<String> = mobs.into_iter().take(20).map(|(_, m)| m).collect();
                 Ok(format!("{{\"ok\":true,\"mobs\":[{}]}}", list.join(",")))
             }
-            Command::Use => {
-                if self.use_cart() || self.use_charm() || self.use_guide() {
-                    return Ok(ok());
-                }
-                let hit = self.aimed()?;
-                if self.use_door(hit.block_pos) {
-                    return Ok(ok());
-                }
-                if self.use_bed(hit.block_pos) {
-                    return Ok(self.state_json());
-                }
-                if self.open_container() || self.use_machine() || self.use_mod_item() {
-                    return Ok(ok());
-                }
-                let pos = self.place_at_target().context("use : rien à faire ici")?;
-                Ok(format!("{{\"ok\":true,\"placed\":{}}}", ivec3(pos)))
-            }
             Command::Summon(key) => {
                 let kind = self
+                    .server
                     .ecs
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .id(&key)
                     .with_context(|| format!("summon : créature inconnue « {key} »"))?;
-                let feet = player::body(&self.ecs, self.player).position;
-                let at = feet + self.camera.forward_flat() * 3.0;
-                crate::mobs::spawn_mob(&mut self.ecs, kind, at).context("summon : impossible")?;
+                let feet = self.client.body.body.position;
+                let at = feet + self.client.camera.forward_flat() * 3.0;
+                crate::mobs::spawn_mob(&mut self.server.ecs, kind, at)
+                    .context("summon : impossible")?;
                 Ok(format!("{{\"ok\":true,\"pos\":{}}}", vec3(at)))
             }
             Command::Xp(points) => {
-                self.grant_xp(points);
+                self.server.grant_xp(points);
                 Ok(self.state_json())
             }
             Command::UiTexts => Ok(format!(
                 "{{\"ok\":true,\"texts\":{}}}",
-                self.ui.input.texts_json()
+                self.client.ui.input.texts_json()
             )),
             Command::UiClick(x, y, right) => {
                 let button = if right {
@@ -1185,11 +1413,14 @@ impl VoxelGame {
                 } else {
                     engine_render::egui::PointerButton::Primary
                 };
-                self.ui.input.click(engine_render::egui::pos2(x, y), button);
+                self.client
+                    .ui
+                    .input
+                    .click(engine_render::egui::pos2(x, y), button);
                 Ok(ok())
             }
             Command::UiClickText(text, right) => {
-                let at = self.ui.input.find(&text).with_context(|| {
+                let at = self.client.ui.input.find(&text).with_context(|| {
                     format!("clicktext : aucun texte « {text} » à l'écran (voir texts)")
                 })?;
                 let button = if right {
@@ -1197,14 +1428,14 @@ impl VoxelGame {
                 } else {
                     engine_render::egui::PointerButton::Primary
                 };
-                self.ui.input.click(at, button);
+                self.client.ui.input.click(at, button);
                 Ok(format!(
                     "{{\"ok\":true,\"x\":{:.0},\"y\":{:.0}}}",
                     at.x, at.y
                 ))
             }
             Command::UiType(text) => {
-                self.ui.input.text(&text);
+                self.client.ui.input.text(&text);
                 Ok(ok())
             }
             Command::UiKey(name, mods) => {
@@ -1219,18 +1450,18 @@ impl VoxelGame {
                         other => bail!("key : modificateur inconnu « {other} » (ctrl, shift, alt)"),
                     }
                 }
-                self.ui.input.key(key, modifiers);
+                self.client.ui.input.key(key, modifiers);
                 Ok(ok())
             }
             Command::Console(line) => {
                 match line {
-                    Some(line) => self.ui.console.submitted.push(line),
+                    Some(line) => self.client.ui.console.submitted.push(line),
                     None => self.open_console(),
                 }
                 Ok(ok())
             }
             Command::Travel(key) => {
-                if self.travel(&key) {
+                if self.server.travel(&key) {
                     Ok(ok())
                 } else {
                     bail!(
@@ -1245,10 +1476,12 @@ impl VoxelGame {
             Command::Enchanting(command) => self.enchant_command(command),
             Command::Quests(command) => self.quest_command(command),
             Command::Shapes(command) => self.shape_command(command),
+            Command::Ghosts(command) => self.ghost_command(command),
+            Command::Net(command) => self.net_command(command),
             Command::Mods => {
-                let disabled = self.mods.disabled();
+                let disabled = self.server.mods.disabled();
                 let rows: Vec<String> = self
-                    .mods
+                    .server.mods
                     .mod_stats()
                     .into_iter()
                     .map(|(id, s)| {
@@ -1276,7 +1509,10 @@ impl VoxelGame {
             }
             Command::Resume => {
                 self.leave_mod_options();
-                self.mode = Mode::Playing;
+                // Seulement depuis la pause : un joueur mort réapparaît par `respawn`.
+                if matches!(self.mode, Mode::Paused(_)) {
+                    self.mode = Mode::Playing;
+                }
                 Ok(ok())
             }
             Command::ModOptions(id) => {
@@ -1284,86 +1520,32 @@ impl VoxelGame {
                 Ok(ok())
             }
             Command::OptionsEvent(kind, id, value) => {
-                self.ui.options_events.push((kind, id, value));
+                self.client.ui.options_events.push((kind, id, value));
                 Ok(ok())
-            }
-            Command::Respawn => {
-                if !matches!(self.mode, Mode::Dead(_)) {
-                    bail!("respawn : le joueur n'est pas mort");
-                }
-                self.respawn();
-                Ok(self.state_json())
-            }
-            Command::Attack => {
-                let eye = player::eye(&self.ecs, self.player, 1.0);
-                let forward = self.camera.forward();
-                // Un wagon visé : un coup (le second le casse).
-                if crate::mobs::hit_mob(&self.ecs, eye, forward, self.gear.reach()).is_none()
-                    && self.punch_cart()
-                {
-                    return Ok(ok());
-                }
-                let (mob, _) = crate::mobs::hit_mob(&self.ecs, eye, forward, self.gear.reach())
-                    .context("attack : aucune créature ni aucun wagon visé à portée")?;
-                let strike = self
-                    .strike_mob(mob, forward)
-                    .context("attack : la créature vient d'être frappée (invulnérable)")?;
-                self.exert(self.hunger_rules.attack);
-                Ok(format!(
-                    "{{\"ok\":true,\"damage\":{:.1},\"crit\":{},\"healed\":{:.2}}}",
-                    strike.damage, strike.crit, strike.healed
-                ))
-            }
-            Command::Swing => {
-                self.hand.punch();
-                Ok(ok())
-            }
-            Command::Eat => {
-                // L'aliment en main, sinon le premier de l'inventaire.
-                let items = &self.content.items;
-                let is_food = |slot: &Option<crate::inventory::ItemStack>| {
-                    slot.is_some_and(|s| items.get(s.item).food.is_some())
-                };
-                let index = if is_food(&self.inventory.slots[self.inventory.selected]) {
-                    self.inventory.selected
-                } else {
-                    self.inventory
-                        .slots
-                        .iter()
-                        .position(is_food)
-                        .context("eat : aucun aliment dans l'inventaire")?
-                };
-                if !self.hunger.hungry(&self.hunger_rules) {
-                    bail!("eat : rassasié");
-                }
-                let slot = &mut self.inventory.slots[index];
-                let Some(stack) = slot.as_mut() else {
-                    bail!("eat : case vide");
-                };
-                let food = items.get(stack.item).food.context("eat : pas un aliment")?;
-                stack.count -= 1;
-                if stack.count == 0 {
-                    *slot = None;
-                }
-                self.hunger
-                    .eat(&self.hunger_rules, food.nutrition, food.saturation);
-                Ok(self.state_json())
             }
             Command::Hunger(food) => {
-                self.hunger.food = food.clamp(0.0, self.hunger_rules.max_food);
-                self.hunger.saturation = self.hunger.saturation.min(self.hunger.food);
+                self.server.players.me_mut().hunger.food =
+                    food.clamp(0.0, self.server.hunger_rules.max_food);
+                self.server.players.me_mut().hunger.saturation = self
+                    .server
+                    .players
+                    .me_mut()
+                    .hunger
+                    .saturation
+                    .min(self.server.players.me_mut().hunger.food);
                 Ok(self.state_json())
             }
             Command::Culling(enabled) => {
-                self.culling.enabled = enabled;
+                self.client.culling.enabled = enabled;
                 Ok(ok())
             }
             Command::Screenshot(path, width, height) => {
                 let (ui, _) = self.build_ui(crate::ui::offscreen_input(width, height));
                 self.update_visibility(width as f32 / height as f32);
-                let capture = self
-                    .renderer
-                    .capture(&self.camera, width, height, Some(ui))?;
+                let capture =
+                    self.client
+                        .renderer
+                        .capture(&self.client.camera, width, height, Some(ui))?;
                 if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
                     std::fs::create_dir_all(dir)?;
                 }
@@ -1376,8 +1558,18 @@ impl VoxelGame {
                     capture.height
                 ))
             }
+            // Ces commandes simulent le joueur : `execute` les envoie en messages.
+            Command::Use
+            | Command::Attack
+            | Command::Select(_)
+            | Command::Eat
+            | Command::Hold(_)
+            | Command::Respawn
+            | Command::Swing
+            | Command::Place(None) => unreachable!("routées par `execute`"),
             Command::Quit => {
-                ctx.exit();
+                // L'application se ferme à la fin de l'image (voir `update`).
+                self.client.quit_at = Some(std::time::Instant::now());
                 Ok(ok())
             }
         }
@@ -1385,14 +1577,14 @@ impl VoxelGame {
 
     /// Le bloc visé, recalculé maintenant (la commande a pu tourner la tête).
     pub(crate) fn aimed(&mut self) -> Result<engine_voxel::RayHit> {
-        let eye = player::eye(&self.ecs, self.player, 1.0);
+        let eye = self.client.body.eye(1.0);
         let hit = engine_voxel::raycast(
-            self.streamer().world(),
+            self.view_world(),
             eye,
-            self.camera.forward(),
-            self.gear.reach(),
+            self.client.camera.forward(),
+            self.server.players.me().gear.reach(),
         );
-        self.target = hit;
+        self.client.target = hit;
         hit.context("aucun bloc visé à portée")
     }
 
@@ -1404,15 +1596,16 @@ impl VoxelGame {
             Mode::Paused(_) => "paused",
             Mode::Dead(_) => "dead",
         };
-        let feet = player::body(&self.ecs, self.player).position;
+        let feet = self.client.body.body.position;
         // L'état de la physique est dans le `Collider` (le `PlayerBody` est recréé).
         let collider = self
+            .server
             .ecs
-            .get::<crate::Collider>(self.player)
+            .get::<crate::Collider>(self.server.players.entity())
             .map(|c| *c)
             .unwrap_or_default();
-        let health = player::health(&self.ecs, self.player);
-        let streamer = self.streamer();
+        let health = player::health(&self.server.ecs, self.server.players.entity());
+        let streamer = self.server.streamer();
         let generator = streamer.generator();
         // Le biome là où l'on est : celui d'une grotte souterraine, sinon celui de la colonne.
         let biome = generator
@@ -1423,26 +1616,35 @@ impl VoxelGame {
             ))
             .name
             .clone();
-        let target = match self.target {
+        let target = match self.client.target {
             Some(hit) => format!(
                 "{{\"pos\":{},\"block\":{},\"face\":{},\"distance\":{:.2}}}",
                 ivec3(hit.block_pos),
-                json_str(&self.registry.def(streamer.world().block(hit.block_pos)).key),
+                json_str(
+                    &self
+                        .client
+                        .registry
+                        .def(streamer.world().block(hit.block_pos))
+                        .key
+                ),
                 ivec3(hit.normal),
                 hit.distance
             ),
             None => "null".into(),
         };
-        let selected = match self.inventory.selected_stack() {
+        let selected = match self.server.players.me().inventory.selected_stack() {
             Some(stack) => format!(
                 "{{\"slot\":{},\"item\":{},\"count\":{}}}",
-                self.inventory.selected + 1,
-                json_str(&self.content.items.get(stack.item).key),
+                self.server.players.me().inventory.selected + 1,
+                json_str(&self.client.content.items.get(stack.item).key),
                 stack.count
             ),
-            None => format!("{{\"slot\":{},\"item\":null}}", self.inventory.selected + 1),
+            None => format!(
+                "{{\"slot\":{},\"item\":null}}",
+                self.server.players.me().inventory.selected + 1
+            ),
         };
-        let stats = streamer.stats();
+        let stats = self.stream_stats();
         format!(
             "{{\"ok\":true,\"mode\":\"{mode}\",\"move\":\"{}\",\"pos\":{},\"on_ground\":{},\"in_liquid\":{},\"frozen\":{},\
 \"yaw\":{:.1},\"pitch\":{:.1},\"health\":[{:.1},{:.1}],\"time\":{:.3},\"clock\":{},\
@@ -1452,7 +1654,7 @@ impl VoxelGame {
 \"survival\":{{\"air\":{:.2},\"burning\":{:.2},\"protection\":{},\
 \"food\":{:.2},\"saturation\":{:.2},\"exhaustion\":{:.3},\"bed\":{},\"death\":{},\"xp\":{},\"level\":{}}}}}",
             // Les mêmes mots que la commande `mode`.
-            match player::mode(&self.ecs, self.player) {
+            match self.client.body.mode {
                 MoveMode::Walk => "walk",
                 MoveMode::Fly => "fly",
             },
@@ -1460,36 +1662,40 @@ impl VoxelGame {
             collider.on_ground,
             collider.in_liquid,
             collider.frozen,
-            self.camera.yaw.to_degrees(),
-            self.camera.pitch.to_degrees(),
+            self.client.camera.yaw.to_degrees(),
+            self.client.camera.pitch.to_degrees(),
             health.current,
             health.max,
-            self.day.time,
-            json_str(&self.day.clock()),
-            json_str(&self.dims.current.key),
+            self.server.day.time,
+            json_str(&self.server.day.clock()),
+            json_str(&self.server.dims.current.key),
             json_str(&biome),
             self.remote.walk.is_some(),
             stats.loaded,
             stats.queued,
-            streamer.is_idle(),
-            self.last_render.meshes_drawn,
-            self.last_render.meshes_hidden,
-            self.last_render.meshes_total,
-            self.last_render.triangles,
-            self.culling.enabled,
-            self.vitals.air,
-            self.vitals.burning,
-            self.inventory.protection(&self.content.items),
-            self.hunger.food,
-            self.hunger.saturation,
-            self.hunger.exhaustion,
-            self.bed.map_or("null".into(), ivec3),
+            self.world_idle(),
+            self.client.last_render.meshes_drawn,
+            self.client.last_render.meshes_hidden,
+            self.client.last_render.meshes_total,
+            self.client.last_render.triangles,
+            self.client.culling.enabled,
+            self.server.players.me().vitals.air,
+            self.server.players.me().vitals.burning,
+            self.server
+                .players
+                .me()
+                .inventory
+                .protection(&self.client.content.items),
+            self.server.players.me().hunger.food,
+            self.server.players.me().hunger.saturation,
+            self.server.players.me().hunger.exhaustion,
+            self.server.players.me().bed.map_or("null".into(), ivec3),
             match &self.mode {
                 Mode::Dead(message) => json_str(message),
                 _ => "null".into(),
             },
-            self.experience.points,
-            self.experience.level().0,
+            self.server.players.me().experience.points,
+            self.server.players.me().experience.level().0,
         )
     }
 }
@@ -1502,7 +1708,7 @@ fn error(message: &str) -> String {
     format!("{{\"ok\":false,\"error\":{}}}", json_str(message))
 }
 
-fn vec3(v: Vec3) -> String {
+pub(crate) fn vec3(v: Vec3) -> String {
     format!("[{:.3},{:.3},{:.3}]", v.x, v.y, v.z)
 }
 
@@ -1510,21 +1716,16 @@ fn ivec3(v: IVec3) -> String {
     format!("[{},{},{}]", v.x, v.y, v.z)
 }
 
-/// Une chaîne JSON, entre guillemets, échappée.
-pub(crate) fn json_str(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 2);
-    out.push('"');
-    for c in text.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            c if c.is_control() => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
+impl VoxelGame {
+    // (lot 4b) Méthodes de la fenêtre hôte.
+    /// Les commandes de la console : `break` et `place x y z bloc` s'exécutent ici, les autres
+    /// comme depuis `ctl`.
+    pub(crate) fn execute_from_console(&mut self, command: Command) -> Result<String> {
+        match command {
+            Command::Break(_) | Command::Place(Some(_)) => self.execute_inner(command),
+            other => self.execute(other),
         }
     }
-    out.push('"');
-    out
 }
 
 #[cfg(test)]

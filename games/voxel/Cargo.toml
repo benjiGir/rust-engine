@@ -12,11 +12,14 @@ engine_core = { workspace = true }
 engine_render = { workspace = true }
 engine_voxel = { workspace = true }
 engine_mods = { workspace = true }
+engine_net = { workspace = true }
 engine_ecs = { workspace = true }
 engine_inspect = { workspace = true }
+voxel_sim = { workspace = true }
 egui-winit = { workspace = true }
 serde = { workspace = true }
 ron = { workspace = true }
+ctrlc = { workspace = true }
 winit = { workspace = true }
 glam = { workspace = true }
 bytemuck = { workspace = true }
@@ -28,6 +31,9 @@ kira = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
+
+[dev-dependencies]
+voxel_sim = { workspace = true, features = ["testing"] }
 
 [lints]
 workspace = true

@@ -23,7 +23,7 @@ use crate::enchant_library::{self, Library};
 use crate::enchant_table::{self, Subject};
 use crate::enchanting::{self, Enchantment};
 use crate::inventory::ItemStack;
-use crate::ui::Screen;
+use crate::screens::Screen;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
@@ -122,7 +122,7 @@ impl VoxelGame {
     pub(crate) fn enchant_command(&mut self, command: Command) -> Result<String> {
         match command {
             Command::Table(at) => {
-                let s = self.table_stats(at);
+                let s = self.server.table_stats(at);
                 Ok(format!(
                     "{{\"ok\":true,\"eterna\":{:.2},\"raw_eterna\":{:.2},\"max_eterna\":{:.1},\"quanta\":{:.1},\"arcana\":{:.1},\"clues\":{},\"stability\":{:.1},\"treasure\":{},\"shelves\":{}}}",
                     s.eterna,
@@ -140,7 +140,8 @@ impl VoxelGame {
                 let block = if key == "air" {
                     engine_voxel::BlockId::AIR
                 } else {
-                    self.registry
+                    self.client
+                        .registry
                         .id(&key)
                         .with_context(|| format!("shelves : bloc inconnu « {key} »"))?
                 };
@@ -151,17 +152,20 @@ impl VoxelGame {
                 {
                     // L'air entre la table et l'étagère, puis l'étagère.
                     if !block.is_air() {
-                        self.edit(at + middle, engine_voxel::BlockId::AIR);
+                        self.server.edit(at + middle, engine_voxel::BlockId::AIR);
                     }
-                    self.edit(at + offset, block);
+                    self.server.edit(at + offset, block);
                     placed += 1;
                 }
                 Ok(format!("{{\"ok\":true,\"placed\":{placed}}}"))
             }
             Command::Offers(at) => {
-                let stats = self.table_stats(at);
-                let items = self.content.items.clone();
+                let stats = self.server.table_stats(at);
+                let items = self.client.content.items.clone();
                 let stack = self
+                    .server
+                    .players
+                    .me_mut()
                     .inventory
                     .selected_stack()
                     .context("offers : rien en main")?;
@@ -176,7 +180,7 @@ impl VoxelGame {
                     subject,
                     &def.key,
                     stack.damage,
-                    self.enchant_seed,
+                    self.server.enchant_seed,
                     &stats,
                 ) else {
                     return Ok("{\"ok\":true,\"offers\":[]}".to_string());
@@ -190,8 +194,8 @@ impl VoxelGame {
                             o.points,
                             o.gems,
                             o.clues,
-                            crate::control::json_str(&o.preview()),
-                            crate::control::json_str(&o.label())
+                            crate::json_text::json_str(&o.preview()),
+                            crate::json_text::json_str(&o.label())
                         )
                     })
                     .collect();
@@ -204,18 +208,20 @@ impl VoxelGame {
                     ("guide", _) => Screen::Guide,
                     _ => Screen::Anvil,
                 };
-                self.ui.screen = screen;
-                self.ui.inventory_open = true;
-                self.mouse_captured = false;
+                // Par le serveur, comme un clic droit : ses gestes y seront acceptés.
+                self.server.open_screen(screen);
+                self.apply_replies();
+                self.client.mouse_captured = false;
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Book(list) => {
                 let book = self
+                    .client
                     .content
                     .items
                     .id(ENCHANTED_BOOK)
                     .context("book : pas de livre enchanté")?;
-                self.give_or_drop(ItemStack {
+                self.server.give_or_drop(ItemStack {
                     item: book,
                     count: 1,
                     damage: enchant_books::book_damage(&list),
@@ -224,16 +230,17 @@ impl VoxelGame {
             }
             Command::LibAdd(at, kind, level) => {
                 let max = {
-                    let streamer = self.streamer();
+                    let streamer = self.server.streamer();
                     enchant_library::max_level_of(
-                        self.registry
+                        self.client
+                            .registry
                             .def(streamer.world().block(at))
                             .enchanting
                             .as_ref(),
                     )
                 };
                 anyhow::ensure!(max > 0, "libadd : pas de bibliothèque en {}", json_pos(at));
-                let mut streamer = self.streamer_mut();
+                let mut streamer = self.server.streamer_mut();
                 let entity = streamer
                     .block_entity_mut(at)
                     .context("libadd : la bibliothèque n'a pas d'état")?;
@@ -248,7 +255,7 @@ impl VoxelGame {
                 ))
             }
             Command::Library(at) => {
-                let streamer = self.streamer();
+                let streamer = self.server.streamer();
                 let entity = streamer
                     .block_entity(at)
                     .context("library : pas de bibliothèque en ce point")?;
@@ -259,24 +266,27 @@ impl VoxelGame {
                     .map(|(kind, points, best)| {
                         format!(
                             "{{\"enchantment\":{},\"points\":{points},\"best\":{best}}}",
-                            crate::control::json_str(&kind.name())
+                            crate::json_text::json_str(&kind.name())
                         )
                     })
                     .collect();
                 Ok(format!("{{\"ok\":true,\"entries\":[{}]}}", rows.join(",")))
             }
             Command::Points(points) => {
-                self.experience.points = points;
+                self.server.players.me_mut().experience.points = points;
                 Ok(format!(
                     "{{\"ok\":true,\"points\":{},\"level\":{}}}",
                     points,
-                    self.experience.level().0
+                    self.server.players.me_mut().experience.level().0
                 ))
             }
             Command::Charms => {
-                let items = self.content.items.clone();
+                let items = self.client.content.items.clone();
                 let data = crate::adventure_data::current();
                 let rows: Vec<String> = self
+                    .server
+                    .players
+                    .me_mut()
                     .inventory
                     .slots
                     .iter()
@@ -286,7 +296,7 @@ impl VoxelGame {
                         data.charm_of(&def.key)?;
                         Some(format!(
                             "{{\"item\":{},\"active\":{},\"charge\":{:.3}}}",
-                            crate::control::json_str(&def.key),
+                            crate::json_text::json_str(&def.key),
                             crate::charms::is_active(s.damage),
                             crate::charms::charge(s.damage, def.durability.unwrap_or(1))
                         ))

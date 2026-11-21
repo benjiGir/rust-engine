@@ -394,3 +394,16 @@ pub fn meter(p: &egui::Painter, rect: egui::Rect, fill: f32, color: Color32, see
         painter.add(egui::Shape::convex_polygon(inner, color, Stroke::NONE));
     }
 }
+
+/// La couleur d'un ton de la simulation (voir `tone.rs`).
+pub fn tone(tone: crate::tone::Tone) -> Color32 {
+    use crate::tone::Tone;
+    match tone {
+        Tone::Text => TEXT,
+        Tone::Muted => MUTED,
+        Tone::Red => RED,
+        Tone::Sage => SAGE,
+        Tone::Gold => GOLD,
+        Tone::Rgb(r, g, b) => Color32::from_rgb(r, g, b),
+    }
+}

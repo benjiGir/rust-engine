@@ -48,8 +48,9 @@ pub fn rotate_y(v: Vec3, yaw: f32) -> Vec3 {
     Vec3::new(v.x * c - v.z * s, v.y, v.x * s + v.z * c)
 }
 
-/// Une structure détachée du monde.
-#[derive(Debug)]
+/// Une structure détachée du monde. Copier la structure est peu coûteux : les chunks sont des `Arc`
+/// (le serveur en envoie une copie au client chaque fois que ses blocs changent).
+#[derive(Debug, Clone)]
 pub struct SubGrid {
     pub id: GridId,
     world: World,
@@ -66,6 +67,20 @@ pub struct SubGrid {
     revision: u64,
 }
 
+/// Une structure telle qu'elle passe sur le réseau.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct WireGrid {
+    id: GridId,
+    pivot: Vec3,
+    position: Vec3,
+    yaw: f32,
+    velocity: Vec3,
+    yaw_rate: f32,
+    revision: u64,
+    cells: Vec<IVec3>,
+    chunks: Vec<(IVec3, Vec<u8>)>,
+}
+
 impl SubGrid {
     pub fn new(id: GridId, registry: Arc<BlockRegistry>) -> Self {
         Self {
@@ -79,6 +94,52 @@ impl SubGrid {
             yaw_rate: 0.0,
             revision: 0,
         }
+    }
+
+    /// Les octets d'une structure pour le réseau : sa place, ses cases et ses chunks.
+    pub fn to_wire(&self) -> Vec<u8> {
+        let mut chunks: Vec<(IVec3, Vec<u8>)> = self
+            .world
+            .chunk_positions()
+            .filter_map(|pos| Some((pos, self.world.chunk(pos)?.to_wire())))
+            .collect();
+        chunks.sort_by_key(|(pos, _)| pos.to_array());
+        let mut cells: Vec<IVec3> = self.cells.iter().copied().collect();
+        cells.sort_by_key(|c| c.to_array());
+        let wire = WireGrid {
+            id: self.id,
+            pivot: self.pivot,
+            position: self.position,
+            yaw: self.yaw,
+            velocity: self.velocity,
+            yaw_rate: self.yaw_rate,
+            revision: self.revision,
+            cells,
+            chunks,
+        };
+        postcard::to_allocvec(&wire).expect("une structure se sérialise toujours")
+    }
+
+    /// Relit une structure reçue du réseau.
+    pub fn from_wire(
+        bytes: &[u8],
+        registry: Arc<BlockRegistry>,
+    ) -> Result<Self, crate::chunk::WireError> {
+        let wire: WireGrid =
+            postcard::from_bytes(bytes).map_err(|e| crate::chunk::WireError(e.to_string()))?;
+        let mut grid = Self::new(wire.id, registry);
+        for (pos, bytes) in wire.chunks {
+            grid.world
+                .insert(pos, Arc::new(crate::chunk::Chunk::from_wire(&bytes)?));
+        }
+        grid.cells = wire.cells.into_iter().collect();
+        grid.pivot = wire.pivot;
+        grid.position = wire.position;
+        grid.yaw = wire.yaw;
+        grid.velocity = wire.velocity;
+        grid.yaw_rate = wire.yaw_rate;
+        grid.revision = wire.revision;
+        Ok(grid)
     }
 
     /// Le monde local : les blocs en coordonnées locales.

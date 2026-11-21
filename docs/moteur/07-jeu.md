@@ -66,6 +66,8 @@ mindmap
       audio / soundscape
       water_fx / conduit_fx
       far_terrain / culling
+      client_world (réplique du monde)
+      client_entities / entity_render (réplique des entités)
     Outils
       control (ctl)
       bench / screenshots / stress
@@ -78,6 +80,9 @@ mindmap
 | Module | Rôle |
 |---|---|
 | `player.rs` | le joueur est une entité ECS comme les créatures (`Transform`, `Velocity`, `Collider`, `Health`, `Player`) |
+| `players.rs` | `PlayerState` (tout ce qui appartient à un joueur : inventaire, survie, faim, équipement, effets, aventure, quêtes, lit...) et la table `Players`, dont le joueur local est celui de la fenêtre. Les créatures visent le joueur **le plus proche** (`mobs::player_spots`) ; les événements (`BlockBroken`, `PlayerDamaged`...) portent le `PlayerId` qui les cause |
+| `entities.rs`, `client_entities.rs`, `entity_render.rs` | la réplique des entités : `NetId`, suivi par joueur (`Spawn`, `Moves`...), interpolation, dessin des créatures, objets, wagons, projectiles, structures mobiles et autres joueurs (voir `03-monde.md`) |
+| `ghosts.rs` | `ctl ghost` : des joueurs serveur sans fenêtre, pour tester les autres joueurs |
 | `inventory.rs` | 9 cases de barre, 27 de réserve, 4 d'armure, la grille d'artisanat |
 | `survival.rs` | ce qui blesse (chute, noyade, feu, lave, faim) et l'armure qui protège ; tout passe par `Vitals`, testable sans fenêtre |
 | `attributes.rs`, `gear.rs` | des **attributs** (dégâts, armure, vitesse, portée...) calculés depuis l'objet en main, l'armure et les effets |
@@ -156,7 +161,9 @@ casse les blocs les connaisse.
 ## La persistance
 
 `persistence.rs` décide **quand** sauvegarder (toutes les 30 secondes et à la fermeture) et ajoute l'état
-du jeu (heure, joueur, inventaire) à ce que le moteur écrit (chapitre 3). Les options du joueur sont dans
+du jeu (heure, joueurs, inventaires) à ce que le moteur écrit (chapitre 3). Chaque joueur a son fichier
+`players/<uuid>.ron` (l'identifiant du joueur local est tiré une fois dans `settings.ron`) ; l'hôte reste
+aussi écrit dans `world.ron`, et un monde sans dossier `players/` se relit depuis `world.ron`. Les options du joueur sont dans
 `settings.ron` à la racine du projet (distance de rendu, champ de vision, sensibilité, volumes, touches),
 celles des mods dans `mod_settings.ron`.
 

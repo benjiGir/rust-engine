@@ -206,7 +206,8 @@ Au rendu, l'heure du jour multiplie la lumière du ciel : la nuit ne demande auc
 
 ## Le streaming : un monde infini
 
-`ChunkStreamer` (`streaming.rs`) charge, éclaire et maille les chunks autour du joueur, en tâche de fond.
+`ChunkStreamer` (`streaming.rs`) charge, éclaire et maille les chunks autour du joueur, en tâche de fond
+(seul, ou en deux rôles : voir plus bas « Le serveur et la réplique »).
 
 ```mermaid
 flowchart LR
@@ -250,6 +251,93 @@ sauvegardé, et un résumé de sa surface est gardé pour le terrain lointain (`
 **Mesurer.** `VOXEL_PIPELINE=1` note, pour chaque chunk, les délais demande → généré → lumière →
 maillé → envoyé (`pipeline_timing.rs`).
 
+### Le serveur et la réplique
+
+Dans le jeu, le monde est tenu **en deux endroits** (multijoueur, sous-lot 3a ; voir
+`docs/plan-multijoueur.md`). Le même `ChunkStreamer` joue deux rôles :
+
+```mermaid
+flowchart LR
+    subgraph Serveur["Serveur : ChunkStreamer::as_server"]
+        gen["génère, éclaire,\nsauvegarde"]
+        edit["actions des joueurs\n(set_block, machines, fluides)"]
+        notes["take_changes()\nchunks changés"]
+    end
+    subgraph Envoi["ChunkSender (un par joueur)"]
+        send["colonnes éclairées, du proche au loin\n+ chunks changés + Unload"]
+    end
+    subgraph Client["Client : ChunkStreamer::replica_of"]
+        rep["apply_updates\nmaillage, budget d'envoi GPU"]
+    end
+    gen --> send
+    edit --> notes --> send
+    send -- "ChunkUpdate\n(Arc<Chunk>, sans copie)" --> rep
+```
+
+- **Le serveur** charge, génère, éclaire et sauvegarde, mais **ne maille rien**. Il note les chunks qui
+  changent (`ChunkChange`) : les positions des blocs posés ou cassés par une action immédiate (`edits`), et
+  un drapeau `remesh` pour un changement qui peut attendre (lumière, fluide, machine, forme). Un changement
+  de données seules (le contenu d'un coffre) ne remaille rien.
+- **L'expéditeur** (`ChunkSender`, un par joueur) envoie des **colonnes entières**, du plus proche au plus
+  lointain sous un budget (256 chunks par pas), et seulement quand leur lumière est calculée : la lumière
+  est dans le chunk. Un chunk n'est maillé que si ses 26 voisins sont là, et la réplique sait qu'une colonne
+  est complète dès que son premier chunk arrive. Il renvoie aussi les chunks changés que le joueur a, et
+  libère (`Unload`) ceux sortis du rayon plus une marge.
+- **La réplique** ne génère, n'éclaire ni ne sauvegarde rien : elle range les chunks reçus et les maille
+  avec les mêmes priorités, le même budget, les mêmes couches sombres que le streamer seul. Elle tient les
+  **mêmes `Arc`** que le serveur : une édition copie le chunk (`Arc::make_mut`, environ 96 Kio) tant que
+  la réplique tient l'ancien.
+- **Une édition se voit dans la même image** : le serveur l'applique, l'expéditeur la renvoie à la fin de
+  l'image, et la réplique remplace d'abord tous les chunks reçus, puis refait la géométrie de chaque
+  position éditée (le chunk et ses voisins) et remaille tout de suite, hors budget.
+
+Ce que le client dessine ou vise (rendu, rayon de visée, culling des grottes, pas, couvercles de coffre,
+eau, vent, lumière du bras) lit la réplique (`VoxelGame::view_world`) ; la physique, l'IA, les mods, les
+machines, les fluides, les actions des joueurs (`handle`) et les outils de débogage `ctl` lisent le
+serveur (`VoxelGame::streamer`).
+
+### Les entités vues par le client
+
+Les créatures, objets au sol, wagons, projectiles, structures mobiles et autres joueurs suivent le même
+modèle (multijoueur, sous-lot 3b). Le rendu ne lit plus leur ECS : il lit une **réplique d'entités**.
+
+```mermaid
+flowchart LR
+    subgraph Serveur["Serveur (ECS)"]
+        ids["NetIds::assign\nun NetId par entité"]
+        collect["collect()\nsorte, pose, apparence"]
+    end
+    subgraph Suivi["EntityTracker (un par joueur)"]
+        step["portée par sorte,\ncolonne reçue,\ncadence interval"]
+    end
+    subgraph Client["ClientEntities"]
+        views["deux échantillons\npar entité"]
+        draw["entity_render::draw"]
+    end
+    ids --> collect --> step
+    step -- "Tick, Spawn, Despawn,\nMoves, EntityState,\nGridBlocks" --> views --> draw
+```
+
+- **`NetId`** : un numéro du serveur, jamais réutilisé dans une partie, posé comme composant sur chaque entité
+  répliquée. Le client désigne ce qu'il voit par ce numéro (`ClientMsg::Attack`, les cases d'un wagon) ; le
+  serveur le retrouve (`NetIds::entity`), refuse un numéro inconnu ou mort, et revérifie sa propre visée.
+- **Le suivi** (`entities.rs`) envoie `Spawn` quand une entité entre dans la portée du joueur (créatures 80
+  blocs, objets 48, projectiles 64, wagons, structures et joueurs 128), dans une colonne que son client a reçue ;
+  `Despawn` quand elle sort (4 blocs de marge) ou meurt ; `Moves` pour ce qui a bougé, tous les `interval` pas
+  fixes ; `EntityState` quand l'apparence change (blessure, petit qui grandit, couleur de toison) ;
+  `GridBlocks` pour les blocs d'une structure mobile, quand sa révision change. `interval` vaut 1 sur le
+  lien en mémoire (60 Hz, comme avant) et 3 (20 Hz) sera la valeur du réseau ; `VOXEL_ENTITY_INTERVAL=3` l'essaie.
+- **L'interpolation** (`client_entities.rs`) : la réplique garde les deux derniers échantillons de chaque
+  entité, datés du pas fixe du serveur (`ServerMsg::Tick`), et dessine au temps `pas - interval + alpha`. Avec
+  `interval = 1`, c'est exactement l'interpolation entre `PreviousPosition` et la position qu'avait le rendu ;
+  avec 3, la pose glisse d'un échantillon à l'autre en trois pas. Un autre joueur marche d'après ses
+  déplacements (le serveur n'envoie que sa pose).
+- **Le dessin** (`entity_render.rs`) lit la réplique et le monde que voit la fenêtre (la lumière). La
+  créature ou le wagon visé est choisi dans la réplique (`ClientEntities::hit`).
+- **`ctl ghost [nom] [x y z]`** ajoute un joueur serveur sans fenêtre (`ghosts.rs`), vu des autres comme
+  une entité `Player`, dessiné avec son nom ; `ctl ghost remove` le retire. Il sert à voir un autre
+  joueur avant le réseau.
+
 ## Modifier le monde
 
 Casser ou poser passe par `VoxelGame::edit` (jeu) puis `ChunkStreamer::set_block` (moteur) :
@@ -278,7 +366,8 @@ fait tomber entièrement, et les fleurs posées dessus avec.
 
 ```
 saves/<monde>/
-├── world.ron           réglages lisibles : graine, heure, joueur, mods, version de génération
+├── world.ron           réglages lisibles : graine, heure, joueur hôte, mods, version de génération
+├── players/<uuid>.ron  un fichier par joueur : position, inventaire, progression d'aventure
 ├── regions/
 │   └── r.<x>.<z>.bin   les chunks modifiés d'une région de 16 × 16 colonnes
 ├── grids.bin           les structures mobiles

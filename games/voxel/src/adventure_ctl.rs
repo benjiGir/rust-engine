@@ -24,7 +24,7 @@ use crate::VoxelGame;
 use crate::adventure_data;
 use crate::affixes;
 use crate::inventory::ItemStack;
-use crate::ui::Screen;
+use crate::screens::Screen;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
@@ -129,11 +129,11 @@ impl VoxelGame {
                     .or_else(|| rarity.parse().ok())
                     .filter(|r| usize::from(*r) < data.rarities.len())
                     .with_context(|| format!("loot : rareté inconnue « {rarity} »"))?;
-                let items = self.content.items.clone();
+                let items = self.client.content.items.clone();
                 let item = items
                     .id(&key)
                     .with_context(|| format!("loot : objet inconnu « {key} »"))?;
-                let mut rng = engine_voxel::Rng64::new(self.next_random());
+                let mut rng = engine_voxel::Rng64::new(self.server.next_random());
                 let def = items.get(item);
                 anyhow::ensure!(
                     affixes::can_carry(def),
@@ -145,7 +145,7 @@ impl VoxelGame {
                     affixes::apply(&mut damage, sheet),
                     "loot : plus de numéro de fiche"
                 );
-                let left = self.inventory.add_stack(
+                let left = self.server.players.me_mut().inventory.add_stack(
                     ItemStack {
                         item,
                         count: 1,
@@ -162,11 +162,16 @@ impl VoxelGame {
                     .find(|g| g.id == key)
                     .with_context(|| format!("gem : sorte inconnue « {key} »"))?;
                 let item = self
+                    .client
                     .content
                     .items
                     .id(&kind.item_key(quality - 1))
                     .context("gem : objet absent")?;
-                let left = self.inventory.add(item, count, &self.content.items);
+                let left = self.server.players.me_mut().inventory.add(
+                    item,
+                    count,
+                    &self.client.content.items,
+                );
                 Ok(format!("{{\"ok\":true,\"full\":{left}}}"))
             }
             Command::Tier(tier) => {
@@ -175,14 +180,14 @@ impl VoxelGame {
                     "tier : 0 à {}",
                     data.tiers.len() - 1
                 );
-                let progress = &mut self.adventure.progress;
+                let progress = &mut self.server.players.me_mut().adventure.progress;
                 progress.unlocked = progress.unlocked.max(tier);
                 progress.select(tier, &data.tiers);
                 Ok(self.adventure_json())
             }
             Command::Tiers => Ok(self.adventure_json()),
             Command::Progress(what, n) => {
-                let p = &mut self.adventure.progress;
+                let p = &mut self.server.players.me_mut().adventure.progress;
                 match what.as_str() {
                     "kills" => p.kills = n.max(0) as u32,
                     "bosses" => p.bosses = n.max(0) as u32,
@@ -190,13 +195,14 @@ impl VoxelGame {
                     "depth" => p.depth = n as i32,
                     other => bail!("progress : champ inconnu « {other} »"),
                 }
-                self.unlock_tiers(&data);
+                self.server.unlock_tiers(&data);
                 Ok(self.adventure_json())
             }
             Command::Elite(kind) => self.spawn_test_elite(kind, false),
             Command::Invader(Some(kind)) => self.spawn_test_elite(Some(kind), true),
             Command::Invader(None) => {
                 let site = self
+                    .server
                     .spawn_invader(&data)
                     .context("invader : pas de terrain libre sur l'anneau, réessayer")?;
                 Ok(format!(
@@ -206,14 +212,14 @@ impl VoxelGame {
             }
             Command::Elites => {
                 let mut rows = Vec::new();
-                self.ecs.query::<(
+                self.server.ecs.query::<(
                     &crate::elites::Elite,
                     &crate::components::Health,
                     &crate::components::Transform,
                 )>().for_each(|_, (elite, health, transform)| {
                     rows.push(format!(
                         "{{\"name\":{},\"invader\":{},\"health\":{:.1},\"max\":{:.1},\"damage\":{:.2},\"speed\":{:.2},\"armor\":{:.1},\"pos\":[{:.1},{:.1},{:.1}]}}",
-                        crate::control::json_str(&elite.name),
+                        crate::json_text::json_str(&elite.name),
                         elite.invader,
                         health.current,
                         health.max,
@@ -229,15 +235,17 @@ impl VoxelGame {
             }
             Command::Slay(all) => {
                 let registry = self
+                    .server
                     .ecs
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .clone();
                 let mut count = 0;
-                self.ecs
+                self.server
+                    .ecs
                     .query::<(&crate::components::Mob, &mut crate::components::Health)>()
                     .for_each(|entity, (mob, health)| {
                         let hostile = registry.get(mob.kind).is_some_and(|d| d.hostile);
-                        let elite = self.ecs.has::<crate::elites::Elite>(entity);
+                        let elite = self.server.ecs.has::<crate::elites::Elite>(entity);
                         if (all && hostile) || elite {
                             health.current = 0.0;
                             count += 1;
@@ -246,28 +254,29 @@ impl VoxelGame {
                 Ok(format!("{{\"ok\":true,\"slain\":{count}}}"))
             }
             Command::Cursor(slot) => {
-                self.inventory.cursor = match slot {
-                    Some(i) => self.inventory.slots[i].take(),
+                self.server.players.me_mut().inventory.cursor = match slot {
+                    Some(i) => self.server.players.me_mut().inventory.slots[i].take(),
                     None => None,
                 };
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Open(screen) => {
-                self.ui.screen = match screen.as_str() {
+                let screen = match screen.as_str() {
                     "salvage" => Screen::Salvage,
                     "reforge" => Screen::Reforge,
                     _ => Screen::Tiers,
                 };
-                self.ui.inventory_open = true;
-                self.mouse_captured = false;
+                self.server.open_screen(screen);
+                self.apply_replies();
+                self.client.mouse_captured = false;
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Pending(pos, key, min) => {
-                let block = self.streamer().world().block(pos);
-                let slots = engine_voxel::container_slots(&self.registry, block)
+                let block = self.server.streamer().world().block(pos);
+                let slots = engine_voxel::container_slots(&self.client.registry, block)
                     .context("pending : pas un conteneur")?;
-                let seed = (self.next_random() & 0xFFFF) as u16;
-                let mut streamer = self.streamer_mut();
+                let seed = (self.server.next_random() & 0xFFFF) as u16;
+                let mut streamer = self.server.streamer_mut();
                 let mut entity = streamer.block_entity(pos).cloned().unwrap_or_default();
                 let inventory = entity
                     .caps_mut()
@@ -287,13 +296,13 @@ impl VoxelGame {
                 Ok("{\"ok\":true}".to_string())
             }
             Command::ClearInventory => {
-                self.inventory.slots = [None; crate::inventory::SLOTS];
-                self.inventory.cursor = None;
+                self.server.players.me_mut().inventory.slots = [None; crate::inventory::SLOTS];
+                self.server.players.me_mut().inventory.cursor = None;
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Sockets(n) => {
-                let selected = self.inventory.selected;
-                let stack = self.inventory.slots[selected]
+                let selected = self.server.players.me_mut().inventory.selected;
+                let stack = self.server.players.me_mut().inventory.slots[selected]
                     .as_mut()
                     .context("sockets : rien en main")?;
                 crate::enchanting::edit_sheet(&mut stack.damage, |s| {
@@ -308,6 +317,7 @@ impl VoxelGame {
     fn spawn_test_elite(&mut self, kind: Option<String>, invader: bool) -> Result<String> {
         let data = adventure_data::current();
         let registry = self
+            .server
             .ecs
             .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
             .clone();
@@ -315,35 +325,35 @@ impl VoxelGame {
         let id = registry
             .id(&key)
             .with_context(|| format!("créature inconnue « {key} »"))?;
-        let feet = crate::player::body(&self.ecs, self.player).position;
+        let feet = self.client.body.body.position;
         let distance = if invader { 18.0 } else { 5.0 };
-        let mut at: Vec3 = feet + self.camera.forward_flat() * distance;
+        let mut at: Vec3 = feet + self.client.camera.forward_flat() * distance;
         // Au sol : le premier bloc plein sous le point, vers le bas.
         {
-            let shared = crate::shared::StreamerExt::streamer(&self.ecs);
+            let shared = crate::shared::StreamerExt::streamer(&self.server.ecs);
             let streamer = shared.borrow();
             let column = streamer
                 .generator()
                 .column(at.x.floor() as i32, at.z.floor() as i32);
             at.y = column.height as f32 + 1.0;
         }
-        let entity = crate::mobs::spawn_mob(&mut self.ecs, id, at).context("impossible")?;
+        let entity = crate::mobs::spawn_mob(&mut self.server.ecs, id, at).context("impossible")?;
         let promoted = if invader {
-            self.promote_invader(entity, &data)
+            self.server.promote_invader(entity, &data)
         } else {
-            let tier = self.adventure.progress.tier;
-            let mut rng = engine_voxel::Rng64::new(self.next_random());
-            crate::elites::promote(&mut self.ecs, entity, &data, tier, false, &mut rng)
+            let tier = self.server.players.me_mut().adventure.progress.tier;
+            let mut rng = engine_voxel::Rng64::new(self.server.next_random());
+            crate::elites::promote(&mut self.server.ecs, entity, &data, tier, false, &mut rng)
         };
         anyhow::ensure!(promoted, "{key} ne peut pas devenir élite");
-        if invader && let Some(audio) = &mut self.audio {
+        if invader && let Some(audio) = &mut self.client.audio {
             audio.play("core:cave_rumble");
             audio.play("core:enchant");
         }
-        let name = crate::elites::of(&self.ecs, entity).map_or_else(String::new, |e| e.name);
+        let name = crate::elites::of(&self.server.ecs, entity).map_or_else(String::new, |e| e.name);
         Ok(format!(
             "{{\"ok\":true,\"name\":{},\"pos\":[{:.1},{:.1},{:.1}]}}",
-            crate::control::json_str(&name),
+            crate::json_text::json_str(&name),
             at.x,
             at.y,
             at.z
@@ -353,8 +363,8 @@ impl VoxelGame {
     /// La progression et le palier, en JSON.
     pub(crate) fn adventure_json(&self) -> String {
         let data = adventure_data::current();
-        let p = &self.adventure.progress;
-        let effects = self.adventure.effects(&data);
+        let p = &self.server.players.me().adventure.progress;
+        let effects = self.server.players.me().adventure.effects(&data);
         format!(
             "{{\"ok\":true,\"tier\":{},\"unlocked\":{},\"kills\":{},\"bosses\":{},\"best_rarity\":{},\"depth\":{},\"health\":{:.2},\"damage\":{:.2},\"elite_chance\":{:.2}}}",
             p.tier,

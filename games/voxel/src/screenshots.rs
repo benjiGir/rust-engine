@@ -23,7 +23,7 @@ use glam::{IVec3, Vec3};
 
 use crate::VoxelGame;
 use crate::daytime::TimeSpeed;
-use crate::player::{self, MoveMode};
+use crate::player::MoveMode;
 
 /// Où poser les créatures de la capture.
 const MOB_SPOT: (i32, i32) = (12, -6);
@@ -341,7 +341,7 @@ impl Tour {
 impl VoxelGame {
     /// Une étape de la visite, à chaque image.
     pub(crate) fn run_tour(&mut self, ctx: &mut Context) -> Result<()> {
-        let Some(tour) = self.tour.as_mut() else {
+        let Some(tour) = self.client.tour.as_mut() else {
             return Ok(());
         };
         // Les captures écartées par `VOXEL_SHOTS` sont sautées.
@@ -364,17 +364,17 @@ impl VoxelGame {
             return Ok(());
         };
         let stage = tour.stage;
-        let ready = self.streamer().is_idle();
+        let ready = self.world_idle();
         match stage {
             Stage::Move => {
-                self.day.time = shot.time;
-                self.day.speed = TimeSpeed::Frozen;
-                if player::mode(&self.ecs, self.player) != MoveMode::Fly {
-                    player::toggle_mode(&mut self.ecs, self.player);
+                self.server.day.time = shot.time;
+                self.server.day.speed = TimeSpeed::Frozen;
+                if self.client.body.mode != MoveMode::Fly {
+                    self.toggle_fly();
                 }
                 let (eye, yaw, pitch) = self.viewpoint(shot.scene);
-                player::set_eye(&self.ecs, self.player, eye + self.origin().as_vec3());
-                self.ui.inventory_open = matches!(
+                self.place_eye(eye + self.origin().as_vec3());
+                self.client.ui.inventory_open = matches!(
                     shot.scene,
                     Scene::Inventory
                         | Scene::Workbench
@@ -383,7 +383,7 @@ impl VoxelGame {
                         | Scene::Trade
                         | Scene::ShapingTable
                 );
-                self.ui.screen = crate::ui::Screen::Inventory;
+                self.client.ui.screen = crate::screens::Screen::Inventory;
                 // Le bras n'apparaît que dans ses propres captures.
                 let arm = matches!(
                     shot.scene,
@@ -393,14 +393,14 @@ impl VoxelGame {
                         | Scene::ArmTool
                         | Scene::ArmSword
                 );
-                self.hand.visible = arm;
-                self.hand.frozen = false;
+                self.client.hand.visible = arm;
+                self.client.hand.frozen = false;
                 self.mode = match shot.scene {
                     Scene::Menu(MenuShot::Main) => {
                         crate::Mode::Title(crate::menus::TitlePage::Main)
                     }
                     Scene::Menu(MenuShot::Worlds) => {
-                        self.worlds = crate::menus::saved_worlds();
+                        self.client.worlds = crate::menus::saved_worlds();
                         crate::Mode::Title(crate::menus::TitlePage::Worlds { confirm: None })
                     }
                     Scene::Menu(MenuShot::NewWorld) => {
@@ -419,9 +419,9 @@ impl VoxelGame {
                     }
                     _ => crate::Mode::Playing,
                 };
-                self.ui.inspector_open = shot.scene == Scene::Inspector;
-                self.camera.yaw = yaw.to_radians();
-                self.camera.pitch = pitch.to_radians();
+                self.client.ui.inspector_open = shot.scene == Scene::Inspector;
+                self.client.camera.yaw = yaw.to_radians();
+                self.client.camera.pitch = pitch.to_radians();
                 self.set_stage(Stage::Build);
             }
             Stage::Build if ready => {
@@ -436,11 +436,15 @@ impl VoxelGame {
                     // L'interface aussi : la barre d'objets, l'inventaire ou l'inspecteur.
                     let (ui, _) = self.build_ui(crate::ui::offscreen_input(WIDTH, HEIGHT));
                     self.update_visibility(WIDTH as f32 / HEIGHT as f32);
-                    let capture = self
-                        .renderer
-                        .capture(&self.camera, WIDTH, HEIGHT, Some(ui))?;
+                    let capture = self.client.renderer.capture(
+                        &self.client.camera,
+                        WIDTH,
+                        HEIGHT,
+                        Some(ui),
+                    )?;
                     let elapsed = start.elapsed();
                     let dir = self
+                        .client
                         .tour
                         .as_ref()
                         .map(|t| t.dir.clone())
@@ -454,10 +458,10 @@ impl VoxelGame {
                         capture.stats.triangles as f64 / 1e6,
                         elapsed.as_secs_f32() * 1000.0
                     );
-                    if tour_index(&self.tour) == 0 {
+                    if tour_index(&self.client.tour) == 0 {
                         self.measure_gpu()?;
                     }
-                    if let Some(tour) = self.tour.as_mut() {
+                    if let Some(tour) = self.client.tour.as_mut() {
                         tour.index += 1;
                         tour.taken += 1;
                     }
@@ -475,10 +479,14 @@ impl VoxelGame {
     /// une borne haute du travail du GPU par image, même écran éteint.
     fn measure_gpu(&mut self) -> Result<()> {
         const FRAMES: u32 = 10;
-        self.renderer.capture(&self.camera, 2560, 1440, None)?; // préchauffage
+        self.client
+            .renderer
+            .capture(&self.client.camera, 2560, 1440, None)?; // préchauffage
         let start = Instant::now();
         for _ in 0..FRAMES {
-            self.renderer.capture(&self.camera, 2560, 1440, None)?;
+            self.client
+                .renderer
+                .capture(&self.client.camera, 2560, 1440, None)?;
         }
         log::info!(
             "rendu hors écran 2560 × 1440 : {:.2} ms par image (lecture des pixels comprise)",
@@ -488,33 +496,37 @@ impl VoxelGame {
     }
 
     fn set_stage(&mut self, stage: Stage) {
-        if let Some(tour) = self.tour.as_mut() {
+        if let Some(tour) = self.client.tour.as_mut() {
             tour.stage = stage;
         }
     }
 
     /// Les scènes sont décrites autour de (0, 0) : on les place au point d'apparition.
     pub(crate) fn origin(&self) -> IVec3 {
-        IVec3::new(self.spawn.x, 0, self.spawn.z)
+        IVec3::new(self.server.spawn.x, 0, self.server.spawn.z)
     }
 
     /// La hauteur du sol, en coordonnées de scène.
     pub(crate) fn ground(&self, x: i32, z: i32) -> i32 {
         let o = self.origin();
-        self.streamer().generator().column(o.x + x, o.z + z).height
+        self.server
+            .streamer()
+            .generator()
+            .column(o.x + x, o.z + z)
+            .height
     }
 
     /// Pose un bloc, en coordonnées de scène.
     pub(crate) fn put(&mut self, pos: IVec3, block: BlockId) -> bool {
         let pos = pos + self.origin();
-        self.streamer_mut().set_block(pos, block)
+        self.server.streamer_mut().set_block(pos, block)
     }
 
     /// Le centre d'une zone du biome `key` (en coordonnées de scène) : une colonne dont
     /// les voisines à 24 blocs sont du même biome, pour bien le voir.
     pub(crate) fn find_biome(&self, key: &str) -> Option<(i32, i32)> {
         let o = self.origin();
-        let streamer = self.streamer();
+        let streamer = self.server.streamer();
         let generator = streamer.generator();
         let id = generator.biomes().id(key)?;
         let inside = |x: i32, z: i32| generator.column(x, z).biome == id;
@@ -542,6 +554,7 @@ impl VoxelGame {
     fn nearest_volcano(&self) -> Option<(i32, i32)> {
         let o = self.origin();
         let sites = self
+            .server
             .streamer()
             .generator()
             .volcano_sites((o.x - 6000, o.z - 6000), (o.x + 6000, o.z + 6000));
@@ -673,9 +686,9 @@ impl VoxelGame {
 
     /// Les blocs à poser pour la scène (une fois le terrain chargé).
     fn build_scene(&mut self, scene: Scene) {
-        let torch = self.registry.id("core:torch");
-        let glow = self.registry.id("core:glowstone");
-        let stone = self.registry.id("core:stone");
+        let torch = self.client.registry.id("core:torch");
+        let glow = self.client.registry.id("core:glowstone");
+        let stone = self.client.registry.id("core:stone");
         match scene {
             Scene::Torches => {
                 for (dx, dz) in [(-6, -6), (6, -6), (-6, 6), (6, 6), (0, 0)] {
@@ -710,6 +723,7 @@ impl VoxelGame {
             Scene::Mobs => {
                 // Quelques créatures posées devant la caméra (en plus de celles du hasard).
                 let registry = self
+                    .server
                     .ecs
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .clone();
@@ -730,7 +744,7 @@ impl VoxelGame {
                     let y = self.ground(px, pz) as f32 + 1.0;
                     let o = self.origin().as_vec3();
                     crate::mobs::spawn_mob(
-                        &mut self.ecs,
+                        &mut self.server.ecs,
                         kind,
                         o + Vec3::new(px as f32 + 0.5, y, pz as f32 + 0.5),
                     );
@@ -762,27 +776,31 @@ impl VoxelGame {
     /// Remplit l'écran de la capture : une grille d'artisanat, un four en marche, un coffre.
     fn build_screen(&mut self, scene: Scene) {
         use crate::inventory::ItemStack;
-        let items = self.content.items.clone();
+        let items = self.client.content.items.clone();
         let stack = |key: &str, count: u32| items.id(key).map(|i| ItemStack::new(i, count));
-        self.inventory.craft = [None; 9];
+        self.server.players.me_mut().inventory.craft = [None; 9];
         match scene {
             Scene::Inventory => {
-                self.inventory.craft[0] = stack("core:oak_log", 3);
-                self.inventory.armor[0] = stack("core:iron_helmet", 1);
-                self.inventory.armor[1] = stack("core:copper_chestplate", 1);
-                self.ui.screen = crate::ui::Screen::Inventory;
+                self.server.players.me_mut().inventory.craft[0] = stack("core:oak_log", 3);
+                self.server.players.me_mut().inventory.armor[0] = stack("core:iron_helmet", 1);
+                self.server.players.me_mut().inventory.armor[1] =
+                    stack("core:copper_chestplate", 1);
+                self.client.ui.screen = crate::screens::Screen::Inventory;
             }
             Scene::Workbench => {
                 // Une pioche en bois : trois planches en haut, deux bâtons au milieu.
                 for i in [0, 1, 2] {
-                    self.inventory.craft[i] = stack("core:oak_planks", 2);
+                    self.server.players.me_mut().inventory.craft[i] = stack("core:oak_planks", 2);
                 }
                 for i in [4, 7] {
-                    self.inventory.craft[i] = stack("core:stick", 2);
+                    self.server.players.me_mut().inventory.craft[i] = stack("core:stick", 2);
                 }
-                self.inventory
-                    .add(items.id("core:oak_planks").unwrap(), 12, &items);
-                self.ui.screen = crate::ui::Screen::Workbench;
+                self.server.players.me_mut().inventory.add(
+                    items.id("core:oak_planks").unwrap(),
+                    12,
+                    &items,
+                );
+                self.client.ui.screen = crate::screens::Screen::Workbench;
             }
             Scene::Furnace | Scene::Chest => {
                 let (x, z) = (3, 3);
@@ -792,12 +810,12 @@ impl VoxelGame {
                 } else {
                     "core:chest"
                 };
-                let Some(block) = self.registry.id(key) else {
+                let Some(block) = self.client.registry.id(key) else {
                     return;
                 };
-                self.streamer_mut().set_block(pos, block);
-                let actions = self.mods.block_changed(pos);
-                self.apply_machine_actions(actions);
+                self.server.streamer_mut().set_block(pos, block);
+                let actions = self.server.mods.block_changed(pos);
+                self.server.apply_machine_actions(actions);
                 let fill: Vec<(usize, &str, u32)> = if scene == Scene::Furnace {
                     vec![(0, "core:raw_iron", 6), (1, "core:coal", 3)]
                 } else {
@@ -812,7 +830,7 @@ impl VoxelGame {
                         (20, "core:coal", 21),
                     ]
                 };
-                if let Some(entity) = self.streamer_mut().block_entity_mut(pos)
+                if let Some(entity) = self.server.streamer_mut().block_entity_mut(pos)
                     && let Some(inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut())
                 {
                     for (slot, item, count) in fill {
@@ -825,21 +843,23 @@ impl VoxelGame {
                 }
                 if scene == Scene::Furnace {
                     // Quelques secondes de cuisson : un lingot sorti, le suivant en cours.
-                    self.mods
+                    self.server
+                        .mods
                         .machines
                         .schedule(engine_voxel::GridPos::world(pos), 1);
                     for _ in 0..3 * 300 {
-                        let (actions, _) = self.mods.fixed_step(self.camera.position);
-                        self.apply_machine_actions(actions);
+                        let (actions, _) = self.server.mods.fixed_step(self.client.camera.position);
+                        self.server.apply_machine_actions(actions);
                     }
-                    self.ui.screen = crate::ui::Screen::Furnace(pos);
+                    self.client.ui.screen = crate::screens::Screen::Furnace(pos);
                 } else {
-                    self.ui.screen = crate::ui::Screen::Chest(pos);
+                    self.client.ui.screen = crate::screens::Screen::Chest(pos);
                 }
             }
             Scene::Trade => {
                 // Un fermier tout près, de quoi payer certaines offres et pas d'autres.
                 let registry = self
+                    .server
                     .ecs
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .clone();
@@ -853,23 +873,40 @@ impl VoxelGame {
                         self.ground(x, z) as f32 + 1.0,
                         z as f32 + 0.5,
                     );
-                let Some(mob) = crate::mobs::spawn_mob(&mut self.ecs, kind, at) else {
+                let Some(mob) = crate::mobs::spawn_mob(&mut self.server.ecs, kind, at) else {
                     return;
                 };
                 let uses: Vec<u32> = self
+                    .server
                     .trades
                     .for_mob("core:farmer")
                     .iter()
                     .enumerate()
                     .map(|(i, t)| if i == 2 { 0 } else { t.uses })
                     .collect();
-                self.ecs.insert(mob, crate::components::Trader { uses });
-                self.inventory
-                    .add(items.id("core:gold_ingot").unwrap(), 3, &items);
-                self.inventory
-                    .add(items.id("core:wheat").unwrap(), 45, &items);
-                self.ui.screen = crate::ui::Screen::Trade(mob);
-                self.ui.trade_selected = 4;
+                self.server
+                    .ecs
+                    .insert(mob, crate::components::Trader { uses });
+                self.server.players.me_mut().inventory.add(
+                    items.id("core:gold_ingot").unwrap(),
+                    3,
+                    &items,
+                );
+                self.server.players.me_mut().inventory.add(
+                    items.id("core:wheat").unwrap(),
+                    45,
+                    &items,
+                );
+                crate::entities::NetIds::assign(&mut self.server.ecs);
+                if let Some(id) = self
+                    .server
+                    .ecs
+                    .get::<crate::entities::NetId>(mob)
+                    .map(|id| *id)
+                {
+                    self.client.ui.screen = crate::screens::Screen::Trade(id);
+                }
+                self.client.ui.trade_selected = 4;
             }
             _ => {}
         }
@@ -889,7 +926,7 @@ impl VoxelGame {
     fn build_fluid(&mut self, which: FluidShot) {
         let (x, z) = which.spot();
         let o = self.origin() + IVec3::new(x, self.fluid_base(x, z), z);
-        let id = |key: &str| self.registry.id(key).unwrap_or(BlockId::AIR);
+        let id = |key: &str| self.client.registry.id(key).unwrap_or(BlockId::AIR);
         let (stone, glass, water, lava) = (
             id("core:stone"),
             id("core:glass"),
@@ -898,7 +935,7 @@ impl VoxelGame {
         );
         let full = engine_voxel::FLUID_FULL as u16;
         let put = |game: &mut Self, p: IVec3, b: BlockId| {
-            game.streamer_mut().set_block(o + p, b);
+            game.server.streamer_mut().set_block(o + p, b);
         };
         let steps = match which {
             FluidShot::Waterfall => {
@@ -921,12 +958,12 @@ impl VoxelGame {
                 for dx in 0..=4 {
                     for dz in 0..3 {
                         for dy in 8..10 {
-                            self.streamer_mut().set_fluid(
+                            self.server.streamer_mut().set_fluid(
                                 o + IVec3::new(dx, dy, dz),
                                 water,
                                 Some(full),
                             );
-                            self.fluids.wake(o + IVec3::new(dx, dy, dz));
+                            self.server.fluids.wake(o + IVec3::new(dx, dy, dz));
                         }
                     }
                 }
@@ -949,13 +986,19 @@ impl VoxelGame {
                     put(self, IVec3::new(dx, 0, 0), BlockId::AIR);
                 }
                 for dy in 0..9 {
-                    self.streamer_mut()
-                        .set_fluid(o + IVec3::new(0, dy, 0), water, Some(full));
-                    self.fluids.wake(o + IVec3::new(0, dy, 0));
+                    self.server.streamer_mut().set_fluid(
+                        o + IVec3::new(0, dy, 0),
+                        water,
+                        Some(full),
+                    );
+                    self.server.fluids.wake(o + IVec3::new(0, dy, 0));
                 }
                 for dx in 1..4 {
-                    self.streamer_mut()
-                        .set_fluid(o + IVec3::new(dx, 0, 0), water, Some(full));
+                    self.server.streamer_mut().set_fluid(
+                        o + IVec3::new(dx, 0, 0),
+                        water,
+                        Some(full),
+                    );
                 }
                 2500
             }
@@ -972,15 +1015,18 @@ impl VoxelGame {
                 }
                 for dz in 0..3 {
                     for dx in 0..3 {
-                        self.streamer_mut()
-                            .set_fluid(o + IVec3::new(dx, 0, dz), water, Some(full));
-                        self.fluids.wake(o + IVec3::new(dx, 0, dz));
-                        self.streamer_mut().set_fluid(
+                        self.server.streamer_mut().set_fluid(
+                            o + IVec3::new(dx, 0, dz),
+                            water,
+                            Some(full),
+                        );
+                        self.server.fluids.wake(o + IVec3::new(dx, 0, dz));
+                        self.server.streamer_mut().set_fluid(
                             o + IVec3::new(9 - dx, 0, dz),
                             lava,
                             Some(full),
                         );
-                        self.fluids.wake(o + IVec3::new(9 - dx, 0, dz));
+                        self.server.fluids.wake(o + IVec3::new(9 - dx, 0, dz));
                     }
                 }
                 150
@@ -1002,7 +1048,7 @@ impl VoxelGame {
                 for dx in 0..10 {
                     for dz in 0..6 {
                         for dy in 3..5 {
-                            self.streamer_mut().set_fluid(
+                            self.server.streamer_mut().set_fluid(
                                 o + IVec3::new(dx, dy, dz),
                                 water,
                                 Some(full),
@@ -1011,16 +1057,16 @@ impl VoxelGame {
                     }
                 }
                 put(self, IVec3::new(5, 2, 3), BlockId::AIR);
-                self.fluids.wake(o + IVec3::new(5, 2, 3));
-                self.fluids.wake(o + IVec3::new(5, 3, 3));
+                self.server.fluids.wake(o + IVec3::new(5, 2, 3));
+                self.server.fluids.wake(o + IVec3::new(5, 3, 3));
                 60
             }
         };
         let start = Instant::now();
         let mut processed = 0;
         for _ in 0..steps {
-            let report = self.fluids.step(
-                &mut self.world.borrow_mut(),
+            let report = self.server.fluids.step(
+                &mut self.server.world.borrow_mut(),
                 std::time::Duration::from_millis(50),
             );
             processed += report.processed;
@@ -1028,13 +1074,13 @@ impl VoxelGame {
         log::info!(
             "fluides ({which:?}) : {steps} étapes, {processed} cellules calculées en {:.1} ms, {} encore actives",
             start.elapsed().as_secs_f64() * 1000.0,
-            self.fluids.active()
+            self.server.fluids.active()
         );
     }
 
     /// Une pose du bras, figée pour la capture.
     fn pose_arm(&mut self, scene: Scene) {
-        let items = self.content.items.clone();
+        let items = self.client.content.items.clone();
         let wanted = match scene {
             Scene::ArmMine | Scene::ArmTool => items.id("core:stone_pickaxe"),
             Scene::ArmSword => items.id("core:iron_sword"),
@@ -1043,33 +1089,33 @@ impl VoxelGame {
         };
         // La case de la barre qui contient l'objet voulu (ou une case vide).
         let slot = (0..crate::inventory::HOTBAR)
-            .find(|&i| self.inventory.slots[i].map(|s| s.item) == wanted)
+            .find(|&i| self.server.players.me_mut().inventory.slots[i].map(|s| s.item) == wanted)
             .unwrap_or(0);
         if wanted.is_none() {
-            self.inventory.slots[8] = None;
+            self.server.players.me_mut().inventory.slots[8] = None;
         } else {
-            self.inventory.slots[slot] =
+            self.server.players.me_mut().inventory.slots[slot] =
                 wanted.map(|item| crate::inventory::ItemStack::new(item, 1));
         }
-        self.inventory.selected = if wanted.is_none() { 8 } else { slot };
-        self.hand.equip = 0.0;
-        self.hand.swing = None;
-        self.hand.walk_amount = 0.0;
+        self.server.players.me_mut().inventory.selected = if wanted.is_none() { 8 } else { slot };
+        self.client.hand.equip = 0.0;
+        self.client.hand.swing = None;
+        self.client.hand.walk_amount = 0.0;
         match scene {
             Scene::ArmWalk => {
-                self.hand.walk_phase = 1.1;
-                self.hand.walk_amount = 1.6;
+                self.client.hand.walk_phase = 1.1;
+                self.client.hand.walk_amount = 1.6;
             }
-            Scene::ArmMine => self.hand.swing = Some(0.42),
+            Scene::ArmMine => self.client.hand.swing = Some(0.42),
             _ => {}
         }
-        self.hand.frozen = true;
+        self.client.hand.frozen = true;
     }
 
     /// Un mécanisme sur une dalle de pierre : une horloge entourée de quatre lampes, et une
     /// seconde horloge qui alimente un casseur tourné vers une colonne de pierre.
     fn build_machines(&mut self) {
-        let id = |key: &str| self.registry.id(key);
+        let id = |key: &str| self.client.registry.id(key);
         let (Some(stone), Some(clock), Some(lamp)) =
             (id("core:stone"), id("core:clock"), id("core:lamp"))
         else {
@@ -1079,9 +1125,9 @@ impl VoxelGame {
         let (x, z) = MACHINE_SPOT;
         let base = IVec3::new(x, self.ground(x, z) + 1, z) + self.origin();
         let place = |game: &mut Self, pos: IVec3, block: BlockId| {
-            if game.streamer_mut().set_block(pos, block) {
-                let actions = game.mods.block_changed(pos);
-                game.apply_machine_actions(actions);
+            if game.server.streamer_mut().set_block(pos, block) {
+                let actions = game.server.mods.block_changed(pos);
+                game.server.apply_machine_actions(actions);
             }
         };
         for dx in -2..=5 {
@@ -1095,7 +1141,7 @@ impl VoxelGame {
         place(self, base, clock);
         // Une horloge lente (une bascule toutes les 20 ticks, 1 s) : les lampes restent
         // allumées le temps de la capture.
-        self.streamer_mut().set_block_entity(
+        self.server.streamer_mut().set_block_entity(
             base,
             Some(engine_voxel::BlockEntity {
                 data: vec![20],
@@ -1108,12 +1154,15 @@ impl VoxelGame {
         if let Some(breaker) = breaker {
             let at = base + IVec3::new(3, 0, 0);
             place(self, at, breaker);
-            let actions = self.mods.dispatch(&engine_mods::ModEvent::BlockPlaced {
-                at: engine_voxel::GridPos::world(at),
-                block: breaker,
-                facing: IVec3::X,
-            });
-            self.apply_machine_actions(actions);
+            let actions = self
+                .server
+                .mods
+                .dispatch(&engine_mods::ModEvent::BlockPlaced {
+                    at: engine_voxel::GridPos::world(at),
+                    block: breaker,
+                    facing: IVec3::X,
+                });
+            self.server.apply_machine_actions(actions);
             place(self, at + IVec3::NEG_X, clock);
             for dy in 0..3 {
                 place(self, at + IVec3::new(1, dy, 0), stone);
@@ -1122,8 +1171,8 @@ impl VoxelGame {
         // Une seconde et quart de machines (25 ticks) : l'horloge s'allume (tick 20),
         // ses lampes aussi.
         for _ in 0..75 {
-            let (actions, _) = self.mods.fixed_step(self.camera.position);
-            self.apply_machine_actions(actions);
+            let (actions, _) = self.server.mods.fixed_step(self.client.camera.position);
+            self.server.apply_machine_actions(actions);
         }
     }
 
@@ -1152,7 +1201,7 @@ impl VoxelGame {
             .map(|(dx, dz)| self.ground(x0 + dx, z0 + dz))
             .max()
             .unwrap_or(SEA_LEVEL);
-        let mut streamer = self.streamer_mut();
+        let mut streamer = self.server.streamer_mut();
         // Jusqu'au socle : le bas du monde (y = 0 en v1, -128 en v3), le socle lui-même gardé.
         let bottom = streamer.world().block_y_range().start + 1;
         let mut dug = 0;
@@ -1178,7 +1227,7 @@ impl VoxelGame {
     /// avec de la place au-dessus et autour, pour voir la salle.
     fn find_cave_biome(&self, key: &str) -> Option<IVec3> {
         let o = self.origin();
-        let streamer = self.streamer();
+        let streamer = self.server.streamer();
         let generator = streamer.generator();
         let id = generator.biomes().id(key)?;
         let open = |chunk: &engine_voxel::Chunk, x: i32, y: i32, z: i32| {

@@ -16,9 +16,9 @@ use engine_voxel::shaped::{Piece, PieceKind};
 use glam::IVec3;
 
 use crate::VoxelGame;
-use crate::control::json_str;
 use crate::inventory::Slot;
-use crate::ui::Screen;
+use crate::json_text::json_str;
+use crate::screens::Screen;
 
 /// Une commande des formes, lue par `control.rs`.
 #[derive(Debug, Clone, PartialEq)]
@@ -75,35 +75,40 @@ pub fn parse(name: &str, args: &[&str]) -> Option<Result<Command>> {
 impl VoxelGame {
     /// Exécute une commande des formes ; renvoie la réponse JSON.
     pub(crate) fn shape_command(&mut self, command: Command) -> Result<String> {
-        let slot = Slot::Main(self.inventory.selected);
+        let slot = Slot::Main(self.server.players.me_mut().inventory.selected);
         match command {
             Command::Shape(kind, all, blocks) => {
                 let mut pieces = 0;
                 // `n` blocs : on taille un bloc à la fois, comme `n` clics.
                 for _ in 0..if all { 1 } else { blocks } {
-                    pieces += self.carve(slot, kind, all).map_err(anyhow::Error::msg)?;
+                    pieces += self
+                        .server
+                        .carve(slot, kind, all)
+                        .map_err(anyhow::Error::msg)?;
                 }
                 Ok(format!("{{\"ok\":true,\"pieces\":{pieces}}}"))
             }
             Command::Rebuild(all) => {
-                let blocks = self.rebuild(slot, all).map_err(anyhow::Error::msg)?;
+                let blocks = self.server.rebuild(slot, all).map_err(anyhow::Error::msg)?;
                 Ok(format!("{{\"ok\":true,\"blocks\":{blocks}}}"))
             }
             Command::Open => {
                 // Le bloc tenu passe dans la case d'entrée (le reste de la grille revient à la fermeture).
-                if let Some(stack) = self.inventory.slots[self.inventory.selected].take() {
-                    let before = self.inventory.craft[0].replace(stack);
+                let me = self.server.players.me_mut();
+                if let Some(stack) = me.inventory.slots[me.inventory.selected].take() {
+                    let before = me.inventory.craft[0].replace(stack);
                     if let Some(old) = before {
-                        self.give_or_drop(old);
+                        self.server.give_or_drop(old);
                     }
                 }
-                self.ui.screen = Screen::Shaping;
-                self.ui.inventory_open = true;
-                self.mouse_captured = false;
+                self.server.open_screen(Screen::Shaping);
+                self.apply_replies();
+                self.client.mouse_captured = false;
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Pieces(pos) => {
                 let shaped = self
+                    .server
                     .shaped_at(pos)
                     .context("pieces : ce n'est pas une case de formes")?;
                 let parts: Vec<String> = shaped

@@ -36,7 +36,7 @@ use glam::Vec3;
 
 use crate::VoxelGame;
 use crate::daytime::TimeSpeed;
-use crate::player::{self, MoveMode};
+use crate::player::MoveMode;
 
 /// Images d'attente après le chargement, et au début de chaque mesure (préchauffage).
 const SETTLE_FRAMES: u32 = 30;
@@ -151,7 +151,7 @@ impl Bench {
 impl VoxelGame {
     /// Une image du benchmark ; quitte le jeu à la fin.
     pub(crate) fn run_bench(&mut self, ctx: &mut Context, dt: f32) -> Result<()> {
-        let Some(mut bench) = self.bench.take() else {
+        let Some(mut bench) = self.client.bench.take() else {
             return Ok(());
         };
         let done = self.bench_step(&mut bench, ctx, dt);
@@ -160,7 +160,7 @@ impl VoxelGame {
             write_results(&bench)?;
             ctx.exit();
         }
-        self.bench = Some(bench);
+        self.client.bench = Some(bench);
         done.map(|_| ())
     }
 
@@ -199,10 +199,7 @@ impl VoxelGame {
                 }
             }
             Stage::Load { since, quiet } => {
-                let ready = {
-                    let streamer = self.streamer();
-                    streamer.is_idle() && streamer.stats().meshes_waiting == 0
-                };
+                let ready = self.world_idle() && self.stream_stats().meshes_waiting == 0;
                 *quiet = if ready { *quiet + 1 } else { 0 };
                 let timeout = since.elapsed() > LOAD_TIMEOUT;
                 if *quiet >= SETTLE_FRAMES || timeout {
@@ -218,7 +215,7 @@ impl VoxelGame {
                         "benchmark : « {} » chargé en {:.2} s ({} chunks)",
                         route.name,
                         since.elapsed().as_secs_f64(),
-                        self.streamer().stats().loaded
+                        self.stream_stats().loaded
                     );
                     bench.not_loaded = timeout;
                     bench.samples.clear();
@@ -233,7 +230,7 @@ impl VoxelGame {
                     *warmup -= 1;
                 } else {
                     // Les mesures de l'image précédente : elle est finie.
-                    let render = self.last_render;
+                    let render = self.client.last_render;
                     let cpu = ctx.frame_work.saturating_sub(render.wait);
                     bench.samples.push(Sample {
                         frame: dt,
@@ -285,12 +282,13 @@ impl VoxelGame {
         // `VOXEL_BENCH_VSYNC=1` : comme en jeu, pour voir les images ratées. Sans VSync,
         // le « 1 % le plus lent » mesure surtout l'attente d'une image libre auprès du
         // système (les 3 tampons de l'écran sont pleins), pas le travail du jeu.
-        self.renderer
+        self.client
+            .renderer
             .set_vsync(std::env::var("VOXEL_BENCH_VSYNC").is_ok_and(|v| v == "1"));
-        self.day.time = 0.5;
-        self.day.speed = TimeSpeed::Frozen;
-        if player::mode(&self.ecs, self.player) != MoveMode::Fly {
-            player::toggle_mode(&mut self.ecs, self.player);
+        self.server.day.time = 0.5;
+        self.server.day.speed = TimeSpeed::Frozen;
+        if self.client.body.mode != MoveMode::Fly {
+            self.toggle_fly();
         }
     }
 
@@ -321,14 +319,15 @@ impl VoxelGame {
             Height::Fixed(y) => y,
             Height::AboveGround(h) => self.surface(flat.x, flat.z) + h,
         };
-        self.camera.yaw = yaw;
-        self.camera.pitch = route.pitch.to_radians();
-        player::set_eye(&self.ecs, self.player, Vec3::new(flat.x, y, flat.z));
+        self.client.camera.yaw = yaw;
+        self.client.camera.pitch = route.pitch.to_radians();
+        self.place_eye(Vec3::new(flat.x, y, flat.z));
     }
 
     /// Le sol, ou la mer si elle est plus haute.
     fn surface(&self, x: f32, z: f32) -> f32 {
         let column = self
+            .server
             .streamer()
             .generator()
             .column(x.floor() as i32, z.floor() as i32);
@@ -337,12 +336,15 @@ impl VoxelGame {
 
     /// Les trajets, calculés depuis le point d'apparition : les mêmes pour une graine.
     fn bench_routes(&self) -> Vec<Route> {
-        let spawn = (self.spawn.x as f32 + 0.5, self.spawn.z as f32 + 0.5);
+        let spawn = (
+            self.server.spawn.x as f32 + 0.5,
+            self.server.spawn.z as f32 + 0.5,
+        );
         let biome = |key: &str| {
             self.find_biome(key).map(|(x, z)| {
                 (
-                    (self.spawn.x + x) as f32 + 0.5,
-                    (self.spawn.z + z) as f32 + 0.5,
+                    (self.server.spawn.x + x) as f32 + 0.5,
+                    (self.server.spawn.z + z) as f32 + 0.5,
                 )
             })
         };

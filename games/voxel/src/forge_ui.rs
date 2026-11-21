@@ -4,15 +4,16 @@
 //! puis on agit avec les boutons de l'écran. Les matériaux sont pris dans l'inventaire, ce qu'on
 //! récupère y retourne (ou tombe à terre s'il est plein).
 
+#[allow(unused_imports)]
+use crate::forge_ui_server::*;
 use engine_render::egui::{self, Color32};
-use engine_voxel::Rng64;
 
 use crate::VoxelGame;
 use crate::adventure_data::{self, AdventureData};
 use crate::affixes;
 use crate::forge_tables::{self, Purse};
-use crate::inventory::ItemStack;
 use crate::item_data::ItemData;
+use crate::protocol::{ClientMsg, ScreenAction};
 use crate::skin;
 
 /// Une rareté se lit mal sur le cadre clair de l'inventaire : son nom est posé sur un fond sombre.
@@ -40,29 +41,12 @@ fn sheet_lines(sheet: &ItemData) -> Vec<String> {
 }
 
 impl VoxelGame {
-    /// Un objet qui a bougé de place : un message qui dit quoi.
-    fn give_back(&mut self, stack: ItemStack) {
-        let left = self.collect_stack(stack);
-        if left > 0 {
-            let at = crate::player::body(&self.ecs, self.player)
-                .position
-                .floor()
-                .as_ivec3();
-            self.drop_stack(
-                at,
-                ItemStack {
-                    count: left,
-                    ..stack
-                },
-            );
-        }
-    }
-
-    /// La table de récupération.
+    /// La table de récupération : l'objet tenu à la souris (d'après la vue du joueur), ce qu'il
+    /// rendra, et le bouton qui envoie `ScreenAction::Salvage`.
     pub(crate) fn salvage_panel(&mut self, ui: &mut egui::Ui) {
         let data = adventure_data::current();
-        let items = self.content.items.clone();
-        let Some(held) = self.inventory.cursor else {
+        let items = self.client.content.items.clone();
+        let Some(held) = self.client.view.me.inventory.cursor else {
             ui.label("Prends à la souris un objet à affixes (clic sur sa case, dans l'inventaire), puis reviens ici.");
             ui.label(
                 egui::RichText::new(
@@ -111,40 +95,20 @@ impl VoxelGame {
             ));
         }
         if ui.button("Détruire et récupérer").clicked() {
-            let mut rng = Rng64::new(self.next_random());
-            let Some(got) = forge_tables::salvage(&data, held.damage, &mut rng) else {
-                return;
-            };
-            self.inventory.cursor = None;
-            let mut stacks = Vec::new();
-            if let Some(id) = items.id(&got.shard) {
-                stacks.push(ItemStack::new(id, got.shards));
-            }
-            if got.dust > 0
-                && let Some(id) = forge_tables::dust_item(&items)
-            {
-                stacks.push(ItemStack::new(id, got.dust));
-            }
-            for key in &got.gems {
-                if let Some(id) = items.id(key) {
-                    stacks.push(ItemStack::new(id, 1));
-                }
-            }
-            for stack in stacks {
-                self.give_back(stack);
-            }
-            self.toast(&format!("Récupéré : {} × {shard_name}", got.shards));
-            if let Some(audio) = &mut self.audio {
-                audio.play("core:break_glass");
-            }
+            self.send_now(ClientMsg::Screen(ScreenAction::Salvage));
         }
     }
 
-    /// La table de réforge.
+    /// La table de réforge : la rareté voulue, le coût, les trois tirages (calculés comme le serveur,
+    /// d'après la graine de la vue du joueur) et le bouton qui envoie `ReforgeChoose`.
     pub(crate) fn reforge_panel(&mut self, ui: &mut egui::Ui) {
         let data = adventure_data::current();
-        let items = self.content.items.clone();
-        let Some(held) = self.inventory.cursor else {
+        let items = self.client.content.items.clone();
+        let Some(vitals) = self.client.view.me.vitals.clone() else {
+            return;
+        };
+        let inventory = self.client.view.me.inventory.as_inventory();
+        let Some(held) = inventory.cursor else {
             ui.label("Prends à la souris un objet de base (outil ou armure sans affixe), puis reviens ici.");
             ui.label(
                 egui::RichText::new(
@@ -165,10 +129,10 @@ impl VoxelGame {
             return;
         }
         // La rareté voulue.
-        let mut rarity = self
-            .adventure
+        let current = vitals
             .forge_rarity
             .min(data.rarities.len().saturating_sub(1) as u8);
+        let mut rarity = current;
         ui.horizontal_wrapped(|ui| {
             for (i, r) in data.rarities.iter().enumerate() {
                 let color = Color32::from_rgb(r.color.0, r.color.1, r.color.2);
@@ -180,15 +144,17 @@ impl VoxelGame {
                 }
             }
         });
-        self.adventure.forge_rarity = rarity;
+        if rarity != current {
+            self.send_now(ClientMsg::Screen(ScreenAction::ReforgeRarity(rarity)));
+        }
         let Some(cost) = forge_tables::reforge_cost(&data, rarity) else {
             return;
         };
         let shard_id = items.id(&cost.shard);
         let purse = Purse {
-            shards: shard_id.map_or(0, |id| self.inventory.count(id)),
-            dust: forge_tables::dust_item(&items).map_or(0, |id| self.inventory.count(id)),
-            levels: self.experience.level().0,
+            shards: shard_id.map_or(0, |id| inventory.count(id)),
+            dust: forge_tables::dust_item(&items).map_or(0, |id| inventory.count(id)),
+            levels: vitals.level,
         };
         let shard_name = shard_id.map_or(cost.shard.clone(), |id| items.get(id).name.clone());
         let affordable = cost.affordable(purse);
@@ -203,7 +169,7 @@ impl VoxelGame {
             &data,
             def,
             rarity,
-            self.adventure.forge_seed ^ u64::from(held.item.0),
+            vitals.forge_seed ^ u64::from(held.item.0),
         );
         let color = rarity_color(&data, rarity);
         let mut chosen = None;
@@ -226,23 +192,8 @@ impl VoxelGame {
                 }
             });
         }
-        if let Some(i) = chosen
-            && let Some(shard_id) = shard_id
-            && self.experience.spend_levels(cost.levels)
-        {
-            let dust = forge_tables::dust_item(&items);
-            self.inventory.remove(shard_id, cost.shards);
-            if let Some(dust) = dust {
-                self.inventory.remove(dust, cost.dust);
-            }
-            if let Some(stack) = self.inventory.cursor.as_mut() {
-                forge_tables::apply_draw(&mut stack.damage, draws[i].clone());
-            }
-            self.adventure.forge_seed = self.adventure.forge_seed.wrapping_add(1);
-            self.toast(draws[i].name.as_deref().unwrap_or("Objet réforgé"));
-            if let Some(audio) = &mut self.audio {
-                audio.play("core:enchant");
-            }
+        if let Some(i) = chosen {
+            self.send_now(ClientMsg::Screen(ScreenAction::ReforgeChoose(i as u8)));
         }
     }
 }

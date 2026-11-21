@@ -15,9 +15,10 @@ const MAX_LINES: usize = 3;
 
 impl VoxelGame {
     pub(crate) fn draw_pinned_quests(&mut self, ctx: &egui::Context) {
+        // Les quêtes sont le contenu du jeu ; la progression vient de la vue du joueur.
         let (Some(quests), Some(progress)) = (
-            self.quest_book.quests(),
-            self.quest_book.progress().cloned(),
+            self.server.players.local().quest_book.quests(),
+            self.client.view.me.quests.clone(),
         ) else {
             return;
         };
@@ -32,19 +33,25 @@ impl VoxelGame {
         }
         let screen = ctx.content_rect().width();
         let offset = geometry::pin_offset(
-            self.effects.list().len(),
+            self.client
+                .view
+                .me
+                .vitals
+                .as_ref()
+                .map_or(0, |v| v.effects.len()),
             screen,
-            self.ui.toast.is_some(),
-            self.ui.target_bottom,
+            self.client.ui.toast.is_some(),
+            self.client.ui.target_bottom,
         );
         let width = geometry::pin_width(screen);
         let mobs = self
+            .server
             .ecs
             .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
             .clone();
         let namer = Namer {
-            items: &self.content.items,
-            blocks: &self.registry,
+            items: &self.server.content.items,
+            blocks: &self.server.registry,
             creatures: &mobs,
         };
         egui::Area::new(egui::Id::unique("pinned_quests"))

@@ -65,19 +65,19 @@ fn trim(value: f32) -> String {
 impl VoxelGame {
     /// Le bouton de l'écran d'inventaire.
     pub(crate) fn attributes_button(&mut self, ui: &mut egui::Ui) {
-        let label = if self.ui.attributes.open {
+        let label = if self.client.ui.attributes.open {
             "Attributs ◂"
         } else {
             "Attributs"
         };
         if ui.small_button(label).clicked() {
-            self.ui.attributes.open = !self.ui.attributes.open;
+            self.client.ui.attributes.open = !self.client.ui.attributes.open;
         }
     }
 
     /// La fiche, à gauche de l'inventaire (`frame`), sur la place qu'il laisse.
     pub(crate) fn attributes_window(&mut self, ctx: &egui::Context, frame: Option<egui::Rect>) {
-        if !self.ui.attributes.open {
+        if !self.client.ui.attributes.open {
             return;
         }
         let safe = crate::ui_layout::safe_rect(ctx);
@@ -90,8 +90,17 @@ impl VoxelGame {
         let actual = ctx.memory(|m| m.area_rect(id)).map_or(width, |r| r.width());
         let x = frame.map_or(safe.left(), |f| (f.left() - actual - 10.0).max(safe.left()));
         let mut close = false;
-        let mut modified_only = self.ui.attributes.modified_only;
-        let attrs = self.gear.attrs().clone();
+        let mut modified_only = self.client.ui.attributes.modified_only;
+        let Some(attrs) = self
+            .client
+            .view
+            .me
+            .vitals
+            .as_ref()
+            .map(|v| v.attributes.clone())
+        else {
+            return;
+        };
         egui::Window::new("Attributs")
             .id(id)
             .frame(skin::panel())
@@ -146,38 +155,38 @@ impl VoxelGame {
                     });
             });
         if close {
-            self.ui.attributes.open = false;
+            self.client.ui.attributes.open = false;
         }
-        self.ui.attributes.modified_only = modified_only;
+        self.client.ui.attributes.modified_only = modified_only;
     }
 
     /// Les attributs en JSON, pour `ctl attributes` : valeur, base, et le détail par source.
     pub(crate) fn attributes_json(&self) -> String {
-        let attrs = self.gear.attrs();
+        let attrs = self.server.players.me().gear.attrs();
         let rows: Vec<String> = Attribute::ALL
             .into_iter()
             .map(|a| {
                 let sources: Vec<String> = detail(attrs, a)
                     .iter()
                     .skip(1)
-                    .map(|l| crate::control::json_str(l))
+                    .map(|l| crate::json_text::json_str(l))
                     .collect();
                 format!(
                     "{{\"id\":{},\"name\":{},\"value\":{:.4},\"base\":{:.4},\"modified\":{},\"text\":{},\"sources\":[{}]}}",
                     a.id(),
-                    crate::control::json_str(a.name()),
+                    crate::json_text::json_str(a.name()),
                     attrs.value(a),
                     attrs.base(a),
                     attrs.is_modified(a),
-                    crate::control::json_str(&a.format(attrs.value(a))),
+                    crate::json_text::json_str(&a.format(attrs.value(a))),
                     sources.join(",")
                 )
             })
             .collect();
         format!(
             "{{\"ok\":true,\"open\":{},\"modified_only\":{},\"attributes\":[{}]}}",
-            self.ui.attributes.open,
-            self.ui.attributes.modified_only,
+            self.client.ui.attributes.open,
+            self.client.ui.attributes.modified_only,
             rows.join(",")
         )
     }

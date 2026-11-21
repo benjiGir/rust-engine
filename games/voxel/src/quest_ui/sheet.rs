@@ -33,11 +33,12 @@ impl VoxelGame {
         let quest = &quests.quests[index];
         let status = statuses[index];
         let mobs = self
+            .server
             .ecs
             .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
             .clone();
-        let items = self.content.items.clone();
-        let registry = self.registry.clone();
+        let items = self.server.content.items.clone();
+        let registry = self.server.registry.clone();
         let namer = Namer {
             items: &items,
             blocks: &registry,
@@ -241,6 +242,9 @@ impl VoxelGame {
                             ..
                         } if !done => {
                             let carried: u32 = self
+                                .server
+                                .players
+                                .me()
                                 .inventory
                                 .slots
                                 .iter()

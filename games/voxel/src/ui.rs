@@ -5,26 +5,26 @@
 //! l'interface depuis zéro (« un bouton ici, un texte là »), et egui s'occupe de
 //! l'état (survol, clics). Pas d'objets « bouton » à créer et à garder à jour.
 
+#[allow(unused_imports)]
+pub(crate) use crate::screens::Screen;
+use crate::ui_server::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::shared::StreamerExt;
 use crate::skin;
 use engine_core::winit::window::Window;
 use engine_ecs::{Entity, World};
 use engine_inspect::Inspect;
 use engine_render::egui::{self, Color32, TextureHandle, TextureOptions};
 use engine_render::{TEXTURE_SIZE, UiFrame};
-use engine_voxel::{BlockRegistry, FurnaceState, Icon, ItemId, ItemRegistry, Recipe};
-use glam::IVec3;
+use engine_voxel::{BlockRegistry, Icon, ItemId, ItemRegistry, Recipe};
 
 use crate::VoxelGame;
 use crate::components::{
     Collider, Health, Hurt, Mob, MoveIntent, Player, PreviousPosition, Transform, Velocity, Wander,
 };
-use crate::inventory::{Click, HOTBAR, ItemStack, Slot, click_slot};
+use crate::inventory::{Click, HOTBAR, ItemStack, Slot};
 use crate::mobs::MobRegistry;
-use crate::player;
 
 pub struct GameUi {
     pub ctx: egui::Context,
@@ -50,7 +50,6 @@ pub struct GameUi {
     /// Les actions du joueur dans ce menu, à transmettre au script : (type, id, valeur).
     pub mod_events: Vec<(i32, i32, i32)>,
     /// Vrai pendant un clic droit : un script peut alors ouvrir son menu.
-    pub allow_mod_menu: bool,
     /// Les jauges que les mods affichent (voir `player_api.rs`).
     pub mod_hud: crate::player_api::HudBars,
     /// La console : saisie, lignes et commandes validées.
@@ -58,8 +57,8 @@ pub struct GameUi {
     /// La page d'options d'un mod, ouverte depuis la pause : (mod, menu).
     pub options_menu: Option<(String, engine_mods::ModMenu)>,
     pub options_events: Vec<(i32, i32, i32)>,
-    /// Dernière écriture des réglages des mods.
-    pub settings_saved: std::time::Instant,
+    /// Tab est tenu : la liste des joueurs s'affiche.
+    pub show_players: bool,
     /// Les clics et touches simulés par `ctl`.
     pub input: crate::ui_input::UiInput,
     /// L'explorateur de recettes (voir `recipe_browser.rs`).
@@ -81,17 +80,6 @@ pub struct Split {
     pub amount: u32,
 }
 
-/// Une case, du joueur ou d'un conteneur (coffre, four).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SlotRef {
-    Player(Slot),
-    Container(IVec3, usize),
-    /// Une case de l'inventaire d'un wagon.
-    Cart(Entity, usize),
-    /// Une case d'un sac à dos (son numéro, la case).
-    Bag(u32, usize),
-}
-
 /// Le bouton pressé sur une case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Press {
@@ -101,49 +89,6 @@ pub(crate) enum Press {
     Quick,
     /// Maj + clic droit : ouvrir « Diviser la pile ».
     Split,
-}
-
-/// L'écran ouvert.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Screen {
-    /// L'inventaire (E) : armure, grille 2 × 2, livre de recettes.
-    Inventory,
-    /// L'établi : grille 3 × 3.
-    Workbench,
-    Furnace(IVec3),
-    /// L'alambic.
-    Brewing(IVec3),
-    Chest(IVec3),
-    /// Un sac à dos, par son numéro (voir `backpacks.rs`).
-    Bag(u32),
-    /// Le contrôleur de stockage (voir `storage_ui.rs`).
-    Controller(IVec3),
-    /// L'inventaire d'un wagon (voir `cart_play.rs`).
-    Cart(Entity),
-    /// L'échange avec un habitant.
-    Trade(Entity),
-    /// La table d'enchantement posée à cet endroit (ses étagères sont lues autour d'elle).
-    Enchant(IVec3),
-    /// L'enclume simple (voir `enchant_books.rs`).
-    Anvil,
-    /// La bibliothèque d'enchantements (voir `enchant_library.rs`).
-    Library(IVec3),
-    /// La table de récupération (voir `forge_ui.rs`).
-    Salvage,
-    /// La table de réforge (voir `forge_ui.rs`).
-    Reforge,
-    /// L'établi de taille (voir `shaping_ui.rs`).
-    Shaping,
-    /// Les paliers du monde (voir `tiers_ui.rs`).
-    Tiers,
-    /// Le Guide du voyageur (voir `guide_ui.rs`).
-    Guide,
-    /// Le livre de quêtes, plein écran (voir `quest_ui.rs`).
-    Quests,
-    /// Le menu d'une machine de mod (voir `mod_menu.rs`).
-    Mod(IVec3),
-    /// La console de commandes (voir `console.rs`).
-    Console,
 }
 
 impl GameUi {
@@ -172,12 +117,11 @@ impl GameUi {
             target_bottom: 12.0,
             mod_menu: None,
             mod_events: Vec::new(),
-            allow_mod_menu: false,
             mod_hud: Default::default(),
             console: Default::default(),
             options_menu: None,
+            show_players: false,
             options_events: Vec::new(),
-            settings_saved: std::time::Instant::now(),
             input: Default::default(),
             browser: Default::default(),
             storage_search: String::new(),
@@ -308,31 +252,33 @@ impl VoxelGame {
     pub(crate) fn build_ui(&mut self, raw: egui::RawInput) -> (UiFrame, egui::PlatformOutput) {
         let _span = engine_trace::span("interface");
         // `Context` est un `Arc` : le cloner ne copie rien, et libère `self` pour la closure.
-        let ctx = self.ui.ctx.clone();
+        let ctx = self.client.ui.ctx.clone();
         let output = ctx.run_ui(raw, |ui| {
             // Au menu principal et à l'écran de mort, ni barre d'objets ni vie.
-            if self.mode == crate::Mode::Playing && !self.ui.inventory_open {
+            if self.mode == crate::Mode::Playing && !self.client.ui.inventory_open {
                 self.draw_hud(ui.ctx());
+                self.draw_name_tags(ui.ctx());
+                self.draw_player_list(ui.ctx());
                 self.draw_pinned_quests(ui.ctx());
             }
             self.draw_toast(ui.ctx());
             self.draw_menus(ui.ctx());
             self.draw_chat(ui.ctx());
             self.draw_mod_hud(ui.ctx());
-            if self.ui.inventory_open {
-                if self.ui.screen == Screen::Console {
+            if self.client.ui.inventory_open {
+                if self.client.ui.screen == Screen::Console {
                     self.draw_console(ui.ctx());
-                } else if self.ui.screen == Screen::Quests {
+                } else if self.client.ui.screen == Screen::Quests {
                     self.draw_quests_screen(ui.ctx());
                 } else {
                     self.draw_screen(ui.ctx());
                 }
             }
-            if self.ui.inspector_open {
+            if self.client.ui.inspector_open {
                 self.draw_inspector(ui.ctx());
             }
         });
-        self.ui.input.capture(&output.shapes);
+        self.client.ui.input.capture(&output.shapes);
         let primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
         let frame = UiFrame {
             primitives,
@@ -380,17 +326,20 @@ impl VoxelGame {
         if let Some(stack) = stack {
             if response.hovered() {
                 // Pour les touches R, U et A de l'explorateur de recettes.
-                self.ui.browser.hovered = Some(stack.item);
+                self.client.ui.browser.hovered = Some(stack.item);
             }
-            let def = self.content.items.get(stack.item);
+            let def = self.client.content.items.get(stack.item);
             let mut card = crate::ui_info::item(def, stack.count, stack.damage);
             if let Some(name) =
-                crate::shape_materials::piece_name(&self.registry, def, stack.damage)
+                crate::shape_materials::piece_name(&self.client.registry, def, stack.damage)
             {
                 card.name = name;
             }
-            card.lines
-                .extend(crate::backpacks::card_lines(&def.key, stack.damage));
+            card.lines.extend(
+                crate::backpacks::card_lines(&def.key, stack.damage)
+                    .into_iter()
+                    .map(|(text, tone)| (text, crate::skin::tone(tone))),
+            );
             crate::ui_info::hover(response, &card);
         }
         press
@@ -398,14 +347,15 @@ impl VoxelGame {
 
     /// L'icône, la quantité et la barre d'usure d'une pile.
     fn paint_stack(&mut self, painter: &egui::Painter, rect: egui::Rect, stack: ItemStack) {
-        let icon = self.ui.icon_of(
+        let icon = self.client.ui.icon_of(
             stack.item,
             stack.damage,
-            &self.content.items,
-            &self.registry,
-            &self.block_textures,
+            &self.client.content.items,
+            &self.client.registry,
+            &self.client.block_textures,
         );
         let durability = self
+            .client
             .content
             .items
             .get(stack.item)
@@ -423,13 +373,15 @@ impl VoxelGame {
 
     /// Une case de l'inventaire du joueur (ou de son armure, de sa grille).
     pub(crate) fn slot_widget(&mut self, ui: &mut egui::Ui, slot: Slot, highlighted: bool) {
-        let stack = *self.inventory.slot_mut(slot);
+        // L'inventaire tel que le serveur l'a envoyé (voir `player_view.rs`).
+        let stack = self.client.view.me.inventory.slot(slot);
         if let Some(press) = self.stack_widget(ui, stack, highlighted) {
             self.press_slot(SlotRef::Player(slot), stack, press);
         }
     }
 
-    /// Un bouton pressé sur une case : un clic, ou l'ouverture de « Diviser la pile ».
+    /// Un bouton pressé sur une case : un clic de case, ou l'ouverture de « Diviser la pile ».
+    /// Le clic part au simulateur (`SlotClick`, voir `intents.rs`) et s'applique tout de suite.
     /// Renvoie `true` si la case a pu changer.
     pub(crate) fn press_slot(
         &mut self,
@@ -437,18 +389,19 @@ impl VoxelGame {
         stack: Option<ItemStack>,
         press: Press,
     ) -> bool {
-        let click = match press {
-            Press::Primary => Click::Primary,
-            // Maj + clic : l'autre côté. Une case qui n'est pas concernée (amélioration, filtre,
-            // machine) se comporte comme un clic ordinaire.
-            Press::Quick if self.quick_move(target) => return true,
-            Press::Quick => Click::Primary,
-            Press::Secondary => Click::Secondary,
+        // Maj + clic : l'autre côté. Une case qui n'est pas concernée (amélioration, filtre,
+        // machine) se comporte comme un clic ordinaire (c'est le simulateur qui le décide).
+        let (click, shift) = match press {
+            Press::Primary => (Click::Primary, false),
+            Press::Quick => (Click::Primary, true),
+            Press::Secondary => (Click::Secondary, false),
             // Une pile en main : Maj + clic droit pose un objet, comme un clic droit.
-            Press::Split if self.inventory.cursor.is_some() => Click::Secondary,
+            Press::Split if self.client.view.me.inventory.cursor.is_some() => {
+                (Click::Secondary, false)
+            }
             Press::Split => {
                 if let Some(stack) = stack.filter(|s| s.count > 1) {
-                    self.ui.split = Some(Split {
+                    self.client.ui.split = Some(Split {
                         target,
                         amount: stack.count / 2,
                     });
@@ -456,62 +409,46 @@ impl VoxelGame {
                 return false;
             }
         };
-        self.click_target(target, click)
+        self.send_slot_click(target, click, shift);
+        true
     }
 
-    /// Applique un clic à une case du joueur ou d'un conteneur.
-    fn click_target(&mut self, target: SlotRef, click: Click) -> bool {
-        match target {
-            SlotRef::Player(slot) => {
-                // Une gemme ou un sceau au curseur sur un objet : sertir, retirer, ajouter.
-                // Un livre, un tome ou une potion au curseur : voir `enchant_books.rs` et `charms.rs`.
-                if !self.try_gem_click(slot, click)
-                    && !self.try_book_click(slot, click)
-                    && !self.try_charm_recharge(slot, click)
-                {
-                    self.inventory.click(slot, &self.content.items, click);
-                }
-                true
-            }
-            SlotRef::Container(pos, index) => self.click_container(pos, index, click),
-            SlotRef::Cart(cart, index) => self.click_cart(cart, index, click),
-            SlotRef::Bag(number, index) => {
-                self.click_storage(crate::storage_ui::Target::Bag(number), index, click)
-            }
-        }
+    /// Envoie un clic de case au simulateur.
+    fn send_slot_click(&mut self, target: SlotRef, click: Click, shift: bool) {
+        self.send_now(crate::protocol::ClientMsg::SlotClick {
+            slot: self.slot_target_of(target),
+            button: click.into(),
+            shift,
+        });
     }
 
     /// La pile d'une case.
     fn stack_at(&self, target: SlotRef) -> Option<ItemStack> {
         match target {
-            SlotRef::Player(slot) => match slot {
-                Slot::Main(i) => self.inventory.slots[i],
-                Slot::Armor(i) => self.inventory.armor[i],
-                Slot::Craft(i) => self.inventory.craft[i],
-            },
-            SlotRef::Container(pos, index) => self.container_stack(pos, index),
-            SlotRef::Cart(cart, index) => self.cart_stack(cart, index),
-            SlotRef::Bag(number, index) => {
-                self.target_stack(crate::storage_ui::Target::Bag(number), index)
-            }
+            SlotRef::Player(slot) => self.client.view.me.inventory.slot(slot),
+            // Une case du conteneur ouvert : sa vue (voir `container_view.rs`).
+            SlotRef::Open(index)
+            | SlotRef::Container(_, index)
+            | SlotRef::Cart(_, index)
+            | SlotRef::Bag(_, index) => self.shown_stack(index),
         }
     }
 
     /// La fenêtre « Diviser la pile » : choisir combien d'objets prendre en main.
     fn split_window(&mut self, ctx: &egui::Context) {
-        let Some(mut split) = self.ui.split else {
+        let Some(mut split) = self.client.ui.split else {
             return;
         };
         // La pile a disparu, ou on tient déjà quelque chose : on referme.
         let Some(stack) = self.stack_at(split.target).filter(|s| s.count > 1) else {
-            self.ui.split = None;
+            self.client.ui.split = None;
             return;
         };
-        if self.inventory.cursor.is_some() {
-            self.ui.split = None;
+        if self.client.view.me.inventory.cursor.is_some() {
+            self.client.ui.split = None;
             return;
         }
-        let name = self.content.items.get(stack.item).name.clone();
+        let name = self.client.content.items.get(stack.item).name.clone();
         let mut action = None;
         crate::ui_layout::window(ctx, "Diviser la pile", 360.0)
             .order(egui::Order::Foreground)
@@ -545,19 +482,32 @@ impl VoxelGame {
             });
         match action {
             Some(true) => {
-                self.ui.split = None;
-                self.click_target(split.target, Click::Take(split.amount));
+                self.client.ui.split = None;
+                self.send_slot_click(split.target, Click::Take(split.amount), false);
             }
-            Some(false) => self.ui.split = None,
-            None => self.ui.split = Some(split),
+            Some(false) => self.client.ui.split = None,
+            None => self.client.ui.split = Some(split),
         }
     }
 
     /// La barre d'objets en bas de l'écran, la vie au-dessus, et l'avancement du minage.
     fn draw_hud(&mut self, ctx: &egui::Context) {
-        let health = player::health(&self.ecs, self.player);
+        // Les jauges et l'inventaire tels que le serveur les a envoyés (voir `player_view.rs`) ;
+        // la barre de minage et de repas est la prédiction de la fenêtre.
+        let Some(vitals) = self.client.view.me.vitals.clone() else {
+            return;
+        };
+        let since_hit = self.client.view.me.since_hit();
+        let hotbar: Vec<_> = self.client.view.me.inventory.slots[..HOTBAR].to_vec();
+        let selected_slot = usize::from(self.client.view.me.inventory.selected);
+        let held_stack = self.client.view.me.inventory.selected_stack();
         // La barre sous le réticule : le minage, ou le repas en cours.
-        if let Some(progress) = self.mining.map(|(_, p)| p).or(self.eat_progress) {
+        if let Some(progress) = self.client.mining.map(|(_, p)| p).or(self
+            .server
+            .players
+            .me_mut()
+            .eat_progress)
+        {
             egui::Area::new(egui::Id::unique("mining"))
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 26.0))
                 .show(ctx, |ui| {
@@ -570,29 +520,34 @@ impl VoxelGame {
                 });
         }
         let target_bottom = self.draw_target_info(ctx);
-        self.ui.target_bottom = target_bottom;
+        self.client.ui.target_bottom = target_bottom;
         // Les potions en cours, en haut à droite, avec le temps restant.
-        if !self.effects.list().is_empty() {
+        if !vitals.effects.is_empty() {
             egui::Area::new(egui::Id::unique("effects"))
                 .anchor(
                     egui::Align2::RIGHT_TOP,
                     egui::vec2(
                         -12.0,
                         if ctx.content_rect().width() < 760.0 {
-                            target_bottom + if self.ui.toast.is_some() { 96.0 } else { 8.0 }
+                            target_bottom
+                                + if self.client.ui.toast.is_some() {
+                                    96.0
+                                } else {
+                                    8.0
+                                }
                         } else {
                             12.0
                         },
                     ),
                 )
                 .show(ctx, |ui| {
-                    for active in self.effects.list() {
+                    for active in &vitals.effects {
                         ui.label(
                             egui::RichText::new(format!(
                                 "{} {}:{:02}",
                                 active.effect.name(),
-                                active.left as u32 / 60,
-                                active.left as u32 % 60
+                                active.seconds / 60,
+                                active.seconds % 60
                             ))
                             .color(skin::MAGIC)
                             .size(15.0),
@@ -601,7 +556,7 @@ impl VoxelGame {
                 });
         }
         // Un coup reçu : l'écran rougit un instant.
-        let flash = (1.0 - self.vitals.since_hit / 0.35).clamp(0.0, 1.0);
+        let flash = (1.0 - since_hit / 0.35).clamp(0.0, 1.0);
         if flash > 0.0 {
             ctx.layer_painter(egui::LayerId::background()).rect_filled(
                 ctx.content_rect(),
@@ -609,8 +564,9 @@ impl VoxelGame {
                 Color32::from_rgba_unmultiplied(200, 0, 0, (flash * 70.0) as u8),
             );
         }
-        let air = self.vitals.air / self.survival.air.max(0.01);
-        let burning = self.vitals.burning > 0.0;
+        let air = vitals.air / self.server.survival.air.max(0.01);
+        let burning = vitals.burning;
+        let [health_now, health_max] = vitals.health;
         egui::Area::new(egui::Id::unique("hud"))
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
             .show(ctx, |ui| {
@@ -636,9 +592,10 @@ impl VoxelGame {
                     // Orange quand le joueur brûle.
                     let heart = if burning { skin::GOLD } else { skin::RED };
                     // À droite, la réserve de nourriture, couleur blé.
-                    let squares = (health.max / 2.0).ceil().clamp(1.0, 20.0) as usize;
-                    let food_squares =
-                        (self.hunger_rules.max_food / 2.0).ceil().clamp(1.0, 20.0) as usize;
+                    let squares = (health_max / 2.0).ceil().clamp(1.0, 20.0) as usize;
+                    let food_squares = (self.server.hunger_rules.max_food / 2.0)
+                        .ceil()
+                        .clamp(1.0, 20.0) as usize;
                     let hotbar_width = HOTBAR as f32 * crate::ui_layout::slot_size(ctx)
                         + (HOTBAR - 1) as f32 * 2.0;
                     let step = ((hotbar_width - 24.0) / (squares + food_squares) as f32).min(16.0);
@@ -650,13 +607,13 @@ impl VoxelGame {
                         (
                             0.0,
                             squares,
-                            health.current / health.max.max(1.0) * squares as f32,
+                            health_now / health_max.max(1.0) * squares as f32,
                             heart,
                         ),
                         (
                             squares as f32 * step + gap,
                             food_squares,
-                            self.hunger.food / self.hunger_rules.max_food.max(1.0)
+                            vitals.food / self.server.hunger_rules.max_food.max(1.0)
                                 * food_squares as f32,
                             food,
                         ),
@@ -672,12 +629,12 @@ impl VoxelGame {
                         }
                     }
                     // L'expérience : une barre verte, le niveau par-dessus.
-                    let (level, _) = self.experience.level();
+                    let level = vitals.level;
                     let (bar, _) =
                         ui.allocate_exact_size(egui::vec2(rect.width(), 7.0), egui::Sense::hover());
                     ui.painter().rect_filled(bar, 0.0, skin::INSET);
                     let mut fill = bar.shrink(1.0);
-                    fill.set_width(fill.width() * self.experience.progress());
+                    fill.set_width(fill.width() * vitals.progress);
                     ui.painter().rect_filled(fill, 0.0, skin::SAGE);
                     if level > 0 {
                         // Dans l'espace entre la vie et la faim, juste au-dessus de la barre.
@@ -705,17 +662,19 @@ impl VoxelGame {
                         .show(ui, |ui| {
                             ui.spacing_mut().item_spacing.x = 2.0;
                             ui.horizontal(|ui| {
-                                for i in 0..HOTBAR {
-                                    let selected = i == self.inventory.selected;
-                                    if self.stack_widget(ui, self.inventory.slots[i], selected)
+                                for (i, &stack) in hotbar.iter().enumerate() {
+                                    let selected = i == selected_slot;
+                                    if self.stack_widget(ui, stack, selected)
                                         == Some(Press::Primary)
                                     {
-                                        self.inventory.selected = i;
+                                        self.send_now(crate::protocol::ClientMsg::SelectSlot(
+                                            i as u8,
+                                        ));
                                     }
                                 }
                             });
                         });
-                    if let Some(held) = self.inventory.selected_stack() {
+                    if let Some(held) = held_stack {
                         // Un objet à affixes : son nom composé, dans la couleur de sa rareté.
                         let data = crate::adventure_data::current();
                         let sheet = crate::item_data::sheet(held.damage);
@@ -723,12 +682,12 @@ impl VoxelGame {
                             .as_ref()
                             .and_then(crate::affixes::display_rarity)
                             .map_or(skin::TEXT, |r| crate::forge_ui::rarity_color(&data, r));
-                        let item = self.content.items.get(held.item);
+                        let item = self.client.content.items.get(held.item);
                         let name = sheet
                             .and_then(|s| s.name)
                             .or_else(|| {
                                 crate::shape_materials::piece_name(
-                                    &self.registry,
+                                    &self.client.registry,
                                     item,
                                     held.damage,
                                 )
@@ -743,14 +702,24 @@ impl VoxelGame {
     /// La réserve (3 rangées) et la barre d'objets du joueur.
     fn player_slots(&mut self, ui: &mut egui::Ui) {
         crate::ui_layout::player_inventory(ui, |ui, index| {
-            self.slot_widget(ui, Slot::Main(index), index == self.inventory.selected);
+            self.slot_widget(
+                ui,
+                Slot::Main(index),
+                index == usize::from(self.client.view.me.inventory.selected),
+            );
         });
     }
 
     /// La grille d'artisanat (`size` × `size`) et sa case de résultat.
     fn craft_grid(&mut self, ui: &mut egui::Ui, size: usize) {
-        let grid = self.inventory.craft_grid(size);
-        let recipe = self.content.recipes.find(&grid, size).cloned();
+        let grid = self
+            .client
+            .view
+            .me
+            .inventory
+            .as_inventory()
+            .craft_grid(size);
+        let recipe = self.client.content.recipes.find(&grid, size).cloned();
         crate::ui_layout::crafting(ui, size, |ui, index| {
             if let Some(index) = index {
                 self.slot_widget(ui, Slot::Craft(index / size * 3 + index % size), false);
@@ -761,14 +730,11 @@ impl VoxelGame {
                 });
                 let clicked =
                     self.stack_widget(ui, result, recipe.is_some()) == Some(Press::Primary);
-                if clicked
-                    && let Some(recipe) = &recipe
-                    && self
-                        .inventory
-                        .take_craft_result(recipe, size, &self.content.items)
-                {
-                    let (item, count) = recipe.result();
-                    self.quest_book.note_crafted(item, count);
+                if clicked && recipe.is_some() {
+                    self.send_now(crate::protocol::ClientMsg::Craft {
+                        size: size as u8,
+                        recipe: None,
+                    });
                 }
             }
         });
@@ -777,12 +743,16 @@ impl VoxelGame {
     /// Le livre de recettes : ce qu'on peut fabriquer avec ce qu'on a. Un clic fabrique.
     fn recipe_book(&mut self, ui: &mut egui::Ui, size: usize) {
         ui.label(egui::RichText::new("Livre de recettes").strong());
-        let craftable: Vec<Recipe> = self
+        let inventory = self.client.view.me.inventory.as_inventory();
+        // Le numéro de chaque recette dans la liste : c'est lui qui part au serveur.
+        let craftable: Vec<(u32, Recipe)> = self
+            .client
             .content
             .recipes
             .iter()
-            .filter(|r| r.grid_size() <= size && self.inventory.can_craft(r))
-            .cloned()
+            .enumerate()
+            .filter(|(_, r)| r.grid_size() <= size && inventory.can_craft(r))
+            .map(|(i, r)| (i as u32, r.clone()))
             .collect();
         if craftable.is_empty() {
             ui.label("Rien à fabriquer avec ce que tu as.");
@@ -792,29 +762,27 @@ impl VoxelGame {
             .max_height((ui.ctx().content_rect().height() * 0.3).min(240.0))
             .min_scrolled_height(60.0)
             .show(ui, |ui| {
-                for recipe in craftable {
+                for (index, recipe) in craftable {
                     let (item, count) = recipe.result();
                     ui.horizontal(|ui| {
                         let clicked =
                             self.stack_widget(ui, Some(ItemStack::new(item, count)), false)
                                 == Some(Press::Primary);
-                        if clicked
-                            && self
-                                .inventory
-                                .craft_from_book(&recipe, &self.content.items)
-                                .is_some()
-                        {
-                            self.quest_book.note_crafted(item, count);
+                        if clicked {
+                            self.send_now(crate::protocol::ClientMsg::Craft {
+                                size: size as u8,
+                                recipe: Some(index),
+                            });
                         }
                         let names: Vec<String> = recipe
                             .ingredients()
                             .iter()
                             .filter_map(|i| i.example())
-                            .map(|i| self.content.items.get(i).name.clone())
+                            .map(|i| self.client.content.items.get(i).name.clone())
                             .collect();
                         ui.label(format!(
                             "{}\n{}",
-                            self.content.items.get(item).name,
+                            self.client.content.items.get(item).name,
                             compact(&names)
                         ));
                     });
@@ -824,14 +792,14 @@ impl VoxelGame {
 
     /// L'écran ouvert, et la pile tenue qui suit la souris.
     fn draw_screen(&mut self, ctx: &egui::Context) {
-        self.ui.browser.hovered = None;
-        let title = match self.ui.screen {
+        self.client.ui.browser.hovered = None;
+        let title = match self.client.ui.screen {
             Screen::Inventory => "Inventaire".to_string(),
             Screen::Workbench => "Établi".to_string(),
             Screen::Furnace(_) => "Four".to_string(),
             Screen::Brewing(_) => "Alambic".to_string(),
             Screen::Chest(_) | Screen::Bag(_) | Screen::Controller(_) => self.storage_title(),
-            Screen::Cart(cart) => self.cart_title(cart),
+            Screen::Cart(_) => self.cart_title(),
             Screen::Trade(_) => "Échange".to_string(),
             Screen::Enchant(_) => "Table d'enchantement".to_string(),
             Screen::Anvil => "Enclume simple".to_string(),
@@ -843,6 +811,7 @@ impl VoxelGame {
             Screen::Guide => "Guide du voyageur".to_string(),
             Screen::Console | Screen::Quests => String::new(),
             Screen::Mod(_) => self
+                .client
                 .ui
                 .mod_menu
                 .as_ref()
@@ -851,13 +820,13 @@ impl VoxelGame {
         let mut open = true;
         let window = crate::ui_layout::inventory_window(ctx, &title, egui::Id::unique((
             "inventory_screen",
-            std::mem::discriminant(&self.ui.screen),
+            std::mem::discriminant(&self.client.ui.screen),
         )))
             .show(ctx, |ui| {
                 crate::ui_layout::inventory_body(ui);
                 if crate::ui_layout::inventory_header(ui, &title) { open = false; }
                 ui.add_space(6.0);
-                match self.ui.screen {
+                match self.client.ui.screen {
                     Screen::Inventory => self.inventory_panel(ui),
                     Screen::Workbench => {
                         if ui.available_width() >= 600.0 {
@@ -876,15 +845,15 @@ impl VoxelGame {
                             ui.collapsing("Livre de recettes", |ui| self.recipe_book(ui, 3));
                         }
                     }
-                    Screen::Furnace(pos) => self.furnace_panel(ui, pos),
-                    Screen::Brewing(pos) => self.brewing_panel(ui, pos),
-                    Screen::Chest(pos) => self.chest_panel(ui, pos),
-                    Screen::Bag(number) => {
-                        self.storage_panel(ui, crate::storage_ui::Target::Bag(number))
+                    Screen::Furnace(_) => self.furnace_panel(ui),
+                    Screen::Brewing(_) => self.brewing_panel(ui),
+                    Screen::Chest(_) => self.chest_panel(ui),
+                    Screen::Bag(_) => {
+                        self.storage_panel(ui, true)
                     }
                     Screen::Controller(pos) => self.controller_panel(ui, pos),
-                    Screen::Cart(cart) => self.cart_panel(ui, cart),
-                    Screen::Trade(mob) => self.trade_panel(ui, mob),
+                    Screen::Cart(_) => self.cart_panel(ui),
+                    Screen::Trade(_) => self.trade_panel(ui),
                     Screen::Enchant(pos) => self.enchant_panel(ui, pos),
                     Screen::Anvil => self.anvil_panel(ui),
                     Screen::Library(pos) => self.library_panel(ui, pos),
@@ -893,13 +862,13 @@ impl VoxelGame {
                     Screen::Shaping => self.shaping_panel(ui),
                     Screen::Tiers => self.tiers_panel(ui),
                     Screen::Guide => self.guide_panel(ui),
-                    Screen::Mod(pos) => self.mod_panel(ui, pos),
+                    Screen::Mod(_) => self.mod_panel(ui),
                     Screen::Console | Screen::Quests => {}
                 }
-                if !matches!(self.ui.screen, Screen::Tiers | Screen::Guide) {
+                if !matches!(self.client.ui.screen, Screen::Tiers | Screen::Guide) {
                     ui.add_space(8.0);
                     ui.separator();
-                    if self.ui.screen != Screen::Inventory { ui.label("Inventaire"); }
+                    if self.client.ui.screen != Screen::Inventory { ui.label("Inventaire"); }
                     self.player_slots(ui);
                     ui.add_space(6.0);
                     ui.collapsing("Aide · déplacer les objets", |ui| {
@@ -930,7 +899,10 @@ impl VoxelGame {
             self.draw_recipe_browser(ctx, frame);
         }
         // La pile tenue suit la souris.
-        if let (Some(held), Some(pointer)) = (self.inventory.cursor, ctx.pointer_hover_pos()) {
+        if let (Some(held), Some(pointer)) = (
+            self.client.view.me.inventory.cursor,
+            ctx.pointer_hover_pos(),
+        ) {
             let rect = egui::Rect::from_center_size(
                 pointer,
                 egui::Vec2::splat(crate::ui_layout::slot_size(ctx)),
@@ -954,7 +926,11 @@ impl VoxelGame {
         ui.label(
             egui::RichText::new(format!(
                 "Protection : {}",
-                self.inventory.protection(&self.content.items)
+                self.client
+                    .view
+                    .me
+                    .inventory
+                    .protection(&self.client.content.items)
             ))
             .size(11.0),
         );
@@ -974,141 +950,80 @@ impl VoxelGame {
     }
 
     /// Le menu d'une machine de mod : les éléments décrits par son script, dessinés ici.
-    fn mod_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
+    fn mod_panel(&mut self, ui: &mut egui::Ui) {
         // Le menu est sorti de l'état pendant le dessin (les cases ont besoin de `self`) ;
         // les actions sont mises en file, jamais appliquées pendant le dessin.
-        let Some(mut state) = self.ui.mod_menu.take() else {
+        let Some(mut state) = self.client.ui.mod_menu.take() else {
             return;
         };
         let mut events = Vec::new();
-        let mut changed = false;
-        crate::mod_menu::draw_widgets(
+        crate::ui_widgets::draw_widgets(
             ui,
             &mut state.menu.widgets,
             &mut events,
             &mut |ui, first, count, columns| {
                 let columns = columns.min(crate::ui_layout::slot_columns(ui)).max(1);
+                // Un clic de case réveille la machine côté serveur (`SlotClick`).
                 crate::ui_layout::slots(ui, count, columns, |ui, index| {
-                    changed |= self.container_slot(ui, pos, first + index);
+                    self.container_slot(ui, first + index);
                 });
             },
         );
-        self.ui.mod_menu = Some(state);
-        self.ui.mod_events.extend(events);
-        if changed {
-            // La machine dort peut-être : on la réveille au prochain tick.
-            self.mods
-                .machines
-                .schedule(engine_voxel::GridPos::world(pos), 1);
-        }
+        self.client.ui.mod_menu = Some(state);
+        self.client.ui.mod_events.extend(events);
     }
 
     /// Une case d'un conteneur (coffre, four) : ses objets sont dans l'entité du bloc.
-    fn container_slot(&mut self, ui: &mut egui::Ui, pos: IVec3, index: usize) -> bool {
-        let stack = self.container_stack(pos, index);
+    fn container_slot(&mut self, ui: &mut egui::Ui, index: usize) -> bool {
+        let stack = self.shown_stack(index);
         match self.stack_widget(ui, stack, false) {
-            Some(press) => self.press_slot(SlotRef::Container(pos, index), stack, press),
+            Some(press) => self.press_slot(SlotRef::Open(index), stack, press),
             None => false,
         }
     }
 
-    /// La pile rangée dans une case d'un conteneur.
-    pub(crate) fn container_stack(&self, pos: IVec3, index: usize) -> Option<ItemStack> {
-        let stored = self.streamer().block_entity(pos).and_then(|e| {
-            e.caps
-                .as_ref()?
-                .inventory
-                .as_ref()?
-                .slots
-                .get(index)
-                .cloned()
-                .flatten()
-        });
-        stored.as_ref().and_then(|s| {
-            Some(ItemStack {
-                item: self.content.items.id(&s.item)?,
-                count: s.count,
-                damage: s.damage,
-            })
-        })
-    }
-
-    /// Un clic sur une case d'un coffre ou d'une machine : la pile est relue puis réécrite
-    /// dans l'entité du bloc (voir `storage_ui.rs` pour les règles des coffres à paliers).
-    fn click_container(&mut self, pos: IVec3, index: usize, click: Click) -> bool {
-        self.click_storage(crate::storage_ui::Target::Block(pos), index, click)
-    }
-
     /// Le titre de l'écran d'un wagon (et sa réserve de combustible, pour une locomotive).
-    fn cart_title(&self, cart: Entity) -> String {
-        match self.ecs.get::<crate::carts::Cart>(cart) {
-            Some(state) if state.kind == crate::carts::CartKind::Locomotive => {
-                format!("{} · {:.0} s de feu", state.kind.title(), state.burn)
+    fn cart_title(&self) -> String {
+        match self.shown_container().and_then(|c| c.cart) {
+            Some((crate::carts::CartKind::Locomotive, burn)) => {
+                format!(
+                    "{} · {:.0} s de feu",
+                    crate::carts::CartKind::Locomotive.title(),
+                    burn
+                )
             }
-            Some(state) => state.kind.title().to_string(),
+            Some((kind, _)) => kind.title().to_string(),
             None => "Wagon".to_string(),
         }
     }
 
     /// L'inventaire d'un wagon : 27 cases pour un coffre ou une trémie, la case de combustible
     /// d'une locomotive.
-    fn cart_panel(&mut self, ui: &mut egui::Ui, cart: Entity) {
-        let Some(kind) = self.ecs.get::<crate::carts::Cart>(cart).map(|c| c.kind) else {
+    fn cart_panel(&mut self, ui: &mut egui::Ui) {
+        let Some(kind) = self
+            .shown_container()
+            .and_then(|c| c.cart)
+            .map(|(kind, _)| kind)
+        else {
             // Le wagon n'existe plus (cassé, déchargé) : on revient à l'inventaire.
-            self.ui.screen = Screen::Inventory;
+            self.client.ui.screen = Screen::Inventory;
             return;
         };
         if kind == crate::carts::CartKind::Locomotive {
             ui.label("Combustible : charbon, bois...");
             crate::ui_layout::slots(ui, 1, 1, |ui, index| {
-                self.cart_slot(ui, cart, index);
+                self.cart_slot(ui, index);
             });
         } else {
-            self.storage_panel(ui, crate::storage_ui::Target::Cart(cart));
+            self.storage_panel(ui, false);
         }
     }
 
-    fn cart_slot(&mut self, ui: &mut egui::Ui, cart: Entity, index: usize) {
-        let stack = self.cart_stack(cart, index);
+    fn cart_slot(&mut self, ui: &mut egui::Ui, index: usize) {
+        let stack = self.shown_stack(index);
         if let Some(press) = self.stack_widget(ui, stack, false) {
-            self.press_slot(SlotRef::Cart(cart, index), stack, press);
+            self.press_slot(SlotRef::Open(index), stack, press);
         }
-    }
-
-    /// La pile rangée dans une case d'un wagon.
-    pub(crate) fn cart_stack(&self, cart: Entity, index: usize) -> Option<ItemStack> {
-        let cargo = self.ecs.get::<crate::carts::CartCargo>(cart)?;
-        let stored = cargo.0.slots.get(index)?.as_ref()?;
-        Some(ItemStack {
-            item: self.content.items.id(&stored.item)?,
-            count: stored.count,
-            damage: stored.damage,
-        })
-    }
-
-    /// Un clic sur une case d'un wagon.
-    fn click_cart(&mut self, cart: Entity, index: usize, click: Click) -> bool {
-        let mut slot = self.cart_stack(cart, index);
-        let mut cursor = self.inventory.cursor.take();
-        // Une locomotive n'accepte que du combustible.
-        let fuel = self
-            .ecs
-            .get::<crate::carts::Cart>(cart)
-            .is_some_and(|c| c.kind == crate::carts::CartKind::Locomotive);
-        let accepts = |item: ItemId| !fuel || self.content.smelting.burn_ticks(item).is_some();
-        click_slot(&mut slot, &mut cursor, &self.content.items, accepts, click);
-        self.inventory.cursor = cursor;
-        let items = self.content.items.clone();
-        if let Some(mut cargo) = self.ecs.get_mut::<crate::carts::CartCargo>(cart)
-            && let Some(target) = cargo.0.slots.get_mut(index)
-        {
-            *target = slot.map(|s| engine_voxel::ItemStack {
-                item: items.get(s.item).key.clone(),
-                count: s.count,
-                damage: s.damage,
-            });
-        }
-        true
     }
 
     /// Les échanges d'un habitant : une ligne par échange, un bouton pour le faire.
@@ -1116,40 +1031,26 @@ impl VoxelGame {
     /// avec ses objets dessinés (prix, flèche, produit), grisée si l'on ne peut pas payer et marquée
     /// si l'habitant n'en a plus ; à droite l'offre choisie en grandes cases, ce qui manque, et les
     /// boutons d'échange.
-    fn trade_panel(&mut self, ui: &mut egui::Ui, mob: Entity) {
-        let Some(key) = self.mob_key(mob) else {
+    fn trade_panel(&mut self, ui: &mut egui::Ui) {
+        // L'habitant, d'après la vue d'écran du serveur ; l'inventaire, d'après la vue du joueur.
+        let Some(crate::screen_actions::ScreenView::Trade { key, name, uses }) =
+            self.shown_screen().cloned()
+        else {
             // L'habitant a disparu (tué, ou trop loin) : on ferme.
             self.close_screen();
-            self.ui.inventory_open = false;
+            self.client.ui.inventory_open = false;
             return;
         };
-        let name = {
-            let kind = self.ecs.get::<crate::components::Mob>(mob).map(|m| m.kind);
-            kind.and_then(|k| {
-                self.ecs
-                    .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
-                    .get(k)
-                    .map(|d| d.name.clone())
-            })
-        };
-        let trades = self.trades.for_mob(&key).to_vec();
-        let uses = self
-            .ecs
-            .get::<crate::components::Trader>(mob)
-            .map(|t| t.uses.clone())
-            .unwrap_or_default();
-        let items = self.content.items.clone();
+        let inventory = self.client.view.me.inventory.as_inventory();
+        let trades = self.server.trades.for_mob(&key).to_vec();
+        let items = self.client.content.items.clone();
         let item_name = |item: engine_voxel::ItemId| items.get(item).name.clone();
-        ui.label(
-            egui::RichText::new(name.unwrap_or_else(|| key.clone()))
-                .strong()
-                .size(18.0),
-        );
+        ui.label(egui::RichText::new(name).strong().size(18.0));
         if trades.is_empty() {
             ui.label("Cet habitant n'a rien à échanger.");
             return;
         }
-        let selected = self.ui.trade_selected.min(trades.len() - 1);
+        let selected = self.client.ui.trade_selected.min(trades.len() - 1);
         let slot = crate::ui_layout::slot_size(ui.ctx()).max(30.0);
         let row_height = slot + 8.0;
         let list_width = slot * 4.6;
@@ -1166,7 +1067,7 @@ impl VoxelGame {
                     .show(ui, |ui| {
                         for (i, trade) in trades.iter().enumerate() {
                             let left = uses.get(i).copied().unwrap_or(0);
-                            let can = crate::trading::can_trade(&self.inventory, trade, left);
+                            let can = crate::trading::can_trade(&inventory, trade, left);
                             let (rect, response) = ui.allocate_exact_size(
                                 egui::vec2(list_width - 4.0, row_height),
                                 egui::Sense::click(),
@@ -1252,8 +1153,8 @@ impl VoxelGame {
             ui.vertical(|ui| {
                 let trade = &trades[selected];
                 let left = uses.get(selected).copied().unwrap_or(0);
-                let have = self.inventory.count(trade.give.0);
-                let can = crate::trading::can_trade(&self.inventory, trade, left);
+                let have = inventory.count(trade.give.0);
+                let can = crate::trading::can_trade(&inventory, trade, left);
                 let big = slot * 1.3;
                 let (rect, _) =
                     ui.allocate_exact_size(egui::vec2(big * 3.6, big + 8.0), egui::Sense::hover());
@@ -1329,111 +1230,50 @@ impl VoxelGame {
                 });
             });
         });
-        self.ui.trade_selected = chosen;
-        let Some((i, times)) = deal else {
-            return;
-        };
-        let mut done = 0;
-        for _ in 0..times {
-            let left = self
-                .ecs
-                .get::<crate::components::Trader>(mob)
-                .and_then(|t| t.uses.get(i).copied())
-                .unwrap_or(0);
-            let Some(overflow) =
-                crate::trading::execute(&mut self.inventory, &items, &trades[i], left)
-            else {
-                break;
-            };
-            if let Some(mut trader) = self.ecs.get_mut::<crate::components::Trader>(mob) {
-                trader.uses[i] = left - 1;
-            }
-            if overflow > 0 {
-                let at = crate::player::body(&self.ecs, self.player)
-                    .position
-                    .floor()
-                    .as_ivec3();
-                self.drop_stack(at, ItemStack::new(trades[i].get.0, overflow));
-            }
-            done += 1;
-        }
-        if done > 0
-            && let Some(audio) = &mut self.audio
-        {
-            audio.play("core:place_hard");
+        self.client.ui.trade_selected = chosen;
+        if let Some((i, times)) = deal {
+            self.send_now(crate::protocol::ClientMsg::Screen(
+                crate::protocol::ScreenAction::Trade {
+                    offer: i as u8,
+                    times,
+                },
+            ));
         }
     }
 
-    fn chest_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
-        self.storage_panel(ui, crate::storage_ui::Target::Block(pos));
+    fn chest_panel(&mut self, ui: &mut egui::Ui) {
+        self.storage_panel(ui, false);
     }
 
-    fn furnace_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
-        let state = self
-            .streamer()
-            .block_entity(pos)
-            .map(FurnaceState::read)
-            .unwrap_or_default();
-        let mut changed = false;
-        let burn = if state.burn_total > 0 {
-            state.burn_left as f32 / state.burn_total as f32
-        } else {
-            0.0
-        };
-        let cook = if state.cook_total > 0 {
-            state.progress as f32 / state.cook_total as f32
-        } else {
-            0.0
-        };
+    fn furnace_panel(&mut self, ui: &mut egui::Ui) {
+        // Les jauges et les cases viennent de la vue du conteneur ouvert (`container_view.rs`) ; le
+        // serveur réveille le four quand une case change.
+        let [burn, cook] = self.shown_container().map_or([0.0; 2], |c| c.furnace);
         crate::ui_layout::furnace(ui, burn, cook, |ui, index| {
-            changed |= self.container_slot(ui, pos, index);
+            self.container_slot(ui, index);
         });
-        if changed {
-            // Le four dort peut-être : on le réveille au prochain tick.
-            self.mods
-                .machines
-                .schedule(engine_voxel::GridPos::world(pos), 1);
-        }
     }
 
     /// L'alambic : la fiole d'eau, l'ingrédient, l'avancement et la potion obtenue.
-    fn brewing_panel(&mut self, ui: &mut egui::Ui, pos: IVec3) {
-        let (done, total) = self
-            .streamer()
-            .block_entity(pos)
-            .map(engine_voxel::brew_progress)
-            .unwrap_or((0, 0));
-        let mut changed = false;
-        let progress = if total > 0 {
-            done as f32 / total as f32
-        } else {
-            0.0
-        };
+    fn brewing_panel(&mut self, ui: &mut egui::Ui) {
+        let progress = self.shown_container().map_or(0.0, |c| c.brewing);
         crate::ui_layout::brewing(ui, progress, |ui, index| {
-            changed |= self.container_slot(ui, pos, index);
+            self.container_slot(ui, index);
         });
         ui.label("Pomme : soin. Spores : régénération. Carotte : vitesse. Poussière d'ombre : force. Cinabre : résistance au feu.");
-        if changed {
-            self.mods
-                .machines
-                .schedule(engine_voxel::GridPos::world(pos), 1);
-        }
     }
 
     /// L'inspecteur (F3) : mesures, et les entités avec leurs composants modifiables.
     fn draw_inspector(&mut self, ctx: &egui::Context) {
-        let eye = player::eye(&self.ecs, self.player, 1.0);
+        let eye = self.client.body.eye(1.0);
         let chunk = engine_voxel::World::chunk_containing(eye);
-        let streamer_stats = self.ecs.streamer().borrow().stats();
-        let target_light = self.target.map(|hit| {
-            self.ecs
-                .streamer()
-                .borrow()
-                .world()
-                .light(hit.block_pos + hit.normal)
-        });
-        let render = self.last_render;
-        let debug = self.debug.clone();
+        let streamer_stats = self.stream_stats();
+        let target_light = self
+            .client
+            .target
+            .map(|hit| self.view_world().light(hit.block_pos + hit.normal));
+        let render = self.client.last_render;
+        let debug = self.client.debug.clone();
         crate::ui_layout::window(ctx, "Inspecteur (F3)", 520.0)
             .hscroll(true)
             .show(ctx, |ui| {
@@ -1463,11 +1303,11 @@ impl VoxelGame {
                     ));
                     ui.end_row();
                     ui.label("Entités");
-                    ui.label(self.ecs.len().to_string());
+                    ui.label(self.server.ecs.len().to_string());
                     ui.end_row();
                     ui.label("Créatures");
-                    let mobs = self.ecs.resource::<Arc<MobRegistry>>().clone();
-                    let mut census: Vec<String> = crate::mobs::census(&self.ecs)
+                    let mobs = self.server.ecs.resource::<Arc<MobRegistry>>().clone();
+                    let mut census: Vec<String> = crate::mobs::census(&self.server.ecs)
                         .into_iter()
                         .filter_map(|(kind, n)| mobs.get(kind).map(|d| format!("{} × {n}", d.name)))
                         .collect();
@@ -1479,11 +1319,11 @@ impl VoxelGame {
                     });
                     ui.end_row();
                     ui.label("Heure");
-                    ui.label(self.day.clock());
+                    ui.label(self.client.day.clock());
                     ui.end_row();
                 });
                 ui.collapsing("Systèmes", |ui| {
-                    for timing in self.schedule.timings() {
+                    for timing in self.server.schedule.timings() {
                         ui.label(format!(
                             "{:?} · {} : {:.3} ms",
                             timing.stage,
@@ -1496,13 +1336,13 @@ impl VoxelGame {
                 egui::ScrollArea::vertical()
                     .max_height(360.0)
                     .show(ui, |ui| {
-                        let mobs = self.ecs.resource::<Arc<MobRegistry>>().clone();
-                        let mut entities: Vec<Entity> = self.ecs.entities().collect();
+                        let mobs = self.server.ecs.resource::<Arc<MobRegistry>>().clone();
+                        let mut entities: Vec<Entity> = self.server.ecs.entities().collect();
                         entities.sort();
                         for entity in entities {
-                            let name = entity_name(&self.ecs, entity, &mobs);
+                            let name = entity_name(&self.server.ecs, entity, &mobs);
                             ui.collapsing(format!("{name} {entity}"), |ui| {
-                                inspect_components(&self.ecs, entity, ui);
+                                inspect_components(&self.server.ecs, entity, ui);
                             });
                         }
                     });
@@ -1529,7 +1369,7 @@ fn inspect_component<T: Inspect + 'static>(
     name: &str,
 ) {
     if let Some(mut component) = world.get_mut::<T>(entity) {
-        component.inspect(ui, name);
+        component.inspect(&mut crate::ui_inspect::EguiInspector(ui), name);
     }
 }
 

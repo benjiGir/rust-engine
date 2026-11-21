@@ -24,7 +24,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result, bail};
 
 use crate::VoxelGame;
-use crate::control::json_str;
+use crate::json_text::json_str;
 use crate::quest_progress::Status;
 use crate::quests::{ItemSpec, Quests, Task};
 
@@ -145,8 +145,14 @@ fn describe(task: &Task, items: &engine_voxel::ItemRegistry) -> (&'static str, S
 impl VoxelGame {
     /// Le livre chargé et le numéro d'une quête.
     fn quest_lookup(&mut self, id: &str) -> Result<(Arc<Quests>, usize)> {
-        self.open_quests();
-        let quests = self.quest_book.quests().context("quêtes pas chargées")?;
+        self.server.open_quests();
+        let quests = self
+            .server
+            .players
+            .me_mut()
+            .quest_book
+            .quests()
+            .context("quêtes pas chargées")?;
         let index = quests
             .index(id)
             .with_context(|| format!("quête inconnue « {id} » (voir `quests`)"))?;
@@ -154,26 +160,33 @@ impl VoxelGame {
     }
 
     pub(crate) fn quest_command(&mut self, command: Command) -> Result<String> {
-        self.open_quests();
+        self.server.open_quests();
         match command {
             Command::List(filter) => self.quest_list(filter.as_deref()),
             Command::Done(id) => {
                 let (quests, index) = self.quest_lookup(&id)?;
-                let forced = self.quest_book.progress_mut()?.force_done(&quests, index);
+                let forced = self
+                    .server
+                    .players
+                    .me_mut()
+                    .quest_book
+                    .progress_mut()?
+                    .force_done(&quests, index);
                 if forced {
-                    self.announce_quests(&quests, &[index]);
+                    self.server.announce_quests(&quests, &[index]);
                 }
                 // Ce qu'elle débloque se termine dans la foulée.
-                self.refresh_quests();
+                self.server.refresh_quests();
                 Ok(format!("{{\"ok\":true,\"forced\":{forced}}}"))
             }
             Command::Claim(None) => {
-                let claimed = self.claim_all_quests();
+                let claimed = self.server.claim_all_quests();
                 Ok(format!("{{\"ok\":true,\"claimed\":{claimed}}}"))
             }
             Command::Claim(Some(id)) => {
                 let (_, index) = self.quest_lookup(&id)?;
                 let gave = self
+                    .server
                     .claim_quest(index)
                     .map_err(|e| anyhow::anyhow!("quest claim : {e}"))?;
                 Ok(format!("{{\"ok\":true,\"gave\":{}}}", json_str(&gave)))
@@ -188,8 +201,14 @@ impl VoxelGame {
                             .position(|t| matches!(t, Task::Check))
                     })
                     .context("quest check : cette quête n'a pas de case à cocher")?;
-                let checked = self.quest_book.progress_mut()?.check(&quests, index, task);
-                self.refresh_quests();
+                let checked = self
+                    .server
+                    .players
+                    .me_mut()
+                    .quest_book
+                    .progress_mut()?
+                    .check(&quests, index, task);
+                self.server.refresh_quests();
                 Ok(format!("{{\"ok\":true,\"checked\":{checked}}}"))
             }
             Command::HandIn(id, task) => {
@@ -202,12 +221,15 @@ impl VoxelGame {
                             .position(|t| matches!(t, Task::Item { consume: true, .. }))
                     })
                     .context("quest handin : cette quête ne demande pas de remettre d'objets")?;
-                let taken = self.hand_in_quest(index, task);
+                let taken = self.server.hand_in_quest(index, task);
                 Ok(format!("{{\"ok\":true,\"taken\":{taken}}}"))
             }
             Command::Choose(id, reward, option) => {
                 let (quests, index) = self.quest_lookup(&id)?;
                 let chosen = self
+                    .server
+                    .players
+                    .me_mut()
                     .quest_book
                     .progress_mut()?
                     .choose(&quests, index, reward, option);
@@ -217,15 +239,20 @@ impl VoxelGame {
                 Ok("{\"ok\":true}".into())
             }
             Command::Scan => {
-                self.refresh_quests();
+                self.server.refresh_quests();
                 self.quest_list(None)
             }
             Command::Reset(id) => {
                 if let Some(id) = &id {
                     self.quest_lookup(id)?;
                 }
-                self.quest_book.progress_mut()?.reset(id.as_deref());
-                self.sync_quests_done();
+                self.server
+                    .players
+                    .me_mut()
+                    .quest_book
+                    .progress_mut()?
+                    .reset(id.as_deref());
+                self.server.sync_quests_done();
                 Ok("{\"ok\":true}".into())
             }
             Command::Open(chapter) => {
@@ -247,13 +274,19 @@ impl VoxelGame {
             }
             Command::Pin(id) => {
                 self.quest_lookup(&id)?;
-                let changed = self.quest_book.progress_mut()?.toggle_pin(&id);
+                let changed = self
+                    .server
+                    .players
+                    .me_mut()
+                    .quest_book
+                    .progress_mut()?
+                    .toggle_pin(&id);
                 if !changed {
                     bail!("questpin : trois quêtes épinglées au plus");
                 }
                 Ok(format!(
                     "{{\"ok\":true,\"pinned\":{}}}",
-                    self.quest_book.pinned_json()
+                    self.server.players.me_mut().quest_book.pinned_json()
                 ))
             }
         }
@@ -261,19 +294,28 @@ impl VoxelGame {
 
     /// L'état des quêtes : celles d'un chapitre, une seule, ou toutes.
     fn quest_list(&mut self, filter: Option<&str>) -> Result<String> {
-        let quests = self.quest_book.quests().context("quêtes pas chargées")?;
+        let quests = self
+            .server
+            .players
+            .me_mut()
+            .quest_book
+            .quests()
+            .context("quêtes pas chargées")?;
         let progress = self
+            .server
+            .players
+            .me_mut()
             .quest_book
             .progress()
             .context("quêtes pas chargées")?
             .clone();
-        let items = self.content.items.clone();
+        let items = self.client.content.items.clone();
         let chosen: Vec<usize> = match filter {
             None => (0..quests.quests.len()).collect(),
             Some(id) => match quests.chapter(id) {
                 Some(chapter) => {
                     // Le dernier chapitre regardé : le livre s'y rouvrira (phase 2).
-                    if let Ok(progress) = self.quest_book.progress_mut() {
+                    if let Ok(progress) = self.server.players.me_mut().quest_book.progress_mut() {
                         progress.set_last_chapter(id);
                     }
                     chapter.quests.clone()
@@ -335,7 +377,7 @@ impl VoxelGame {
             "{{\"ok\":true,\"pending\":{},\"unknown\":[{}],\"pinned\":{},\"chapters\":[{}],\"quests\":[{}]}}",
             progress.pending(&quests).len(),
             unknown.join(","),
-            self.quest_book.pinned_json(),
+            self.server.players.me_mut().quest_book.pinned_json(),
             chapters.join(","),
             rows.join(",")
         ))

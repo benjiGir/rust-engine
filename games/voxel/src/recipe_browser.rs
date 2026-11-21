@@ -24,8 +24,8 @@ use engine_render::egui::{self, RichText};
 use engine_voxel::{Choice, ItemDef, ItemId, Recipe, RecipeCategory, RecipeIndex, RecipeLayout};
 
 use crate::VoxelGame;
+use crate::screens::Screen;
 use crate::skin;
-use crate::ui::Screen;
 
 /// Ce qu'on cherche sur un objet : comment le fabriquer, ou à quoi il sert.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -187,8 +187,9 @@ impl VoxelGame {
 
     /// Les objets qui correspondent à la recherche, dans l'ordre du registre.
     fn browser_items(&self) -> Vec<ItemId> {
-        let query = self.ui.browser.search.trim();
-        self.content
+        let query = self.client.ui.browser.search.trim();
+        self.client
+            .content
             .items
             .iter()
             .filter(|(_, def)| query.is_empty() || matches(def, query))
@@ -217,7 +218,7 @@ impl VoxelGame {
         let per_page = rows * columns;
         let items = self.browser_items();
         let pages = items.len().div_ceil(per_page).max(1);
-        self.ui.browser.page = self.ui.browser.page.min(pages - 1);
+        self.client.ui.browser.page = self.client.ui.browser.page.min(pages - 1);
         let width = columns as f32 * step - crate::ui_layout::SLOT_GAP;
         let mut pressed = None;
         egui::Area::new(egui::Id::unique("recipe_browser_list"))
@@ -229,14 +230,14 @@ impl VoxelGame {
                     // Les pages.
                     ui.horizontal(|ui| {
                         if ui.small_button("◀").clicked() {
-                            self.ui.browser.page = (self.ui.browser.page + pages - 1) % pages;
+                            self.client.ui.browser.page = (self.client.ui.browser.page + pages - 1) % pages;
                         }
                         ui.label(
-                            RichText::new(format!("{} / {pages}", self.ui.browser.page + 1))
+                            RichText::new(format!("{} / {pages}", self.client.ui.browser.page + 1))
                                 .color(skin::MUTED),
                         );
                         if ui.small_button("▶").clicked() {
-                            self.ui.browser.page = (self.ui.browser.page + 1) % pages;
+                            self.client.ui.browser.page = (self.client.ui.browser.page + 1) % pages;
                         }
                         ui.label(RichText::new(format!("{} objets", items.len())).size(11.0))
                             .on_hover_text(
@@ -244,32 +245,32 @@ impl VoxelGame {
                             );
                     });
                     // La grille.
-                    let start = self.ui.browser.page * per_page;
+                    let start = self.client.ui.browser.page * per_page;
                     let shown = &items[start.min(items.len())..(start + per_page).min(items.len())];
                     pressed = self.item_grid(ui, shown, columns, cell);
                     // La recherche et la triche.
                     ui.horizontal(|ui| {
                         let edit = ui.add(
-                            egui::TextEdit::singleline(&mut self.ui.browser.search)
+                            egui::TextEdit::singleline(&mut self.client.ui.browser.search)
                                 .hint_text("Rechercher (@mod)")
                                 .desired_width(width - 90.0),
                         );
                         if edit.changed() {
-                            self.ui.browser.page = 0;
+                            self.client.ui.browser.page = 0;
                         }
-                        let label = if self.ui.browser.cheat {
+                        let label = if self.client.ui.browser.cheat {
                             RichText::new("Triche").color(skin::GOLD)
                         } else {
                             RichText::new("Triche").color(skin::MUTED)
                         };
                         if ui
-                            .selectable_label(self.ui.browser.cheat, label)
+                            .selectable_label(self.client.ui.browser.cheat, label)
                             .on_hover_text(
                                 "Mode triche : un clic donne une pile, un clic droit un objet",
                             )
                             .clicked()
                         {
-                            self.ui.browser.cheat = !self.ui.browser.cheat;
+                            self.client.ui.browser.cheat = !self.client.ui.browser.cheat;
                         }
                     });
                 });
@@ -285,7 +286,7 @@ impl VoxelGame {
             .settings
             .bookmarks
             .iter()
-            .filter_map(|key| self.content.items.id(key))
+            .filter_map(|key| self.client.content.items.id(key))
             .collect();
         if bookmarks.is_empty() {
             return;
@@ -348,14 +349,19 @@ impl VoxelGame {
 
     /// Un clic dans la liste ou les favoris : donner (triche) ou ouvrir les recettes.
     fn list_press(&mut self, item: ItemId, press: Press) {
-        if self.ui.browser.cheat {
+        if self.client.ui.browser.cheat {
             let count = match press {
-                Press::Primary => self.content.items.get(item).max_stack.max(1),
+                Press::Primary => self.client.content.items.get(item).max_stack.max(1),
                 Press::Secondary => 1,
             };
-            let left = self.inventory.add(item, count, &self.content.items);
+            let left =
+                self.server
+                    .players
+                    .me_mut()
+                    .inventory
+                    .add(item, count, &self.client.content.items);
             if left > 0 {
-                self.ui.toast = Some(("Inventaire plein".into(), std::time::Instant::now()));
+                self.client.ui.toast = Some(("Inventaire plein".into(), std::time::Instant::now()));
             }
             return;
         }
@@ -363,7 +369,7 @@ impl VoxelGame {
             Press::Primary => Lookup::Recipes,
             Press::Secondary => Lookup::Uses,
         };
-        self.ui.browser.open(item, lookup);
+        self.client.ui.browser.open(item, lookup);
     }
 
     /// Une case d'objet : son icône, son nombre, sa bulle d'aide. `alternatives` : le
@@ -379,15 +385,15 @@ impl VoxelGame {
         let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
         let painter = ui.painter().clone();
         skin::slot(&painter, rect, false, response.hovered());
-        let icon = self.ui.icon(
+        let icon = self.client.ui.icon(
             item,
-            &self.content.items,
-            &self.registry,
-            &self.block_textures,
+            &self.client.content.items,
+            &self.client.registry,
+            &self.client.block_textures,
         );
         skin::stack(&painter, rect, icon, count, None, None);
         if response.hovered() {
-            self.ui.browser.hovered = Some(item);
+            self.client.ui.browser.hovered = Some(item);
         }
         let press = if response.clicked() {
             Some(Press::Primary)
@@ -396,7 +402,7 @@ impl VoxelGame {
         } else {
             None
         };
-        let mut card = crate::ui_info::item(self.content.items.get(item), count, 0);
+        let mut card = crate::ui_info::item(self.client.content.items.get(item), count, 0);
         if let Some(n) = alternatives.filter(|&n| n > 1) {
             card.lines
                 .insert(0, (format!("Au choix parmi {n} objets"), skin::GOLD));
@@ -433,21 +439,21 @@ impl VoxelGame {
 
     /// La fenêtre des recettes ou des usages d'un objet.
     fn draw_recipe_view(&mut self, ctx: &egui::Context, inventory: egui::Rect) {
-        let Some(focus) = self.ui.browser.view else {
+        let Some(focus) = self.client.ui.browser.view else {
             return;
         };
-        let index = self.content.recipe_index.clone();
+        let index = self.client.content.recipe_index.clone();
         let list = match focus.lookup {
             Lookup::Recipes => index.recipes_for(focus.item),
             Lookup::Uses => index.uses_of(focus.item),
         };
         let groups = RecipeIndex::by_category(&list);
-        let name = self.content.items.get(focus.item).name.clone();
+        let name = self.client.content.items.get(focus.item).name.clone();
         let title = match focus.lookup {
             Lookup::Recipes => format!("Recettes : {name}"),
             Lookup::Uses => format!("Usages : {name}"),
         };
-        let has_history = !self.ui.browser.history.is_empty();
+        let has_history = !self.client.ui.browser.history.is_empty();
         let mut actions: Vec<Action> = Vec::new();
         let safe = crate::ui_layout::safe_rect(ctx);
         // Par-dessus l'inventaire, à sa largeur : la liste et les favoris restent visibles.
@@ -621,7 +627,13 @@ impl VoxelGame {
                 if let Some(recipe) = &view.crafting
                     && self.can_use_grid(recipe)
                 {
-                    let ready = self.inventory.can_craft(recipe);
+                    let ready = self
+                        .client
+                        .view
+                        .me
+                        .inventory
+                        .as_inventory()
+                        .can_craft(recipe);
                     let button = ui
                         .add_enabled(ready, egui::Button::new("Fabriquer"))
                         .on_hover_text("Maj : autant que possible")
@@ -638,7 +650,7 @@ impl VoxelGame {
     /// L'écran ouvert permet-il cette recette ? (L'établi pour toutes, l'inventaire pour
     /// celles qui tiennent en 2 × 2.)
     fn can_use_grid(&self, recipe: &Recipe) -> bool {
-        match self.ui.screen {
+        match self.client.ui.screen {
             Screen::Workbench => true,
             Screen::Inventory => recipe.grid_size() <= 2,
             _ => false,
@@ -646,7 +658,7 @@ impl VoxelGame {
     }
 
     fn apply_view_action(&mut self, action: Action) {
-        let browser = &mut self.ui.browser;
+        let browser = &mut self.client.ui.browser;
         match action {
             Action::Open(item, lookup) => browser.open(item, lookup),
             Action::Tab(tab) => {
@@ -666,19 +678,32 @@ impl VoxelGame {
                 // Autant que possible : jusqu'à une pile du produit.
                 let (item, _) = recipe.result();
                 let limit = if all {
-                    self.content.items.get(item).max_stack.max(1)
+                    self.client.content.items.get(item).max_stack.max(1)
                 } else {
                     1
                 };
+                // Le serveur fabrique : la recette part par son rang dans la liste des recettes.
+                let Some(index) = self
+                    .client
+                    .content
+                    .recipes
+                    .iter()
+                    .position(|r| *r == recipe)
+                else {
+                    return;
+                };
+                let size = if self.client.ui.screen == Screen::Workbench {
+                    3
+                } else {
+                    2
+                };
                 for _ in 0..limit {
-                    if self
-                        .inventory
-                        .craft_from_book(&recipe, &self.content.items)
-                        .is_none()
-                    {
-                        break;
-                    }
+                    self.client.outbox.push(crate::protocol::ClientMsg::Craft {
+                        size,
+                        recipe: Some(index as u32),
+                    });
                 }
+                self.flush_outbox();
             }
         }
     }
@@ -696,23 +721,23 @@ impl VoxelGame {
                 i.key_pressed(egui::Key::Backspace),
             )
         });
-        if let Some(item) = self.ui.browser.hovered {
+        if let Some(item) = self.client.ui.browser.hovered {
             if recipes {
-                self.ui.browser.open(item, Lookup::Recipes);
+                self.client.ui.browser.open(item, Lookup::Recipes);
             } else if uses {
-                self.ui.browser.open(item, Lookup::Uses);
+                self.client.ui.browser.open(item, Lookup::Uses);
             } else if bookmark {
                 self.toggle_bookmark(item);
             }
         }
-        if back && self.ui.browser.view.is_some() {
-            self.ui.browser.back();
+        if back && self.client.ui.browser.view.is_some() {
+            self.client.ui.browser.back();
         }
     }
 
     /// Ajoute ou retire un favori, et l'enregistre dans les options.
     fn toggle_bookmark(&mut self, item: ItemId) {
-        let key = self.content.items.get(item).key.clone();
+        let key = self.client.content.items.get(item).key.clone();
         let bookmarks = &mut self.settings.bookmarks;
         match bookmarks.iter().position(|k| *k == key) {
             Some(at) => {

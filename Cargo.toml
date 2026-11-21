@@ -9,6 +9,7 @@ members = [
     "crates/engine_ecs",
     "crates/engine_mods",
     "crates/engine_trace",
+    "crates/engine_net",
     "crates/mod_sdk",
     "tools/xtask",
     "mods/example/script",
@@ -20,6 +21,7 @@ members = [
     "crates/engine_inspect",
     "crates/engine_inspect_derive",
     "games/voxel",
+    "games/voxel_sim",
     "tools/assetgen",
 ]
 
@@ -39,11 +41,13 @@ engine_ecs = { path = "crates/engine_ecs" }
 engine_mods = { path = "crates/engine_mods" }
 mod_sdk = { path = "crates/mod_sdk" }
 engine_trace = { path = "crates/engine_trace" }
+engine_net = { path = "crates/engine_net" }
+voxel_sim = { path = "games/voxel_sim" }
 engine_inspect = { path = "crates/engine_inspect" }
 engine_inspect_derive = { path = "crates/engine_inspect_derive" }
 winit = "0.30.13"
 wgpu = "30.0.1"
-glam = { version = "0.34", features = ["bytemuck"] }
+glam = { version = "0.34", features = ["bytemuck", "serde"] }
 bytemuck = { version = "1.25", features = ["derive"] }
 pollster = "1.0"
 anyhow = "1.0"
@@ -62,6 +66,8 @@ png = "0.18.1"
 # Sauvegarde : format binaire compact (serde) et compression rapide.
 postcard = { version = "1.1.3", features = ["use-std"] }
 lz4_flex = "0.14.0"
+# Le serveur dédié sauvegarde avant de s'arrêter sur Ctrl+C.
+ctrlc = { version = "3.5.3", features = ["termination"] }
 # Textures : lecture des PNG.
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 # Rechargement à chaud : surveillance des fichiers.

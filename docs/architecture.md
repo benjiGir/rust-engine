@@ -256,7 +256,7 @@ fixé dans la grille est un bloc, ce qui roule librement est une entité.
 - **Jeu** (`carts.rs`, `cart_play.rs`) : quatre sortes (wagonnet, wagon coffre, wagon trémie,
   locomotive), passager (`Riding`, la caméra suit), créatures qui montent dans un wagonnet vide,
   attelage (objet : un clic sur un wagon puis sur un autre), inventaire en écran, dessin en boîtes
-  (`mobs::instances` comme modèle). Le chargeur et le déchargeur (blocs avec `Inventory`,
+  (`entity_render.rs`, depuis la réplique des entités du client). Le chargeur et le déchargeur (blocs avec `Inventory`,
   branchables aux tuyaux) remplissent ou vident un wagon coffre ou trémie arrêté sur un rail
   voisin et émettent un signal quand ils ont fini.
 - **Sauvegarde** : `carts.bin` dans le dossier de la dimension, à côté de `grids.bin` (sorte,

@@ -21,6 +21,9 @@ mod labels;
 mod map;
 mod sheet;
 
+use crate::protocol::{ClientMsg, QuestAct, ScreenAction};
+#[allow(unused_imports)]
+use crate::quest_ui_server::*;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -34,8 +37,8 @@ use crate::VoxelGame;
 use crate::quest_progress::{Progress, Status};
 use crate::quests::Quests;
 use crate::recipe_browser::Lookup;
+use crate::screens::Screen;
 use crate::skin;
-use crate::ui::Screen;
 use geometry::MapView;
 
 /// La hauteur de la barre du haut.
@@ -113,19 +116,24 @@ fn fit_text(
 impl VoxelGame {
     /// La touche des quêtes : ouvre le livre, ou le referme.
     pub(crate) fn toggle_quests_screen(&mut self) {
-        if self.ui.inventory_open && self.ui.screen == Screen::Quests {
+        if self.client.ui.inventory_open && self.client.ui.screen == Screen::Quests {
             self.close_screen();
-        } else if self.mouse_captured && !self.ui.inventory_open {
+        } else if self.client.mouse_captured && !self.client.ui.inventory_open {
             let _ = self.open_quest_book(None);
         }
     }
 
     /// Ouvre le livre, au chapitre demandé ou, sinon, au dernier regardé (le premier à défaut).
     pub(crate) fn open_quest_book(&mut self, chapter: Option<&str>) -> Result<()> {
-        self.open_quests();
+        // Le serveur charge le livre, revoit les tâches (les objets portés comptent dès l'ouverture) et
+        // envoie ses définitions.
+        self.send_now(ClientMsg::Screen(ScreenAction::Quest(QuestAct::Open)));
         let quests = self
+            .client
+            .view
+            .me
             .quest_book
-            .quests()
+            .clone()
             .ok_or_else(|| anyhow::anyhow!("quêtes pas chargées"))?;
         let wanted = match chapter {
             Some(id) => Some(
@@ -137,17 +145,18 @@ impl VoxelGame {
             ),
             None => None,
         };
-        // Une revue tout de suite : les objets portés comptent dès l'ouverture.
-        self.refresh_quests();
         let last = self
-            .quest_book
-            .progress()
+            .client
+            .view
+            .me
+            .quests
+            .as_ref()
             .and_then(|p| p.last_chapter.clone())
             .and_then(|id| quests.chapters.iter().position(|c| c.id == id));
         let index = wanted.or(last).unwrap_or(0);
-        self.ui.screen = Screen::Quests;
-        self.ui.inventory_open = true;
-        self.mouse_captured = false;
+        self.client.ui.screen = Screen::Quests;
+        self.client.ui.inventory_open = true;
+        self.client.mouse_captured = false;
         self.show_quest_chapter(index, &quests);
         Ok(())
     }
@@ -158,21 +167,21 @@ impl VoxelGame {
             return;
         }
         let chapter = chapter.min(quests.chapters.len() - 1);
-        self.ui.quests.chapter = chapter;
-        self.ui.quests.selected = None;
-        self.ui.quests.fit = true;
-        if let Ok(progress) = self.quest_book.progress_mut() {
-            progress.set_last_chapter(&quests.chapters[chapter].id);
-        }
+        self.client.ui.quests.chapter = chapter;
+        self.client.ui.quests.selected = None;
+        self.client.ui.quests.fit = true;
+        self.send_now(ClientMsg::Screen(ScreenAction::Quest(
+            QuestAct::LastChapter(quests.chapters[chapter].id.clone()),
+        )));
     }
 
     /// Va à une quête : son chapitre, le plan centré dessus, sa fiche ouverte.
     pub(crate) fn go_to_quest(&mut self, quest: usize, quests: &Quests) {
         let target = &quests.quests[quest];
-        if target.chapter != self.ui.quests.chapter {
+        if target.chapter != self.client.ui.quests.chapter {
             self.show_quest_chapter(target.chapter, quests);
         }
-        let state = &mut self.ui.quests;
+        let state = &mut self.client.ui.quests;
         state.selected = Some(quest);
         state.fit = false;
         state.auto_fit = false;
@@ -182,9 +191,24 @@ impl VoxelGame {
         state.view.zoom = state.view.zoom.max(0.8);
     }
 
+    /// Demande le livre au serveur s'il n'est pas encore arrivé.
+    fn request_quest_book(&mut self) {
+        if self.client.view.me.quest_book.is_none() {
+            self.send_now(ClientMsg::Screen(ScreenAction::Quest(QuestAct::Open)));
+        }
+    }
+
     /// Le bouton « Quêtes » de l'écran d'inventaire, et ce qui attend d'être récupéré.
     pub(crate) fn quests_button(&mut self, ui: &mut egui::Ui) {
-        let waiting = self.quest_book.loaded_pending().filter(|&n| n > 0);
+        // Ce qui attend d'être récupéré, d'après la progression que le serveur a envoyée.
+        let waiting = match (
+            self.client.view.me.quest_book.clone(),
+            &self.client.view.me.quests,
+        ) {
+            (Some(quests), Some(progress)) => Some(progress.pending(&quests).len()),
+            _ => None,
+        }
+        .filter(|&n| n > 0);
         ui.horizontal(|ui| {
             if ui.small_button("Quêtes").clicked() {
                 let _ = self.open_quest_book(None);
@@ -206,11 +230,12 @@ impl VoxelGame {
 
     /// Le livre, plein écran.
     pub(crate) fn draw_quests_screen(&mut self, ctx: &egui::Context) {
-        self.ui.browser.hovered = None;
-        self.open_quests();
+        self.client.ui.browser.hovered = None;
+        self.request_quest_book();
+        // Les quêtes sont le contenu du jeu ; la progression vient de la vue du joueur.
         let (Some(quests), Some(progress)) = (
-            self.quest_book.quests(),
-            self.quest_book.progress().cloned(),
+            self.client.view.me.quest_book.clone(),
+            self.client.view.me.quests.clone(),
         ) else {
             return;
         };
@@ -218,7 +243,8 @@ impl VoxelGame {
             .map(|i| progress.status(&quests, i))
             .collect();
         if !quests.chapters.is_empty() {
-            self.ui.quests.chapter = self.ui.quests.chapter.min(quests.chapters.len() - 1);
+            self.client.ui.quests.chapter =
+                self.client.ui.quests.chapter.min(quests.chapters.len() - 1);
         }
         let safe = crate::ui_layout::safe_rect(ctx);
         let frame = skin::panel().inner_margin(egui::Margin::same(10));
@@ -270,8 +296,13 @@ impl VoxelGame {
             });
             return;
         }
-        let chapter = self.ui.quests.chapter;
-        let selected = self.ui.quests.selected.filter(|&q| q < quests.quests.len());
+        let chapter = self.client.ui.quests.chapter;
+        let selected = self
+            .client
+            .ui
+            .quests
+            .selected
+            .filter(|&q| q < quests.quests.len());
         let left_w = CHAPTERS_WIDTH.min(body.width() * 0.26);
         let right_w = if selected.is_some() {
             SHEET_WIDTH.min(body.width() * 0.4)
@@ -418,7 +449,7 @@ impl VoxelGame {
             })
             .collect();
         let grouped = geometry::chapters_by_group(&group_of, quests.groups.len());
-        let current = self.ui.quests.chapter;
+        let current = self.client.ui.quests.chapter;
         let time = ui.input(|i| i.time);
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink(5.0)), |ui| {
             egui::ScrollArea::vertical()
@@ -428,7 +459,7 @@ impl VoxelGame {
                     ui.spacing_mut().item_spacing.y = 3.0;
                     for (g, chapters) in grouped {
                         let group = &quests.groups[g];
-                        let collapsed = self.ui.quests.collapsed.contains(&group.id);
+                        let collapsed = self.client.ui.quests.collapsed.contains(&group.id);
                         let waiting: usize = chapters
                             .iter()
                             .map(|&c| progress.pending_in(quests, c))
@@ -453,11 +484,11 @@ impl VoxelGame {
                             FontId::monospace(11.0),
                             skin::COPPER,
                         );
-                        let icon = self.ui.icon(
+                        let icon = self.client.ui.icon(
                             group.icon,
-                            &self.content.items,
-                            &self.registry,
-                            &self.block_textures,
+                            &self.client.content.items,
+                            &self.client.registry,
+                            &self.client.block_textures,
                         );
                         let icon_rect = Rect::from_center_size(
                             row.left_center() + vec2(34.0, 0.0),
@@ -522,11 +553,11 @@ impl VoxelGame {
         let waiting = progress.pending_in(quests, c);
         let (row, response) =
             ui.allocate_exact_size(vec2(ui.available_width(), CHAPTER_ROW), Sense::click());
-        let icon = self.ui.icon(
+        let icon = self.client.ui.icon(
             chapter.icon,
-            &self.content.items,
-            &self.registry,
-            &self.block_textures,
+            &self.client.content.items,
+            &self.client.registry,
+            &self.client.block_textures,
         );
         let p = ui.painter();
         p.rect_filled(
@@ -605,77 +636,60 @@ impl VoxelGame {
         response.clicked()
     }
 
+    fn send_quest_act(&mut self, act: QuestAct) {
+        self.send_now(ClientMsg::Screen(ScreenAction::Quest(act)));
+    }
+
     /// Applique ce que le joueur a demandé pendant l'image.
     fn apply_quest_acts(&mut self, acts: Vec<Act>, quests: &Arc<Quests>) {
         for act in acts {
             match act {
                 Act::Chapter(c) => self.show_quest_chapter(c, quests),
-                Act::Select(quest) => self.ui.quests.selected = quest,
+                Act::Select(quest) => self.client.ui.quests.selected = quest,
                 Act::GoTo(quest) => self.go_to_quest(quest, quests),
-                Act::Claim(quest) => match self.claim_quest(quest) {
-                    Ok(gave) if gave.is_empty() => self.toast("Quête récupérée"),
-                    Ok(gave) => self.toast(&format!("Récupéré : {gave}")),
-                    Err(err) => self.toast(&err.to_string()),
-                },
-                Act::ClaimAll => {
-                    let claimed = self.claim_all_quests();
-                    self.toast(&if claimed == 0 {
-                        "Rien à récupérer (ou un choix à faire)".to_string()
-                    } else {
-                        format!("{claimed} quête(s) récupérée(s)")
-                    });
-                }
+                // Ce qui change la progression part au serveur.
+                Act::Claim(quest) => self.send_quest_act(QuestAct::Claim(quest as u32)),
+                Act::ClaimAll => self.send_quest_act(QuestAct::ClaimAll),
                 Act::Check(quest, task) => {
-                    if let Ok(progress) = self.quest_book.progress_mut() {
-                        progress.check(quests, quest, task);
-                    }
-                    self.refresh_quests();
+                    self.send_quest_act(QuestAct::Check(quest as u32, task as u32));
                 }
                 Act::HandIn(quest, task) => {
-                    // Pas de bannière : la fiche montre le compteur, et la quête finie s'annonce.
-                    self.hand_in_quest(quest, task);
+                    self.send_quest_act(QuestAct::HandIn(quest as u32, task as u32));
                 }
-                Act::Choose(quest, reward, option) => {
-                    if let Ok(progress) = self.quest_book.progress_mut() {
-                        progress.choose(quests, quest, reward, option);
-                    }
-                }
-                Act::Pin(quest) => {
-                    let id = quests.quests[quest].id.clone();
-                    let changed = self
-                        .quest_book
-                        .progress_mut()
-                        .is_ok_and(|p| p.toggle_pin(&id));
-                    if !changed {
-                        self.toast("Trois quêtes épinglées au plus");
-                    }
-                }
+                Act::Choose(quest, reward, option) => self.send_quest_act(QuestAct::Choose(
+                    quest as u32,
+                    reward as u32,
+                    option as u32,
+                )),
+                Act::Pin(quest) => self.send_quest_act(QuestAct::Pin(quest as u32)),
                 Act::Guide(chapter) => {
-                    self.ui.browser.close();
+                    self.client.ui.browser.close();
                     if let Some(at) = self
+                        .client
                         .content
                         .guide
                         .chapters
                         .iter()
                         .position(|c| c.id == chapter)
                     {
-                        self.ui.guide.chapter = at;
-                        self.ui.guide.page = 0;
+                        self.client.ui.guide.chapter = at;
+                        self.client.ui.guide.page = 0;
                     }
                     self.open_guide();
                     return;
                 }
-                Act::Recipes(item) => self.ui.browser.open(item, Lookup::Recipes),
+                Act::Recipes(item) => self.client.ui.browser.open(item, Lookup::Recipes),
                 Act::ToggleGroup(id) => {
-                    if !self.ui.quests.collapsed.remove(&id) {
-                        self.ui.quests.collapsed.insert(id);
+                    if !self.client.ui.quests.collapsed.remove(&id) {
+                        self.client.ui.quests.collapsed.insert(id);
                     }
                 }
-                Act::Fit => self.ui.quests.fit = true,
+                Act::Fit => self.client.ui.quests.fit = true,
                 Act::Zoom(factor) => {
-                    self.ui.quests.auto_fit = false;
-                    if let Some(viewport) = self.ui.quests.viewport {
-                        self.ui
+                    self.client.ui.quests.auto_fit = false;
+                    if let Some(viewport) = self.client.ui.quests.viewport {
+                        self.client
+                            .ui
                             .quests
                             .view
                             .zoom_at(factor, viewport.center(), viewport);
@@ -701,18 +715,18 @@ impl VoxelGame {
         hint: &str,
     ) -> egui::Response {
         let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
-        let icon = self.ui.icon(
+        let icon = self.client.ui.icon(
             item,
-            &self.content.items,
-            &self.registry,
-            &self.block_textures,
+            &self.client.content.items,
+            &self.client.registry,
+            &self.client.block_textures,
         );
         let painter = ui.painter().clone();
         skin::slot(&painter, rect, selected, response.hovered());
         skin::stack(&painter, rect, icon, count, None, None);
         if response.hovered() {
-            self.ui.browser.hovered = Some(item);
-            let mut card = crate::ui_info::item(self.content.items.get(item), count, 0);
+            self.client.ui.browser.hovered = Some(item);
+            let mut card = crate::ui_info::item(self.client.content.items.get(item), count, 0);
             if !hint.is_empty() {
                 card.lines.push((hint.to_string(), skin::MUTED));
             }
@@ -726,14 +740,14 @@ impl VoxelGame {
     /// Choisit une quête dans le livre ouvert (l'ouvre au besoin) : son chapitre, le plan centré
     /// dessus, sa fiche ouverte.
     pub(crate) fn select_quest(&mut self, id: &str) -> Result<()> {
-        self.open_quests();
-        let Some(quests) = self.quest_book.quests() else {
+        self.request_quest_book();
+        let Some(quests) = self.client.view.me.quest_book.clone() else {
             bail!("quêtes pas chargées");
         };
         let Some(index) = quests.index(id) else {
             bail!("quête inconnue « {id} »");
         };
-        if !(self.ui.inventory_open && self.ui.screen == Screen::Quests) {
+        if !(self.client.ui.inventory_open && self.client.ui.screen == Screen::Quests) {
             self.open_quest_book(None)?;
         }
         self.go_to_quest(index, &quests);
@@ -743,11 +757,11 @@ impl VoxelGame {
     /// Règle le plan : cadrage automatique, ou zoom absolu (`fit`, `zoom 1.5`).
     pub(crate) fn set_quest_view(&mut self, zoom: Option<f32>) {
         match zoom {
-            None => self.ui.quests.fit = true,
+            None => self.client.ui.quests.fit = true,
             Some(z) => {
-                self.ui.quests.fit = false;
-                self.ui.quests.auto_fit = false;
-                self.ui.quests.view.zoom = z.clamp(geometry::MIN_ZOOM, geometry::MAX_ZOOM);
+                self.client.ui.quests.fit = false;
+                self.client.ui.quests.auto_fit = false;
+                self.client.ui.quests.view.zoom = z.clamp(geometry::MIN_ZOOM, geometry::MAX_ZOOM);
             }
         }
     }
@@ -755,8 +769,8 @@ impl VoxelGame {
     /// L'état de l'écran des quêtes pour `ctl` : le chapitre, la fiche, le zoom, et où chaque
     /// quête est dessinée (en points, comme `click x y`).
     pub(crate) fn quest_screen_json(&self) -> String {
-        let state = &self.ui.quests;
-        let quests = self.quest_book.quests();
+        let state = &self.client.ui.quests;
+        let quests = self.client.view.me.quest_book.clone();
         let id_of = |q: usize| {
             quests
                 .as_ref()
@@ -772,7 +786,7 @@ impl VoxelGame {
             .map(|(q, at, r)| {
                 format!(
                     "{{\"id\":{},\"x\":{:.0},\"y\":{:.0},\"r\":{:.0}}}",
-                    crate::control::json_str(&id_of(*q)),
+                    crate::json_text::json_str(&id_of(*q)),
                     at.x,
                     at.y,
                     r
@@ -781,11 +795,11 @@ impl VoxelGame {
             .collect();
         format!(
             "{{\"ok\":true,\"open\":{},\"chapter\":{},\"selected\":{},\"zoom\":{:.2},\"center\":[{:.2},{:.2}],\"nodes\":[{}]}}",
-            self.ui.inventory_open && self.ui.screen == Screen::Quests,
-            crate::control::json_str(&chapter),
+            self.client.ui.inventory_open && self.client.ui.screen == Screen::Quests,
+            crate::json_text::json_str(&chapter),
             state.selected.map_or_else(
                 || "null".to_string(),
-                |q| crate::control::json_str(&id_of(q))
+                |q| crate::json_text::json_str(&id_of(q))
             ),
             state.view.zoom,
             state.view.center.x,

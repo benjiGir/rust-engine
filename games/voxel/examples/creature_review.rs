@@ -4,9 +4,11 @@
 mod assets;
 #[allow(dead_code)]
 mod common;
-#[path = "../src/mob_model.rs"]
+#[path = "../../voxel_sim/src/mob_model.rs"]
 mod mob_model;
-#[path = "../src/sheep_colors.rs"]
+#[path = "../src/mob_render.rs"]
+mod mob_render;
+#[path = "../../voxel_sim/src/sheep_colors.rs"]
 #[allow(dead_code)]
 mod sheep_colors;
 use anyhow::{Context, Result};
@@ -211,7 +213,7 @@ fn main() -> Result<()> {
         .enumerate()
         .take(if sheep_colors { 1 } else { 4 })
         {
-            let mut parts: Vec<_> = mob_model::instances(
+            let mut parts: Vec<_> = mob_render::instances(
                 &c.parts,
                 1.0,
                 if i == 3 { 0.85 } else { 0.0 },

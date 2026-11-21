@@ -1,44 +1,50 @@
 //! Contrôle CPU des fenêtres, cases, infobulles et fiches de visée de production.
-#[path = "../src/adventure_data.rs"]
+#[path = "../../voxel_sim/src/adventure_data.rs"]
 #[allow(dead_code)]
 mod adventure_data;
-#[path = "../src/affixes.rs"]
+#[path = "../../voxel_sim/src/affixes.rs"]
 #[allow(dead_code)]
 mod affixes;
-#[path = "../src/attributes.rs"]
+#[path = "../../voxel_sim/src/attributes.rs"]
 #[allow(dead_code)]
 mod attributes;
-#[path = "../src/charms.rs"]
+#[path = "../../voxel_sim/src/charms.rs"]
 #[allow(dead_code)]
 mod charms;
 #[allow(dead_code)]
 mod common;
-#[path = "../src/enchant_books.rs"]
+#[path = "../../voxel_sim/src/enchant_books.rs"]
 #[allow(dead_code)]
 mod enchant_books;
-#[path = "../src/enchant_data.rs"]
+#[path = "../../voxel_sim/src/enchant_data.rs"]
 #[allow(dead_code)]
 mod enchant_data;
-#[path = "../src/enchanting.rs"]
+#[path = "../../voxel_sim/src/enchanting.rs"]
 #[allow(dead_code)]
 mod enchanting;
-#[path = "../src/gems.rs"]
+#[path = "../../voxel_sim/src/gems.rs"]
 #[allow(dead_code)]
 mod gems;
 #[path = "../src/item_art.rs"]
 mod item_art;
-#[path = "../src/item_data.rs"]
+#[path = "../../voxel_sim/src/item_data.rs"]
 #[allow(dead_code)]
 mod item_data;
-#[path = "../src/settings.rs"]
+#[path = "../../voxel_sim/src/settings.rs"]
 #[allow(dead_code)]
 mod settings;
 #[path = "../src/skin.rs"]
 #[allow(dead_code)]
 mod skin;
+#[path = "../../voxel_sim/src/texture_pack_config.rs"]
+#[allow(dead_code)]
+mod texture_pack_config;
 #[path = "../src/texture_packs.rs"]
 #[allow(dead_code)]
 mod texture_packs;
+#[path = "../../voxel_sim/src/tone.rs"]
+#[allow(dead_code)]
+mod tone;
 #[path = "../src/ui_info.rs"]
 #[allow(dead_code)]
 mod ui_info;

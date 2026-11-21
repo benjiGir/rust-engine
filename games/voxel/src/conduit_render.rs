@@ -6,38 +6,38 @@ use glam::Vec3;
 const MAX_INSTANCES: usize = 8192;
 impl VoxelGame {
     pub(crate) fn draw_conduit_contents(&mut self, out: &mut Vec<CubeInstance>) {
-        self.conduit_fx
-            .ingest(self.mods.machines.take_visual_transfers());
-        let shared = self.world.clone();
-        let streamer = shared.borrow();
+        self.client
+            .conduit_fx
+            .ingest(self.server.mods.machines.take_visual_transfers());
+        let streamer = self.client.view.replica();
         let Some(fluids) = streamer.world().fluids() else {
             return;
         };
         let limit = out.len() + MAX_INSTANCES;
         let start = out.len();
-        self.conduit_fx.instances(
+        self.client.conduit_fx.instances(
             GridId::WORLD,
-            &*streamer,
-            &self.content.items,
+            streamer,
+            &self.client.content.items,
             fluids,
-            self.camera.position,
+            self.client.camera.position,
             |p| p,
             0.0,
             out,
             limit,
         );
-        let grids = self.mods.subgrids.borrow();
+        let grids = self.server.mods.subgrids.borrow();
         for id in grids.ids() {
             let Some(cell) = grids.get(id) else {
                 continue;
             };
             let grid = cell.borrow();
-            self.conduit_fx.instances(
+            self.client.conduit_fx.instances(
                 id,
                 &*grid,
-                &self.content.items,
+                &self.client.content.items,
                 fluids,
-                self.camera.position,
+                self.client.camera.position,
                 |p| grid.to_world(p),
                 grid.yaw,
                 out,
