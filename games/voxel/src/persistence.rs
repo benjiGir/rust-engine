@@ -85,7 +85,7 @@ impl VoxelGame {
         let Some(store) = self.server.store.clone() else {
             return;
         };
-        let polled = self.streamer_mut().poll_save();
+        let polled = self.server.streamer_mut().poll_save();
         if let Some(result) = polled {
             let elapsed = self.server.save_started.elapsed();
             match result {
@@ -110,20 +110,20 @@ impl VoxelGame {
             .meta_store
             .clone()
             .unwrap_or_else(|| store.clone());
-        if let Err(err) = meta_store.save_meta(&self.world_meta()) {
+        if let Err(err) = meta_store.save_meta(&self.server.world_meta()) {
             log::error!("sauvegarde de world.ron : {err:#}");
         }
-        self.save_players();
+        self.server.save_players();
         if let Err(err) = engine_voxel::save_grids(store.dir(), &self.server.mods.subgrids.borrow())
         {
             log::error!("sauvegarde des structures mobiles : {err:#}");
         }
         crate::carts::save(&self.server.ecs, store.dir());
-        self.save_backpacks();
-        self.save_quests();
-        self.save_item_data();
+        self.server.save_backpacks();
+        self.server.save_quests();
+        self.server.save_item_data();
         self.server.mods.save_world_data();
-        if self.streamer_mut().begin_save() {
+        if self.server.streamer_mut().begin_save() {
             self.server.save_started = Instant::now();
         }
     }

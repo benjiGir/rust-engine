@@ -11,7 +11,7 @@ impl VoxelGame {
         let Some(hit) = self.client.target else {
             return;
         };
-        let streamer = self.streamer();
+        let streamer = self.server.streamer();
         let block = streamer.world().block(hit.block_pos);
         let directional = matches!(
             self.server.registry.def(block).behavior.as_deref(),
@@ -46,7 +46,7 @@ impl VoxelGame {
     pub(crate) fn update_effects(&mut self, dt: f32) {
         let healed = self.server.players.me_mut().effects.update(dt);
         if healed > 0.0 {
-            self.heal(healed);
+            self.server.heal(healed);
         }
         if self
             .server
@@ -66,7 +66,7 @@ impl VoxelGame {
         }
         let feet = player::body(&self.server.ecs, self.server.players.entity()).position;
         let place = {
-            let streamer = self.streamer();
+            let streamer = self.server.streamer();
             let generator = streamer.generator();
             let (x, z) = (feet.x.floor() as i32, feet.z.floor() as i32);
             let column = generator.column(x, z);

@@ -496,7 +496,7 @@ impl VoxelGame {
             self.server.players.me_mut().inventory.slots[i]
                 .is_some_and(|s| is_backpack(&self.server.content.items.get(s.item).key))
         });
-        slot.is_some_and(|slot| self.open_bag_at(slot))
+        slot.is_some_and(|slot| self.server.open_bag_at(slot))
     }
 }
 

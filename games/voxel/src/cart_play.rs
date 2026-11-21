@@ -108,7 +108,7 @@ impl VoxelGame {
     /// Est-ce un rail détecteur allumé ? (pour les essais)
     #[allow(dead_code)]
     pub(crate) fn detector_lit(&self, pos: IVec3) -> bool {
-        rail_at(&*self.streamer(), pos).is_some_and(|r| r.kind == RailKind::Detector)
+        rail_at(&*self.server.streamer(), pos).is_some_and(|r| r.kind == RailKind::Detector)
             && self
                 .server
                 .ecs

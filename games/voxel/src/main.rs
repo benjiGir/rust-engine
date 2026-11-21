@@ -443,7 +443,7 @@ impl VoxelGame {
                 self.server
                     .schedule
                     .run(Stage::FixedUpdate, &mut self.server.ecs);
-                self.step_fluids();
+                self.server.step_fluids();
                 self.replicate_entities();
                 return;
             }
@@ -465,7 +465,8 @@ impl VoxelGame {
             None if busy => (Vec3::ZERO, false),
             None => {
                 // Affamé, on ne court plus.
-                let speed = if input.key_held(keys.key(Action::Sprint)) && self.can_sprint() {
+                let speed = if input.key_held(keys.key(Action::Sprint)) && self.server.can_sprint()
+                {
                     SPRINT_SPEED
                 } else {
                     WALK_SPEED
@@ -478,7 +479,8 @@ impl VoxelGame {
         player::set_intent(&self.server.ecs, self.server.players.entity(), walk, jump);
         let sprinting =
             walk.length() > WALK_SPEED * self.server.players.me_mut().gear.move_speed() + 0.01;
-        self.exert_movement(walk, jump, sprinting, ctx.fixed_dt);
+        self.server
+            .exert_movement(walk, jump, sprinting, ctx.fixed_dt);
         // Le monde avance d'un pas (voir `server_step.rs`) ; la fenêtre joue ensuite ses pas sonores,
         // envoie son mouvement et applique ce que le serveur lui a répondu.
         // La fenêtre joue le mouvement de son joueur et l'envoie (voir `predicted.rs`).
@@ -694,8 +696,8 @@ impl VoxelGame {
         // Tout le travail du monde côté thread principal : on le chronomètre.
         let start = Instant::now();
         let eye = self.client.body.eye(1.0);
-        let views = self.stream_views();
-        self.streamer_mut().update_views(&views);
+        let views = self.server.stream_views();
+        self.server.streamer_mut().update_views(&views);
         self.update_far(eye);
         self.sync_world_view();
         let streamed = Instant::now();
@@ -833,12 +835,12 @@ impl VoxelGame {
     }
 
     fn exit(&mut self, _ctx: &mut Context) {
-        self.save_now();
+        self.server.save_now();
     }
 
     /// Sauvegarde et décharge le monde ; rend le renderer pour le monde suivant.
     fn shutdown(mut self) -> Renderer {
-        self.save_now();
+        self.server.save_now();
         self.client.renderer.clear_meshes();
         self.client.renderer.set_visible_meshes(None);
         self.client.renderer.set_instances(&[]);
@@ -1037,7 +1039,9 @@ impl VoxelGame {
                     self.server.ecs.insert_resource(Arc::new(creatures));
                     self.server.registry = Arc::new(fresh);
                     let registry = self.server.registry.clone();
-                    self.streamer_mut().replace_registry(registry.clone());
+                    self.server
+                        .streamer_mut()
+                        .replace_registry(registry.clone());
                     self.client.view.replica_mut().replace_registry(registry);
                     textures = true;
                     log::info!("blocs rechargés : lumière et maillages recalculés");
@@ -1075,8 +1079,10 @@ impl VoxelGame {
 
     /// Casse le bloc visé. Renvoie sa position si c'est fait.
     fn break_target(&mut self) -> Option<IVec3> {
-        let hit = self.aim().hit?;
-        self.break_block(hit.block_pos).then_some(hit.block_pos)
+        let hit = self.server.aim().hit?;
+        self.server
+            .break_block(hit.block_pos)
+            .then_some(hit.block_pos)
     }
 
     /// Le jeu écoute ses propres événements pour jouer les sons.
@@ -1135,7 +1141,7 @@ impl VoxelGame {
             cries.push(event.player.unwrap_or(self.server.players.local_id()));
         }
         for (sound, at) in sounds {
-            self.sound_near(sound, at);
+            self.server.sound_near(sound, at);
         }
         // Le cri de douleur : seulement pour le joueur touché.
         for player in cries {
@@ -1205,7 +1211,7 @@ impl VoxelGame {
         }
         for event in events {
             let actions = self.server.mods.dispatch(&event);
-            self.apply_machine_actions(actions);
+            self.server.apply_machine_actions(actions);
         }
     }
 
@@ -1350,6 +1356,7 @@ impl VoxelGame {
     fn autofly(&mut self, speed: f32, dt: f32) {
         let mut eye = self.client.body.eye(1.0) + self.client.camera.forward_flat() * speed * dt;
         let ground = self
+            .server
             .streamer()
             .generator()
             .column(eye.x.floor() as i32, eye.z.floor() as i32)
@@ -1393,7 +1400,7 @@ impl VoxelGame {
         let result = if breaking {
             self.break_target()
         } else {
-            self.place_at_target()
+            self.server.place_at_target()
         };
         let elapsed = before.elapsed();
         let body = engine_voxel::PlayerBody {

@@ -509,20 +509,24 @@ impl VoxelGame {
     /// La hauteur du sol, en coordonnées de scène.
     pub(crate) fn ground(&self, x: i32, z: i32) -> i32 {
         let o = self.origin();
-        self.streamer().generator().column(o.x + x, o.z + z).height
+        self.server
+            .streamer()
+            .generator()
+            .column(o.x + x, o.z + z)
+            .height
     }
 
     /// Pose un bloc, en coordonnées de scène.
     pub(crate) fn put(&mut self, pos: IVec3, block: BlockId) -> bool {
         let pos = pos + self.origin();
-        self.streamer_mut().set_block(pos, block)
+        self.server.streamer_mut().set_block(pos, block)
     }
 
     /// Le centre d'une zone du biome `key` (en coordonnées de scène) : une colonne dont
     /// les voisines à 24 blocs sont du même biome, pour bien le voir.
     pub(crate) fn find_biome(&self, key: &str) -> Option<(i32, i32)> {
         let o = self.origin();
-        let streamer = self.streamer();
+        let streamer = self.server.streamer();
         let generator = streamer.generator();
         let id = generator.biomes().id(key)?;
         let inside = |x: i32, z: i32| generator.column(x, z).biome == id;
@@ -550,6 +554,7 @@ impl VoxelGame {
     fn nearest_volcano(&self) -> Option<(i32, i32)> {
         let o = self.origin();
         let sites = self
+            .server
             .streamer()
             .generator()
             .volcano_sites((o.x - 6000, o.z - 6000), (o.x + 6000, o.z + 6000));
@@ -808,9 +813,9 @@ impl VoxelGame {
                 let Some(block) = self.server.registry.id(key) else {
                     return;
                 };
-                self.streamer_mut().set_block(pos, block);
+                self.server.streamer_mut().set_block(pos, block);
                 let actions = self.server.mods.block_changed(pos);
-                self.apply_machine_actions(actions);
+                self.server.apply_machine_actions(actions);
                 let fill: Vec<(usize, &str, u32)> = if scene == Scene::Furnace {
                     vec![(0, "core:raw_iron", 6), (1, "core:coal", 3)]
                 } else {
@@ -825,7 +830,7 @@ impl VoxelGame {
                         (20, "core:coal", 21),
                     ]
                 };
-                if let Some(entity) = self.streamer_mut().block_entity_mut(pos)
+                if let Some(entity) = self.server.streamer_mut().block_entity_mut(pos)
                     && let Some(inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut())
                 {
                     for (slot, item, count) in fill {
@@ -844,7 +849,7 @@ impl VoxelGame {
                         .schedule(engine_voxel::GridPos::world(pos), 1);
                     for _ in 0..3 * 300 {
                         let (actions, _) = self.server.mods.fixed_step(self.client.camera.position);
-                        self.apply_machine_actions(actions);
+                        self.server.apply_machine_actions(actions);
                     }
                     self.client.ui.screen = crate::ui::Screen::Furnace(pos);
                 } else {
@@ -930,7 +935,7 @@ impl VoxelGame {
         );
         let full = engine_voxel::FLUID_FULL as u16;
         let put = |game: &mut Self, p: IVec3, b: BlockId| {
-            game.streamer_mut().set_block(o + p, b);
+            game.server.streamer_mut().set_block(o + p, b);
         };
         let steps = match which {
             FluidShot::Waterfall => {
@@ -953,7 +958,7 @@ impl VoxelGame {
                 for dx in 0..=4 {
                     for dz in 0..3 {
                         for dy in 8..10 {
-                            self.streamer_mut().set_fluid(
+                            self.server.streamer_mut().set_fluid(
                                 o + IVec3::new(dx, dy, dz),
                                 water,
                                 Some(full),
@@ -981,13 +986,19 @@ impl VoxelGame {
                     put(self, IVec3::new(dx, 0, 0), BlockId::AIR);
                 }
                 for dy in 0..9 {
-                    self.streamer_mut()
-                        .set_fluid(o + IVec3::new(0, dy, 0), water, Some(full));
+                    self.server.streamer_mut().set_fluid(
+                        o + IVec3::new(0, dy, 0),
+                        water,
+                        Some(full),
+                    );
                     self.server.fluids.wake(o + IVec3::new(0, dy, 0));
                 }
                 for dx in 1..4 {
-                    self.streamer_mut()
-                        .set_fluid(o + IVec3::new(dx, 0, 0), water, Some(full));
+                    self.server.streamer_mut().set_fluid(
+                        o + IVec3::new(dx, 0, 0),
+                        water,
+                        Some(full),
+                    );
                 }
                 2500
             }
@@ -1004,10 +1015,13 @@ impl VoxelGame {
                 }
                 for dz in 0..3 {
                     for dx in 0..3 {
-                        self.streamer_mut()
-                            .set_fluid(o + IVec3::new(dx, 0, dz), water, Some(full));
+                        self.server.streamer_mut().set_fluid(
+                            o + IVec3::new(dx, 0, dz),
+                            water,
+                            Some(full),
+                        );
                         self.server.fluids.wake(o + IVec3::new(dx, 0, dz));
-                        self.streamer_mut().set_fluid(
+                        self.server.streamer_mut().set_fluid(
                             o + IVec3::new(9 - dx, 0, dz),
                             lava,
                             Some(full),
@@ -1034,7 +1048,7 @@ impl VoxelGame {
                 for dx in 0..10 {
                     for dz in 0..6 {
                         for dy in 3..5 {
-                            self.streamer_mut().set_fluid(
+                            self.server.streamer_mut().set_fluid(
                                 o + IVec3::new(dx, dy, dz),
                                 water,
                                 Some(full),
@@ -1111,9 +1125,9 @@ impl VoxelGame {
         let (x, z) = MACHINE_SPOT;
         let base = IVec3::new(x, self.ground(x, z) + 1, z) + self.origin();
         let place = |game: &mut Self, pos: IVec3, block: BlockId| {
-            if game.streamer_mut().set_block(pos, block) {
+            if game.server.streamer_mut().set_block(pos, block) {
                 let actions = game.server.mods.block_changed(pos);
-                game.apply_machine_actions(actions);
+                game.server.apply_machine_actions(actions);
             }
         };
         for dx in -2..=5 {
@@ -1127,7 +1141,7 @@ impl VoxelGame {
         place(self, base, clock);
         // Une horloge lente (une bascule toutes les 20 ticks, 1 s) : les lampes restent
         // allumées le temps de la capture.
-        self.streamer_mut().set_block_entity(
+        self.server.streamer_mut().set_block_entity(
             base,
             Some(engine_voxel::BlockEntity {
                 data: vec![20],
@@ -1148,7 +1162,7 @@ impl VoxelGame {
                     block: breaker,
                     facing: IVec3::X,
                 });
-            self.apply_machine_actions(actions);
+            self.server.apply_machine_actions(actions);
             place(self, at + IVec3::NEG_X, clock);
             for dy in 0..3 {
                 place(self, at + IVec3::new(1, dy, 0), stone);
@@ -1158,7 +1172,7 @@ impl VoxelGame {
         // ses lampes aussi.
         for _ in 0..75 {
             let (actions, _) = self.server.mods.fixed_step(self.client.camera.position);
-            self.apply_machine_actions(actions);
+            self.server.apply_machine_actions(actions);
         }
     }
 
@@ -1187,7 +1201,7 @@ impl VoxelGame {
             .map(|(dx, dz)| self.ground(x0 + dx, z0 + dz))
             .max()
             .unwrap_or(SEA_LEVEL);
-        let mut streamer = self.streamer_mut();
+        let mut streamer = self.server.streamer_mut();
         // Jusqu'au socle : le bas du monde (y = 0 en v1, -128 en v3), le socle lui-même gardé.
         let bottom = streamer.world().block_y_range().start + 1;
         let mut dug = 0;
@@ -1213,7 +1227,7 @@ impl VoxelGame {
     /// avec de la place au-dessus et autour, pour voir la salle.
     fn find_cave_biome(&self, key: &str) -> Option<IVec3> {
         let o = self.origin();
-        let streamer = self.streamer();
+        let streamer = self.server.streamer();
         let generator = streamer.generator();
         let id = generator.biomes().id(key)?;
         let open = |chunk: &engine_voxel::Chunk, x: i32, y: i32, z: i32| {

@@ -133,7 +133,7 @@ impl VoxelGame {
                 let item = items
                     .id(&key)
                     .with_context(|| format!("loot : objet inconnu « {key} »"))?;
-                let mut rng = engine_voxel::Rng64::new(self.next_random());
+                let mut rng = engine_voxel::Rng64::new(self.server.next_random());
                 let def = items.get(item);
                 anyhow::ensure!(
                     affixes::can_carry(def),
@@ -195,13 +195,14 @@ impl VoxelGame {
                     "depth" => p.depth = n as i32,
                     other => bail!("progress : champ inconnu « {other} »"),
                 }
-                self.unlock_tiers(&data);
+                self.server.unlock_tiers(&data);
                 Ok(self.adventure_json())
             }
             Command::Elite(kind) => self.spawn_test_elite(kind, false),
             Command::Invader(Some(kind)) => self.spawn_test_elite(Some(kind), true),
             Command::Invader(None) => {
                 let site = self
+                    .server
                     .spawn_invader(&data)
                     .context("invader : pas de terrain libre sur l'anneau, réessayer")?;
                 Ok(format!(
@@ -265,17 +266,17 @@ impl VoxelGame {
                     "reforge" => Screen::Reforge,
                     _ => Screen::Tiers,
                 };
-                self.open_screen(screen);
+                self.server.open_screen(screen);
                 self.apply_replies();
                 self.client.mouse_captured = false;
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Pending(pos, key, min) => {
-                let block = self.streamer().world().block(pos);
+                let block = self.server.streamer().world().block(pos);
                 let slots = engine_voxel::container_slots(&self.server.registry, block)
                     .context("pending : pas un conteneur")?;
-                let seed = (self.next_random() & 0xFFFF) as u16;
-                let mut streamer = self.streamer_mut();
+                let seed = (self.server.next_random() & 0xFFFF) as u16;
+                let mut streamer = self.server.streamer_mut();
                 let mut entity = streamer.block_entity(pos).cloned().unwrap_or_default();
                 let inventory = entity
                     .caps_mut()
@@ -338,10 +339,10 @@ impl VoxelGame {
         }
         let entity = crate::mobs::spawn_mob(&mut self.server.ecs, id, at).context("impossible")?;
         let promoted = if invader {
-            self.promote_invader(entity, &data)
+            self.server.promote_invader(entity, &data)
         } else {
             let tier = self.server.players.me_mut().adventure.progress.tier;
-            let mut rng = engine_voxel::Rng64::new(self.next_random());
+            let mut rng = engine_voxel::Rng64::new(self.server.next_random());
             crate::elites::promote(&mut self.server.ecs, entity, &data, tier, false, &mut rng)
         };
         anyhow::ensure!(promoted, "{key} ne peut pas devenir élite");

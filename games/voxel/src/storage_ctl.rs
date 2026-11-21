@@ -119,7 +119,7 @@ impl VoxelGame {
             }
             Command::PlaceBag => {
                 self.aimed()?;
-                if !self.place_backpack() {
+                if !self.server.place_backpack() {
                     bail!("placebag : il faut un sac à dos en main");
                 }
                 Ok("{\"ok\":true}".to_string())
@@ -128,13 +128,14 @@ impl VoxelGame {
                 // Le contrôleur n'a pas de cases : seuls Déposer et Maj + clic y ont un sens.
                 if let Some(OpenContainer::Controller(pos)) = self.server.players.me().open {
                     match op {
-                        Op::Deposit => self.controller_deposit(pos, None),
-                        Op::QuickIn(slot) => self.controller_deposit(pos, Some(slot)),
+                        Op::Deposit => self.server.controller_deposit(pos, None),
+                        Op::QuickIn(slot) => self.server.controller_deposit(pos, Some(slot)),
                         _ => bail!("le contrôleur ne connaît que deposit et quickmove"),
                     }
                     return Ok("{\"ok\":true}".to_string());
                 }
-                self.open_target()
+                self.server
+                    .open_target()
                     .context("aucun conteneur ouvert (coffre, wagon ou sac)")?;
                 // Le même chemin que les boutons de l'écran.
                 self.send_now(crate::protocol::ClientMsg::ContainerOp(op));
@@ -163,7 +164,7 @@ impl VoxelGame {
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Container(pos) => {
-                let streamer = self.streamer();
+                let streamer = self.server.streamer();
                 let inventory = streamer
                     .block_entity(pos)
                     .and_then(|e| e.caps.as_ref()?.inventory.as_ref())

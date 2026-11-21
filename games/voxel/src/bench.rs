@@ -327,6 +327,7 @@ impl VoxelGame {
     /// Le sol, ou la mer si elle est plus haute.
     fn surface(&self, x: f32, z: f32) -> f32 {
         let column = self
+            .server
             .streamer()
             .generator()
             .column(x.floor() as i32, z.floor() as i32);

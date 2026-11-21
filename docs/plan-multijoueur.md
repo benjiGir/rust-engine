@@ -856,6 +856,13 @@ Le code serveur lit encore la fenêtre à plusieurs endroits : `self.ui` est cit
 - **Reste transitoire** : la gravité de la dimension est lue à l'ECS du serveur ; les pas sonores, la main et l'eau
   lisent encore l'état du joueur au serveur (le même que le corps prédit, rangé avant le pas).
 
+##### 4c-3 : la fenêtre ne voit plus le serveur que par son champ `server`
+
+- **Le `Deref` de `VoxelGame` vers `VoxelServer` est supprimé** (4c-3a) : les 146 appels implicites (`streamer`,
+  `apply_machine_actions`, `open_quests`, sauvegardes…) s'écrivent `self.server.…`. Tout ce que la fenêtre prend au
+  serveur se voit et se compte : environ 750 accès, surtout `players` (inventaire, gear), `ecs` (le joueur), `content`
+  et `registry` (les définitions), `day` et `weather`, et les outils (`ctl`, captures, démo).
+
 ### Lot 5 : le réseau local
 
 - `engine_net` :

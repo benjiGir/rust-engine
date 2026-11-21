@@ -44,7 +44,7 @@ use crate::ui_info::Card;
 impl VoxelGame {
     /// La fiche de visée d'une case de formes : ses matériaux, et la pièce visée.
     pub(crate) fn describe_shaped(&self, card: &mut Card, hit: &RayHit) {
-        let Some(shaped) = self.shaped_at(hit.block_pos) else {
+        let Some(shaped) = self.server.shaped_at(hit.block_pos) else {
             return;
         };
         let names: Vec<String> = shaped
@@ -53,7 +53,7 @@ impl VoxelGame {
             .map(|m| shape_materials::material_name(&self.server.registry, m).to_lowercase())
             .collect();
         card.name = format!("Case de formes : {}", names.join(", "));
-        if let Some(index) = self.aimed_part(hit.block_pos, &shaped) {
+        if let Some(index) = self.server.aimed_part(hit.block_pos, &shaped) {
             let part = shaped.parts[index];
             let material =
                 shape_materials::material_name(&self.server.registry, shaped.material_of(&part));

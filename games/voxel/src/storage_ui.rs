@@ -127,9 +127,9 @@ impl VoxelGame {
     pub(crate) fn storage_title(&self) -> String {
         match self.client.ui.screen {
             Screen::Chest(pos) => {
-                let block = self.streamer().world().block(pos);
+                let block = self.server.streamer().world().block(pos);
                 let name = &self.server.registry.def(block).name;
-                if engine_voxel::double_chest::paired(&*self.streamer(), pos).is_some() {
+                if engine_voxel::double_chest::paired(&*self.server.streamer(), pos).is_some() {
                     // « Coffre de fer » devient « Grand coffre de fer ».
                     let mut chars = name.chars();
                     let first = chars.next().map(|c| c.to_lowercase().to_string());

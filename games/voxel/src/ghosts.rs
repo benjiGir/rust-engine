@@ -69,7 +69,7 @@ impl VoxelGame {
                 });
                 let number = self.server.players.iter().filter(|p| p.ghost).count() + 1;
                 let name = name.unwrap_or_else(|| format!("Fantôme {number}"));
-                self.add_ghost(&name, feet);
+                self.server.add_ghost(&name, feet);
                 Ok(format!(
                     "{{\"ok\":true,\"name\":{},\"pos\":{}}}",
                     json_str(&name),

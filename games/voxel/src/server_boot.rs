@@ -543,7 +543,12 @@ mod tests {
         server.fixed_step(1.0 / 60.0);
         let here = player::body(&server.ecs, server.players.entity()).position;
         assert_eq!(here, feet + Vec3::X, "ni gravité ni physique au serveur");
-        assert!(server.replies.iter().all(|(_, m)| !matches!(m, ServerMsg::Correct { .. })));
+        assert!(
+            server
+                .replies
+                .iter()
+                .all(|(_, m)| !matches!(m, ServerMsg::Correct { .. }))
+        );
         // Le serveur le déplace (une réapparition) : le mouvement suivant, joué ailleurs, est périmé.
         let spawn = feet + Vec3::Z * 5.0;
         player::set_eye(
@@ -553,11 +558,17 @@ mod tests {
         );
         server.replies.clear();
         server.handle(local, moved(feet + Vec3::X * 2.0));
-        assert_eq!(player::body(&server.ecs, server.players.entity()).position, spawn);
+        assert_eq!(
+            player::body(&server.ecs, server.players.entity()).position,
+            spawn
+        );
         assert!(server.replies.iter().any(|(id, m)| *id == local
             && matches!(m, ServerMsg::Correct { position, carried: false, .. } if *position == spawn)));
         // D'accord sur la nouvelle place, le mouvement suivant est rangé.
         server.handle(local, moved(spawn + Vec3::X));
-        assert_eq!(player::body(&server.ecs, server.players.entity()).position, spawn + Vec3::X);
+        assert_eq!(
+            player::body(&server.ecs, server.players.entity()).position,
+            spawn + Vec3::X
+        );
     }
 }

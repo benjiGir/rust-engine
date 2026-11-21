@@ -104,19 +104,3 @@ pub(crate) struct VoxelServer {
     /// Le numéro du pas fixe (pour les messages `Move`).
     pub(crate) sim_step: u64,
 }
-
-/// Le jeu de la fenêtre donne accès au serveur : une méthode passée à `VoxelServer` reste appelable
-/// depuis le code de la fenêtre pendant la migration (lot 4b), sans changer ses appelants.
-impl std::ops::Deref for crate::VoxelGame {
-    type Target = VoxelServer;
-
-    fn deref(&self) -> &VoxelServer {
-        &self.server
-    }
-}
-
-impl std::ops::DerefMut for crate::VoxelGame {
-    fn deref_mut(&mut self) -> &mut VoxelServer {
-        &mut self.server
-    }
-}

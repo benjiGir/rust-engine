@@ -71,7 +71,7 @@ impl VoxelGame {
                     log::warn!("pièce refusée en {pos}");
                 }
             }
-            shaped::store(&mut game.streamer_mut(), pos, &shaped);
+            shaped::store(&mut game.server.streamer_mut(), pos, &shaped);
         };
         // Une dalle de chêne sur une dalle de pierre.
         put(
@@ -154,7 +154,7 @@ impl VoxelGame {
                     log::warn!("pièce refusée en {pos}");
                 }
             }
-            shaped::store(&mut game.streamer_mut(), pos, &shaped);
+            shaped::store(&mut game.server.streamer_mut(), pos, &shaped);
         };
         let sample = Piece::sample;
         let cuboid = |kind, min, max, count| Piece::cuboid(kind, min, max, count);

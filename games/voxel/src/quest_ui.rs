@@ -123,7 +123,7 @@ impl VoxelGame {
 
     /// Ouvre le livre, au chapitre demandé ou, sinon, au dernier regardé (le premier à défaut).
     pub(crate) fn open_quest_book(&mut self, chapter: Option<&str>) -> Result<()> {
-        self.open_quests();
+        self.server.open_quests();
         let quests = self
             .server
             .players
@@ -142,7 +142,7 @@ impl VoxelGame {
             None => None,
         };
         // Une revue tout de suite : les objets portés comptent dès l'ouverture.
-        self.refresh_quests();
+        self.server.refresh_quests();
         let last = self
             .server
             .players
@@ -222,7 +222,7 @@ impl VoxelGame {
     /// Le livre, plein écran.
     pub(crate) fn draw_quests_screen(&mut self, ctx: &egui::Context) {
         self.client.ui.browser.hovered = None;
-        self.open_quests();
+        self.server.open_quests();
         // Les quêtes sont le contenu du jeu ; la progression vient de la vue du joueur.
         let (Some(quests), Some(progress)) = (
             self.server.players.local().quest_book.quests(),
@@ -731,7 +731,7 @@ impl VoxelGame {
     /// Choisit une quête dans le livre ouvert (l'ouvre au besoin) : son chapitre, le plan centré
     /// dessus, sa fiche ouverte.
     pub(crate) fn select_quest(&mut self, id: &str) -> Result<()> {
-        self.open_quests();
+        self.server.open_quests();
         let Some(quests) = self.server.players.me_mut().quest_book.quests() else {
             bail!("quêtes pas chargées");
         };

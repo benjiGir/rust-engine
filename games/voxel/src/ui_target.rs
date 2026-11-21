@@ -12,7 +12,7 @@ impl VoxelGame {
         if !self.settings.target_info || !self.client.mouse_captured {
             return 12.0;
         }
-        let ship = self.ship_hit();
+        let ship = self.server.ship_hit();
         let block_distance = ship.map(|(_, h)| h.distance).unwrap_or_else(|| {
             self.client.target.map_or(
                 self.client.view.me.vitals.as_ref().map_or(4.5, |v| v.reach),
@@ -35,7 +35,7 @@ impl VoxelGame {
                 _ => None,
             }
         });
-        let aimed = aimed_id.and_then(|id| self.server_entity(id));
+        let aimed = aimed_id.and_then(|id| self.server.server_entity(id));
         let mut item = None;
         let mut preview = None;
         let fluids = self.view_world().fluids().cloned();

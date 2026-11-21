@@ -81,12 +81,15 @@ impl VoxelGame {
                 let mut pieces = 0;
                 // `n` blocs : on taille un bloc à la fois, comme `n` clics.
                 for _ in 0..if all { 1 } else { blocks } {
-                    pieces += self.carve(slot, kind, all).map_err(anyhow::Error::msg)?;
+                    pieces += self
+                        .server
+                        .carve(slot, kind, all)
+                        .map_err(anyhow::Error::msg)?;
                 }
                 Ok(format!("{{\"ok\":true,\"pieces\":{pieces}}}"))
             }
             Command::Rebuild(all) => {
-                let blocks = self.rebuild(slot, all).map_err(anyhow::Error::msg)?;
+                let blocks = self.server.rebuild(slot, all).map_err(anyhow::Error::msg)?;
                 Ok(format!("{{\"ok\":true,\"blocks\":{blocks}}}"))
             }
             Command::Open => {
@@ -95,16 +98,17 @@ impl VoxelGame {
                 if let Some(stack) = me.inventory.slots[me.inventory.selected].take() {
                     let before = me.inventory.craft[0].replace(stack);
                     if let Some(old) = before {
-                        self.give_or_drop(old);
+                        self.server.give_or_drop(old);
                     }
                 }
-                self.open_screen(Screen::Shaping);
+                self.server.open_screen(Screen::Shaping);
                 self.apply_replies();
                 self.client.mouse_captured = false;
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Pieces(pos) => {
                 let shaped = self
+                    .server
                     .shaped_at(pos)
                     .context("pieces : ce n'est pas une case de formes")?;
                 let parts: Vec<String> = shaped

@@ -76,7 +76,7 @@ impl VoxelGame {
         {
             for (kind, id, value) in options {
                 let actions = self.server.mods.options_event(&owner, kind, id, value);
-                self.apply_machine_actions(actions);
+                self.server.apply_machine_actions(actions);
             }
         }
         // Les réglages changés sont écrits au plus une fois par seconde (un curseur qu'on
@@ -101,7 +101,7 @@ impl VoxelGame {
             if let Some(m) = &mut self.server.players.me_mut().mod_menu {
                 m.last_refresh = Instant::now();
             }
-            self.send_mod_ui(UI_REFRESH, 0, 0);
+            self.server.send_mod_ui(UI_REFRESH, 0, 0);
             self.server.players.set_acting(before);
         }
     }
@@ -116,7 +116,7 @@ impl VoxelGame {
         self.mode = Mode::Paused(PausePage::ModOptions(mod_id.to_string()));
         self.client.ui.options_menu = None;
         let actions = self.server.mods.options_event(mod_id, UI_OPEN, 0, 0);
-        self.apply_machine_actions(actions);
+        self.server.apply_machine_actions(actions);
     }
 
     /// Un script envoie le contenu de sa page d'options (seulement si elle est ouverte).
@@ -137,7 +137,7 @@ impl VoxelGame {
         if let Mode::Paused(PausePage::ModOptions(id)) = &self.mode {
             let id = id.clone();
             let actions = self.server.mods.options_event(&id, UI_CLOSED, 0, 0);
-            self.apply_machine_actions(actions);
+            self.server.apply_machine_actions(actions);
         }
         self.client.ui.options_menu = None;
         self.client.ui.options_events.clear();

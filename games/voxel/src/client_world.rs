@@ -151,12 +151,15 @@ impl VoxelGame {
 
     /// Les compteurs du chargement (serveur) et du maillage (réplique), ensemble.
     pub(crate) fn stream_stats(&self) -> StreamStats {
-        combined_stats(self.streamer().stats(), self.client.view.replica().stats())
+        combined_stats(
+            self.server.streamer().stats(),
+            self.client.view.replica().stats(),
+        )
     }
 
     /// Le serveur et la réplique n'ont plus rien à faire, et tout ce qui est en route est arrivé.
     pub(crate) fn world_idle(&self) -> bool {
-        self.streamer().is_idle() && self.server.sends.idle() && self.client.view.idle()
+        self.server.streamer().is_idle() && self.server.sends.idle() && self.client.view.idle()
     }
 
     /// Ce que les commandes de `ctl` ont changé après la fin de l'image : envoyé, remaillé et déjà au GPU.

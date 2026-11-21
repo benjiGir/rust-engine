@@ -122,7 +122,7 @@ impl VoxelGame {
     pub(crate) fn enchant_command(&mut self, command: Command) -> Result<String> {
         match command {
             Command::Table(at) => {
-                let s = self.table_stats(at);
+                let s = self.server.table_stats(at);
                 Ok(format!(
                     "{{\"ok\":true,\"eterna\":{:.2},\"raw_eterna\":{:.2},\"max_eterna\":{:.1},\"quanta\":{:.1},\"arcana\":{:.1},\"clues\":{},\"stability\":{:.1},\"treasure\":{},\"shelves\":{}}}",
                     s.eterna,
@@ -152,15 +152,15 @@ impl VoxelGame {
                 {
                     // L'air entre la table et l'étagère, puis l'étagère.
                     if !block.is_air() {
-                        self.edit(at + middle, engine_voxel::BlockId::AIR);
+                        self.server.edit(at + middle, engine_voxel::BlockId::AIR);
                     }
-                    self.edit(at + offset, block);
+                    self.server.edit(at + offset, block);
                     placed += 1;
                 }
                 Ok(format!("{{\"ok\":true,\"placed\":{placed}}}"))
             }
             Command::Offers(at) => {
-                let stats = self.table_stats(at);
+                let stats = self.server.table_stats(at);
                 let items = self.server.content.items.clone();
                 let stack = self
                     .server
@@ -209,7 +209,7 @@ impl VoxelGame {
                     _ => Screen::Anvil,
                 };
                 // Par le serveur, comme un clic droit : ses gestes y seront acceptés.
-                self.open_screen(screen);
+                self.server.open_screen(screen);
                 self.apply_replies();
                 self.client.mouse_captured = false;
                 Ok("{\"ok\":true}".to_string())
@@ -221,7 +221,7 @@ impl VoxelGame {
                     .items
                     .id(ENCHANTED_BOOK)
                     .context("book : pas de livre enchanté")?;
-                self.give_or_drop(ItemStack {
+                self.server.give_or_drop(ItemStack {
                     item: book,
                     count: 1,
                     damage: enchant_books::book_damage(&list),
@@ -230,7 +230,7 @@ impl VoxelGame {
             }
             Command::LibAdd(at, kind, level) => {
                 let max = {
-                    let streamer = self.streamer();
+                    let streamer = self.server.streamer();
                     enchant_library::max_level_of(
                         self.server
                             .registry
@@ -240,7 +240,7 @@ impl VoxelGame {
                     )
                 };
                 anyhow::ensure!(max > 0, "libadd : pas de bibliothèque en {}", json_pos(at));
-                let mut streamer = self.streamer_mut();
+                let mut streamer = self.server.streamer_mut();
                 let entity = streamer
                     .block_entity_mut(at)
                     .context("libadd : la bibliothèque n'a pas d'état")?;
@@ -255,7 +255,7 @@ impl VoxelGame {
                 ))
             }
             Command::Library(at) => {
-                let streamer = self.streamer();
+                let streamer = self.server.streamer();
                 let entity = streamer
                     .block_entity(at)
                     .context("library : pas de bibliothèque en ce point")?;

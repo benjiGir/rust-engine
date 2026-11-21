@@ -237,8 +237,8 @@ impl VoxelGame {
             return;
         };
         let pos = hit.block_pos;
-        let block = self.streamer().world().block(pos);
-        let Some(time) = self.mining_time(pos, block) else {
+        let block = self.server.streamer().world().block(pos);
+        let Some(time) = self.server.mining_time(pos, block) else {
             // Incassable.
             self.stop_mining();
             return;

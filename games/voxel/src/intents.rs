@@ -233,14 +233,14 @@ impl VoxelGame {
         while !self.client.outbox.is_empty() && guard < 64 {
             guard += 1;
             for msg in std::mem::take(&mut self.client.outbox) {
-                self.handle(local, msg);
+                self.server.handle(local, msg);
             }
             self.run_pending_commands();
         }
         // Les vues du joueur (inventaire, conteneur ouvert) suivent tout de suite : un clic dans un
         // écran se voit dès cette image.
         if !self.server.replies.is_empty() || guard > 0 {
-            self.replicate_player_views();
+            self.server.replicate_player_views();
         }
         self.apply_replies();
     }

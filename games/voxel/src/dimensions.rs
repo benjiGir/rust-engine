@@ -194,13 +194,14 @@ impl VoxelGame {
         }
         if let Some((cell, block)) = self.server.dims.pending_arrival {
             let loaded = self
+                .server
                 .streamer()
                 .world()
                 .chunk(engine_voxel::World::chunk_containing(cell.as_vec3()))
                 .is_some();
             if loaded {
                 self.server.dims.pending_arrival = None;
-                let done = self.edit(cell, block);
+                let done = self.server.edit(cell, block);
                 log::info!(
                     "bloc d'arrivée en {cell} : {}",
                     if done { "posé" } else { "refusé" }
@@ -210,7 +211,7 @@ impl VoxelGame {
         let feet = crate::player::body(&self.server.ecs, self.server.players.entity()).position;
         let cells = [feet.floor().as_ivec3(), (feet + Vec3::Y).floor().as_ivec3()];
         let portal = {
-            let streamer = self.streamer();
+            let streamer = self.server.streamer();
             cells.iter().find_map(|c| {
                 self.server
                     .registry
@@ -228,7 +229,7 @@ impl VoxelGame {
                 self.server.dims.portal_timer += dt;
                 if self.server.dims.portal_timer >= PORTAL_TIME {
                     self.server.dims.portal_timer = 0.0;
-                    self.travel(&target);
+                    self.server.travel(&target);
                 }
             }
             Some(_) => {}

@@ -126,7 +126,7 @@ impl VoxelGame {
         self.server.command_reply = None;
         self.send_now(ClientMsg::Command(line.to_string()));
         if let Some(reply) = self.server.command_reply.take() {
-            self.chat(&reply.text);
+            self.server.chat(&reply.text);
         }
     }
 
@@ -291,8 +291,8 @@ impl VoxelGame {
     pub(crate) fn console_reply(&mut self, name: &str, args: &str) -> CommandReply {
         let text = |text: String| CommandReply { text, json: None };
         match name {
-            "help" => text(self.console_help()),
-            "mods" => text(self.console_mods()),
+            "help" => text(self.server.console_help()),
+            "mods" => text(self.server.console_mods()),
             _ => self.console_command(name, args),
         }
     }
@@ -313,7 +313,7 @@ impl VoxelGame {
             };
         }
         // Une commande de mod : `nom`, ou `mod:nom` pour lever une ambiguïté.
-        let all = self.mods.commands();
+        let all = self.server.mods.commands();
         let (wanted_mod, wanted_name) = match name.split_once(':') {
             Some((m, n)) => (Some(m), n),
             None => (None, name),
@@ -325,8 +325,8 @@ impl VoxelGame {
         let Some((mod_id, command, _)) = found else {
             return say(format!("Commande inconnue : /{name} (voir /help)"));
         };
-        let (reply, actions) = self.mods.command(&mod_id, &command, args);
-        self.apply_machine_actions(actions);
+        let (reply, actions) = self.server.mods.command(&mod_id, &command, args);
+        self.server.apply_machine_actions(actions);
         say(reply.unwrap_or_else(|| "fait".to_string()))
     }
 }

@@ -145,7 +145,7 @@ fn describe(task: &Task, items: &engine_voxel::ItemRegistry) -> (&'static str, S
 impl VoxelGame {
     /// Le livre chargé et le numéro d'une quête.
     fn quest_lookup(&mut self, id: &str) -> Result<(Arc<Quests>, usize)> {
-        self.open_quests();
+        self.server.open_quests();
         let quests = self
             .server
             .players
@@ -160,7 +160,7 @@ impl VoxelGame {
     }
 
     pub(crate) fn quest_command(&mut self, command: Command) -> Result<String> {
-        self.open_quests();
+        self.server.open_quests();
         match command {
             Command::List(filter) => self.quest_list(filter.as_deref()),
             Command::Done(id) => {
@@ -173,19 +173,20 @@ impl VoxelGame {
                     .progress_mut()?
                     .force_done(&quests, index);
                 if forced {
-                    self.announce_quests(&quests, &[index]);
+                    self.server.announce_quests(&quests, &[index]);
                 }
                 // Ce qu'elle débloque se termine dans la foulée.
-                self.refresh_quests();
+                self.server.refresh_quests();
                 Ok(format!("{{\"ok\":true,\"forced\":{forced}}}"))
             }
             Command::Claim(None) => {
-                let claimed = self.claim_all_quests();
+                let claimed = self.server.claim_all_quests();
                 Ok(format!("{{\"ok\":true,\"claimed\":{claimed}}}"))
             }
             Command::Claim(Some(id)) => {
                 let (_, index) = self.quest_lookup(&id)?;
                 let gave = self
+                    .server
                     .claim_quest(index)
                     .map_err(|e| anyhow::anyhow!("quest claim : {e}"))?;
                 Ok(format!("{{\"ok\":true,\"gave\":{}}}", json_str(&gave)))
@@ -207,7 +208,7 @@ impl VoxelGame {
                     .quest_book
                     .progress_mut()?
                     .check(&quests, index, task);
-                self.refresh_quests();
+                self.server.refresh_quests();
                 Ok(format!("{{\"ok\":true,\"checked\":{checked}}}"))
             }
             Command::HandIn(id, task) => {
@@ -220,7 +221,7 @@ impl VoxelGame {
                             .position(|t| matches!(t, Task::Item { consume: true, .. }))
                     })
                     .context("quest handin : cette quête ne demande pas de remettre d'objets")?;
-                let taken = self.hand_in_quest(index, task);
+                let taken = self.server.hand_in_quest(index, task);
                 Ok(format!("{{\"ok\":true,\"taken\":{taken}}}"))
             }
             Command::Choose(id, reward, option) => {
@@ -238,7 +239,7 @@ impl VoxelGame {
                 Ok("{\"ok\":true}".into())
             }
             Command::Scan => {
-                self.refresh_quests();
+                self.server.refresh_quests();
                 self.quest_list(None)
             }
             Command::Reset(id) => {
@@ -251,7 +252,7 @@ impl VoxelGame {
                     .quest_book
                     .progress_mut()?
                     .reset(id.as_deref());
-                self.sync_quests_done();
+                self.server.sync_quests_done();
                 Ok("{\"ok\":true}".into())
             }
             Command::Open(chapter) => {

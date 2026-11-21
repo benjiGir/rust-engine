@@ -683,7 +683,7 @@ pub(crate) struct Hold {
 impl VoxelGame {
     /// L'intention de marche commandée pour ce pas de simulation, s'il y en a une.
     pub(crate) fn remote_intent(&mut self, dt: f32) -> Option<(Vec3, bool)> {
-        let can_sprint = self.can_sprint();
+        let can_sprint = self.server.can_sprint();
         let walk = self.remote.walk.as_mut()?;
         let forward = self.client.camera.forward_flat();
         let right = forward.cross(Vec3::Y);
@@ -899,7 +899,9 @@ impl VoxelGame {
     /// Ce que le regard désigne pour un coup : la créature, sinon le wagon, plus près que le bloc. Comme
     /// la fenêtre, `ctl` choisit dans ce que le client voit (la réplique des entités).
     fn claimed_target(&self, aim: crate::protocol::Aim) -> Option<crate::entities::NetId> {
-        let acting = self.resolve_aim(self.server.players.local_id(), aim)?;
+        let acting = self
+            .server
+            .resolve_aim(self.server.players.local_id(), aim)?;
         let block_distance = acting
             .hit
             .map_or(self.server.players.me().gear.reach(), |h| h.distance);
@@ -941,7 +943,7 @@ impl VoxelGame {
             Command::State | Command::Wait(_) => Ok(self.state_json()),
             Command::Goto(feet) => {
                 self.place_eye(feet + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT);
-                self.forget_last_move();
+                self.server.forget_last_move();
                 Ok(self.state_json())
             }
             Command::Look(yaw, pitch) => {
@@ -979,7 +981,7 @@ impl VoxelGame {
                 Ok(ok())
             }
             Command::Block(pos) => {
-                let streamer = self.streamer();
+                let streamer = self.server.streamer();
                 let world = streamer.world();
                 let block = world.block(pos);
                 let (sky, light) = world.light(pos);
@@ -995,12 +997,12 @@ impl VoxelGame {
                     Some(pos) => pos,
                     None => self.aimed()?.block_pos,
                 };
-                let block = self.streamer().world().block(pos);
+                let block = self.server.streamer().world().block(pos);
                 if block.is_air() {
                     bail!("break : rien à casser en {}", ivec3(pos));
                 }
                 let key = self.server.registry.def(block).key.clone();
-                if !self.break_block(pos) {
+                if !self.server.break_block(pos) {
                     bail!("break : {key} est incassable ou hors du monde chargé");
                 }
                 Ok(format!(
@@ -1026,17 +1028,20 @@ impl VoxelGame {
                 {
                     bail!("place : utiliser l'objet de porte pour poser les deux moitiés");
                 }
-                if let Some(parts) = self.paired_placement(pos, block, self.client.camera.forward())
+                if let Some(parts) =
+                    self.server
+                        .paired_placement(pos, block, self.client.camera.forward())
                 {
-                    self.place_pair(parts)
+                    self.server
+                        .place_pair(parts)
                         .context("place : deux cases libres avec un support sont nécessaires")?;
-                } else if !self.edit(pos, block) {
+                } else if !self.server.edit(pos, block) {
                     bail!("place : {} est hors du monde chargé", ivec3(pos));
                 }
                 Ok(format!("{{\"ok\":true,\"pos\":{}}}", ivec3(pos)))
             }
             Command::Stock(pos, slot, key, amount, wear) => {
-                let mut streamer = self.streamer_mut();
+                let mut streamer = self.server.streamer_mut();
                 let inventory = streamer
                     .block_entity_mut(pos)
                     .and_then(|e| e.caps.as_mut())
@@ -1109,7 +1114,7 @@ impl VoxelGame {
                 Ok(self.state_json())
             }
             Command::Inspect(pos) => {
-                let streamer = self.streamer();
+                let streamer = self.server.streamer();
                 let block = json_str(&self.server.registry.def(streamer.world().block(pos)).key);
                 let Some(caps) = streamer
                     .block_entity(pos)
@@ -1166,11 +1171,12 @@ impl VoxelGame {
                 ))
             }
             Command::Assemble(pos) => {
-                let id = self.assemble(pos).map_err(|e| anyhow::anyhow!(e))?;
+                let id = self.server.assemble(pos).map_err(|e| anyhow::anyhow!(e))?;
                 Ok(format!("{{\"ok\":true,\"ship\":{}}}", id.0))
             }
             Command::Land(id) => {
                 let placed = self
+                    .server
                     .disassemble(engine_voxel::GridId(id))
                     .map_err(|e| anyhow::anyhow!(e))?;
                 Ok(format!("{{\"ok\":true,\"placed\":{placed}}}"))
@@ -1224,7 +1230,7 @@ impl VoxelGame {
                             .context("ride : aucun wagonnet libre")?
                     }
                 };
-                if !self.ride(entity) {
+                if !self.server.ride(entity) {
                     bail!(
                         "ride : impossible de monter (vol, wagon plein ou ce n'est pas un wagonnet)"
                     );
@@ -1285,7 +1291,7 @@ impl VoxelGame {
             }
             Command::Structures(radius) => {
                 let feet = player::body(&self.server.ecs, self.server.players.entity()).position;
-                let streamer = self.streamer();
+                let streamer = self.server.streamer();
                 let generator = streamer.generator();
                 let list: Vec<String> = generator
                     .structure_sites_near(feet.x.floor() as i32, feet.z.floor() as i32, radius)
@@ -1315,7 +1321,7 @@ impl VoxelGame {
                 Ok(format!("{{\"ok\":true,\"weather\":\"{}\"}}", sky.name()))
             }
             Command::Damage(amount, pierce) => {
-                let dealt = self.hurt_player_pierced(
+                let dealt = self.server.hurt_player_pierced(
                     amount,
                     crate::survival::DamageCause::Command,
                     crate::attributes::Pierce::flat(pierce),
@@ -1366,7 +1372,7 @@ impl VoxelGame {
                 Ok(format!("{{\"ok\":true,\"pos\":{}}}", vec3(at)))
             }
             Command::Xp(points) => {
-                self.grant_xp(points);
+                self.server.grant_xp(points);
                 Ok(self.state_json())
             }
             Command::UiTexts => Ok(format!(
@@ -1427,7 +1433,7 @@ impl VoxelGame {
                 Ok(ok())
             }
             Command::Travel(key) => {
-                if self.travel(&key) {
+                if self.server.travel(&key) {
                     Ok(ok())
                 } else {
                     bail!(
@@ -1570,7 +1576,7 @@ impl VoxelGame {
             .map(|c| *c)
             .unwrap_or_default();
         let health = player::health(&self.server.ecs, self.server.players.entity());
-        let streamer = self.streamer();
+        let streamer = self.server.streamer();
         let generator = streamer.generator();
         // Le biome là où l'on est : celui d'une grotte souterraine, sinon celui de la colonne.
         let biome = generator
