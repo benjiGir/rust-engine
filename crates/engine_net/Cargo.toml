@@ -1,0 +1,12 @@
+[package]
+name = "engine_net"
+description = "Le réseau du moteur : trames compressées, connexions TCP à deux threads, écoute et annonce sur le réseau local."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+lz4_flex = { workspace = true }
+
+[lints]
+workspace = true

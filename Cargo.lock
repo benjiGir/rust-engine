@@ -1180,6 +1180,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine_net"
+version = "0.1.0"
+dependencies = [
+ "lz4_flex",
+]
+
+[[package]]
 name = "engine_render"
 version = "0.1.0"
 dependencies = [

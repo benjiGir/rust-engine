@@ -907,6 +907,20 @@ Le code serveur lit encore la fenêtre à plusieurs endroits : `self.ui` est cit
 
 ### Lot 5 : le réseau local
 
+Découpage (choisi le 21 nov. : le serveur reste sur le thread principal de l'hôte ; le thread à part, la fin du
+lot 4, viendra plus tard) :
+
+- **5a, `engine_net` (réalisé)** : des trames `[longueur varint][drapeau][données]`, compressées en lz4 au-delà de
+  256 octets si c'est plus court, encodées une fois en `Arc<[u8]>` (le même chunk part à tous) ; `Connection`, un
+  thread de lecture et un d'écriture par pair, une file d'envoi bornée (4 096 trames) avec les octets en attente
+  (`queued_bytes`) ; `Listener` qui accepte sans bloquer et prend le port suivant si le sien est pris. Une crate
+  sans fenêtre (règle `HEADLESS` de check-arch). Tests sur la boucle locale.
+- **5b** : tous les messages sérialisés, chunks compris (le format des sauvegardes), un chunk encodé une fois par
+  version.
+- **5c** : héberger (écoute, poignée de main, joueurs distants dans le serveur, annonce sur le réseau local).
+- **5d** : rejoindre : une fenêtre sans serveur local, les outils de l'hôte refusés en invité.
+
+
 - `engine_net` :
   - un lien TCP (`std::net`, `TCP_NODELAY`) ;
   - un thread de lecture et un thread d'écriture par connexion ;
