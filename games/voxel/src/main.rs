@@ -109,6 +109,7 @@ mod server_step;
 mod sky_view;
 mod stream_upload;
 mod texture_packs;
+mod wire;
 pub use launch::{Launch, Request};
 mod conduit_fx;
 mod conduit_render;

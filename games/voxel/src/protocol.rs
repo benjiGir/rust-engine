@@ -279,8 +279,8 @@ pub enum ClientMsg {
 /// Ce que le simulateur répond au client.
 ///
 /// Les messages de chunks portent un `Arc<Chunk>` : en mémoire il passe sans copie, et la réplique du
-/// client tient les mêmes blocs que le serveur. Ils ne sont donc pas sérialisables pour l'instant
-/// (`#[serde(skip)]`) : le transport réseau les encodera avec le format des sauvegardes (lot 5).
+/// client tient les mêmes blocs que le serveur. Sur le réseau, il passe par `Chunk::to_wire` (voir
+/// `wire.rs`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServerMsg {
     /// Un mouvement refusé (ou un déplacement imposé) : le client place le joueur ici. `carried` : un
@@ -356,30 +356,27 @@ pub enum ServerMsg {
     Quests(Option<crate::quest_progress::Progress>),
     /// Ce que l'écran ouvert montre et que seul le serveur sait, quand cela change.
     ScreenView(Option<crate::screen_actions::ScreenView>),
-    // Les variantes `serde(skip)` sont à la fin : elles décalent les numéros de variantes qui les suivent.
     /// Un chunk que le client n'avait pas, avec sa lumière et ses blocs actifs. Le serveur envoie des
     /// colonnes entières, éclairées (voir `engine_voxel::ChunkSender`).
-    #[serde(skip)]
     Chunk {
         pos: IVec3,
+        #[serde(with = "crate::wire::chunk")]
         chunk: Arc<Chunk>,
     },
     /// Les blocs d'une structure mobile (bateau, contraption), à sa première vue et quand ils changent.
-    #[serde(skip)]
     GridBlocks {
         id: NetId,
         grid: GridSnapshot,
     },
     /// Les définitions du livre de quêtes (chapitres, quêtes, récompenses), à l'ouverture. Le contenu du
     /// jeu : un client du réseau les chargera de ses propres mods.
-    #[serde(skip)]
-    QuestBook(Arc<crate::quests::Quests>),
+    QuestBook(#[serde(with = "crate::wire::shared")] Arc<crate::quests::Quests>),
     /// Un chunk que le client a déjà et qui a changé : le chunk d'aujourd'hui, avec les positions des
     /// blocs posés ou cassés (`edits`, remaillés dans l'image), ou `remesh` pour un changement qui
     /// peut attendre (lumière, machine). Ni l'un ni l'autre : des données seules, sans remaillage.
-    #[serde(skip)]
     ChunkChanged {
         pos: IVec3,
+        #[serde(with = "crate::wire::chunk")]
         chunk: Arc<Chunk>,
         edits: Vec<IVec3>,
         remesh: bool,
@@ -531,7 +528,9 @@ mod tests {
             unreachable!()
         };
         assert!(Arc::ptr_eq(&copy, &chunk));
-        // Le transport réseau (lot 5) les encodera à part : pour l'instant, `postcard` les refuse.
-        assert!(postcard::to_stdvec(&msg).is_err());
+        // Sur le réseau, il passe par `Chunk::to_wire` (voir `wire.rs`) : un chunk d'air tient en
+        // quelques centaines d'octets une fois la trame compressée.
+        let bytes = postcard::to_stdvec(&msg).unwrap();
+        assert!(engine_net::encode(&bytes).len() < 1024);
     }
 }

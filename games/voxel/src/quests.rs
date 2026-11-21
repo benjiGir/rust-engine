@@ -256,7 +256,7 @@ pub fn parse_file(text: &str, origin: &str) -> Result<QuestsFile> {
 // ---------------------------------------------------------------------------------------------
 
 /// Un objet demandé : un objet précis, ou un groupe (`#logs`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ItemSpec {
     Item(ItemId),
     Group { name: String, members: Vec<ItemId> },
@@ -279,7 +279,7 @@ impl ItemSpec {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Task {
     Item {
         spec: ItemSpec,
@@ -323,7 +323,7 @@ impl Task {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Reward {
     Item(ItemId, u32),
     Xp(u32),
@@ -333,7 +333,7 @@ pub enum Reward {
 }
 
 /// Une table de tirage prête à servir.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LootTable {
     pub rolls: (u32, u32),
     /// (objet, (min, max), poids)
@@ -372,7 +372,7 @@ impl LootTable {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Quest {
     pub id: String,
     pub title: String,
@@ -401,14 +401,14 @@ pub struct Quest {
     pub chapter: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Group {
     pub id: String,
     pub title: String,
     pub icon: ItemId,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Chapter {
     pub id: String,
     pub group: String,
@@ -419,7 +419,7 @@ pub struct Chapter {
 }
 
 /// Tout ce que le livre contient.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Quests {
     pub default_progression: Progression,
     pub default_shape: Shape,

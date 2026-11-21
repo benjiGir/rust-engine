@@ -4075,6 +4075,7 @@ dependencies = [
  "engine_ecs",
  "engine_inspect",
  "engine_mods",
+ "engine_net",
  "engine_render",
  "engine_trace",
  "engine_voxel",

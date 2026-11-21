@@ -915,8 +915,11 @@ lot 4, viendra plus tard) :
   thread de lecture et un d'écriture par pair, une file d'envoi bornée (4 096 trames) avec les octets en attente
   (`queued_bytes`) ; `Listener` qui accepte sans bloquer et prend le port suivant si le sien est pris. Une crate
   sans fenêtre (règle `HEADLESS` de check-arch). Tests sur la boucle locale.
-- **5b** : tous les messages sérialisés, chunks compris (le format des sauvegardes), un chunk encodé une fois par
-  version.
+- **5b (réalisé)** : tous les messages sont sérialisables. `Chunk::to_wire` (palette de numéros de blocs, un indice
+  par bloc, lumière, biomes, blocs actifs, fluides ; la trame compresse) et `SubGrid::to_wire` dans `engine_voxel` ;
+  `wire.rs` les branche sur serde (`#[serde(with)]`) et relit les structures avec le registre que le client réseau
+  enregistre. Les définitions de quêtes sont sérialisables. Un chunk d'air tient en moins d'un Kio. L'encodage
+  unique d'un chunk pour tous les joueurs se fera dans l'envoi (5c).
 - **5c** : héberger (écoute, poignée de main, joueurs distants dans le serveur, annonce sur le réseau local).
 - **5d** : rejoindre : une fenêtre sans serveur local, les outils de l'hôte refusés en invité.
 

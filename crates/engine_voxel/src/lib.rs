@@ -78,7 +78,7 @@ pub use capabilities::{
     Capabilities, EnergyStorage, Face, FluidTank, Inventory, Io, ItemStack, Kinetic, MAX_STACK,
     Sides,
 };
-pub use chunk::{BlockEntity, CHUNK_SIZE, Chunk, DEFAULT_LIGHT};
+pub use chunk::{BlockEntity, CHUNK_SIZE, Chunk, DEFAULT_LIGHT, WireError};
 pub use chunk_sender::{ChunkSender, DEFAULT_SEND_BUDGET};
 pub use circuits::{FACINGS, PUSH_LIMIT, facing_of, placement_state};
 pub use connections::ConnectedShape;

@@ -220,6 +220,97 @@ impl Chunk {
     }
 }
 
+/// Un chunk tel qu'il passe sur le réseau : une palette de numéros de blocs (le client a le même
+/// registre, la poignée de main l'a vérifié), un indice par bloc, la lumière, les biomes, les blocs
+/// actifs et les fluides. La trame le compresse.
+#[derive(Debug, Serialize, Deserialize)]
+struct WireChunk {
+    palette: Vec<u16>,
+    indices: Vec<u16>,
+    light: Vec<u8>,
+    biomes: Vec<u8>,
+    block_entities: Vec<(u16, BlockEntity)>,
+    fluids: Vec<(u16, u16)>,
+}
+
+/// Un chunk reçu illisible.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WireError(pub String);
+
+impl std::fmt::Display for WireError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "chunk illisible : {}", self.0)
+    }
+}
+
+impl std::error::Error for WireError {}
+
+impl Chunk {
+    /// Les octets d'un chunk pour le réseau (voir [`Chunk::from_wire`]).
+    pub fn to_wire(&self) -> Vec<u8> {
+        let mut palette: Vec<u16> = Vec::new();
+        let mut lookup: HashMap<u16, u16> = HashMap::default();
+        let indices = self
+            .blocks
+            .iter()
+            .map(|id| {
+                *lookup.entry(id.0).or_insert_with(|| {
+                    palette.push(id.0);
+                    (palette.len() - 1) as u16
+                })
+            })
+            .collect();
+        let mut block_entities: Vec<(u16, BlockEntity)> = self
+            .block_entities
+            .iter()
+            .map(|(i, e)| (*i, e.clone()))
+            .collect();
+        block_entities.sort_by_key(|(i, _)| *i);
+        let mut fluids: Vec<(u16, u16)> = self.fluids.iter().map(|(i, a)| (*i, *a)).collect();
+        fluids.sort_unstable();
+        let wire = WireChunk {
+            palette,
+            indices,
+            light: self.light.to_vec(),
+            biomes: self.biomes.clone(),
+            block_entities,
+            fluids,
+        };
+        postcard::to_allocvec(&wire).expect("un chunk se sérialise toujours")
+    }
+
+    /// Relit un chunk reçu du réseau.
+    pub fn from_wire(bytes: &[u8]) -> Result<Self, WireError> {
+        let wire: WireChunk = postcard::from_bytes(bytes).map_err(|e| WireError(e.to_string()))?;
+        if wire.indices.len() != VOLUME || wire.light.len() != VOLUME {
+            return Err(WireError("taille invalide".to_string()));
+        }
+        let blocks = wire
+            .indices
+            .iter()
+            .map(|&i| {
+                wire.palette
+                    .get(usize::from(i))
+                    .map(|&id| BlockId(id))
+                    .ok_or_else(|| WireError("indice hors de la palette".to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let valid = |i: u16| usize::from(i) < VOLUME;
+        if !wire.block_entities.iter().all(|(i, _)| valid(*i))
+            || !wire.fluids.iter().all(|(i, _)| valid(*i))
+        {
+            return Err(WireError("position hors du chunk".to_string()));
+        }
+        Ok(Self {
+            blocks: blocks.into_boxed_slice(),
+            light: wire.light.into_boxed_slice(),
+            block_entities: wire.block_entities.into_iter().collect(),
+            biomes: wire.biomes,
+            fluids: wire.fluids.into_iter().collect(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,5 +356,20 @@ mod tests {
         );
         chunk.set_sky_light(1, 2, 3, 0);
         assert_eq!(chunk.block_light(1, 2, 3), 9);
+    }
+
+    #[test]
+    fn a_chunk_crosses_the_network_unchanged() {
+        let mut chunk = Chunk::new();
+        chunk.set(1, 2, 3, BlockId(7));
+        chunk.set(31, 31, 31, BlockId(300));
+        chunk.set_fluid_amount(4, 5, 6, Some(2048));
+        chunk.set_block_entity(1, 2, 3, Some(BlockEntity::default()));
+        let bytes = chunk.to_wire();
+        let back = Chunk::from_wire(&bytes).unwrap();
+        assert!(back.blocks == chunk.blocks && back.light == chunk.light);
+        assert_eq!(back.fluid_amount(4, 5, 6), Some(2048));
+        assert_eq!(back.block_entities, chunk.block_entities);
+        assert!(Chunk::from_wire(&bytes[..bytes.len() / 2]).is_err());
     }
 }

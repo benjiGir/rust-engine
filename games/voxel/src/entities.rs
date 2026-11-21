@@ -129,8 +129,8 @@ pub struct Look {
 /// Les blocs d'une structure mobile, tels que le serveur les a au moment de l'envoi. Les chunks sont
 /// des `Arc` : en mémoire la copie ne coûte presque rien (le transport réseau, au lot 5, enverra les
 /// blocs avec le format des sauvegardes). Deux instantanés sont égaux s'ils sont le même.
-#[derive(Debug, Clone)]
-pub struct GridSnapshot(pub Arc<SubGrid>);
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GridSnapshot(#[serde(with = "crate::wire::grid")] pub Arc<SubGrid>);
 
 impl PartialEq for GridSnapshot {
     fn eq(&self, other: &Self) -> bool {

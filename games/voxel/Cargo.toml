@@ -12,6 +12,7 @@ engine_core = { workspace = true }
 engine_render = { workspace = true }
 engine_voxel = { workspace = true }
 engine_mods = { workspace = true }
+engine_net = { workspace = true }
 engine_ecs = { workspace = true }
 engine_inspect = { workspace = true }
 egui-winit = { workspace = true }
