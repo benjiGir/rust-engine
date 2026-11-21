@@ -135,6 +135,20 @@ impl VoxelServer {
             .map_err(|err| log::warn!("annonce sur le réseau local impossible : {err}"))
             .ok();
         log::info!("partie ouverte au réseau local sur le port {port}");
+        self.listen(listener, announcer);
+        Ok(port)
+    }
+
+    /// Écoute sur la boucle locale seulement, sans annonce (le serveur intégré dans un thread, voir
+    /// `dedicated::spawn_integrated`). Renvoie le port.
+    pub fn open_local(&mut self) -> std::io::Result<u16> {
+        let listener = Listener::bind_loopback()?;
+        let port = listener.port();
+        self.listen(listener, None);
+        Ok(port)
+    }
+
+    fn listen(&mut self, listener: Listener, announcer: Option<engine_net::Announcer>) {
         self.net = Some(NetHost {
             listener,
             pending: Vec::new(),
@@ -144,7 +158,6 @@ impl VoxelServer {
             max_players: None,
             whitelist: Vec::new(),
         });
-        Ok(port)
     }
 
     /// Les connexions et les messages arrivés : nouveaux venus, poignées de main, `ClientMsg` des

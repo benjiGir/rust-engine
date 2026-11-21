@@ -294,6 +294,16 @@ pub struct Listener {
 impl Listener {
     /// Écoute sur `port`, ou sur l'un des `tries - 1` suivants s'il est pris (0 : un port libre).
     pub fn bind(port: u16, tries: u16) -> io::Result<Self> {
+        Self::bind_on("0.0.0.0", port, tries)
+    }
+
+    /// Écoute sur la boucle locale seulement (un serveur intégré, que seule la fenêtre de la même
+    /// machine rejoint), sur un port libre.
+    pub fn bind_loopback() -> io::Result<Self> {
+        Self::bind_on("127.0.0.1", 0, 1)
+    }
+
+    fn bind_on(host: &str, port: u16, tries: u16) -> io::Result<Self> {
         let mut last = None;
         for offset in 0..tries.max(1) {
             let candidate = if port == 0 {
@@ -301,7 +311,7 @@ impl Listener {
             } else {
                 port.saturating_add(offset)
             };
-            match TcpListener::bind(("0.0.0.0", candidate)) {
+            match TcpListener::bind((host, candidate)) {
                 Ok(inner) => {
                     inner.set_nonblocking(true)?;
                     return Ok(Self { inner });

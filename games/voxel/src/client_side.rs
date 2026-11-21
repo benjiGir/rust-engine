@@ -103,6 +103,9 @@ pub(crate) struct ClientSide {
     pub(crate) remote: Option<crate::net_client::RemoteLink>,
     /// L'écoute des parties annoncées, ouverte sur l'écran « Multijoueur ».
     pub(crate) lan: Option<engine_net::Discovery>,
+    /// Le serveur intégré qui tourne dans son thread (`VOXEL_SERVER_THREAD=1`) : le lâcher l'arrête et
+    /// attend sa sauvegarde.
+    pub(crate) integrated: Option<voxel_sim::dedicated::Integrated>,
     /// Les joueurs de la partie (`ServerMsg::PlayerList`), montrés tant que Tab est tenu.
     pub(crate) online: Vec<String>,
     /// Le corps du joueur, simulé ici (voir `predicted.rs`).

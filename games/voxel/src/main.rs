@@ -215,6 +215,7 @@ impl VoxelGame {
         settings: settings::Settings,
         joined: Option<net_client::Joined>,
     ) -> Result<Self> {
+        let mut launch = launch;
         renderer.crosshair = !launch.title;
         // `std::env::var` renvoie `Err` si la variable n'existe pas : `.ok()` en fait un `Option`.
         let autofly = std::env::var("VOXEL_AUTOFLY")
@@ -244,6 +245,24 @@ impl VoxelGame {
             .ok()
             .filter(|_| automatic)
             .map(|dir| screenshots::Tour::new(dir.into()));
+
+        // `VOXEL_SERVER_THREAD=1` : le monde tourne dans son propre thread (un serveur intégré, voir
+        // `voxel_sim::dedicated::spawn_integrated`), et la fenêtre le rejoint comme un invité, sur la
+        // boucle locale. Les outils de l'hôte (`ctl`, captures, démo) n'ont alors que la fenêtre.
+        let mut integrated = None;
+        let threaded = std::env::var("VOXEL_SERVER_THREAD").is_ok_and(|v| v == "1");
+        if threaded
+            && !launch.title
+            && launch.join.is_none()
+            && joined.is_none()
+            && let Some(world) = launch.world.clone()
+        {
+            let (name, _) = net_client::identity(&settings);
+            let started = voxel_sim::dedicated::spawn_integrated(world, &settings, &name)?;
+            launch.join = Some(format!("127.0.0.1:{}", started.port));
+            launch.world = None;
+            integrated = Some(started);
+        }
 
         // Le serveur d'abord, sans fenêtre (voir `server_boot.rs`), puis ce que la fenêtre en tire.
         let boot = VoxelServer::boot(
@@ -417,6 +436,7 @@ impl VoxelGame {
                 eating_sent: false,
                 body,
                 remote,
+                integrated,
                 lan: None,
                 online: Vec::new(),
                 mining: None,
@@ -824,11 +844,18 @@ impl VoxelGame {
 
     fn exit(&mut self, _ctx: &mut Context) {
         self.server.save_now();
+        // Le serveur intégré sauvegarde à son arrêt (le joueur de la fenêtre compris).
+        if let Some(integrated) = &mut self.client.integrated {
+            integrated.stop();
+        }
     }
 
     /// Sauvegarde et décharge le monde ; rend le renderer pour le monde suivant.
     fn shutdown(mut self) -> Renderer {
         self.server.save_now();
+        if let Some(integrated) = &mut self.client.integrated {
+            integrated.stop();
+        }
         self.client.renderer.clear_meshes();
         self.client.renderer.set_visible_meshes(None);
         self.client.renderer.set_instances(&[]);

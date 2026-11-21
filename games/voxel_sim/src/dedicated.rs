@@ -176,11 +176,86 @@ fn tick_report(ticks: &mut Vec<Duration>, seconds: f32, players: usize) -> Strin
 }
 
 /// Lance le serveur dédié et le fait tourner jusqu'à `stop`.
+/// La boucle d'un serveur sans fenêtre : réseau, image, pas fixes à 60 Hz, envois, sauvegarde
+/// automatique, et les lignes de `lines` (console ; `None` ou `stop` arrêtent). À l'arrêt, les joueurs
+/// partent (sauvegardés) et le monde est sauvegardé. `report_ticks` : écrire les mesures des ticks.
+fn serve(server: &mut VoxelServer, lines: &mpsc::Receiver<Option<String>>, report_ticks: bool) {
+    let mut last = Instant::now();
+    let mut lag = 0.0f32;
+    let mut ticks: Vec<Duration> = Vec::new();
+    let mut report = Instant::now();
+    'running: loop {
+        let now = Instant::now();
+        let dt = (now - last).as_secs_f32().min(0.25);
+        last = now;
+        while let Ok(line) = lines.try_recv() {
+            let Some(line) = line else {
+                log::info!("console fermée : arrêt");
+                break 'running;
+            };
+            match parse_console(&line) {
+                Some(Ok(command)) => {
+                    if !server.run_console(command) {
+                        break 'running;
+                    }
+                }
+                Some(Err(err)) => println!("{err}"),
+                None => {}
+            }
+        }
+        server.poll_net();
+        server.frame(dt);
+        server.stream_world();
+        server.send_world();
+        lag += dt;
+        let mut steps = 0;
+        while lag >= STEP && steps < MAX_CATCH_UP {
+            server.sim_step += 1;
+            let tick = Instant::now();
+            server.fixed_step(STEP);
+            ticks.push(tick.elapsed());
+            lag -= STEP;
+            steps += 1;
+        }
+        if report_ticks && report.elapsed() >= REPORT_EVERY {
+            let seconds = report.elapsed().as_secs_f32();
+            report = Instant::now();
+            let players = server.players.iter().filter(|p| !p.ghost).count();
+            println!("{}", tick_report(&mut ticks, seconds, players));
+        }
+        lag = lag.min(STEP * MAX_CATCH_UP as f32);
+        server.replicate_player_views();
+        // Les réponses du joueur caché ne vont nulle part.
+        let _ = server.route_replies();
+        server.end_net_frame();
+        server.autosave();
+        // Le reste du pas : le serveur dort, sans brûler un cœur.
+        let spent = now.elapsed();
+        if let Some(rest) = Duration::from_secs_f32(STEP).checked_sub(spent) {
+            std::thread::sleep(rest);
+        }
+    }
+    let ids: Vec<PlayerId> = server
+        .players
+        .iter()
+        .filter(|p| !p.ghost)
+        .map(|p| p.id)
+        .collect();
+    for id in ids {
+        server.leave(id, "arrêt du serveur");
+    }
+    let _ = server.route_replies();
+    server.save_now();
+    log::info!("serveur arrêté, monde sauvegardé");
+}
+
 pub fn run() -> Result<()> {
     let root = crate::project_root();
     let config = ServerConfig::load_or_create(&root)?;
     let mut settings = crate::settings::Settings::load(&root);
     settings.player_name = "Serveur".into();
+    // Le joueur caché ne porte l'identifiant de personne : un joueur de cette machine peut entrer.
+    settings.player_uuid = crate::players::uuid_name(0);
     settings.render_distance = config.view_distance.clamp(2, 32);
     let launch = Launch {
         world: Some(crate::persistence::saves_root(&root).join(&config.world)),
@@ -224,79 +299,123 @@ pub fn run() -> Result<()> {
             let _ = lines_tx.send(None);
         })?;
 
-    let mut last = Instant::now();
-    let mut lag = 0.0f32;
-    let mut ticks: Vec<Duration> = Vec::new();
-    let mut report = Instant::now();
-    'running: loop {
-        let now = Instant::now();
-        let dt = (now - last).as_secs_f32().min(0.25);
-        last = now;
-        while let Ok(line) = lines.try_recv() {
-            let Some(line) = line else {
-                println!("entrée standard fermée : arrêt");
-                break 'running;
-            };
-            match parse_console(&line) {
-                Some(Ok(command)) => {
-                    if !server.run_console(command) {
-                        break 'running;
-                    }
-                }
-                Some(Err(err)) => println!("{err}"),
-                None => {}
-            }
-        }
-        server.poll_net();
-        server.frame(dt);
-        server.stream_world();
-        server.send_world();
-        lag += dt;
-        let mut steps = 0;
-        while lag >= STEP && steps < MAX_CATCH_UP {
-            server.sim_step += 1;
-            let tick = Instant::now();
-            server.fixed_step(STEP);
-            ticks.push(tick.elapsed());
-            lag -= STEP;
-            steps += 1;
-        }
-        if report.elapsed() >= REPORT_EVERY {
-            let seconds = report.elapsed().as_secs_f32();
-            report = Instant::now();
-            let players = server.players.iter().filter(|p| !p.ghost).count();
-            println!("{}", tick_report(&mut ticks, seconds, players));
-        }
-        lag = lag.min(STEP * MAX_CATCH_UP as f32);
-        server.replicate_player_views();
-        // Les réponses du joueur caché ne vont nulle part.
-        let _ = server.route_replies();
-        server.end_net_frame();
-        server.autosave();
-        // Le reste du pas : le serveur dort, sans brûler un cœur.
-        let spent = now.elapsed();
-        if let Some(rest) = Duration::from_secs_f32(STEP).checked_sub(spent) {
-            std::thread::sleep(rest);
-        }
-    }
-    let ids: Vec<PlayerId> = server
-        .players
-        .iter()
-        .filter(|p| !p.ghost)
-        .map(|p| p.id)
-        .collect();
-    for id in ids {
-        server.leave(id, "arrêt du serveur");
-    }
-    let _ = server.route_replies();
-    server.save_now();
+    serve(&mut server, &lines, true);
     println!("serveur arrêté, monde sauvegardé");
     Ok(())
+}
+
+/// Un serveur intégré : le monde tourne dans son propre thread, et la fenêtre le rejoint comme un
+/// invité, sur la boucle locale (`VOXEL_SERVER_THREAD=1`, voir le jeu). Le lâcher l'arrête et attend la
+/// sauvegarde.
+pub struct Integrated {
+    /// Le port de la boucle locale où la fenêtre le rejoint.
+    pub port: u16,
+    lines: mpsc::Sender<Option<String>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Integrated {
+    /// Arrête le serveur et attend qu'il ait sauvegardé.
+    pub fn stop(&mut self) {
+        let _ = self.lines.send(Some("stop".to_string()));
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Drop for Integrated {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Construit le monde `world` dans un thread à lui (le serveur ne change jamais de thread : il y est
+/// construit) et l'y fait tourner. `owner` (le joueur de la fenêtre) y est opérateur.
+pub fn spawn_integrated(
+    world: std::path::PathBuf,
+    settings: &crate::settings::Settings,
+    owner: &str,
+) -> Result<Integrated> {
+    let mut settings = settings.clone();
+    // Le joueur « hôte » du serveur est caché : il ne porte pas l'identifiant du joueur de la fenêtre,
+    // qui le rejoint comme un invité et retrouve son propre fichier.
+    settings.player_name = "Serveur".into();
+    settings.player_uuid = crate::players::uuid_name(0);
+    let owner = owner.to_string();
+    let (lines_tx, lines) = mpsc::channel::<Option<String>>();
+    let (ready_tx, ready) = mpsc::channel::<Result<u16, String>>();
+    let thread = std::thread::Builder::new()
+        .name("serveur intégré".into())
+        .spawn(move || {
+            let launch = Launch {
+                world: Some(world),
+                seed: None,
+                title: false,
+                difficulty: None,
+                dimension: None,
+                join: None,
+            };
+            let mut server = match VoxelServer::boot(&launch, &settings, STEP, false, false) {
+                Ok(boot) => boot.server,
+                Err(err) => {
+                    let _ = ready_tx.send(Err(format!("{err:#}")));
+                    return;
+                }
+            };
+            server.hide_local();
+            server.operators = vec![owner];
+            match server.open_local() {
+                Ok(port) => {
+                    let _ = ready_tx.send(Ok(port));
+                }
+                Err(err) => {
+                    let _ = ready_tx.send(Err(err.to_string()));
+                    return;
+                }
+            }
+            serve(&mut server, &lines, false);
+        })?;
+    let port = ready
+        .recv()
+        .context("le serveur intégré s'est arrêté avant d'écouter")?
+        .map_err(|err| anyhow::anyhow!("serveur intégré : {err}"))?;
+    log::info!("serveur intégré dans son thread, sur 127.0.0.1:{port}");
+    Ok(Integrated {
+        port,
+        lines: lines_tx,
+        thread: Some(thread),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_integrated_server_runs_in_its_thread_and_saves_when_stopped() {
+        let dir = std::env::temp_dir().join(format!("voxel-integre-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let settings = crate::settings::Settings::default();
+        let mut integrated = spawn_integrated(dir.clone(), &settings, "Alice").unwrap();
+        // Le contenu, pour se présenter comme la fenêtre le ferait.
+        let shell = crate::server_boot::tests::headless();
+        let content = crate::net_host::content_fingerprint(&shell.registry, &shell.content.items);
+        let address = format!("127.0.0.1:{}", integrated.port);
+        let mut bot =
+            crate::bot::Bot::join(&address, "Alice", 0xa11ce, content, shell.registry.clone())
+                .unwrap();
+        bot.wait_until(Duration::from_secs(60), || {}, |b| b.chunks_received > 0)
+            .unwrap();
+        bot.leave();
+        integrated.stop();
+        assert!(dir.join("world.ron").exists(), "le monde est sauvegardé");
+        let player = dir
+            .join("players")
+            .join(format!("{}.ron", crate::players::uuid_name(0xa11ce)));
+        assert!(player.exists(), "le joueur de la fenêtre est sauvegardé");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn the_tick_report_gives_rate_mean_and_p99() {

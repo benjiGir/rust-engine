@@ -1072,6 +1072,22 @@ Une règle de Rust décide du reste : les méthodes d'un type se définissent da
   bibliothèque d'affichage (52 Mo en débogage contre 78 pour le jeu) ; `voxel --server` reste possible. Vérifié :
   deux bots le rejoignent, 60 ticks/s, Ctrl+C sauvegarde et arrête.
 
+### Fin du lot 4 : le serveur intégré dans son thread (réalisé, en option)
+
+- Le serveur ne peut pas changer de thread (des `Rc` partout, les mods compris) : il est **construit** dans le
+  sien. `voxel_sim::dedicated::spawn_integrated` lance le monde dans un thread « serveur intégré », qui écoute
+  sur la boucle locale seulement (`Listener::bind_loopback`, `VoxelServer::open_local`, sans annonce) et tourne
+  avec la boucle du serveur dédié (`serve`).
+- `VOXEL_SERVER_THREAD=1` : la fenêtre lance ce serveur et le **rejoint comme un invité** (le chemin du lot 5),
+  sous le nom et l'identifiant du joueur ; elle retrouve son fichier de `players/`, et son joueur est opérateur
+  (ses commandes passent par l'exécuteur du serveur). Le joueur caché du serveur porte l'identifiant 0 (dans le
+  serveur dédié aussi : un joueur de la même machine peut y entrer). Quitter ou changer de monde arrête le
+  thread, qui fait partir les joueurs et sauvegarde.
+- Ce n'est pas le mode par défaut : les outils de l'hôte (`ctl`, captures, démo, banc d'essai) veulent un accès
+  direct au serveur, qu'un invité n'a pas ; la pause n'arrête pas le monde ; ouvrir la partie au réseau local
+  depuis le menu n'est pas encore possible dans ce mode.
+- Vérifié : un test (un bot rejoint un serveur intégré, l'arrêt sauvegarde le monde et le joueur) et en jeu.
+
 ### Lot 7 : tester et mesurer
 
 **Réalisé (21 nov.)** :
