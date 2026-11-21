@@ -45,7 +45,7 @@ pub struct ServerConfig {
     pub view_distance: i32,
     /// Les noms admis (vide : tout le monde).
     pub whitelist: Vec<String>,
-    /// Les joueurs qui pourront taper des commandes (quand le serveur les exécutera).
+    /// Les joueurs qui peuvent taper des commandes de jeu (voir `server_commands.rs`).
     pub operators: Vec<String>,
 }
 
@@ -192,6 +192,7 @@ pub fn run() -> Result<()> {
     };
     let mut server = VoxelServer::boot(&launch, &settings, STEP, false, false)?.server;
     server.hide_local();
+    server.operators = config.operators.clone();
     let port = server.open_lan(config.port)?;
     if let Some(net) = &mut server.net {
         net.max_players = Some(config.max_players.max(1));

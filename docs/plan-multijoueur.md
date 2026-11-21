@@ -964,8 +964,12 @@ lot 4, viendra plus tard) :
   - chez un invité, `ctl` n'accepte que les commandes de la fenêtre (état, marche, regard, clics, touches, console,
     capture, pause, quitter) ;
   - vérifié à deux fenêtres : le chat de l'invité s'affiche chez les deux.
-- **Reste pour le lot 5** : `--port` dans `cargo xtask ctl` (aujourd'hui `VOXEL_CONTROL=port`), les permissions des
-  invités (tricheries, commandes par un exécuteur côté serveur), le contrôle de la taille des grilles d'artisanat.
+- **Les commandes des invités (réalisé, `server_commands.rs`)** : le serveur exécute lui-même les commandes d'un
+  joueur du réseau (`give`, `time`, `weather`, `tp`, `xp`, `summon`, `break`, `place`, celles des mods) et lui
+  répond en chat ; `help` et `mods` sont à tous, le reste aux opérateurs (`operators` de `server.ron`) ;
+  `travel` reste à l'hôte. La fenêtre de l'hôte garde son chemin (`ctl`).
+- **Reste pour le lot 5** : `--port` dans `cargo xtask ctl` (aujourd'hui `VOXEL_CONTROL=port`), des opérateurs pour
+  une partie ouverte depuis le menu, le contrôle de la taille des grilles d'artisanat.
 
 
 - `engine_net` :

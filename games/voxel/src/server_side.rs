@@ -74,6 +74,8 @@ pub(crate) struct VoxelServer {
     pub(crate) steer: f32,
     /// La partie ouverte au réseau local (voir `net_host.rs`).
     pub(crate) net: Option<crate::net_host::NetHost>,
+    /// Les joueurs du réseau qui peuvent taper des commandes de jeu (voir `server_commands.rs`).
+    pub(crate) operators: Vec<String>,
     /// Quand les réglages des mods ont été écrits pour la dernière fois.
     pub(crate) mod_settings_saved: std::time::Instant,
     /// 0 paisible, 1 normale, 2 difficile.

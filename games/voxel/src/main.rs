@@ -111,6 +111,7 @@ mod net_ctl;
 mod net_host;
 mod predicted;
 mod server_boot;
+mod server_commands;
 mod server_sends;
 mod server_side;
 mod server_step;

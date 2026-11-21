@@ -275,7 +275,7 @@ impl crate::server_side::VoxelServer {
             .push((id, crate::protocol::ServerMsg::Chat(text.to_string())));
     }
 
-    fn console_mods(&self) -> String {
+    pub(crate) fn console_mods(&self) -> String {
         let disabled = self.mods.disabled();
         let lines: Vec<String> = self
             .mods
@@ -301,7 +301,7 @@ impl crate::server_side::VoxelServer {
         }
     }
 
-    fn console_help(&self) -> String {
+    pub(crate) fn console_help(&self) -> String {
         let mut out = String::from(
             "Commandes de la console :\n/help : cette liste\n/mods : ce que consomme chaque mod",
         );

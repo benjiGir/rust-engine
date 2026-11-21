@@ -723,11 +723,12 @@ impl crate::server_side::VoxelServer {
         if line.is_empty() {
             return;
         }
-        // Les commandes du jeu passent encore par le pilotage de la fenêtre (`ctl`) : la fenêtre
-        // hôte les exécute juste après ce message (`run_pending_commands`), sur son propre joueur.
-        // Celles d'un joueur du réseau sont refusées tant qu'il n'y a pas d'exécuteur côté serveur.
+        // Les commandes de la fenêtre hôte passent encore par son pilotage (`ctl`) : elle les exécute
+        // juste après ce message (`run_pending_commands`). Celles d'un joueur du réseau, le serveur
+        // les exécute lui-même (voir `server_commands.rs`).
         if !self.players.current_is_local() {
-            self.chat("Les commandes sont réservées à l'hôte pour l'instant");
+            let reply = self.run_server_command(line);
+            self.chat(&reply);
             return;
         }
         self.pending_commands.push(line.to_string());

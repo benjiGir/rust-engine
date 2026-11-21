@@ -260,3 +260,37 @@ fn a_creature_chases_the_nearest_player() {
         "elle va vers le plus proche"
     );
 }
+
+#[test]
+fn a_guest_operator_runs_commands_on_the_server() {
+    let mut server = crate::server_boot::tests::headless();
+    let port = server.open_lan(0).unwrap();
+    let mut b = bot(&mut server, port, "Bob", 2);
+    b.send(&ClientMsg::Command("give dirt 2".into()));
+    b.wait_until(
+        WAIT,
+        || pump(&mut server),
+        |b| {
+            b.chat
+                .iter()
+                .any(|l| l == "Commande réservée aux opérateurs")
+        },
+    )
+    .unwrap();
+    server.operators.push("Bob".into());
+    b.send(&ClientMsg::Command("/give dirt 2".into()));
+    let dirt = server.content.items.id("core:dirt").unwrap();
+    b.wait_until(
+        WAIT,
+        || pump(&mut server),
+        |b| {
+            b.inventory
+                .slots
+                .iter()
+                .flatten()
+                .any(|s| s.item == dirt && s.count == 2)
+        },
+    )
+    .unwrap();
+    assert!(b.chat.iter().any(|l| l == "core:dirt donné"));
+}
