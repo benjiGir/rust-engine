@@ -308,9 +308,9 @@ impl VoxelServer {
             .unwrap_or(0.3);
         let (survival, hunger_rules) = survival::load_rules(&assets);
         // Les fiches d'objets du monde ouvert (voir `item_data.rs`).
-        // Ces deux tables sont globales au processus : un test qui construit un serveur sans
-        // sauvegarde ne les vide pas sous les pieds des autres tests qui tournent en même temps.
-        if dims.meta_store.is_some() || !cfg!(test) {
+        // Ces deux tables sont globales au processus : un test qui construit un serveur (avec ou sans
+        // sauvegarde) ne les change pas sous les pieds des autres tests qui tournent en même temps.
+        if !cfg!(test) {
             item_data::replace_all(
                 dims.meta_store
                     .as_ref()
@@ -409,8 +409,13 @@ pub(crate) mod tests {
 
     /// Un serveur sans fenêtre ni sauvegarde, sur une graine fixe.
     pub(crate) fn headless() -> VoxelServer {
+        headless_in(None)
+    }
+
+    /// Le même, qui sauvegarde dans `world` s'il est donné.
+    pub(crate) fn headless_in(world: Option<std::path::PathBuf>) -> VoxelServer {
         let launch = Launch {
-            world: None,
+            world,
             seed: Some(7),
             title: false,
             difficulty: None,

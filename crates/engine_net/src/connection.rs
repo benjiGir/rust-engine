@@ -44,6 +44,8 @@ pub struct Connection {
     incoming: Receiver<Event>,
     queued: Arc<AtomicUsize>,
     closed: Arc<AtomicBool>,
+    /// Les octets arrivés sur le fil (trames compressées comprises).
+    received: Arc<AtomicUsize>,
 }
 
 impl Connection {
@@ -72,11 +74,12 @@ impl Connection {
         let (in_tx, in_rx) = mpsc::channel();
         let queued = Arc::new(AtomicUsize::new(0));
         let closed = Arc::new(AtomicBool::new(false));
+        let received = Arc::new(AtomicUsize::new(0));
         {
-            let (in_tx, closed) = (in_tx.clone(), closed.clone());
+            let (in_tx, closed, received) = (in_tx.clone(), closed.clone(), received.clone());
             std::thread::Builder::new()
                 .name(format!("net lecture {peer}"))
-                .spawn(move || read_loop(reader, in_tx, closed))?;
+                .spawn(move || read_loop(reader, in_tx, closed, received))?;
         }
         {
             let (queued, closed) = (queued.clone(), closed.clone());
@@ -91,6 +94,7 @@ impl Connection {
             incoming: in_rx,
             queued,
             closed,
+            received,
         })
     }
 
@@ -127,6 +131,11 @@ impl Connection {
         self.incoming.recv_timeout(timeout).ok()
     }
 
+    /// Les octets arrivés sur le fil depuis l'ouverture.
+    pub fn received_bytes(&self) -> usize {
+        self.received.load(Ordering::Relaxed)
+    }
+
     /// Les octets qui attendent encore de partir.
     pub fn queued_bytes(&self) -> usize {
         self.queued.load(Ordering::Relaxed)
@@ -153,7 +162,12 @@ fn report_closed(events: &Sender<Event>, closed: &AtomicBool, reason: String) {
     }
 }
 
-fn read_loop(mut stream: TcpStream, events: Sender<Event>, closed: Arc<AtomicBool>) {
+fn read_loop(
+    mut stream: TcpStream,
+    events: Sender<Event>,
+    closed: Arc<AtomicBool>,
+    received: Arc<AtomicUsize>,
+) {
     let mut reader = FrameReader::default();
     let mut buffer = vec![0u8; 64 * 1024];
     loop {
@@ -169,6 +183,7 @@ fn read_loop(mut stream: TcpStream, events: Sender<Event>, closed: Arc<AtomicBoo
                 return;
             }
         };
+        received.fetch_add(n, Ordering::Relaxed);
         reader.push(&buffer[..n]);
         loop {
             match reader.next_frame() {

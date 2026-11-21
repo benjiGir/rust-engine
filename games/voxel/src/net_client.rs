@@ -24,7 +24,7 @@ const JOIN_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Le lien d'un invité avec son hôte.
 pub struct RemoteLink {
-    connection: Connection,
+    pub(crate) connection: Connection,
     /// Le numéro que l'hôte nous a donné.
     pub player: PlayerId,
     pub address: String,
@@ -54,13 +54,19 @@ pub fn identity(settings: &crate::settings::Settings) -> (String, u128) {
 
 /// Se présente à l'hôte et attend sa réponse.
 pub fn join(address: &str, server: &VoxelServer, name: &str, uuid: u128) -> Result<Joined> {
+    let content = content_fingerprint(&server.registry, &server.content.items);
+    join_with(address, name, uuid, content)
+}
+
+/// Se présente avec une empreinte de contenu déjà calculée (les bots, voir `bot.rs`).
+pub fn join_with(address: &str, name: &str, uuid: u128, content: u64) -> Result<Joined> {
     let connection = Connection::connect(address, JOIN_TIMEOUT)
         .with_context(|| format!("impossible de joindre {address}"))?;
     let hello = Hello {
         protocol: PROTOCOL,
         name: name.to_string(),
         uuid,
-        content: content_fingerprint(&server.registry, &server.content.items),
+        content,
     };
     let frame = engine_net::encode(&postcard::to_stdvec(&hello)?);
     if connection.send(frame).is_err() {

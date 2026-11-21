@@ -52,6 +52,8 @@ mod backpack_block;
 mod backpacks;
 mod bench;
 mod book_play;
+mod bot;
+mod bot_swarm;
 mod breeding;
 mod bucket_play;
 mod cart_play;
@@ -102,6 +104,8 @@ mod intents;
 mod interact;
 mod item_ctl;
 mod launch;
+#[cfg(test)]
+mod multiplayer_tests;
 mod net_client;
 mod net_ctl;
 mod net_host;
@@ -1485,6 +1489,11 @@ fn main() -> Result<()> {
     // `voxel --server` : le serveur dédié, sans fenêtre (voir `dedicated.rs`).
     if std::env::args().any(|a| a == "--server") {
         return dedicated::run();
+    }
+    // `voxel --bots N adresse [idle|walk|explore]` : des bots sans fenêtre (voir `bot_swarm.rs`).
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--bots") {
+        return bot_swarm::run(&args);
     }
 
     let trace = start_tracing();

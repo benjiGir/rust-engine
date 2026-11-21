@@ -1020,6 +1020,26 @@ lot 4, viendra plus tard) :
 
 ### Lot 7 : tester et mesurer
 
+**Réalisé (21 nov.)** :
+
+- **7a, le bot** (`bot.rs`) : un vrai client TCP sans fenêtre. Il se présente (`net_client::join_with`), range les
+  chunks reçus dans son `World`, suit sa place (`Correct`), son inventaire et le conteneur ouvert, compte les octets
+  (décompressés, et sur le fil grâce à `Connection::received_bytes`). Il marche en suivant le sol (sans physique),
+  vise un bloc, l'utilise, parle, part.
+- **7b, les tests de bout en bout** (`multiplayer_tests.rs`, un serveur et des bots dans le processus, en TCP sur
+  127.0.0.1) : A pose un bloc et B le voit ; le chat arrive à tous ; un joueur qui revient retrouve son inventaire
+  (monde sauvegardé dans un dossier temporaire). Les tables globales (fiches d'objets, matériaux) ne sont plus
+  remplacées par un serveur construit dans un test.
+- **7c, la mesure** : `voxel --bots N adresse [idle|walk|explore]` lance N bots et écrit toutes les 5 s ce qu'ils
+  reçoivent ; le serveur dédié écrit toutes les 10 s ses ticks par seconde, leur durée moyenne et leur p99.
+  Premiers chiffres (compilation de débogage, 4 bots qui explorent) : environ 100 Kio/s par bot sur le fil (8 à 12
+  fois moins que décompressé), un chunk d'environ 70 Ko décompressé, 6 à 9 Ko sur le fil, environ 14 Mio pour
+  arriver ; le serveur tient 60 ticks/s, 2 à 2,6 ms par tick (p99 12 ms).
+- **Reste** : les tests du coffre partagé, de la créature qui poursuit le plus proche et de la porte ; la latence et
+  les pertes simulées ; les raccourcis `cargo xtask bots` et `bench-net` (aujourd'hui `voxel --bots` et le serveur
+  dédié).
+
+
 - **Des bots sans fenêtre** (`cargo xtask bots N --behaviour walk|explore|idle`). Ce sont de vrais clients
   TCP : ils marchent, cassent et posent des blocs.
 - **Tests de bout en bout** (`tests/multiplayer.rs`) avec un serveur et deux clients dans un même processus,

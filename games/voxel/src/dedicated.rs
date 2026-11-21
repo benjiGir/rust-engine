@@ -26,6 +26,8 @@ use crate::server_side::VoxelServer;
 const STEP: f32 = 1.0 / 60.0;
 /// Au plus ce nombre de pas pour rattraper un retard (au-delà, le monde ralentit).
 const MAX_CATCH_UP: u32 = 5;
+/// L'intervalle des mesures écrites dans le terminal.
+const REPORT_EVERY: Duration = Duration::from_secs(10);
 
 /// `server.ron`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -158,6 +160,21 @@ impl VoxelServer {
     }
 }
 
+/// Les ticks d'un intervalle : par seconde, durée moyenne et p99 (en ms), joueurs. Vide la liste.
+fn tick_report(ticks: &mut Vec<Duration>, seconds: f32, players: usize) -> String {
+    let mut ms: Vec<f32> = ticks.drain(..).map(|t| t.as_secs_f32() * 1000.0).collect();
+    ms.sort_by(f32::total_cmp);
+    let mean = ms.iter().sum::<f32>() / ms.len().max(1) as f32;
+    let p99 = ms
+        .get((ms.len() * 99 / 100).min(ms.len().saturating_sub(1)))
+        .copied()
+        .unwrap_or(0.0);
+    format!(
+        "{:.1} ticks/s, {mean:.2} ms par tick (p99 {p99:.2} ms), {players} joueur(s)",
+        ms.len() as f32 / seconds.max(0.001)
+    )
+}
+
 /// Lance le serveur dédié et le fait tourner jusqu'à `stop`.
 pub fn run() -> Result<()> {
     let root = crate::project_root();
@@ -208,6 +225,8 @@ pub fn run() -> Result<()> {
 
     let mut last = Instant::now();
     let mut lag = 0.0f32;
+    let mut ticks: Vec<Duration> = Vec::new();
+    let mut report = Instant::now();
     'running: loop {
         let now = Instant::now();
         let dt = (now - last).as_secs_f32().min(0.25);
@@ -235,9 +254,17 @@ pub fn run() -> Result<()> {
         let mut steps = 0;
         while lag >= STEP && steps < MAX_CATCH_UP {
             server.sim_step += 1;
+            let tick = Instant::now();
             server.fixed_step(STEP);
+            ticks.push(tick.elapsed());
             lag -= STEP;
             steps += 1;
+        }
+        if report.elapsed() >= REPORT_EVERY {
+            let seconds = report.elapsed().as_secs_f32();
+            report = Instant::now();
+            let players = server.players.iter().filter(|p| !p.ghost).count();
+            println!("{}", tick_report(&mut ticks, seconds, players));
         }
         lag = lag.min(STEP * MAX_CATCH_UP as f32);
         server.replicate_player_views();
@@ -269,6 +296,17 @@ pub fn run() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_tick_report_gives_rate_mean_and_p99() {
+        let mut ticks: Vec<Duration> = (1..=100).map(Duration::from_millis).collect();
+        let line = tick_report(&mut ticks, 2.0, 3);
+        assert_eq!(
+            line,
+            "50.0 ticks/s, 50.50 ms par tick (p99 100.00 ms), 3 joueur(s)"
+        );
+        assert!(ticks.is_empty());
+    }
 
     #[test]
     fn console_commands_parse() {
