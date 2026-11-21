@@ -993,6 +993,25 @@ lot 4, viendra plus tard) :
 
 ### Lot 6 : le serveur dédié, sans fenêtre
 
+**Réalisé (21 nov., choix : le mode serveur d'abord, la crate à part ensuite)** — `dedicated.rs` :
+
+- `voxel --server` fait tourner un monde sans ouvrir de fenêtre. Il lit `server.ron` à la racine du projet (ou
+  `VOXEL_SERVER_CONFIG`), écrit avec les valeurs par défaut s'il manque : nom annoncé, monde (dossier de `saves/`),
+  graine, port, joueurs au plus, distance de vue, liste blanche, opérateurs (gardés pour l'exécuteur de commandes).
+- Le joueur « hôte » de tout `VoxelServer` est caché (`Hidden`, fantôme) : ni répliqué, ni visé, ni compté pour les
+  apparitions de créatures, ni sauvegardé dans `players/`.
+- La boucle : réseau, `frame`, chargement et envois, pas fixes à 60 Hz (cinq de rattrapage au plus), vues,
+  réponses, sauvegarde automatique (`autosave` est passée au serveur) ; le reste du pas, il dort.
+- La console lit l'entrée standard : `list`, `say`, `kick`, `save`, `stop` (la fin de l'entrée aussi) ; l'arrêt fait
+  partir les joueurs (sauvegardés) puis sauvegarde le monde.
+- L'hôte refuse au-delà du nombre de joueurs, et ceux qui ne sont pas sur la liste blanche.
+- Vérifié : un invité rejoint le serveur dédié, voit le monde et le message de la console, est renvoyé par `kick`
+  (il revient au menu) ; `stop` sauvegarde.
+- **Reste** : le binaire lie encore winit, wgpu, egui et kira (la simulation dans sa propre crate, puis la règle
+  check-arch) ; Ctrl+C coupe sans sauvegarder (il faudrait la crate `ctrlc`, à télécharger) ; les opérateurs n'ont
+  pas encore de commandes.
+
+
 - Le binaire `voxel-server` lit `server.ron` : monde, port, joueurs maximum, distance de vue, liste blanche,
   opérateurs.
 - Une console en ligne de commande (les commandes existantes), une sauvegarde automatique et un arrêt propre

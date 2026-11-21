@@ -173,3 +173,8 @@ pub struct OnGrid(pub engine_voxel::GridId);
 /// quand il est porté (wagon, structure mobile).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Predicted;
+
+/// Le joueur sans fenêtre d'un serveur dédié (voir `dedicated.rs`) : ni vu, ni visé, ni compté pour
+/// les apparitions de créatures.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Hidden;

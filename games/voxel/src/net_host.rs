@@ -96,11 +96,21 @@ pub struct NetHost {
     chunk_frames: HashMap<(IVec3, usize), (Arc<Chunk>, Frame)>,
     /// L'annonce de la partie sur le réseau local (`None` si l'UDP n'est pas disponible).
     announcer: Option<engine_net::Announcer>,
+    /// Le nombre d'invités au plus (`None` : pas de limite).
+    pub max_players: Option<usize>,
+    /// Les noms admis (vide : tout le monde).
+    pub whitelist: Vec<String>,
 }
 
 impl NetHost {
     pub fn port(&self) -> u16 {
         self.listener.port()
+    }
+
+    /// Change le nom annoncé sur le réseau local.
+    pub fn set_announced_name(&mut self, name: &str) {
+        let port = self.port();
+        self.announcer = engine_net::Announcer::new(port, name, engine_net::ANNOUNCE_PORT).ok();
     }
 
     pub fn peer_count(&self) -> usize {
@@ -131,6 +141,8 @@ impl VoxelServer {
             peers: HashMap::new(),
             chunk_frames: HashMap::new(),
             announcer,
+            max_players: None,
+            whitelist: Vec::new(),
         });
         Ok(port)
     }
@@ -247,6 +259,19 @@ impl VoxelServer {
         }
         let name = hello.name.trim();
         let name = if name.is_empty() { "Invité" } else { name };
+        if let Some(net) = &self.net {
+            if net.max_players.is_some_and(|max| net.peers.len() >= max) {
+                refuse(&connection, "la partie est pleine".to_string());
+                return;
+            }
+            if !net.whitelist.is_empty() && !net.whitelist.iter().any(|w| w == name) {
+                refuse(
+                    &connection,
+                    "vous n'êtes pas sur la liste blanche".to_string(),
+                );
+                return;
+            }
+        }
         let id = self.add_remote_player(name, hello.uuid);
         let state = self.players.get(id).expect("le joueur vient d'arriver");
         let feet = player::body(&self.ecs, state.entity).position;

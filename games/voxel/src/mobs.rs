@@ -301,6 +301,7 @@ pub fn player_spots(world: &World) -> Vec<PlayerSpot> {
         .resource::<PlayerEntities>()
         .0
         .iter()
+        .filter(|&&entity| !world.has::<crate::components::Hidden>(entity))
         .filter_map(|&entity| {
             let position = world.get::<Transform>(entity)?.position;
             let alive = world.get::<Health>(entity).is_none_or(|h| h.current > 0.0);

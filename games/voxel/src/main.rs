@@ -71,6 +71,7 @@ mod control;
 mod culling;
 mod daytime;
 mod death;
+mod dedicated;
 mod dimensions;
 mod drops;
 mod elites;
@@ -700,7 +701,7 @@ impl VoxelGame {
             self.run_demo(dt);
         }
         if self.hosting() {
-            self.autosave();
+            self.server.autosave();
         }
         let changes = self.hot_reload.as_mut().and_then(|h| h.poll());
         if ctx.input.key_pressed(KeyCode::F5) {
@@ -1480,6 +1481,11 @@ fn main() -> Result<()> {
     // Logs visibles avec `RUST_LOG=info cargo run -p voxel`.
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn,voxel=info"))
         .init();
+
+    // `voxel --server` : le serveur dédié, sans fenêtre (voir `dedicated.rs`).
+    if std::env::args().any(|a| a == "--server") {
+        return dedicated::run();
+    }
 
     let trace = start_tracing();
     let result = engine_core::run::<App>(AppConfig {

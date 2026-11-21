@@ -347,6 +347,9 @@ pub fn collect(
     world
         .query::<(&Transform, &PlayerId, &Player, &NetId)>()
         .for_each(|entity, (transform, _, _, id)| {
+            if world.has::<crate::components::Hidden>(entity) {
+                return;
+            }
             out.push(Replicated {
                 id: *id,
                 entity: Some(entity),

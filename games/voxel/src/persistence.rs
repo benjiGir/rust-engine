@@ -78,56 +78,7 @@ pub fn check_mods(meta: &WorldMeta, registry: &BlockRegistry) {
     }
 }
 
-impl VoxelGame {
-    /// Toutes les 30 secondes : lance une sauvegarde en tâche de fond. À chaque image :
-    /// récupère le résultat de la précédente.
-    pub(crate) fn autosave(&mut self) {
-        let Some(store) = self.server.store.clone() else {
-            return;
-        };
-        let polled = self.server.streamer_mut().poll_save();
-        if let Some(result) = polled {
-            let elapsed = self.server.save_started.elapsed();
-            match result {
-                Ok(report) => log::info!(
-                    "sauvegarde : {} chunks, {} régions, {:.1} Ko, en {:.0?} (en tâche de fond)",
-                    report.chunks,
-                    report.regions,
-                    report.bytes as f64 / 1024.0,
-                    elapsed
-                ),
-                Err(err) => log::error!("sauvegarde échouée : {err:#}"),
-            }
-        }
-        if self.server.last_autosave.elapsed() < AUTOSAVE_INTERVAL {
-            return;
-        }
-        self.server.last_autosave = Instant::now();
-        // `world.ron` est minuscule : on l'écrit directement, à la racine du monde.
-        let meta_store = self
-            .server
-            .dims
-            .meta_store
-            .clone()
-            .unwrap_or_else(|| store.clone());
-        if let Err(err) = meta_store.save_meta(&self.server.world_meta()) {
-            log::error!("sauvegarde de world.ron : {err:#}");
-        }
-        self.server.save_players();
-        if let Err(err) = engine_voxel::save_grids(store.dir(), &self.server.mods.subgrids.borrow())
-        {
-            log::error!("sauvegarde des structures mobiles : {err:#}");
-        }
-        crate::carts::save(&self.server.ecs, store.dir());
-        self.server.save_backpacks();
-        self.server.save_quests();
-        self.server.save_item_data();
-        self.server.mods.save_world_data();
-        if self.server.streamer_mut().begin_save() {
-            self.server.save_started = Instant::now();
-        }
-    }
-}
+impl VoxelGame {}
 
 /// Ce que le joueur local a sauvegardé : son fichier de `players/` s'il en a un, sinon (un monde
 /// d'avant les fichiers de joueurs) le joueur de `world.ron`, qui devient l'hôte. Le résultat est le
@@ -168,6 +119,53 @@ pub fn saved_eye(meta: Option<&WorldMeta>) -> Option<(Vec3, f32, f32, MoveMode)>
 }
 
 impl crate::server_side::VoxelServer {
+    /// Toutes les 30 secondes : lance une sauvegarde en tâche de fond. À chaque image :
+    /// récupère le résultat de la précédente.
+    pub(crate) fn autosave(&mut self) {
+        let Some(store) = self.store.clone() else {
+            return;
+        };
+        let polled = self.streamer_mut().poll_save();
+        if let Some(result) = polled {
+            let elapsed = self.save_started.elapsed();
+            match result {
+                Ok(report) => log::info!(
+                    "sauvegarde : {} chunks, {} régions, {:.1} Ko, en {:.0?} (en tâche de fond)",
+                    report.chunks,
+                    report.regions,
+                    report.bytes as f64 / 1024.0,
+                    elapsed
+                ),
+                Err(err) => log::error!("sauvegarde échouée : {err:#}"),
+            }
+        }
+        if self.last_autosave.elapsed() < AUTOSAVE_INTERVAL {
+            return;
+        }
+        self.last_autosave = Instant::now();
+        // `world.ron` est minuscule : on l'écrit directement, à la racine du monde.
+        let meta_store = self
+            .dims
+            .meta_store
+            .clone()
+            .unwrap_or_else(|| store.clone());
+        if let Err(err) = meta_store.save_meta(&self.world_meta()) {
+            log::error!("sauvegarde de world.ron : {err:#}");
+        }
+        self.save_players();
+        if let Err(err) = engine_voxel::save_grids(store.dir(), &self.mods.subgrids.borrow()) {
+            log::error!("sauvegarde des structures mobiles : {err:#}");
+        }
+        crate::carts::save(&self.ecs, store.dir());
+        self.save_backpacks();
+        self.save_quests();
+        self.save_item_data();
+        self.mods.save_world_data();
+        if self.streamer_mut().begin_save() {
+            self.save_started = Instant::now();
+        }
+    }
+
     // (lot 4b) Méthodes du serveur.
     /// Où est un joueur et comment il va, tel qu'on l'écrit sur disque. Le joueur local regarde où
     /// regarde la caméra ; un autre, où regarde son corps.
