@@ -319,40 +319,6 @@ impl VoxelGame {
 
     // ----- Le minage -----
 
-    /// À chaque pas fixe : le temps de minage théorique avance pour tous les joueurs qui creusent,
-    /// avec l'outil qu'ils tiennent à ce moment.
-    pub(crate) fn tick_digs(&mut self, dt: f32) {
-        let digging: Vec<PlayerId> = self
-            .server
-            .players
-            .iter()
-            .filter(|p| p.dig.is_some())
-            .map(|p| p.id)
-            .collect();
-        for id in digging {
-            let previous = self.server.players.set_acting(Some(id));
-            if let Some(dig) = self.server.players.me().dig {
-                let time = self.mining_time(dig.pos, dig.block);
-                if let Some(state) = self.server.players.me_mut().dig.as_mut() {
-                    advance_dig(state, time, dt);
-                }
-            }
-            self.server.players.set_acting(previous);
-        }
-    }
-
-    /// Le repas : le bouton tenu fait mâcher à chaque pas fixe.
-    pub(crate) fn tick_eating(&mut self, dt: f32) {
-        let ids: Vec<PlayerId> = self.server.players.iter().map(|p| p.id).collect();
-        for id in ids {
-            let previous = self.server.players.set_acting(Some(id));
-            let holding = self.server.players.me().eating;
-            let progress = self.update_eating(holding, dt);
-            self.server.players.me_mut().eat_progress = progress;
-            self.server.players.set_acting(previous);
-        }
-    }
-
     /// Fabrique le message `Move` du joueur local après la physique d'un pas, et l'applique. Sans
     /// `VOXEL_CHECK_MOVES=1`, rien ne part.
     pub(crate) fn check_local_move(&mut self) {
@@ -432,6 +398,39 @@ impl VoxelGame {
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.
+    /// Le repas : le bouton tenu fait mâcher à chaque pas fixe.
+    pub(crate) fn tick_eating(&mut self, dt: f32) {
+        let ids: Vec<PlayerId> = self.players.iter().map(|p| p.id).collect();
+        for id in ids {
+            let previous = self.players.set_acting(Some(id));
+            let holding = self.players.me().eating;
+            let progress = self.update_eating(holding, dt);
+            self.players.me_mut().eat_progress = progress;
+            self.players.set_acting(previous);
+        }
+    }
+
+    /// À chaque pas fixe : le temps de minage théorique avance pour tous les joueurs qui creusent,
+    /// avec l'outil qu'ils tiennent à ce moment.
+    pub(crate) fn tick_digs(&mut self, dt: f32) {
+        let digging: Vec<PlayerId> = self
+            .players
+            .iter()
+            .filter(|p| p.dig.is_some())
+            .map(|p| p.id)
+            .collect();
+        for id in digging {
+            let previous = self.players.set_acting(Some(id));
+            if let Some(dig) = self.players.me().dig {
+                let time = self.mining_time(dig.pos, dig.block);
+                if let Some(state) = self.players.me_mut().dig.as_mut() {
+                    advance_dig(state, time, dt);
+                }
+            }
+            self.players.set_acting(previous);
+        }
+    }
+
     /// La visée de l'action en cours ; hors d'un message, celle de la fenêtre (le bloc visé de
     /// l'image et la caméra).
     pub(crate) fn aim(&self) -> ActingAim {

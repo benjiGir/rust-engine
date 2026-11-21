@@ -1,7 +1,6 @@
 //! Les gestes des charmes de potion dans le jeu : activer d'un clic droit, recharger avec la potion,
 //! user les charmes actifs chaque seconde. Les règles (bits, usure, bulle d'aide) sont dans `charms.rs`.
 
-use crate::VoxelGame;
 use crate::charms::{charge, is_active, is_empty, recharged, wear_one, with_active};
 use crate::inventory::{Click, ItemStack, Slot};
 use crate::potions::{Effect, PotionDef};
@@ -11,23 +10,24 @@ const REFRESH_SECONDS: f32 = 3.0;
 /// Le délai entre deux soins d'un charme de soin, en secondes.
 const HEAL_EVERY: u32 = 10;
 
-impl VoxelGame {
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
     /// Chaque seconde : les charmes actifs de l'inventaire renouvellent leur effet et s'usent.
     pub(crate) fn update_charms(&mut self, dt: f32) {
-        self.client.enchant_ui.charm_clock += dt;
-        if self.client.enchant_ui.charm_clock < 1.0 {
+        self.charm_clock += dt;
+        if self.charm_clock < 1.0 {
             return;
         }
-        self.client.enchant_ui.charm_clock -= 1.0;
-        self.client.enchant_ui.charm_beats += 1;
+        self.charm_clock -= 1.0;
+        self.charm_beats += 1;
         let data = crate::adventure_data::current();
         if data.charms.is_empty() {
             return;
         }
-        let items = self.server.content.items.clone();
+        let items = self.content.items.clone();
         let mut emptied = Vec::new();
         let mut heal = 0.0;
-        let me = self.server.players.me_mut();
+        let me = self.players.me_mut();
         for slot in me.inventory.slots.iter_mut().flatten() {
             if !is_active(slot.damage) {
                 continue;
@@ -36,20 +36,12 @@ impl VoxelGame {
             let Some(charm) = data.charm_of(&def.key) else {
                 continue;
             };
-            let Some(potion) = items
-                .id(&charm.potion)
-                .and_then(|id| self.server.potions.get(id))
-            else {
+            let Some(potion) = items.id(&charm.potion).and_then(|id| self.potions.get(id)) else {
                 continue;
             };
             match potion.effect {
                 Effect::Healing => {
-                    if self
-                        .client
-                        .enchant_ui
-                        .charm_beats
-                        .is_multiple_of(HEAL_EVERY)
-                    {
+                    if self.charm_beats.is_multiple_of(HEAL_EVERY) {
                         heal += potion.power * 0.5;
                     }
                 }
@@ -71,10 +63,7 @@ impl VoxelGame {
             self.toast(&format!("{name} est épuisé"));
         }
     }
-}
 
-impl crate::server_side::VoxelServer {
-    // (lot 4b) Méthodes du serveur.
     /// Un clic droit avec un charme en main : l'active ou le désactive. `true` si c'était un charme.
     pub(crate) fn use_charm(&mut self) -> bool {
         let Some(stack) = self.players.me_mut().inventory.selected_stack() else {

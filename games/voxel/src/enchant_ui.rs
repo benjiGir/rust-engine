@@ -22,9 +22,6 @@ const ENCHANT_TEXT: egui::Color32 = egui::Color32::from_rgb(98, 54, 158);
 /// Ce que gardent les écrans d'une image à l'autre.
 #[derive(Default)]
 pub struct EnchantUi {
-    /// Le temps écoulé depuis le dernier pas des charmes, et le nombre de pas (voir `charms.rs`).
-    pub charm_clock: f32,
-    pub charm_beats: u32,
     /// La recherche de la bibliothèque, son filtre « ce qui va sur l'objet en main », et le niveau
     /// choisi pour chaque sorte.
     pub search: String,

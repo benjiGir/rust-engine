@@ -490,104 +490,6 @@ pub fn maintain_carried(
 }
 
 impl VoxelGame {
-    /// Les améliorations des sacs portés : l'aimant à chaque pas, le reste deux fois par seconde.
-    pub(crate) fn update_backpacks(&mut self, dt: f32) {
-        let items = self.server.content.items.clone();
-        let bags = carried(
-            &self.server.players.me_mut().inventory,
-            &items,
-            &mut self.server.backpacks,
-        );
-        let magnet = bags.iter().any(|c| {
-            self.server
-                .backpacks
-                .bag(c.number)
-                .is_some_and(|b| active(b).contains(&Upgrade::Magnet))
-        });
-        self.attract_drops(magnet);
-        if bags.is_empty() {
-            return;
-        }
-        self.server.backpacks.timer += dt;
-        if self.server.backpacks.timer < PERIOD {
-            return;
-        }
-        self.server.backpacks.timer = 0.0;
-        let table = self.server.content.compact.clone();
-        maintain_carried(&mut self.server.backpacks, &bags, &items, &table);
-        restock(
-            &mut self.server.players.me_mut().inventory,
-            &mut self.server.backpacks,
-            &bags,
-            &items,
-        );
-        self.bags_feed(&bags);
-    }
-
-    /// Un aliment d'un sac, mangé si la faim a assez baissé pour ne rien perdre.
-    fn bags_feed(&mut self, bags: &[Carried]) {
-        let missing = self.server.hunger_rules.max_food - self.server.players.me_mut().hunger.food;
-        if missing <= 0.0 {
-            return;
-        }
-        let items = self.server.content.items.clone();
-        for c in bags {
-            let Some(bag) = self.server.backpacks.bag(c.number) else {
-                continue;
-            };
-            if !active(bag).contains(&Upgrade::Feed) {
-                continue;
-            }
-            let Some((slot, _, food)) = feed_choice(bag, &items, missing) else {
-                continue;
-            };
-            if let Some(bag) = self.server.backpacks.bag_mut(c.number)
-                && let Some(Some(stack)) = bag.slots.get_mut(slot)
-            {
-                stack.count -= 1;
-                if stack.count == 0 {
-                    bag.slots[slot] = None;
-                }
-            }
-            self.server.players.me_mut().hunger.eat(
-                &self.server.hunger_rules,
-                food.nutrition,
-                food.saturation,
-            );
-            self.sound("core:place_soft");
-            return;
-        }
-    }
-
-    /// L'aimant : les objets au sol proches marchent (et sautent) vers le joueur. La physique des
-    /// objets ramène sinon leur vitesse à zéro à chaque pas : on leur donne une intention de
-    /// marche, comme à une créature. Sans aimant (`on` faux), on la leur retire.
-    fn attract_drops(&mut self, on: bool) {
-        let feet = crate::player::body(&self.server.ecs, self.server.players.entity()).position
-            + Vec3::Y * 0.6;
-        let mut pulls = Vec::new();
-        self.server
-            .ecs
-            .query::<(&crate::components::Transform, &crate::drops::DroppedItem)>()
-            .for_each(|entity, (t, drop)| {
-                let to = feet - t.position;
-                let flat = Vec3::new(to.x, 0.0, to.z);
-                let wanted =
-                    on && drop.age > 0.6 && to.length() < MAGNET_RADIUS && flat.length() > 0.15;
-                pulls.push((entity, wanted.then(|| flat.normalize())));
-            });
-        for (entity, direction) in pulls {
-            if let Some(mut intent) = self
-                .server
-                .ecs
-                .get_mut::<crate::components::MoveIntent>(entity)
-            {
-                intent.walk = direction.map_or(Vec3::ZERO, |d| d * MAGNET_SPEED);
-                intent.jump = direction.is_some();
-            }
-        }
-    }
-
     /// Ouvre le premier sac de l'inventaire (barre d'abord).
     pub(crate) fn open_first_bag(&mut self) -> bool {
         let slot = (0..self.server.players.me_mut().inventory.slots.len()).find(|&i| {
@@ -600,6 +502,96 @@ impl VoxelGame {
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.
+    /// Un aliment d'un sac, mangé si la faim a assez baissé pour ne rien perdre.
+    fn bags_feed(&mut self, bags: &[Carried]) {
+        let missing = self.hunger_rules.max_food - self.players.me_mut().hunger.food;
+        if missing <= 0.0 {
+            return;
+        }
+        let items = self.content.items.clone();
+        for c in bags {
+            let Some(bag) = self.backpacks.bag(c.number) else {
+                continue;
+            };
+            if !active(bag).contains(&Upgrade::Feed) {
+                continue;
+            }
+            let Some((slot, _, food)) = feed_choice(bag, &items, missing) else {
+                continue;
+            };
+            if let Some(bag) = self.backpacks.bag_mut(c.number)
+                && let Some(Some(stack)) = bag.slots.get_mut(slot)
+            {
+                stack.count -= 1;
+                if stack.count == 0 {
+                    bag.slots[slot] = None;
+                }
+            }
+            self.players
+                .me_mut()
+                .hunger
+                .eat(&self.hunger_rules, food.nutrition, food.saturation);
+            self.sound("core:place_soft");
+            return;
+        }
+    }
+
+    /// L'aimant : les objets au sol proches marchent (et sautent) vers le joueur. La physique des
+    /// objets ramène sinon leur vitesse à zéro à chaque pas : on leur donne une intention de
+    /// marche, comme à une créature. Sans aimant (`on` faux), on la leur retire.
+    fn attract_drops(&mut self, on: bool) {
+        let feet = crate::player::body(&self.ecs, self.players.entity()).position + Vec3::Y * 0.6;
+        let mut pulls = Vec::new();
+        self.ecs
+            .query::<(&crate::components::Transform, &crate::drops::DroppedItem)>()
+            .for_each(|entity, (t, drop)| {
+                let to = feet - t.position;
+                let flat = Vec3::new(to.x, 0.0, to.z);
+                let wanted =
+                    on && drop.age > 0.6 && to.length() < MAGNET_RADIUS && flat.length() > 0.15;
+                pulls.push((entity, wanted.then(|| flat.normalize())));
+            });
+        for (entity, direction) in pulls {
+            if let Some(mut intent) = self.ecs.get_mut::<crate::components::MoveIntent>(entity) {
+                intent.walk = direction.map_or(Vec3::ZERO, |d| d * MAGNET_SPEED);
+                intent.jump = direction.is_some();
+            }
+        }
+    }
+
+    /// Les améliorations des sacs portés : l'aimant à chaque pas, le reste deux fois par seconde.
+    pub(crate) fn update_backpacks(&mut self, dt: f32) {
+        let items = self.content.items.clone();
+        let bags = carried(
+            &self.players.me_mut().inventory,
+            &items,
+            &mut self.backpacks,
+        );
+        let magnet = bags.iter().any(|c| {
+            self.backpacks
+                .bag(c.number)
+                .is_some_and(|b| active(b).contains(&Upgrade::Magnet))
+        });
+        self.attract_drops(magnet);
+        if bags.is_empty() {
+            return;
+        }
+        self.backpacks.timer += dt;
+        if self.backpacks.timer < PERIOD {
+            return;
+        }
+        self.backpacks.timer = 0.0;
+        let table = self.content.compact.clone();
+        maintain_carried(&mut self.backpacks, &bags, &items, &table);
+        restock(
+            &mut self.players.me_mut().inventory,
+            &mut self.backpacks,
+            &bags,
+            &items,
+        );
+        self.bags_feed(&bags);
+    }
+
     /// Sauvegarde le magasin des sacs dans la racine du monde (si quelque chose a changé).
     pub(crate) fn save_backpacks(&mut self) {
         if !self.backpacks.dirty() {

@@ -104,6 +104,7 @@ mod launch;
 mod server_boot;
 mod server_sends;
 mod server_side;
+mod server_step;
 mod stream_upload;
 mod texture_packs;
 pub use launch::{Launch, Request};
@@ -471,59 +472,13 @@ impl VoxelGame {
         let sprinting =
             walk.length() > WALK_SPEED * self.server.players.me_mut().gear.move_speed() + 0.01;
         self.exert_movement(walk, jump, sprinting, ctx.fixed_dt);
-        self.server
-            .schedule
-            .run(Stage::FixedUpdate, &mut self.server.ecs);
-        // Les machines : un tick tous les 3 pas (20 par seconde).
-        let eye = player::eye(&self.server.ecs, self.server.players.entity(), 1.0);
-        self.refresh_gear(ctx.fixed_dt);
-        self.pick_up_drops(ctx.fixed_dt);
-        self.update_backpacks(ctx.fixed_dt);
-        self.update_quests(ctx.fixed_dt);
-        let (actions, machine_tick) = self.server.mods.fixed_step(eye);
-        self.apply_machine_actions(actions);
-        let snapshot = self.player_snapshot();
-        self.server.mods.set_player(snapshot);
-        self.run_mob_brains(machine_tick.is_some());
-        let world_ready = self.world_idle();
-        if let Some(stress) = &mut self.server.stress {
-            let eye = player::eye(&self.server.ecs, self.server.players.entity(), 1.0);
-            let ready = world_ready;
-            stress.build_if_ready(ready, &mut self.server.ecs, &mut self.server.mods, eye);
-            let start = Instant::now();
-            stress::conveyors(&mut self.server.ecs);
-            stress.record(machine_tick.map(|t| t.duration), start.elapsed());
-        }
-        self.step_fluids();
-        self.update_cart_blocks();
-        self.update_vitals(ctx.fixed_dt);
-        self.update_hunger(ctx.fixed_dt);
-        // Le simulateur compte le minage et le repas de chaque joueur (voir `intents.rs`).
-        self.tick_digs(ctx.fixed_dt);
-        self.tick_eating(ctx.fixed_dt);
-        self.drop_mob_loot();
-        self.update_adventure(ctx.fixed_dt);
-        self.update_charms(ctx.fixed_dt);
+        // Le monde avance d'un pas (voir `server_step.rs`) ; la fenêtre joue ensuite ses pas sonores,
+        // envoie son mouvement et applique ce que le serveur lui a répondu.
+        self.server.fixed_step(ctx.fixed_dt);
         self.footsteps(ctx.fixed_dt);
-        self.check_death();
         // Le mouvement joué par la physique locale, contrôlé si `VOXEL_CHECK_MOVES=1`.
         self.check_local_move();
-        // Fin du pas : chaque joueur reçoit ce qui a changé parmi les entités.
-        self.replicate_entities();
-    }
-
-    /// Une étape des fluides tous les 6 pas (10 par seconde), dans un budget de temps.
-    fn step_fluids(&mut self) {
-        self.server.fluid_steps += 1;
-        if self.server.fluid_steps < FLUID_STEP_EVERY {
-            return;
-        }
-        self.server.fluid_steps = 0;
-        let report = self
-            .server
-            .fluids
-            .step(&mut self.server.world.borrow_mut(), FLUID_BUDGET);
-        self.server.fluid_report = report;
+        self.apply_replies();
     }
 
     fn window_event(&mut self, ctx: &mut Context, event: &WindowEvent) -> bool {
@@ -1124,23 +1079,6 @@ impl VoxelGame {
         self.break_block(hit.block_pos).then_some(hit.block_pos)
     }
 
-    /// Ramasse les objets au sol tout proches.
-    fn pick_up_drops(&mut self, dt: f32) {
-        let feet = player::body(&self.server.ecs, self.server.players.entity()).position;
-        for (entity, stack) in drops::update(&mut self.server.ecs, feet, dt) {
-            let left = self.collect_stack(stack);
-            if left < stack.count {
-                self.sound("core:place_soft");
-                if left == 0 {
-                    self.server.ecs.despawn(entity);
-                } else if let Some(mut drop) = self.server.ecs.get_mut::<drops::DroppedItem>(entity)
-                {
-                    drop.stack.count = left;
-                }
-            }
-        }
-    }
-
     /// Le jeu écoute ses propres événements pour jouer les sons.
     fn play_event_sounds(&mut self) {
         // Les événements du monde deviennent des sons pour les joueurs qui les entendent.
@@ -1667,6 +1605,33 @@ fn start_tracing() -> Option<PathBuf> {
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.
+    /// Une étape des fluides tous les 6 pas (10 par seconde), dans un budget de temps.
+    fn step_fluids(&mut self) {
+        self.fluid_steps += 1;
+        if self.fluid_steps < FLUID_STEP_EVERY {
+            return;
+        }
+        self.fluid_steps = 0;
+        let report = self.fluids.step(&mut self.world.borrow_mut(), FLUID_BUDGET);
+        self.fluid_report = report;
+    }
+
+    /// Ramasse les objets au sol tout proches.
+    fn pick_up_drops(&mut self, dt: f32) {
+        let feet = player::body(&self.ecs, self.players.entity()).position;
+        for (entity, stack) in drops::update(&mut self.ecs, feet, dt) {
+            let left = self.collect_stack(stack);
+            if left < stack.count {
+                self.sound("core:place_soft");
+                if left == 0 {
+                    self.ecs.despawn(entity);
+                } else if let Some(mut drop) = self.ecs.get_mut::<drops::DroppedItem>(entity) {
+                    drop.stack.count = left;
+                }
+            }
+        }
+    }
+
     fn notify_edit(&mut self, pos: IVec3) {
         self.fluids.wake(pos);
         let actions = self.mods.block_changed(pos);

@@ -59,121 +59,6 @@ impl VoxelGame {
         }
     }
 
-    /// À chaque pas fixe : les signaux des rails détecteurs, puis (de temps en temps) les chargeurs.
-    pub(crate) fn update_cart_blocks(&mut self) {
-        if self.server.ecs.get_resource::<CartSignals>().is_none() {
-            return;
-        }
-        let pending = std::mem::take(&mut self.server.ecs.resource_mut::<CartSignals>().pending);
-        for (pos, on) in pending {
-            self.server.mods.set_power(pos, if on { 15 } else { 0 });
-        }
-        let due = {
-            let mut signals = self.server.ecs.resource_mut::<CartSignals>();
-            signals.tick += 1;
-            signals.tick.is_multiple_of(LOADER_EVERY)
-        };
-        if due {
-            self.run_loaders();
-        }
-    }
-
-    /// Les chargeurs et déchargeurs voisins d'un wagon coffre ou trémie arrêté sur un rail.
-    fn run_loaders(&mut self) {
-        // Un wagon à l'arrêt est chargé ; un wagon qui roule (qui repart) garde le signal tant qu'il
-        // est sur le rail voisin, pour que l'accélérateur finisse de le pousser.
-        let mut present: Vec<(Entity, IVec3, bool)> = Vec::new();
-        let mut hoppers: Vec<(Entity, IVec3)> = Vec::new();
-        for entity in carts::all(&self.server.ecs) {
-            let Some(cart) = self.server.ecs.get::<Cart>(entity) else {
-                continue;
-            };
-            if matches!(cart.kind, CartKind::Chest | CartKind::Hopper)
-                && !cart.frozen
-                && let Some(block) = cart.rail_block()
-            {
-                present.push((entity, block, cart.speed() < 0.1));
-                if cart.kind == CartKind::Hopper {
-                    hoppers.push((entity, block));
-                }
-            }
-        }
-        // Le wagon trémie vide le conteneur posé au-dessus du rail (sauf rail activateur alimenté).
-        for (cart, rail) in hoppers {
-            let cut = rail_at(&*self.streamer(), rail)
-                .is_some_and(|r| r.kind == RailKind::Activator && r.powered);
-            if !cut {
-                self.pull_from_above(cart, rail + IVec3::Y);
-            }
-        }
-        let mut finished: HashSet<IVec3> = HashSet::new();
-        for (cart, rail, halted) in present {
-            for offset in engine_voxel::FACINGS {
-                let at = rail + offset;
-                let behavior = {
-                    let block = self.streamer().world().block(at);
-                    self.server.registry.def(block).behavior.clone()
-                };
-                let load = match behavior.as_deref() {
-                    Some("core:cart_loader") => true,
-                    Some("core:cart_unloader") => false,
-                    _ => continue,
-                };
-                if self.transfer(cart, at, load, halted) {
-                    finished.insert(at);
-                }
-            }
-        }
-        // Le signal : allumé quand le travail est fini, éteint sinon (ou si le wagon est parti).
-        let previous = std::mem::take(&mut self.server.ecs.resource_mut::<CartSignals>().loaders);
-        for &at in finished.difference(&previous) {
-            self.server.mods.set_power(at, 15);
-        }
-        for &at in previous.difference(&finished) {
-            self.server.mods.set_power(at, 0);
-        }
-        self.server.ecs.resource_mut::<CartSignals>().loaders = finished;
-    }
-
-    /// Le wagon trémie prend quelques objets du conteneur en `above`.
-    fn pull_from_above(&mut self, cart: Entity, above: IVec3) {
-        let mut streamer = self.streamer_mut();
-        let Some(source) = streamer
-            .block_entity_mut(above)
-            .and_then(|e| e.caps.as_mut())
-            .and_then(|c| c.inventory.as_mut())
-        else {
-            return;
-        };
-        if let Some(mut cargo) = self.server.ecs.get_mut::<CartCargo>(cart) {
-            move_items(source, &mut cargo.0, LOADER_BATCH);
-        }
-    }
-
-    /// Déplace quelques objets entre le bloc `at` et le wagon (`load` : du bloc vers le wagon),
-    /// si `work` (le wagon est arrêté). Renvoie `true` quand il n'y a plus rien à déplacer : tout est passé, ou la destination est pleine.
-    fn transfer(&mut self, cart: Entity, at: IVec3, load: bool, work: bool) -> bool {
-        let mut streamer = self.streamer_mut();
-        let Some(entity) = streamer.block_entity_mut(at) else {
-            return false;
-        };
-        let Some(block_inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut()) else {
-            return false;
-        };
-        let Some(mut cargo) = self.server.ecs.get_mut::<CartCargo>(cart) else {
-            return false;
-        };
-        let (from, to) = if load {
-            (block_inventory, &mut cargo.0)
-        } else {
-            (&mut cargo.0, block_inventory)
-        };
-        if work {
-            move_items(from, to, LOADER_BATCH);
-        }
-        stuck(from, to)
-    }
-
     /// Les wagons autour du joueur, pour la commande `carts`.
     pub(crate) fn carts_json(&self) -> String {
         let mut list = Vec::new();
@@ -265,6 +150,121 @@ pub fn stuck(from: &Inventory, to: &mut Inventory) -> bool {
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.
+    /// Déplace quelques objets entre le bloc `at` et le wagon (`load` : du bloc vers le wagon),
+    /// si `work` (le wagon est arrêté). Renvoie `true` quand il n'y a plus rien à déplacer : tout est passé, ou la destination est pleine.
+    fn transfer(&mut self, cart: Entity, at: IVec3, load: bool, work: bool) -> bool {
+        let mut streamer = self.streamer_mut();
+        let Some(entity) = streamer.block_entity_mut(at) else {
+            return false;
+        };
+        let Some(block_inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut()) else {
+            return false;
+        };
+        let Some(mut cargo) = self.ecs.get_mut::<CartCargo>(cart) else {
+            return false;
+        };
+        let (from, to) = if load {
+            (block_inventory, &mut cargo.0)
+        } else {
+            (&mut cargo.0, block_inventory)
+        };
+        if work {
+            move_items(from, to, LOADER_BATCH);
+        }
+        stuck(from, to)
+    }
+
+    /// Le wagon trémie prend quelques objets du conteneur en `above`.
+    fn pull_from_above(&mut self, cart: Entity, above: IVec3) {
+        let mut streamer = self.streamer_mut();
+        let Some(source) = streamer
+            .block_entity_mut(above)
+            .and_then(|e| e.caps.as_mut())
+            .and_then(|c| c.inventory.as_mut())
+        else {
+            return;
+        };
+        if let Some(mut cargo) = self.ecs.get_mut::<CartCargo>(cart) {
+            move_items(source, &mut cargo.0, LOADER_BATCH);
+        }
+    }
+
+    /// Les chargeurs et déchargeurs voisins d'un wagon coffre ou trémie arrêté sur un rail.
+    fn run_loaders(&mut self) {
+        // Un wagon à l'arrêt est chargé ; un wagon qui roule (qui repart) garde le signal tant qu'il
+        // est sur le rail voisin, pour que l'accélérateur finisse de le pousser.
+        let mut present: Vec<(Entity, IVec3, bool)> = Vec::new();
+        let mut hoppers: Vec<(Entity, IVec3)> = Vec::new();
+        for entity in carts::all(&self.ecs) {
+            let Some(cart) = self.ecs.get::<Cart>(entity) else {
+                continue;
+            };
+            if matches!(cart.kind, CartKind::Chest | CartKind::Hopper)
+                && !cart.frozen
+                && let Some(block) = cart.rail_block()
+            {
+                present.push((entity, block, cart.speed() < 0.1));
+                if cart.kind == CartKind::Hopper {
+                    hoppers.push((entity, block));
+                }
+            }
+        }
+        // Le wagon trémie vide le conteneur posé au-dessus du rail (sauf rail activateur alimenté).
+        for (cart, rail) in hoppers {
+            let cut = rail_at(&*self.streamer(), rail)
+                .is_some_and(|r| r.kind == RailKind::Activator && r.powered);
+            if !cut {
+                self.pull_from_above(cart, rail + IVec3::Y);
+            }
+        }
+        let mut finished: HashSet<IVec3> = HashSet::new();
+        for (cart, rail, halted) in present {
+            for offset in engine_voxel::FACINGS {
+                let at = rail + offset;
+                let behavior = {
+                    let block = self.streamer().world().block(at);
+                    self.registry.def(block).behavior.clone()
+                };
+                let load = match behavior.as_deref() {
+                    Some("core:cart_loader") => true,
+                    Some("core:cart_unloader") => false,
+                    _ => continue,
+                };
+                if self.transfer(cart, at, load, halted) {
+                    finished.insert(at);
+                }
+            }
+        }
+        // Le signal : allumé quand le travail est fini, éteint sinon (ou si le wagon est parti).
+        let previous = std::mem::take(&mut self.ecs.resource_mut::<CartSignals>().loaders);
+        for &at in finished.difference(&previous) {
+            self.mods.set_power(at, 15);
+        }
+        for &at in previous.difference(&finished) {
+            self.mods.set_power(at, 0);
+        }
+        self.ecs.resource_mut::<CartSignals>().loaders = finished;
+    }
+
+    /// À chaque pas fixe : les signaux des rails détecteurs, puis (de temps en temps) les chargeurs.
+    pub(crate) fn update_cart_blocks(&mut self) {
+        if self.ecs.get_resource::<CartSignals>().is_none() {
+            return;
+        }
+        let pending = std::mem::take(&mut self.ecs.resource_mut::<CartSignals>().pending);
+        for (pos, on) in pending {
+            self.mods.set_power(pos, if on { 15 } else { 0 });
+        }
+        let due = {
+            let mut signals = self.ecs.resource_mut::<CartSignals>();
+            signals.tick += 1;
+            signals.tick.is_multiple_of(LOADER_EVERY)
+        };
+        if due {
+            self.run_loaders();
+        }
+    }
+
     /// S'asseoir dans un wagonnet.
     pub(crate) fn ride(&mut self, cart: Entity) -> bool {
         if player::mode(&self.ecs, self.players.entity()) == MoveMode::Fly {

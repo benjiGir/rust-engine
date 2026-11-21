@@ -243,34 +243,37 @@ fn plain_key(key: &str) -> String {
     key.split('[').next().unwrap_or(key).to_string()
 }
 
-impl VoxelGame {
+impl VoxelGame {}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
     /// Charge le livre et la progression si ce n'est pas fait.
     pub(crate) fn open_quests(&mut self) {
-        if self.server.players.me_mut().quest_book.loaded.is_some() {
+        if self.players.me_mut().quest_book.loaded.is_some() {
             return;
         }
         let tiers = crate::adventure_data::current().tiers.len();
         let quests = load_quests(
             &crate::assets_dir(),
-            &self.server.mod_dirs,
-            &self.server.registry,
-            &self.server.content,
+            &self.mod_dirs,
+            &self.registry,
+            &self.content,
             tiers,
         );
         let progress = self
             .quest_dir()
             .map_or_else(Progress::default, |dir| Progress::load(&dir));
         let readers = Readers {
-            broken: self.server.ecs.resource::<Events<BlockBroken>>().reader(),
-            placed: self.server.ecs.resource::<Events<BlockPlaced>>().reader(),
-            died: self.server.ecs.resource::<Events<EntityDied>>().reader(),
+            broken: self.ecs.resource::<Events<BlockBroken>>().reader(),
+            placed: self.ecs.resource::<Events<BlockPlaced>>().reader(),
+            died: self.ecs.resource::<Events<EntityDied>>().reader(),
         };
         log::info!(
             "{} quêtes dans {} chapitres",
             quests.quests.len(),
             quests.chapters.len()
         );
-        self.server.players.me_mut().quest_book.loaded = Some(Loaded {
+        self.players.me_mut().quest_book.loaded = Some(Loaded {
             signals: quests.wanted_signals(),
             quests,
             progress,
@@ -279,45 +282,24 @@ impl VoxelGame {
         self.sync_quests_done();
     }
 
-    /// À chaque pas de simulation : rassemble les événements, et met la progression à jour dès
-    /// qu'il y en a ou toutes les secondes.
-    pub(crate) fn update_quests(&mut self, dt: f32) {
-        self.open_quests();
-        self.collect_quest_events();
-        self.server.players.me_mut().quest_book.timer -= dt;
-        let due = self.server.players.me_mut().quest_book.timer <= 0.0;
-        if !due && self.server.players.me_mut().quest_book.events.is_empty() {
-            return;
-        }
-        if due {
-            self.server.players.me_mut().quest_book.timer = SCAN_PERIOD;
-        }
-        self.refresh_quests();
-    }
-
     /// Lit les événements du monde que les quêtes écoutent.
     fn collect_quest_events(&mut self) {
-        let player_at =
-            crate::player::body(&self.server.ecs, self.server.players.entity()).position;
+        let player_at = crate::player::body(&self.ecs, self.players.entity()).position;
         // Un événement compte pour le joueur qui l'a causé ; sans auteur (une machine, un script),
         // il compte pour tous.
-        let me = self.server.players.local_id();
+        let me = self.players.local_id();
         let mine = |player: Option<crate::players::PlayerId>| player.is_none_or(|p| p == me);
-        let book = &mut self.server.players.me_mut().quest_book;
+        let book = &mut self.players.me_mut().quest_book;
         let Some(loaded) = book.loaded.as_mut() else {
             return;
         };
-        let registry = &self.server.registry;
-        let mobs = self
-            .server
-            .ecs
-            .resource::<Arc<crate::mobs::MobRegistry>>()
-            .clone();
+        let registry = &self.registry;
+        let mobs = self.ecs.resource::<Arc<crate::mobs::MobRegistry>>().clone();
         let events = &mut book.events;
         for e in loaded
             .readers
             .broken
-            .read(&self.server.ecs.resource::<Events<BlockBroken>>())
+            .read(&self.ecs.resource::<Events<BlockBroken>>())
             .filter(|e| mine(e.player))
         {
             events.push(Event::Broken(plain_key(&registry.def(e.block).key)));
@@ -325,7 +307,7 @@ impl VoxelGame {
         for e in loaded
             .readers
             .placed
-            .read(&self.server.ecs.resource::<Events<BlockPlaced>>())
+            .read(&self.ecs.resource::<Events<BlockPlaced>>())
             .filter(|e| mine(e.player))
         {
             events.push(Event::Placed(plain_key(&registry.def(e.block).key)));
@@ -333,7 +315,7 @@ impl VoxelGame {
         for e in loaded
             .readers
             .died
-            .read(&self.server.ecs.resource::<Events<EntityDied>>())
+            .read(&self.ecs.resource::<Events<EntityDied>>())
             .filter(|e| mine(e.killer))
         {
             if e.position.distance(player_at) <= KILL_RADIUS {
@@ -345,10 +327,23 @@ impl VoxelGame {
             }
         }
     }
-}
 
-impl crate::server_side::VoxelServer {
-    // (lot 4b) Méthodes du serveur.
+    /// À chaque pas de simulation : rassemble les événements, et met la progression à jour dès
+    /// qu'il y en a ou toutes les secondes.
+    pub(crate) fn update_quests(&mut self, dt: f32) {
+        self.open_quests();
+        self.collect_quest_events();
+        self.players.me_mut().quest_book.timer -= dt;
+        let due = self.players.me_mut().quest_book.timer <= 0.0;
+        if !due && self.players.me_mut().quest_book.events.is_empty() {
+            return;
+        }
+        if due {
+            self.players.me_mut().quest_book.timer = SCAN_PERIOD;
+        }
+        self.refresh_quests();
+    }
+
     /// Le dossier où vit `quests.ron` du joueur local : la racine du monde (voir [`crate::players::PlayerState::quest_dir`]).
     fn quest_dir(&self) -> Option<PathBuf> {
         self.dims

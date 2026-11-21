@@ -81,145 +81,7 @@ fn between(rng: &mut Rng64, (min, max): (u32, u32)) -> u32 {
     }
 }
 
-impl VoxelGame {
-    /// À chaque pas de la simulation (voir la doc du module).
-    pub(crate) fn update_adventure(&mut self, dt: f32) {
-        let data = adventure_data::current();
-        self.server
-            .ecs
-            .insert_resource(self.server.players.me_mut().adventure.effects(&data));
-        self.server.players.me_mut().adventure.scan_timer -= dt;
-        if self.server.players.me_mut().adventure.scan_timer <= 0.0 {
-            self.server.players.me_mut().adventure.scan_timer = 1.0;
-            self.scan_adventure(&data);
-        }
-        let (min, max) = self
-            .server
-            .players
-            .me_mut()
-            .adventure
-            .effects(&data)
-            .invader;
-        if max <= 0.0 {
-            self.server.players.me_mut().adventure.invader_timer = 0.0;
-            return;
-        }
-        if self.server.players.me_mut().adventure.invader_timer <= 0.0 {
-            let roll = Rng64::new(self.next_random()).next_f32();
-            self.server.players.me_mut().adventure.invader_timer = min + (max - min) * roll;
-        }
-        self.server.players.me_mut().adventure.invader_timer -= dt;
-        if self.server.players.me_mut().adventure.invader_timer <= 0.0 {
-            self.spawn_invader(&data);
-        }
-    }
-
-    /// La revue d'une seconde : profondeur, objets portés, déblocages.
-    fn scan_adventure(&mut self, data: &AdventureData) {
-        let feet = player::body(&self.server.ecs, self.server.players.entity()).position;
-        self.server
-            .players
-            .me_mut()
-            .adventure
-            .progress
-            .note_depth(feet.y, engine_voxel::SEA_LEVEL);
-        let items = self.server.content.items.clone();
-        let boost = self.rarity_boost(data);
-        let mut best = None;
-        let mut visit = |stack: &mut Option<ItemStack>| {
-            let Some(s) = stack.as_mut() else { return };
-            if item_data::is_pending(s.damage) {
-                s.damage = affixes::resolve_pending(data, items.get(s.item), s.damage, boost);
-            }
-            if let Some(r) = affixes::rarity_of(s.damage) {
-                best = best.max(Some(r));
-            }
-        };
-        for slot in self.server.players.me_mut().inventory.slots.iter_mut() {
-            visit(slot);
-        }
-        for slot in self.server.players.me_mut().inventory.armor.iter_mut() {
-            visit(slot);
-        }
-        visit(&mut self.server.players.me_mut().inventory.cursor);
-        if let Some(rarity) = best {
-            self.server
-                .players
-                .me_mut()
-                .adventure
-                .progress
-                .note_rarity(rarity);
-        }
-        self.unlock_tiers(data);
-    }
-
-    /// Fait apparaître un envahisseur non loin du joueur : un son, un message, un faisceau.
-    pub(crate) fn spawn_invader(&mut self, data: &AdventureData) -> Option<Vec3> {
-        let center = player::body(&self.server.ecs, self.server.players.entity()).position;
-        let kind = self.pick_invader_kind()?;
-        let site = (0..12).find_map(|_| {
-            let [angle, dist] = [(); 2].map(|()| Rng64::new(self.next_random()).next_f32());
-            self.invader_site(center, angle * std::f32::consts::TAU, 24.0 + dist * 12.0)
-        })?;
-        let entity = crate::mobs::spawn_mob(&mut self.server.ecs, kind, site)?;
-        self.promote_invader(entity, data);
-        self.announce_invader(center, site);
-        Some(site)
-    }
-
-    /// Une hostile ordinaire (ni boss ni scriptée) au hasard.
-    fn pick_invader_kind(&mut self) -> Option<u32> {
-        let registry = self
-            .server
-            .ecs
-            .resource::<std::sync::Arc<MobRegistry>>()
-            .clone();
-        let kinds: Vec<u32> = (0..registry.len() as u32)
-            .filter(|k| {
-                registry
-                    .get(*k)
-                    .is_some_and(|d| d.hostile && !d.boss && !d.brain && d.spawn.weight > 0)
-            })
-            .collect();
-        if kinds.is_empty() {
-            return None;
-        }
-        let pick = Rng64::new(self.next_random()).below(kinds.len() as u32) as usize;
-        Some(kinds[pick])
-    }
-
-    /// Un sol où se tenir à cette distance et dans cette direction du joueur.
-    fn invader_site(&self, center: Vec3, angle: f32, distance: f32) -> Option<Vec3> {
-        let x = (center.x + angle.cos() * distance).floor() as i32;
-        let z = (center.z + angle.sin() * distance).floor() as i32;
-        let registry = self
-            .server
-            .ecs
-            .resource::<std::sync::Arc<MobRegistry>>()
-            .clone();
-        let shared = crate::shared::StreamerExt::streamer(&self.server.ecs);
-        let streamer = shared.borrow();
-        let height = streamer.generator().column(x, z).height;
-        let floor = IVec3::new(x, height, z);
-        (streamer.is_lit(engine_voxel::World::split(floor).0)
-            && crate::spawning::standable(streamer.world(), &registry, floor))
-        .then(|| Vec3::new(x as f32 + 0.5, height as f32 + 1.0, z as f32 + 0.5))
-    }
-
-    /// Fait de cette créature un envahisseur.
-    pub(crate) fn promote_invader(&mut self, entity: Entity, data: &AdventureData) -> bool {
-        let tier = self.server.players.me_mut().adventure.progress.tier;
-        let mut rng = Rng64::new(self.next_random());
-        elites::promote(&mut self.server.ecs, entity, data, tier, true, &mut rng)
-    }
-
-    fn announce_invader(&mut self, center: Vec3, site: Vec3) {
-        let distance = center.distance(site).round();
-        self.toast(&format!("Un envahisseur approche ! ({distance} blocs)"));
-        self.sound("core:cave_rumble");
-        self.sound("core:enchant");
-    }
-}
+impl VoxelGame {}
 
 /// Un objet à affixes tiré dans la liste de butin (filtrée par palier). Pure : la graine décide.
 pub fn roll_affixed(
@@ -252,6 +114,123 @@ pub fn roll_affixed(
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.
+    /// Fait de cette créature un envahisseur.
+    pub(crate) fn promote_invader(&mut self, entity: Entity, data: &AdventureData) -> bool {
+        let tier = self.players.me_mut().adventure.progress.tier;
+        let mut rng = Rng64::new(self.next_random());
+        elites::promote(&mut self.ecs, entity, data, tier, true, &mut rng)
+    }
+
+    /// Une hostile ordinaire (ni boss ni scriptée) au hasard.
+    fn pick_invader_kind(&mut self) -> Option<u32> {
+        let registry = self.ecs.resource::<std::sync::Arc<MobRegistry>>().clone();
+        let kinds: Vec<u32> = (0..registry.len() as u32)
+            .filter(|k| {
+                registry
+                    .get(*k)
+                    .is_some_and(|d| d.hostile && !d.boss && !d.brain && d.spawn.weight > 0)
+            })
+            .collect();
+        if kinds.is_empty() {
+            return None;
+        }
+        let pick = Rng64::new(self.next_random()).below(kinds.len() as u32) as usize;
+        Some(kinds[pick])
+    }
+
+    /// Un sol où se tenir à cette distance et dans cette direction du joueur.
+    fn invader_site(&self, center: Vec3, angle: f32, distance: f32) -> Option<Vec3> {
+        let x = (center.x + angle.cos() * distance).floor() as i32;
+        let z = (center.z + angle.sin() * distance).floor() as i32;
+        let registry = self.ecs.resource::<std::sync::Arc<MobRegistry>>().clone();
+        let shared = crate::shared::StreamerExt::streamer(&self.ecs);
+        let streamer = shared.borrow();
+        let height = streamer.generator().column(x, z).height;
+        let floor = IVec3::new(x, height, z);
+        (streamer.is_lit(engine_voxel::World::split(floor).0)
+            && crate::spawning::standable(streamer.world(), &registry, floor))
+        .then(|| Vec3::new(x as f32 + 0.5, height as f32 + 1.0, z as f32 + 0.5))
+    }
+
+    fn announce_invader(&mut self, center: Vec3, site: Vec3) {
+        let distance = center.distance(site).round();
+        self.toast(&format!("Un envahisseur approche ! ({distance} blocs)"));
+        self.sound("core:cave_rumble");
+        self.sound("core:enchant");
+    }
+
+    /// Fait apparaître un envahisseur non loin du joueur : un son, un message, un faisceau.
+    pub(crate) fn spawn_invader(&mut self, data: &AdventureData) -> Option<Vec3> {
+        let center = player::body(&self.ecs, self.players.entity()).position;
+        let kind = self.pick_invader_kind()?;
+        let site = (0..12).find_map(|_| {
+            let [angle, dist] = [(); 2].map(|()| Rng64::new(self.next_random()).next_f32());
+            self.invader_site(center, angle * std::f32::consts::TAU, 24.0 + dist * 12.0)
+        })?;
+        let entity = crate::mobs::spawn_mob(&mut self.ecs, kind, site)?;
+        self.promote_invader(entity, data);
+        self.announce_invader(center, site);
+        Some(site)
+    }
+
+    /// La revue d'une seconde : profondeur, objets portés, déblocages.
+    fn scan_adventure(&mut self, data: &AdventureData) {
+        let feet = player::body(&self.ecs, self.players.entity()).position;
+        self.players
+            .me_mut()
+            .adventure
+            .progress
+            .note_depth(feet.y, engine_voxel::SEA_LEVEL);
+        let items = self.content.items.clone();
+        let boost = self.rarity_boost(data);
+        let mut best = None;
+        let mut visit = |stack: &mut Option<ItemStack>| {
+            let Some(s) = stack.as_mut() else { return };
+            if item_data::is_pending(s.damage) {
+                s.damage = affixes::resolve_pending(data, items.get(s.item), s.damage, boost);
+            }
+            if let Some(r) = affixes::rarity_of(s.damage) {
+                best = best.max(Some(r));
+            }
+        };
+        for slot in self.players.me_mut().inventory.slots.iter_mut() {
+            visit(slot);
+        }
+        for slot in self.players.me_mut().inventory.armor.iter_mut() {
+            visit(slot);
+        }
+        visit(&mut self.players.me_mut().inventory.cursor);
+        if let Some(rarity) = best {
+            self.players.me_mut().adventure.progress.note_rarity(rarity);
+        }
+        self.unlock_tiers(data);
+    }
+
+    /// À chaque pas de la simulation (voir la doc du module).
+    pub(crate) fn update_adventure(&mut self, dt: f32) {
+        let data = adventure_data::current();
+        self.ecs
+            .insert_resource(self.players.me_mut().adventure.effects(&data));
+        self.players.me_mut().adventure.scan_timer -= dt;
+        if self.players.me_mut().adventure.scan_timer <= 0.0 {
+            self.players.me_mut().adventure.scan_timer = 1.0;
+            self.scan_adventure(&data);
+        }
+        let (min, max) = self.players.me_mut().adventure.effects(&data).invader;
+        if max <= 0.0 {
+            self.players.me_mut().adventure.invader_timer = 0.0;
+            return;
+        }
+        if self.players.me_mut().adventure.invader_timer <= 0.0 {
+            let roll = Rng64::new(self.next_random()).next_f32();
+            self.players.me_mut().adventure.invader_timer = min + (max - min) * roll;
+        }
+        self.players.me_mut().adventure.invader_timer -= dt;
+        if self.players.me_mut().adventure.invader_timer <= 0.0 {
+            self.spawn_invader(&data);
+        }
+    }
+
     /// Tire les objets « à tirer » d'un coffre qu'on ouvre (voir la doc du module).
     pub(crate) fn resolve_chest_loot(&mut self, pos: IVec3) {
         let data = adventure_data::current();

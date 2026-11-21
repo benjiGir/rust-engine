@@ -341,6 +341,8 @@ impl VoxelServer {
         players.sync_ecs(&mut ecs);
         let server = VoxelServer {
             sends: Default::default(),
+            charm_clock: 0.0,
+            charm_beats: 0,
             allow_mod_menu: false,
             edit_times: Vec::new(),
             travel: None,
@@ -489,5 +491,31 @@ mod tests {
         };
         assert!(has_stone(inventory_of(guest)));
         assert!(!has_stone(inventory_of(host)));
+    }
+
+    #[test]
+    fn a_server_without_a_window_steps_the_world_for_two_players() {
+        let mut server = headless();
+        let feet = player::body(&server.ecs, server.players.entity()).position;
+        let guest = server.add_ghost("Invité", feet + Vec3::X * 3.0);
+        // Une seconde de jeu : le monde se charge autour des deux joueurs, les envois suivent.
+        for _ in 0..60 {
+            let views = server.stream_views();
+            server.world.borrow_mut().update_views(&views);
+            server.send_world();
+            server.fixed_step(1.0 / 60.0);
+        }
+        assert_eq!(server.sends.tick, 60, "un compteur de pas par pas fixe");
+        assert!(server.sends.senders.contains_key(&guest));
+        assert!(
+            server
+                .sends
+                .trackers
+                .contains_key(&server.players.local_id())
+        );
+        assert!(
+            server.players.get(guest).is_some(),
+            "le fantôme reste en vie"
+        );
     }
 }

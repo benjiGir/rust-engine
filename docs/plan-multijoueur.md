@@ -812,6 +812,29 @@ Le code serveur lit encore la fenêtre à plusieurs endroits : `self.ui` est cit
   fenêtre (entrées, prédiction). Surtout, la physique du joueur local tourne sur l'ECS du serveur : la fenêtre devra
   avoir sa propre prédiction avant que le serveur parte sur son thread.
 
+##### 4c-1 : le pas du serveur (réalisé)
+
+- **`VoxelServer::fixed_step(dt)`** (`server_step.rs`) fait avancer le monde d'un pas : systèmes de l'ECS, gear,
+  ramassage, sacs, quêtes, machines et mods, cerveaux des créatures, test de charge, fluides, wagons, survie et faim,
+  minage et repas, butin, aventure, charmes, mort, puis les envois d'entités. Toutes ces fonctions sont des méthodes du
+  serveur.
+- **Le pas fixe de la fenêtre** se réduit à : l'intention de son joueur, `fixed_step`, ses pas sonores, son mouvement
+  (`check_local_move`), puis l'application des réponses.
+- **Les horloges des charmes** étaient rangées dans l'interface d'enchantement : elles sont maintenant au serveur.
+- **La mort** ne regarde plus le mode de la fenêtre : `check_death` n'est appelée qu'en partie.
+- **Les centres de chargement** (`stream_views`) prennent le regard que chaque joueur a envoyé (`Look`), plus la
+  caméra.
+- **Test sans fenêtre** : 60 pas avec deux joueurs. Le monde se charge et s'envoie à chacun, et le compteur de pas
+  suit.
+- **Vérifié en jeu** : casser, poser, attaque d'un rôdeur, mort et réapparition. Le test de charge à 200 machines
+  donne un tick des machines de 0,09 à 0,16 ms.
+- **Reste pour le 4c** : 793 lectures directes du serveur dans le code de la fenêtre (rendu, `ctl`, captures, écrans).
+  Surtout, la prédiction du joueur local tourne sur l'ECS du serveur. Avant le thread, il faut :
+  1. donner à la fenêtre son propre corps de joueur prédit (`PlayerBody` existe dans `engine_voxel`), corrigé par
+     `Correct` ;
+  2. faire passer les lectures restantes par la réplique ou les vues ;
+  3. remplacer le `Deref` de `VoxelGame` vers `VoxelServer` par des canaux.
+
 ### Lot 5 : le réseau local
 
 - `engine_net` :

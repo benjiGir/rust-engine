@@ -366,24 +366,18 @@ impl Players {
     }
 }
 
-impl crate::VoxelGame {
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
     /// Les centres de chargement du monde du serveur : un par joueur. Le serveur ne maille pas : le
     /// maillage de la fenêtre se fait dans sa réplique (voir `client_world.rs`), qui suit la caméra.
     pub(crate) fn stream_views(&self) -> Vec<engine_voxel::View> {
-        self.server
-            .players
+        self.players
             .iter()
-            .map(|p| {
-                let local = p.id == self.server.players.local_id();
-                engine_voxel::View {
-                    position: crate::player::eye(&self.server.ecs, p.entity, 1.0),
-                    forward: if local {
-                        self.client.camera.forward()
-                    } else {
-                        glam::Vec3::ZERO
-                    },
-                    mesh: false,
-                }
+            // Le regard de chaque joueur (ses messages `Look`) : on charge devant lui d'abord.
+            .map(|p| engine_voxel::View {
+                position: crate::player::eye(&self.ecs, p.entity, 1.0),
+                forward: p.look,
+                mesh: false,
             })
             .collect()
     }

@@ -20,6 +20,9 @@ use crate::{
 /// L'état du serveur : le monde et ce qui le fait vivre (lot 4 du multijoueur,
 /// `docs/plan-multijoueur.md`). Il ne lit jamais la fenêtre (`ClientSide`).
 pub(crate) struct VoxelServer {
+    /// Le temps depuis le dernier pas des charmes, et le nombre de pas (voir `charms.rs`).
+    pub(crate) charm_clock: f32,
+    pub(crate) charm_beats: u32,
     /// Ce qui a été envoyé à chaque joueur, et les envois de chaque pas (voir `server_sends.rs`).
     pub(crate) sends: crate::server_sends::ServerSends,
     /// Un script de mod peut ouvrir son menu, seulement pendant le clic droit qui le demande.

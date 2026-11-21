@@ -30,7 +30,6 @@ use engine_ecs::Entity;
 use engine_voxel::ItemRegistry;
 use glam::Vec3;
 
-use crate::VoxelGame;
 use crate::attributes::{self, Attribute, Attributes, BaseAttributes, Modifier, Source};
 use crate::components::{Health, Mob};
 use crate::enchant_data::Use;
@@ -240,26 +239,17 @@ fn sheet_name(stack: &ItemStack) -> Option<String> {
     item_data::sheet(stack.damage).and_then(|s| s.name)
 }
 
-/// Le branchement dans le jeu.
-impl VoxelGame {
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
     /// À chaque pas : recalcule les attributs si l'équipement a changé, aligne la vie maximale du
     /// joueur, et rend la vie de la régénération.
     pub(crate) fn refresh_gear(&mut self, dt: f32) {
-        let me = self.server.players.me_mut();
+        let me = self.players.me_mut();
         me.gear
-            .refresh(&me.inventory, &self.server.content.items, &me.effects);
-        let max = self
-            .server
-            .players
-            .me_mut()
-            .gear
-            .value(Attribute::MaxHealth);
-        let regen = self.server.players.me_mut().gear.value(Attribute::Regen);
-        if let Some(mut health) = self
-            .server
-            .ecs
-            .get_mut::<Health>(self.server.players.entity())
-        {
+            .refresh(&me.inventory, &self.content.items, &me.effects);
+        let max = self.players.me_mut().gear.value(Attribute::MaxHealth);
+        let regen = self.players.me_mut().gear.value(Attribute::Regen);
+        if let Some(mut health) = self.ecs.get_mut::<Health>(self.players.entity()) {
             if (health.max - max).abs() > f32::EPSILON {
                 health.max = max;
                 health.current = health.current.min(max);
@@ -269,10 +259,7 @@ impl VoxelGame {
             }
         }
     }
-}
 
-impl crate::server_side::VoxelServer {
-    // (lot 4b) Méthodes du serveur.
     /// Sauvegarde les fiches d'objets dans la racine du monde (si quelque chose a changé).
     pub(crate) fn save_item_data(&mut self) {
         let Some(root) = self.dims.meta_store.clone().or_else(|| self.store.clone()) else {

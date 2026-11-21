@@ -15,7 +15,7 @@ use crate::components::{Health, Mob, Transform};
 use crate::menus::button;
 use crate::player;
 use crate::survival::{Hunger, Vitals};
-use crate::{Mode, Request, VoxelGame};
+use crate::{Request, VoxelGame};
 
 /// Une créature hostile plus proche que ça empêche de dormir.
 const MONSTER_RADIUS: f32 = 8.0;
@@ -25,49 +25,6 @@ const MORNING: f32 = 0.27;
 const TOAST_SECONDS: f32 = 3.0;
 
 impl VoxelGame {
-    /// À chaque pas : la vie à 0, c'est la mort.
-    pub(crate) fn check_death(&mut self) {
-        if self.mode != Mode::Playing
-            || self.server.players.me().dead
-            || player::health(&self.server.ecs, self.server.players.entity()).current > 0.0
-        {
-            return;
-        }
-        let message = self
-            .server
-            .players
-            .me_mut()
-            .vitals
-            .last_cause
-            .map_or("Vous êtes mort.", |cause| cause.death_message());
-        // Ce qu'il tenait à la souris et la grille d'artisanat reviennent dans l'inventaire, puis
-        // tout tombe là où le joueur est mort. La fenêtre ferme son écran en recevant `Died`.
-        self.close_menu();
-        let feet = player::body(&self.server.ecs, self.server.players.entity())
-            .position
-            .floor()
-            .as_ivec3();
-        let stacks = self.server.players.me_mut().inventory.take_all();
-        let dropped: u32 = stacks.iter().map(|s| s.count).sum();
-        for stack in stacks {
-            self.drop_stack(feet, stack);
-        }
-        self.server.players.me_mut().mining = None;
-        self.server.players.me_mut().hunger.chewing = None;
-        // L'expérience est perdue.
-        let (level, _) = self.server.players.me_mut().experience.level();
-        self.server.players.me_mut().experience = crate::survival::Experience::default();
-        log::info!("{message} ({dropped} objets lâchés en {feet}, niveau {level} perdu)");
-        self.server.players.me_mut().dead = true;
-        let id = self.server.players.current_id();
-        self.server.replies.push((
-            id,
-            crate::protocol::ServerMsg::Died {
-                message: message.to_string(),
-            },
-        ));
-    }
-
     /// Le message en cours, s'il n'a pas expiré.
     pub(crate) fn draw_toast(&mut self, ctx: &egui::Context) {
         let Some((text, since)) = &self.client.ui.toast else {
@@ -133,6 +90,47 @@ impl VoxelGame {
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.
+    /// À chaque pas : la vie à 0, c'est la mort.
+    pub(crate) fn check_death(&mut self) {
+        // Appelé seulement pendant la partie (voir `fixed_update`).
+        if self.players.me().dead || player::health(&self.ecs, self.players.entity()).current > 0.0
+        {
+            return;
+        }
+        let message = self
+            .players
+            .me_mut()
+            .vitals
+            .last_cause
+            .map_or("Vous êtes mort.", |cause| cause.death_message());
+        // Ce qu'il tenait à la souris et la grille d'artisanat reviennent dans l'inventaire, puis
+        // tout tombe là où le joueur est mort. La fenêtre ferme son écran en recevant `Died`.
+        self.close_menu();
+        let feet = player::body(&self.ecs, self.players.entity())
+            .position
+            .floor()
+            .as_ivec3();
+        let stacks = self.players.me_mut().inventory.take_all();
+        let dropped: u32 = stacks.iter().map(|s| s.count).sum();
+        for stack in stacks {
+            self.drop_stack(feet, stack);
+        }
+        self.players.me_mut().mining = None;
+        self.players.me_mut().hunger.chewing = None;
+        // L'expérience est perdue.
+        let (level, _) = self.players.me_mut().experience.level();
+        self.players.me_mut().experience = crate::survival::Experience::default();
+        log::info!("{message} ({dropped} objets lâchés en {feet}, niveau {level} perdu)");
+        self.players.me_mut().dead = true;
+        let id = self.players.current_id();
+        self.replies.push((
+            id,
+            crate::protocol::ServerMsg::Died {
+                message: message.to_string(),
+            },
+        ));
+    }
+
     /// Une créature hostile à moins de [`MONSTER_RADIUS`] blocs ?
     fn monster_nearby(&self, center: Vec3) -> bool {
         let registry = self
