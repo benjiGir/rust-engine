@@ -101,6 +101,8 @@ mod intents;
 mod interact;
 mod item_ctl;
 mod launch;
+mod net_ctl;
+mod net_host;
 mod predicted;
 mod server_boot;
 mod server_sends;
@@ -513,6 +515,8 @@ impl VoxelGame {
 
     fn update(&mut self, ctx: &mut Context, dt: f32) {
         self.client.frame_dt = dt;
+        // Les joueurs du réseau local : arrivées, messages, départs (voir `net_host.rs`).
+        self.server.poll_net();
         // Les options attendent une touche : la prochaine pressée est la nouvelle
         // (Échap annule).
         let mut escape = ctx.input.key_pressed(KeyCode::Escape);
@@ -676,6 +680,7 @@ impl VoxelGame {
         self.client
             .frame_stats
             .record_streaming(streamed - start, streamed.elapsed(), uploads);
+        self.server.end_net_frame();
     }
 
     fn render(&mut self, ctx: &mut Context, alpha: f32) {

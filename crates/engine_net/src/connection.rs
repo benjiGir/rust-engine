@@ -15,7 +15,9 @@ use std::time::Duration;
 use crate::frame::{Frame, FrameReader};
 
 /// Combien de trames peuvent attendre l'écriture.
-pub const QUEUE_FRAMES: usize = 4096;
+pub const QUEUE_FRAMES: usize = 65_536;
+/// Au-delà, une écriture bloquée ferme la connexion.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Ce qui arrive d'un pair.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +63,8 @@ impl Connection {
     pub fn from_stream(stream: TcpStream) -> io::Result<Self> {
         stream.set_nonblocking(false)?;
         stream.set_nodelay(true)?;
+        // Un pair qui ne lit plus ne bloque pas le thread d'écriture pour toujours.
+        stream.set_write_timeout(Some(WRITE_TIMEOUT))?;
         let peer = stream.peer_addr()?;
         let reader = stream.try_clone()?;
         let writer = stream.try_clone()?;
@@ -139,11 +143,8 @@ impl Connection {
     }
 }
 
-impl Drop for Connection {
-    fn drop(&mut self) {
-        self.close();
-    }
-}
+// Lâcher une connexion ne la coupe pas tout de suite : la file d'envoi se vide (un refus doit
+// arriver), puis le thread d'écriture ferme le flux, ce qui arrête celui de lecture.
 
 /// Signale la fermeture une seule fois, quel que soit le thread qui la voit le premier.
 fn report_closed(events: &Sender<Event>, closed: &AtomicBool, reason: String) {

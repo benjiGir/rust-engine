@@ -258,11 +258,8 @@ impl VoxelGame {
     /// Les réponses du simulateur au joueur de la fenêtre. Celles des autres joueurs partiront sur
     /// le réseau (lot 5).
     pub(crate) fn apply_replies(&mut self) {
-        let local = self.server.players.local_id();
-        for (player, reply) in std::mem::take(&mut self.server.replies) {
-            if player != local {
-                continue;
-            }
+        // Celles des joueurs du réseau partent sur leur connexion (voir `net_host.rs`).
+        for reply in self.server.route_replies() {
             match reply {
                 ServerMsg::Correct {
                     position,

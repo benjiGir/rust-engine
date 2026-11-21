@@ -920,7 +920,24 @@ lot 4, viendra plus tard) :
   `wire.rs` les branche sur serde (`#[serde(with)]`) et relit les structures avec le registre que le client réseau
   enregistre. Les définitions de quêtes sont sérialisables. Un chunk d'air tient en moins d'un Kio. L'encodage
   unique d'un chunk pour tous les joueurs se fera dans l'envoi (5c).
-- **5c** : héberger (écoute, poignée de main, joueurs distants dans le serveur, annonce sur le réseau local).
+- **5c, héberger (réalisé, `net_host.rs`)** :
+  - `ctl host [port]` (25 600 par défaut, le suivant s'il est pris) ouvre l'écoute ; `ctl players` liste les
+    joueurs ;
+  - la poignée de main : `Hello` (protocole, nom, identifiant, empreinte des blocs et des objets) puis `Welcome`
+    (accepté : numéro, pieds, regard, mode, graine ; ou refusé avec la raison : autre version, autre contenu, déjà
+    connecté) ;
+  - un joueur venu du réseau est un `PlayerState` comme un autre, son entité `Predicted` ; il retrouve son fichier
+    de `players/` par son identifiant, et il y est écrit à son départ ; « X a rejoint » et « X a quitté » partent
+    à tous en chat ;
+  - `route_replies` rend à la fenêtre ses réponses et envoie celles des autres sur leur connexion ; un chunk est
+    encodé une fois par image pour tous les joueurs ;
+  - un joueur dont plus de 2 Mo attendent ne reçoit plus de chunks neufs (`ChunkSender::set_budget`), seulement
+    les changements, le temps de rattraper ; une file pleine (65 536 trames) le déconnecte ;
+  - lâcher une connexion vide d'abord sa file (un refus arrive) ; une écriture bloquée 15 s la ferme ;
+  - test de bout en bout sur la boucle locale : accueil, chunks reçus, mouvement rangé, refus (contenu, doublon),
+    départ.
+  - Reste pour plus tard : l'annonce sur le réseau local (avec l'écran « Rejoindre », 5d), le bouton du menu pause,
+    les permissions (tricheries, commandes).
 - **5d** : rejoindre : une fenêtre sans serveur local, les outils de l'hôte refusés en invité.
 
 

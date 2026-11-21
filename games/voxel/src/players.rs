@@ -29,7 +29,9 @@ use crate::survival::{Experience, Hunger, HungerRules, SurvivalRules, Vitals};
 /// Le numéro d'un joueur dans la partie en cours. Il n'est jamais écrit sur disque (c'est
 /// l'identifiant [`uuid`](PlayerState::uuid) qui reconnaît un joueur d'une séance à l'autre) ; il
 /// sert aussi de composant sur l'entité ECS du joueur.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct PlayerId(pub u32);
 
 /// Qui est le joueur : son numéro dans la partie, son nom et son identifiant stable.

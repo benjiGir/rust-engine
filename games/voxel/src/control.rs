@@ -34,7 +34,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-36 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hold left|right|off | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin|select|ui|view|close ... | questpin id | screen quests [chapitre] | shape forme [n|all] | rebuild [all] | shaping | pieces x y z | ghost [nom] [x y z] | ghost remove [nom] | ghost list | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hold left|right|off | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin|select|ui|view|close ... | questpin id | screen quests [chapitre] | shape forme [n|all] | rebuild [all] | shaping | pieces x y z | ghost [nom] [x y z] | ghost remove [nom] | ghost list | host [port] | players | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -224,6 +224,7 @@ pub enum Command {
     Shapes(crate::shape_ctl::Command),
     /// Les joueurs fantômes : ajouter, retirer, lister (voir `ghosts.rs`).
     Ghosts(crate::ghosts::Command),
+    Net(crate::net_ctl::Command),
     /// Les commandes de l'enchantement avancé : stats de table, livres, bibliothèque (voir `enchant_ctl.rs`).
     Enchanting(crate::enchant_ctl::Command),
     /// Les textes affichés (avec leur position en points), pour viser un bouton.
@@ -635,9 +636,12 @@ pub fn parse(line: &str) -> Result<Command> {
                                 Some(command) => Command::Shapes(command?),
                                 None => match crate::ghosts::parse(other, &args) {
                                     Some(command) => Command::Ghosts(command?),
-                                    None => {
-                                        bail!("commande inconnue « {other} » (voir `help`)")
-                                    }
+                                    None => match crate::net_ctl::parse(other, &args) {
+                                        Some(command) => Command::Net(command?),
+                                        None => {
+                                            bail!("commande inconnue « {other} » (voir `help`)")
+                                        }
+                                    },
                                 },
                             },
                         },
@@ -1448,6 +1452,7 @@ impl VoxelGame {
             Command::Quests(command) => self.quest_command(command),
             Command::Shapes(command) => self.shape_command(command),
             Command::Ghosts(command) => self.ghost_command(command),
+            Command::Net(command) => self.net_command(command),
             Command::Mods => {
                 let disabled = self.server.mods.disabled();
                 let rows: Vec<String> = self

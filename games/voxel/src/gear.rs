@@ -56,6 +56,11 @@ pub struct Strike {
 }
 
 impl Gear {
+    /// Les valeurs de base (sans l'équipement).
+    pub fn base(&self) -> BaseAttributes {
+        self.base
+    }
+
     pub fn new(base: BaseAttributes) -> Self {
         Self {
             base,

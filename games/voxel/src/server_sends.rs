@@ -49,11 +49,19 @@ impl VoxelServer {
         let mut updates = Vec::new();
         for player in self.players.iter() {
             let eye = crate::player::eye(&self.ecs, player.entity, 1.0);
+            // Un joueur du réseau dont le lien a du retard ne reçoit que les changements, le temps
+            // de le rattraper (voir `net_host.rs`).
+            let budget = if self.net_backlog(player.id) > crate::net_host::CHUNK_BACKLOG {
+                0
+            } else {
+                engine_voxel::DEFAULT_SEND_BUDGET
+            };
             let sender = self
                 .sends
                 .senders
                 .entry(player.id)
                 .or_insert_with(|| ChunkSender::new(radius));
+            sender.set_budget(budget);
             sender.step(
                 &self.world.borrow(),
                 World::chunk_containing(eye),

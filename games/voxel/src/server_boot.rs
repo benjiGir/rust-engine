@@ -371,6 +371,7 @@ impl VoxelServer {
             weather: weather::Weather::new(seed),
             helm: None,
             steer: 0.0,
+            net: None,
             mod_settings_saved: std::time::Instant::now(),
             difficulty,
             potions,
@@ -401,13 +402,13 @@ impl VoxelServer {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::players::PlayerId;
     use crate::protocol::{ClientMsg, ServerMsg};
 
     /// Un serveur sans fenêtre ni sauvegarde, sur une graine fixe.
-    fn headless() -> VoxelServer {
+    pub(crate) fn headless() -> VoxelServer {
         let launch = Launch {
             world: None,
             seed: Some(7),

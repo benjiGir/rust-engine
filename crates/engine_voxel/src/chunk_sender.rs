@@ -63,6 +63,12 @@ impl ChunkSender {
     }
 
     /// Des colonnes attendent encore d'être envoyées (pas encore éclairées, ou sous le budget).
+    /// Change le nombre de chunks neufs envoyés par pas (0 : seulement les changements, le temps
+    /// qu'un lien lent rattrape son retard).
+    pub fn set_budget(&mut self, chunks: usize) {
+        self.budget = chunks;
+    }
+
     pub fn pending(&self) -> usize {
         self.waiting.len()
     }
