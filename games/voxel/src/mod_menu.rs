@@ -75,18 +75,30 @@ impl VoxelGame {
         if let (Some((owner, _)), false) = (self.client.ui.options_menu.clone(), options.is_empty())
         {
             for (kind, id, value) in options {
-                let actions = self.server.mods.options_event(&owner, kind, id, value);
-                self.server.apply_machine_actions(actions);
+                self.send_now(crate::protocol::ClientMsg::ModOptionsEvent {
+                    mod_id: owner.clone(),
+                    kind,
+                    id,
+                    value,
+                });
             }
         }
+        // Le serveur écrit les réglages et rafraîchit les menus ouverts (même en pause).
+        self.server.refresh_mod_menus();
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    /// Les réglages des mods changés sont écrits au plus une fois par seconde, et les menus de mods
+    /// ouverts se rafraîchissent cinq fois par seconde.
+    pub(crate) fn refresh_mod_menus(&mut self) {
         // Les réglages changés sont écrits au plus une fois par seconde (un curseur qu'on
         // fait glisser ne doit pas écrire à chaque image).
-        if self.client.ui.settings_saved.elapsed() >= Duration::from_secs(1) {
-            self.client.ui.settings_saved = Instant::now();
-            self.server.mods.save_settings();
+        if self.mod_settings_saved.elapsed() >= Duration::from_secs(1) {
+            self.mod_settings_saved = Instant::now();
+            self.mods.save_settings();
         }
         let due: Vec<_> = self
-            .server
             .players
             .iter()
             .filter(|p| {
@@ -97,12 +109,12 @@ impl VoxelGame {
             .map(|p| p.id)
             .collect();
         for id in due {
-            let before = self.server.players.set_acting(Some(id));
-            if let Some(m) = &mut self.server.players.me_mut().mod_menu {
+            let before = self.players.set_acting(Some(id));
+            if let Some(m) = &mut self.players.me_mut().mod_menu {
                 m.last_refresh = Instant::now();
             }
-            self.server.send_mod_ui(UI_REFRESH, 0, 0);
-            self.server.players.set_acting(before);
+            self.send_mod_ui(UI_REFRESH, 0, 0);
+            self.players.set_acting(before);
         }
     }
 }

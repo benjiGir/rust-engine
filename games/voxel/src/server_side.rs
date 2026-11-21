@@ -72,6 +72,8 @@ pub(crate) struct VoxelServer {
     pub(crate) helm: Option<engine_voxel::GridId>,
     /// La barre que tient le pilote (`ClientMsg::Steer`).
     pub(crate) steer: f32,
+    /// Quand les réglages des mods ont été écrits pour la dernière fois.
+    pub(crate) mod_settings_saved: std::time::Instant,
     /// 0 paisible, 1 normale, 2 difficile.
     pub(crate) difficulty: u8,
     /// Les définitions des potions.

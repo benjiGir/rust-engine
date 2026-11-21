@@ -55,8 +55,6 @@ pub struct GameUi {
     /// La page d'options d'un mod, ouverte depuis la pause : (mod, menu).
     pub options_menu: Option<(String, engine_mods::ModMenu)>,
     pub options_events: Vec<(i32, i32, i32)>,
-    /// Dernière écriture des réglages des mods.
-    pub settings_saved: std::time::Instant,
     /// Les clics et touches simulés par `ctl`.
     pub input: crate::ui_input::UiInput,
     /// L'explorateur de recettes (voir `recipe_browser.rs`).
@@ -177,7 +175,6 @@ impl GameUi {
             console: Default::default(),
             options_menu: None,
             options_events: Vec::new(),
-            settings_saved: std::time::Instant::now(),
             input: Default::default(),
             browser: Default::default(),
             storage_search: String::new(),

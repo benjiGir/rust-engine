@@ -371,6 +371,7 @@ impl VoxelServer {
             weather: weather::Weather::new(seed),
             helm: None,
             steer: 0.0,
+            mod_settings_saved: std::time::Instant::now(),
             difficulty,
             potions,
             enchant_seed: seed ^ 0xE5C4,

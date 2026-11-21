@@ -71,6 +71,8 @@ pub struct VitalsView {
     pub move_speed: f32,
     /// Assez mangé pour courir.
     pub can_sprint: bool,
+    /// Les attributs calculés et leurs sources (la fenêtre « Attributs »).
+    pub attributes: crate::attributes::Attributes,
     pub effects: Vec<EffectView>,
 }
 
@@ -180,6 +182,8 @@ pub struct ClientPlayer {
     pub screen: Option<crate::screen_actions::ScreenView>,
     /// La progression des quêtes du joueur (le livre et les quêtes épinglées la lisent).
     pub quests: Option<crate::quest_progress::Progress>,
+    /// Les définitions du livre, reçues à son ouverture (`ServerMsg::QuestBook`).
+    pub quest_book: Option<std::sync::Arc<crate::quests::Quests>>,
     /// Le moment du dernier coup reçu (quand `hits` a changé).
     hit_at: Option<Instant>,
 }
@@ -312,6 +316,7 @@ pub fn vitals_of(
         reach: state.gear.reach(),
         move_speed: state.gear.move_speed(),
         can_sprint: state.hunger.can_sprint(rules),
+        attributes: state.gear.attrs().clone(),
         effects: state
             .effects
             .list()
@@ -456,6 +461,9 @@ mod tests {
             reach: 4.5,
             move_speed: 1.0,
             can_sprint: true,
+            attributes: crate::attributes::Attributes::plain(
+                crate::attributes::BaseAttributes::default(),
+            ),
             effects: Vec::new(),
         }
     }

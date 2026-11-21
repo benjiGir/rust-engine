@@ -123,13 +123,15 @@ impl VoxelGame {
 
     /// Ouvre le livre, au chapitre demandé ou, sinon, au dernier regardé (le premier à défaut).
     pub(crate) fn open_quest_book(&mut self, chapter: Option<&str>) -> Result<()> {
-        self.server.open_quests();
+        // Le serveur charge le livre, revoit les tâches (les objets portés comptent dès l'ouverture) et
+        // envoie ses définitions.
+        self.send_now(ClientMsg::Screen(ScreenAction::Quest(QuestAct::Open)));
         let quests = self
-            .server
-            .players
-            .me_mut()
+            .client
+            .view
+            .me
             .quest_book
-            .quests()
+            .clone()
             .ok_or_else(|| anyhow::anyhow!("quêtes pas chargées"))?;
         let wanted = match chapter {
             Some(id) => Some(
@@ -141,14 +143,12 @@ impl VoxelGame {
             ),
             None => None,
         };
-        // Une revue tout de suite : les objets portés comptent dès l'ouverture.
-        self.server.refresh_quests();
         let last = self
-            .server
-            .players
-            .me_mut()
-            .quest_book
-            .progress()
+            .client
+            .view
+            .me
+            .quests
+            .as_ref()
             .and_then(|p| p.last_chapter.clone())
             .and_then(|id| quests.chapters.iter().position(|c| c.id == id));
         let index = wanted.or(last).unwrap_or(0);
@@ -189,11 +189,18 @@ impl VoxelGame {
         state.view.zoom = state.view.zoom.max(0.8);
     }
 
+    /// Demande le livre au serveur s'il n'est pas encore arrivé.
+    fn request_quest_book(&mut self) {
+        if self.client.view.me.quest_book.is_none() {
+            self.send_now(ClientMsg::Screen(ScreenAction::Quest(QuestAct::Open)));
+        }
+    }
+
     /// Le bouton « Quêtes » de l'écran d'inventaire, et ce qui attend d'être récupéré.
     pub(crate) fn quests_button(&mut self, ui: &mut egui::Ui) {
         // Ce qui attend d'être récupéré, d'après la progression que le serveur a envoyée.
         let waiting = match (
-            self.server.players.local().quest_book.quests(),
+            self.client.view.me.quest_book.clone(),
             &self.client.view.me.quests,
         ) {
             (Some(quests), Some(progress)) => Some(progress.pending(&quests).len()),
@@ -222,10 +229,10 @@ impl VoxelGame {
     /// Le livre, plein écran.
     pub(crate) fn draw_quests_screen(&mut self, ctx: &egui::Context) {
         self.client.ui.browser.hovered = None;
-        self.server.open_quests();
+        self.request_quest_book();
         // Les quêtes sont le contenu du jeu ; la progression vient de la vue du joueur.
         let (Some(quests), Some(progress)) = (
-            self.server.players.local().quest_book.quests(),
+            self.client.view.me.quest_book.clone(),
             self.client.view.me.quests.clone(),
         ) else {
             return;
@@ -731,8 +738,8 @@ impl VoxelGame {
     /// Choisit une quête dans le livre ouvert (l'ouvre au besoin) : son chapitre, le plan centré
     /// dessus, sa fiche ouverte.
     pub(crate) fn select_quest(&mut self, id: &str) -> Result<()> {
-        self.server.open_quests();
-        let Some(quests) = self.server.players.me_mut().quest_book.quests() else {
+        self.request_quest_book();
+        let Some(quests) = self.client.view.me.quest_book.clone() else {
             bail!("quêtes pas chargées");
         };
         let Some(index) = quests.index(id) else {
@@ -761,7 +768,7 @@ impl VoxelGame {
     /// quête est dessinée (en points, comme `click x y`).
     pub(crate) fn quest_screen_json(&self) -> String {
         let state = &self.client.ui.quests;
-        let quests = self.server.players.me().quest_book.quests();
+        let quests = self.client.view.me.quest_book.clone();
         let id_of = |q: usize| {
             quests
                 .as_ref()
@@ -826,6 +833,16 @@ impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.
     /// `ScreenAction::Quest` : le serveur applique un geste du livre au joueur courant.
     pub(crate) fn quest_act(&mut self, act: QuestAct) {
+        if act == QuestAct::Open {
+            self.open_quests();
+            self.refresh_quests();
+            if let Some(book) = self.players.me().quest_book.quests() {
+                let id = self.players.current_id();
+                self.replies
+                    .push((id, crate::protocol::ServerMsg::QuestBook(book)));
+            }
+            return;
+        }
         let Some(quests) = self.players.me().quest_book.quests() else {
             return;
         };

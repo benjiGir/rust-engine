@@ -895,8 +895,15 @@ Le code serveur lit encore la fenêtre à plusieurs endroits : `self.ui` est cit
     (un message de détail sur la cible viendra au lot 5) ;
   - en pause, la fenêtre n'appelle plus `frame` : l'heure, les potions et les villages s'arrêtent aussi (avant, l'heure
     tournait pendant la pause).
-- **Reste** : les quêtes (définitions du livre), les attributs, le menu des mods, l'inspecteur de l'ECS, la vitesse
-  maximale des wagons (réglage de l'hôte), et les outils (`ctl`, captures, démo, banc d'essai), qui écrivent dans le serveur.
+- **Quêtes, attributs, menus de mods** (4c-3f) :
+  - le livre s'ouvre par `QuestAct::Open` : le serveur le charge, revoit les tâches et envoie ses définitions
+    (`ServerMsg::QuestBook`, un `Arc` en mémoire) ; l'écran, le bouton et le dernier chapitre lisent la vue ;
+  - les attributs calculés (et leurs sources) passent dans `VitalsView` ;
+  - les gestes sur une page d'options de mod partent en `ClientMsg::ModOptionsEvent` ; l'écriture des réglages des
+    mods et le rafraîchissement des menus ouverts sont au serveur (`refresh_mod_menus`, appelé par la boucle de
+    l'hôte, même en pause).
+- **Reste** : l'inspecteur de l'ECS, la vitesse maximale des wagons (réglage de l'hôte), l'aperçu du contenu d'un
+  wagon visé, et les outils (`ctl`, captures, démo, banc d'essai), qui écrivent dans le serveur.
 
 ### Lot 5 : le réseau local
 

@@ -807,6 +807,15 @@ impl crate::server_side::VoxelServer {
                 inventory.selected = usize::from(slot).min(inventory.slots.len() - 1);
             }
             ClientMsg::Steer(steer) => self.steer = steer.clamp(-1.0, 1.0),
+            ClientMsg::ModOptionsEvent {
+                mod_id,
+                kind,
+                id,
+                value,
+            } => {
+                let actions = self.mods.options_event(&mod_id, kind, id, value);
+                self.apply_machine_actions(actions);
+            }
             ClientMsg::Dismount => {
                 self.dismount();
             }

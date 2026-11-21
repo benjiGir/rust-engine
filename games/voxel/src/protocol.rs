@@ -134,6 +134,9 @@ pub enum TakeHow {
 /// Un geste du livre de quêtes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum QuestAct {
+    /// Ouvrir le livre : le serveur le charge s'il ne l'est pas, revoit les tâches, et envoie ses
+    /// définitions (`ServerMsg::QuestBook`).
+    Open,
     /// Le chapitre où le livre se rouvrira.
     LastChapter(String),
     Claim(u32),
@@ -228,6 +231,13 @@ pub enum ClientMsg {
     Steer(f32),
     /// Descendre du wagon.
     Dismount,
+    /// Un geste sur la page d'options d'un mod (menu pause de l'hôte).
+    ModOptionsEvent {
+        mod_id: String,
+        kind: i32,
+        id: i32,
+        value: i32,
+    },
     /// Jeter un objet de la main (`all` : toute la pile).
     Drop {
         aim: Aim,
@@ -360,6 +370,10 @@ pub enum ServerMsg {
         id: NetId,
         grid: GridSnapshot,
     },
+    /// Les définitions du livre de quêtes (chapitres, quêtes, récompenses), à l'ouverture. Le contenu du
+    /// jeu : un client du réseau les chargera de ses propres mods.
+    #[serde(skip)]
+    QuestBook(Arc<crate::quests::Quests>),
     /// Un chunk que le client a déjà et qui a changé : le chunk d'aujourd'hui, avec les positions des
     /// blocs posés ou cassés (`edits`, remaillés dans l'image), ou `remesh` pour un changement qui
     /// peut attendre (lumière, machine). Ni l'un ni l'autre : des données seules, sans remaillage.

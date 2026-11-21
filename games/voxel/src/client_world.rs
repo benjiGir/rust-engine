@@ -92,6 +92,7 @@ impl ClientWorld {
             ServerMsg::Container(container) => self.me.container = container,
             ServerMsg::ScreenView(screen) => self.me.screen = screen,
             ServerMsg::Quests(quests) => self.me.quests = quests,
+            ServerMsg::QuestBook(book) => self.me.quest_book = Some(book),
             // Les retours (son, message, bras) et `Correct` sont appliqués par le jeu.
             ServerMsg::Correct { .. }
             | ServerMsg::Push { .. }

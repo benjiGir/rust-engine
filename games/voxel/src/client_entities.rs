@@ -209,6 +209,7 @@ impl ClientEntities {
             | ServerMsg::Push { .. }
             | ServerMsg::Sky(_)
             | ServerMsg::Turn(_)
+            | ServerMsg::QuestBook(_)
             | ServerMsg::Unload(_)
             | ServerMsg::Vitals(_)
             | ServerMsg::Inventory(_)

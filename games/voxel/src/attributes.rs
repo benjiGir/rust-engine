@@ -31,7 +31,9 @@ use serde::Deserialize;
 
 /// Un attribut. Les numéros sont **stables** (ils sont sauvegardés dans les affixes des fiches
 /// d'objets) : on n'en change jamais un, on en ajoute à la fin.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, Deserialize,
+)]
 pub enum Attribute {
     Damage = 0,
     CritChance = 1,
@@ -186,7 +188,7 @@ impl Attribute {
 }
 
 /// Un bonus sur un attribut.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, Deserialize)]
 pub struct Modifier {
     pub attribute: Attribute,
     /// Ce qui s'ajoute à la base.
@@ -214,7 +216,7 @@ impl Modifier {
 }
 
 /// D'où viennent des bonus : un nom lisible (« Épée de fer », « Force ») et ses modificateurs.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, Deserialize)]
 pub struct Source {
     pub label: String,
     pub modifiers: Vec<Modifier>,
@@ -222,7 +224,7 @@ pub struct Source {
 
 /// Les valeurs de base du joueur (`attributes` dans `assets/core/player.ron`). Tout champ absent
 /// prend sa valeur par défaut : un ancien fichier sans cette section reste valide.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, Deserialize)]
 #[serde(default)]
 pub struct BaseAttributes {
     /// Les dégâts d'un coup de poing (un outil en main les remplace s'il est meilleur).
@@ -326,7 +328,7 @@ pub struct Contribution {
 }
 
 /// Les valeurs calculées, et d'où elles viennent.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, Deserialize)]
 pub struct Attributes {
     base: BaseAttributes,
     values: [f32; COUNT],

@@ -91,7 +91,16 @@ impl VoxelGame {
         let x = frame.map_or(safe.left(), |f| (f.left() - actual - 10.0).max(safe.left()));
         let mut close = false;
         let mut modified_only = self.client.ui.attributes.modified_only;
-        let attrs = self.server.players.me_mut().gear.attrs().clone();
+        let Some(attrs) = self
+            .client
+            .view
+            .me
+            .vitals
+            .as_ref()
+            .map(|v| v.attributes.clone())
+        else {
+            return;
+        };
         egui::Window::new("Attributs")
             .id(id)
             .frame(skin::panel())
