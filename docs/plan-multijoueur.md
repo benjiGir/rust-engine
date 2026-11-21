@@ -1035,7 +1035,9 @@ lot 4, viendra plus tard) :
   Premiers chiffres (compilation de débogage, 4 bots qui explorent) : environ 100 Kio/s par bot sur le fil (8 à 12
   fois moins que décompressé), un chunk d'environ 70 Ko décompressé, 6 à 9 Ko sur le fil, environ 14 Mio pour
   arriver ; le serveur tient 60 ticks/s, 2 à 2,6 ms par tick (p99 12 ms).
-- **Reste** : les tests du coffre partagé, de la créature qui poursuit le plus proche et de la porte ; la latence et
+- **7b-2 (réalisé)** : une porte ouverte par A s'ouvre chez B ; un coffre rempli par B change chez A (deux clics de
+  case) ; une créature hostile s'approche du joueur le plus proche.
+- **Reste** : la latence et
   les pertes simulées ; les raccourcis `cargo xtask bots` et `bench-net` (aujourd'hui `voxel --bots` et le serveur
   dédié).
 
