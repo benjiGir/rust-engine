@@ -308,8 +308,10 @@ pub fn run() -> Result<()> {
 /// invité, sur la boucle locale (`VOXEL_SERVER_THREAD=1`, voir le jeu). Le lâcher l'arrête et attend la
 /// sauvegarde.
 pub struct Integrated {
-    /// Le port de la boucle locale où la fenêtre le rejoint.
+    /// Le port de la boucle locale où d'autres clients peuvent le rejoindre (les tests).
     pub port: u16,
+    /// Le joueur de la fenêtre, déjà accueilli par un lien en mémoire (à prendre une fois).
+    pub joined: Option<crate::net_join::Joined>,
     lines: mpsc::Sender<Option<String>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -336,6 +338,7 @@ pub fn spawn_integrated(
     world: std::path::PathBuf,
     settings: &crate::settings::Settings,
     owner: &str,
+    owner_uuid: u128,
 ) -> Result<Integrated> {
     let mut settings = settings.clone();
     // Le joueur « hôte » du serveur est caché : il ne porte pas l'identifiant du joueur de la fenêtre,
@@ -344,7 +347,7 @@ pub fn spawn_integrated(
     settings.player_uuid = crate::players::uuid_name(0);
     let owner = owner.to_string();
     let (lines_tx, lines) = mpsc::channel::<Option<String>>();
-    let (ready_tx, ready) = mpsc::channel::<Result<u16, String>>();
+    let (ready_tx, ready) = mpsc::channel::<Result<(u16, crate::net_join::Joined), String>>();
     let thread = std::thread::Builder::new()
         .name("serveur intégré".into())
         .spawn(move || {
@@ -364,10 +367,12 @@ pub fn spawn_integrated(
                 }
             };
             server.hide_local();
-            server.operators = vec![owner];
+            server.operators = vec![owner.clone()];
             match server.open_local() {
                 Ok(port) => {
-                    let _ = ready_tx.send(Ok(port));
+                    // Le joueur de la fenêtre entre par un lien en mémoire.
+                    let joined = server.join_local(&owner, owner_uuid);
+                    let _ = ready_tx.send(Ok((port, joined)));
                 }
                 Err(err) => {
                     let _ = ready_tx.send(Err(err.to_string()));
@@ -376,13 +381,14 @@ pub fn spawn_integrated(
             }
             serve(&mut server, &lines, false);
         })?;
-    let port = ready
+    let (port, joined) = ready
         .recv()
         .context("le serveur intégré s'est arrêté avant d'écouter")?
         .map_err(|err| anyhow::anyhow!("serveur intégré : {err}"))?;
     log::info!("serveur intégré dans son thread, sur 127.0.0.1:{port}");
     Ok(Integrated {
         port,
+        joined: Some(joined),
         lines: lines_tx,
         thread: Some(thread),
     })
@@ -397,16 +403,33 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("voxel-integre-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let settings = crate::settings::Settings::default();
-        let mut integrated = spawn_integrated(dir.clone(), &settings, "Alice").unwrap();
+        let mut integrated = spawn_integrated(dir.clone(), &settings, "Alice", 0xa11ce).unwrap();
+        // La fenêtre est déjà dans la partie, par le lien en mémoire ; un bot entre par le réseau.
+        let window = integrated.joined.take().unwrap();
+        assert!(window.link.connection().is_none());
         // Le contenu, pour se présenter comme la fenêtre le ferait.
         let shell = crate::server_boot::tests::headless();
         let content = crate::net_host::content_fingerprint(&shell.registry, &shell.content.items);
         let address = format!("127.0.0.1:{}", integrated.port);
         let mut bot =
-            crate::bot::Bot::join(&address, "Alice", 0xa11ce, content, shell.registry.clone())
-                .unwrap();
+            crate::bot::Bot::join(&address, "Bob", 0xb0b, content, shell.registry.clone()).unwrap();
         bot.wait_until(Duration::from_secs(60), || {}, |b| b.chunks_received > 0)
             .unwrap();
+        // La fenêtre reçoit le monde sans rien décoder.
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let mut chunks = 0;
+        while chunks == 0 {
+            for msg in window.link.receive().unwrap() {
+                if matches!(msg, crate::protocol::ServerMsg::Chunk { .. }) {
+                    chunks += 1;
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "aucun chunk par le lien en mémoire"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
         bot.leave();
         integrated.stop();
         assert!(dir.join("world.ron").exists(), "le monde est sauvegardé");

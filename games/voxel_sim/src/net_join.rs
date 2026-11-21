@@ -1,6 +1,7 @@
 //! Se présenter à un hôte (la poignée de main du client) : la fenêtre d'un invité et les bots
 //! (`bot.rs`) s'en servent. Voir `net_client.rs` pour l'invité.
 
+use crate::protocol::{ClientMsg, ServerMsg};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
@@ -14,12 +15,75 @@ use crate::server_side::VoxelServer;
 /// Le temps laissé à l'hôte pour répondre.
 const JOIN_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Par où passent les messages : le réseau, ou un lien en mémoire avec un serveur intégré.
+pub enum Transport {
+    Net(Connection),
+    Local(crate::local_link::LocalLink),
+}
+
 /// Le lien d'un invité avec son hôte.
 pub struct RemoteLink {
-    pub connection: Connection,
+    pub transport: Transport,
     /// Le numéro que l'hôte nous a donné.
     pub player: PlayerId,
     pub address: String,
+}
+
+impl RemoteLink {
+    /// La connexion réseau (un bot, un invité), s'il en a une.
+    pub fn connection(&self) -> Option<&Connection> {
+        match &self.transport {
+            Transport::Net(connection) => Some(connection),
+            Transport::Local(_) => None,
+        }
+    }
+
+    /// Envoie un message ; faux si le lien ne suit plus.
+    pub fn send(&self, msg: &ClientMsg) -> bool {
+        match &self.transport {
+            Transport::Net(connection) => {
+                let bytes = postcard::to_stdvec(msg).expect("un message se sérialise");
+                connection.send(engine_net::encode(&bytes)).is_ok()
+            }
+            Transport::Local(link) => link.to_server.send(msg.clone()).is_ok(),
+        }
+    }
+
+    /// Ce que l'hôte a envoyé depuis la dernière fois ; une erreur si le lien est perdu (avec ce qui
+    /// était arrivé avant, perdu aussi).
+    pub fn receive(&self) -> Result<Vec<ServerMsg>, String> {
+        let mut received = Vec::new();
+        match &self.transport {
+            Transport::Net(connection) => {
+                while let Some(event) = connection.try_recv() {
+                    match event {
+                        engine_net::Event::Frame(bytes) => {
+                            let msg = postcard::from_bytes::<ServerMsg>(&bytes)
+                                .map_err(|err| format!("message illisible ({err})"))?;
+                            received.push(msg);
+                        }
+                        engine_net::Event::Closed(reason) => return Err(reason),
+                    }
+                }
+            }
+            Transport::Local(link) => loop {
+                match link.from_server.try_recv() {
+                    Ok(msg) => received.push(msg),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        return Err("le serveur intégré s'est arrêté".into());
+                    }
+                }
+            },
+        }
+        Ok(received)
+    }
+
+    pub fn close(&self) {
+        if let Transport::Net(connection) = &self.transport {
+            connection.close();
+        }
+    }
 }
 
 /// Ce que l'hôte a répondu à notre arrivée.
@@ -76,7 +140,7 @@ pub fn join_with(address: &str, name: &str, uuid: u128, content: u64) -> Result<
                 seed,
             } => Ok(Joined {
                 link: RemoteLink {
-                    connection,
+                    transport: Transport::Net(connection),
                     player,
                     address: address.to_string(),
                 },

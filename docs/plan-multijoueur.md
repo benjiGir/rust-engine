@@ -1087,6 +1087,14 @@ Une règle de Rust décide du reste : les méthodes d'un type se définissent da
   direct au serveur, qu'un invité n'a pas ; la pause n'arrête pas le monde ; ouvrir la partie au réseau local
   depuis le menu n'est pas encore possible dans ce mode.
 - Vérifié : un test (un bot rejoint un serveur intégré, l'arrêt sauvegarde le monde et le joueur) et en jeu.
+- **Le lien en mémoire** (`local_link.rs`) : la fenêtre ne rejoint plus son serveur intégré par TCP, mais par deux
+  canaux typés ; les messages passent tels quels (les chunks restent des `Arc` partagés). Le serveur fait entrer
+  le joueur de la fenêtre dès son démarrage (`join_local`, sans poignée de main) ; `RemoteLink` passe par le
+  réseau ou par ce lien (`Transport`). Mesuré en release (20 s de course vers des chunks neufs, maximum de chaque
+  seconde) : par TCP, le mode thread était pire que le mode normal (pics moyens 37,5 ms contre 25,6, pire 417 ms) —
+  le décodage des chunks dans la fenêtre coûtait plus que ce qu'on gagnait ; en mémoire, il fait un peu mieux
+  (18,1 ms contre 21,9 en moyenne sur deux passages, ± 3 ms de bruit ; pires cas comparables, vers 110 ms).
+  Le gain reste modeste : le travail lourd de la fenêtre est le maillage et l'envoi au GPU, pas le serveur.
 
 ### Lot 7 : tester et mesurer
 

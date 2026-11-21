@@ -91,6 +91,8 @@ pub struct NetHost {
     listener: Listener,
     pending: Vec<Pending>,
     peers: HashMap<PlayerId, Connection>,
+    /// Les joueurs d'un lien en mémoire (la fenêtre d'un serveur intégré, voir `local_link.rs`).
+    locals: HashMap<PlayerId, crate::local_link::LocalPeer>,
     /// Les trames des chunks envoyés dans cette image : un chunk encodé une fois pour tous les joueurs.
     /// L'`Arc` est gardé avec la trame : son adresse ne peut pas resservir tant qu'il est là.
     chunk_frames: HashMap<(IVec3, usize), (Arc<Chunk>, Frame)>,
@@ -153,6 +155,7 @@ impl VoxelServer {
             listener,
             pending: Vec::new(),
             peers: HashMap::new(),
+            locals: HashMap::new(),
             chunk_frames: HashMap::new(),
             announcer,
             max_players: None,
@@ -228,6 +231,18 @@ impl VoxelServer {
                     },
                     Event::Closed(reason) => {
                         gone.push((id, reason));
+                        break;
+                    }
+                }
+            }
+        }
+        for (&id, peer) in &net.locals {
+            loop {
+                match peer.from_client.try_recv() {
+                    Ok(msg) => inbox.push((id, msg)),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        gone.push((id, "fenêtre fermée".to_string()));
                         break;
                     }
                 }
@@ -312,6 +327,35 @@ impl VoxelServer {
         self.send_player_list();
     }
 
+    /// Fait entrer un joueur par un lien en mémoire (la fenêtre d'un serveur intégré) : il n'y a pas de
+    /// poignée de main, c'est la même application. Rend ce que la fenêtre en tire pour démarrer.
+    pub fn join_local(&mut self, name: &str, uuid: u128) -> crate::net_join::Joined {
+        let id = self.add_remote_player(name, uuid);
+        let (link, peer) = crate::local_link::pair();
+        if let Some(net) = &mut self.net {
+            net.locals.insert(id, peer);
+        }
+        let state = self.players.get(id).expect("le joueur vient d'arriver");
+        let feet = player::body(&self.ecs, state.entity).position;
+        let fly = player::mode(&self.ecs, state.entity) == MoveMode::Fly;
+        let (yaw, pitch) = (state.yaw, state.pitch);
+        log::info!("{name} a rejoint la partie (lien en mémoire)");
+        self.tell_everyone(&format!("{name} a rejoint la partie"));
+        self.send_player_list();
+        crate::net_join::Joined {
+            link: crate::net_join::RemoteLink {
+                transport: crate::net_join::Transport::Local(link),
+                player: id,
+                address: "serveur intégré".into(),
+            },
+            feet,
+            yaw,
+            pitch,
+            fly,
+            seed: self.dims.base_seed,
+        }
+    }
+
     /// Un joueur venu du réseau : son fichier de `players/` s'il est déjà venu, sinon le point de
     /// départ et le nécessaire de départ.
     pub fn add_remote_player(&mut self, name: &str, uuid: u128) -> PlayerId {
@@ -380,10 +424,11 @@ impl VoxelServer {
 
     /// Un joueur s'en va : il est sauvegardé, son entité disparaît, les autres sont prévenus.
     pub fn leave(&mut self, id: PlayerId, reason: &str) {
-        if let Some(net) = &mut self.net
-            && let Some(connection) = net.peers.remove(&id)
-        {
-            connection.close();
+        if let Some(net) = &mut self.net {
+            if let Some(connection) = net.peers.remove(&id) {
+                connection.close();
+            }
+            net.locals.remove(&id);
         }
         let Some(state) = self.players.get(id) else {
             return;
@@ -442,6 +487,13 @@ impl VoxelServer {
             let Some(net) = &mut self.net else {
                 continue;
             };
+            if let Some(peer) = net.locals.get(&player) {
+                // En mémoire : le message passe tel quel, sans encodage.
+                if peer.to_client.send(reply).is_err() {
+                    full.push((player, "fenêtre fermée"));
+                }
+                continue;
+            }
             let Some(connection) = net.peers.get(&player) else {
                 continue;
             };

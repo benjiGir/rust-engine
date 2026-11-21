@@ -54,6 +54,7 @@ pub mod inventory;
 pub mod item_data;
 pub mod json_text;
 pub mod launch;
+pub mod local_link;
 pub mod mob_brains;
 pub mod mob_model;
 pub mod mobs;

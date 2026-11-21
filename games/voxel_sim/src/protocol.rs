@@ -536,3 +536,14 @@ mod tests {
         assert!(engine_net::encode(&bytes).len() < 1024);
     }
 }
+
+#[cfg(test)]
+mod send_check {
+    fn is_send<T: Send>() {}
+
+    #[test]
+    fn messages_can_cross_threads() {
+        is_send::<super::ServerMsg>();
+        is_send::<super::ClientMsg>();
+    }
+}

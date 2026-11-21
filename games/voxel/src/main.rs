@@ -216,6 +216,7 @@ impl VoxelGame {
         joined: Option<net_client::Joined>,
     ) -> Result<Self> {
         let mut launch = launch;
+        let mut joined = joined;
         renderer.crosshair = !launch.title;
         // `std::env::var` renvoie `Err` si la variable n'existe pas : `.ok()` en fait un `Option`.
         let autofly = std::env::var("VOXEL_AUTOFLY")
@@ -257,9 +258,12 @@ impl VoxelGame {
             && joined.is_none()
             && let Some(world) = launch.world.clone()
         {
-            let (name, _) = net_client::identity(&settings);
-            let started = voxel_sim::dedicated::spawn_integrated(world, &settings, &name)?;
-            launch.join = Some(format!("127.0.0.1:{}", started.port));
+            let (name, uuid) = net_client::identity(&settings);
+            let mut started =
+                voxel_sim::dedicated::spawn_integrated(world, &settings, &name, uuid)?;
+            // Déjà accueilli par un lien en mémoire : la fenêtre suit le chemin d'un invité.
+            joined = started.joined.take();
+            launch.join = Some("serveur intégré".into());
             launch.world = None;
             integrated = Some(started);
         }

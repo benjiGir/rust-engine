@@ -89,20 +89,25 @@ impl Bot {
         })
     }
 
+    /// La connexion réseau : un bot passe toujours par le réseau.
+    fn net(&self) -> &engine_net::Connection {
+        self.link.connection().expect("un bot passe par le réseau")
+    }
+
     /// Les octets arrivés sur le fil (compressés), depuis l'arrivée.
     pub fn wire_bytes(&self) -> usize {
-        self.link.connection.received_bytes()
+        self.net().received_bytes()
     }
 
     pub fn send(&self, msg: &ClientMsg) {
         let bytes = postcard::to_stdvec(msg).expect("un message se sérialise");
         // Une file pleine ou une connexion fermée se voit au prochain `poll`.
-        let _ = self.link.connection.send(engine_net::encode(&bytes));
+        let _ = self.net().send(engine_net::encode(&bytes));
     }
 
     /// Applique ce que le serveur a envoyé. Une connexion fermée est une erreur.
     pub fn poll(&mut self) -> Result<()> {
-        while let Some(event) = self.link.connection.try_recv() {
+        while let Some(event) = self.net().try_recv() {
             let bytes = match event {
                 Event::Frame(bytes) => bytes,
                 Event::Closed(reason) => bail!("{} : connexion fermée ({reason})", self.name),
@@ -232,7 +237,7 @@ impl Bot {
 
     /// Se déconnecte.
     pub fn leave(self) {
-        self.link.connection.close();
+        self.link.close();
     }
 }
 

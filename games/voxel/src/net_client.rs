@@ -11,7 +11,6 @@ use crate::VoxelGame;
 #[allow(unused_imports)]
 pub(crate) use crate::net_join::*;
 use crate::protocol::{ClientMsg, ServerMsg};
-use engine_net::Event;
 
 impl VoxelGame {
     /// Cette fenêtre fait tourner le monde (seule, ou en hôte) ; faux pour un invité.
@@ -24,8 +23,7 @@ impl VoxelGame {
         let Some(link) = &self.client.remote else {
             return;
         };
-        let frame = engine_net::encode(&postcard::to_stdvec(msg).expect("un message se sérialise"));
-        if link.connection.send(frame).is_err() {
+        if !link.send(msg) {
             log::warn!("le lien avec l'hôte ne suit plus");
         }
     }
@@ -35,28 +33,14 @@ impl VoxelGame {
         let Some(link) = &self.client.remote else {
             return Vec::new();
         };
-        let mut received = Vec::new();
-        let mut lost = None;
-        while let Some(event) = link.connection.try_recv() {
-            match event {
-                Event::Frame(bytes) => match postcard::from_bytes::<ServerMsg>(&bytes) {
-                    Ok(msg) => received.push(msg),
-                    Err(err) => {
-                        lost = Some(format!("message illisible ({err})"));
-                        break;
-                    }
-                },
-                Event::Closed(reason) => {
-                    lost = Some(reason);
-                    break;
-                }
+        match link.receive() {
+            Ok(received) => received,
+            Err(reason) => {
+                log::warn!("connexion à {} perdue : {reason}", link.address);
+                link.close();
+                self.client.request = Some(crate::launch::Request::Title);
+                Vec::new()
             }
         }
-        if let Some(reason) = lost {
-            log::warn!("connexion à {} perdue : {reason}", link.address);
-            link.connection.close();
-            self.client.request = Some(crate::launch::Request::Title);
-        }
-        received
     }
 }
