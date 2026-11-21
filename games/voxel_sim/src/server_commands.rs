@@ -44,7 +44,7 @@ impl VoxelServer {
     /// Le joueur courant peut-il taper des commandes de jeu ?
     pub fn may_command(&self) -> bool {
         let me = self.players.me();
-        self.players.current_is_local() || self.operators.contains(&me.name)
+        self.players.current_is_local() || self.guests_command || self.operators.contains(&me.name)
     }
 
     /// Exécute une ligne pour le joueur courant ; la réponse est le texte à lui montrer.
@@ -195,6 +195,9 @@ mod tests {
             server.run_server_command("time 0.5"),
             "Commande réservée aux opérateurs"
         );
+        server.guests_command = true;
+        assert_eq!(server.run_server_command("time 0.3"), "heure changée");
+        server.guests_command = false;
         server.operators.push("Bob".into());
         assert_eq!(server.run_server_command("time 0.25"), "heure changée");
         assert_eq!(server.day.time, 0.25);

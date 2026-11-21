@@ -21,6 +21,7 @@ mod check_arch;
 mod ctl;
 mod docs;
 mod hooks;
+mod net;
 mod new_mod;
 
 use std::path::{Path, PathBuf};
@@ -46,9 +47,11 @@ fn main() -> Result<()> {
         "hooks" => hooks::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         "bench" => bench::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         "map" => map(&std::env::args().skip(2).collect::<Vec<_>>()),
+        "bots" => net::bots(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
+        "bench-net" => net::bench(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         _ => {
             eprintln!(
-                "usage : cargo xtask build-mods | new-mod <id> | test-mod <id> | docs | check-arch | ctl <commande>... | bench | hooks | map"
+                "usage : cargo xtask build-mods | new-mod <id> | test-mod <id> | docs | check-arch | ctl [--port N] <commande>... | bench | bench-net [s] | bots N adresse | hooks | map"
             );
             bail!("tâche inconnue : « {task} »")
         }

@@ -160,6 +160,7 @@ impl VoxelServer {
             match net.listener.accept() {
                 Ok(Some(connection)) => {
                     log::info!("connexion de {}", connection.peer());
+                    crate::net_join::simulate_lag_from_env(&connection);
                     net.pending.push(Pending {
                         connection,
                         since: Instant::now(),

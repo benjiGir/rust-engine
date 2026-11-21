@@ -102,7 +102,18 @@ impl crate::server_side::VoxelServer {
 
     /// `Craft` : fabriquer avec la grille du joueur courant, ou une recette du livre de recettes.
     pub fn craft(&mut self, size: u8, recipe: Option<u32>) {
+        // La grille 3 × 3 est celle de l'établi : il faut qu'il soit ouvert (celle de l'inventaire est
+        // de 2 × 2).
+        let allowed = if self.players.me().screen == Some(crate::screens::Screen::Workbench) {
+            3
+        } else {
+            2
+        };
         let size = usize::from(size).clamp(2, 3);
+        if size > allowed {
+            log::warn!("artisanat 3 × 3 refusé : pas d'établi ouvert");
+            return;
+        }
         let items = self.content.items.clone();
         let made = match recipe {
             None => {
@@ -175,5 +186,54 @@ mod tests {
         assert_eq!(ratio(5.0, 10.0), 0.5);
         assert_eq!(ratio(5.0, 0.0), 0.0);
         assert_eq!(ratio(20.0, 10.0), 1.0);
+    }
+}
+
+#[cfg(test)]
+mod craft_tests {
+    use engine_voxel::Ingredient;
+
+    use crate::screens::Screen;
+    use crate::server_boot::tests::headless;
+
+    #[test]
+    fn the_three_by_three_grid_needs_an_open_workbench() {
+        let mut server = headless();
+        let items = server.content.items.clone();
+        // Une recette du livre qui demande la grille 3 × 3, et de quoi la faire plusieurs fois.
+        let (index, recipe) = server
+            .content
+            .recipes
+            .iter()
+            .enumerate()
+            .find(|(_, r)| r.grid_size() == 3)
+            .map(|(i, r)| (i as u32, r.clone()))
+            .expect("une recette 3 × 3");
+        for ingredient in recipe.ingredients() {
+            let item = match ingredient {
+                Ingredient::Item(item) => *item,
+                Ingredient::Any(choices) => choices[0],
+            };
+            server.players.me_mut().inventory.add(item, 64, &items);
+        }
+        let (result, _) = recipe.result();
+        let count = |server: &crate::server_side::VoxelServer| {
+            server
+                .players
+                .me()
+                .inventory
+                .slots
+                .iter()
+                .flatten()
+                .filter(|s| s.item == result)
+                .map(|s| s.count)
+                .sum::<u32>()
+        };
+        let before = count(&server);
+        server.craft(3, Some(index));
+        assert_eq!(count(&server), before, "sans établi : refusé");
+        server.players.me_mut().screen = Some(Screen::Workbench);
+        server.craft(3, Some(index));
+        assert!(count(&server) > before, "devant l'établi : fabriqué");
     }
 }

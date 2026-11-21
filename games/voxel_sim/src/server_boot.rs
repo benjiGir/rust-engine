@@ -409,6 +409,7 @@ impl VoxelServer {
             steer: 0.0,
             net: None,
             operators: Vec::new(),
+            guests_command: false,
             mod_settings_saved: std::time::Instant::now(),
             difficulty,
             potions,

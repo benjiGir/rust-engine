@@ -76,6 +76,8 @@ pub struct VoxelServer {
     pub net: Option<crate::net_host::NetHost>,
     /// Les joueurs du réseau qui peuvent taper des commandes de jeu (voir `server_commands.rs`).
     pub operators: Vec<String>,
+    /// Tous les invités peuvent taper des commandes de jeu (case du menu pause de l'hôte).
+    pub guests_command: bool,
     /// Quand les réglages des mods ont été écrits pour la dernière fois.
     pub mod_settings_saved: std::time::Instant,
     /// 0 paisible, 1 normale, 2 difficile.

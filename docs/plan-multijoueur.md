@@ -968,8 +968,8 @@ lot 4, viendra plus tard) :
   joueur du réseau (`give`, `time`, `weather`, `tp`, `xp`, `summon`, `break`, `place`, celles des mods) et lui
   répond en chat ; `help` et `mods` sont à tous, le reste aux opérateurs (`operators` de `server.ron`) ;
   `travel` reste à l'hôte. La fenêtre de l'hôte garde son chemin (`ctl`).
-- **Reste pour le lot 5** : `--port` dans `cargo xtask ctl` (aujourd'hui `VOXEL_CONTROL=port`), des opérateurs pour
-  une partie ouverte depuis le menu, le contrôle de la taille des grilles d'artisanat.
+- **Fin du lot 5 (réalisé)** : `cargo xtask ctl --port N` ; une case du menu pause donne les commandes à tous les
+  invités d'une partie ouverte depuis le menu ; le serveur refuse la grille 3 × 3 sans établi ouvert.
 
 
 - `engine_net` :
@@ -1091,6 +1091,12 @@ Une règle de Rust décide du reste : les méthodes d'un type se définissent da
   arriver ; le serveur tient 60 ticks/s, 2 à 2,6 ms par tick (p99 12 ms).
 - **7b-2 (réalisé)** : une porte ouverte par A s'ouvre chez B ; un coffre rempli par B change chez A (deux clics de
   case) ; une créature hostile s'approche du joueur le plus proche.
+- **7d (réalisé)** : `VOXEL_NET_LAG=ms` et `VOXEL_NET_JITTER=ms` simulent un lien lent sur chaque connexion
+  (`Connection::simulate_lag` : un délai, une gigue tirée au hasard, l'ordre gardé ; sur TCP, une perte se voit
+  comme un retard) — vérifié à deux fenêtres avec 150 ms + 50 ms : l'invité marche sans à-coup, l'hôte le voit à la
+  même place. `cargo xtask bots N adresse [comportement]`, `cargo xtask bench-net [secondes]` (un serveur dédié
+  jetable, 1, 4 puis 16 bots ; en release : 16 bots accueillis en 0,27 s en moyenne, 55 à 60 ticks/s, 0,4 à
+  0,7 ms par tick) et `cargo xtask ctl --port N`.
 - **Reste** : la latence et
   les pertes simulées ; les raccourcis `cargo xtask bots` et `bench-net` (aujourd'hui `voxel --bots` et le serveur
   dédié).

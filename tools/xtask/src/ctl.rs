@@ -13,11 +13,24 @@ use anyhow::{Context as _, Result, bail};
 
 const DEFAULT_PORT: u16 = 7878;
 
-pub fn run(commands: Vec<String>) -> Result<()> {
-    let port = match std::env::var("VOXEL_CONTROL")
-        .ok()
-        .map(|v| v.trim().parse::<u16>())
-    {
+pub fn run(mut commands: Vec<String>) -> Result<()> {
+    // `--port N` : piloter une autre fenêtre (un invité lancé avec `VOXEL_CONTROL=N`).
+    let forced = if commands.first().is_some_and(|c| c == "--port") {
+        let port = commands
+            .get(1)
+            .context("--port : un numéro de port")?
+            .parse::<u16>()
+            .context("--port : un numéro de port")?;
+        commands.drain(..2);
+        Some(port)
+    } else {
+        None
+    };
+    let port = match forced.map(Ok).or_else(|| {
+        std::env::var("VOXEL_CONTROL")
+            .ok()
+            .map(|v| v.trim().parse::<u16>())
+    }) {
         Some(Ok(1)) | None => DEFAULT_PORT,
         Some(Ok(port)) => port,
         Some(Err(_)) => bail!("VOXEL_CONTROL doit être un numéro de port"),

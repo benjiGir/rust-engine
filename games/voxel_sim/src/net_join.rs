@@ -54,6 +54,7 @@ pub fn join(address: &str, server: &VoxelServer, name: &str, uuid: u128) -> Resu
 pub fn join_with(address: &str, name: &str, uuid: u128, content: u64) -> Result<Joined> {
     let connection = Connection::connect(address, JOIN_TIMEOUT)
         .with_context(|| format!("impossible de joindre {address}"))?;
+    simulate_lag_from_env(&connection);
     let hello = Hello {
         protocol: PROTOCOL,
         name: name.to_string(),
@@ -89,5 +90,21 @@ pub fn join_with(address: &str, name: &str, uuid: u128, content: u64) -> Result<
         },
         Some(Event::Closed(reason)) => bail!("{address} a fermé la connexion : {reason}"),
         None => bail!("{address} ne répond pas"),
+    }
+}
+
+/// `VOXEL_NET_LAG=ms` et `VOXEL_NET_JITTER=ms` : un lien lent simulé (voir
+/// `engine_net::Connection::simulate_lag`), pour éprouver la prédiction et l'interpolation.
+pub fn simulate_lag_from_env(connection: &Connection) {
+    let ms = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .map_or(Duration::ZERO, Duration::from_millis)
+    };
+    let (lag, jitter) = (ms("VOXEL_NET_LAG"), ms("VOXEL_NET_JITTER"));
+    if !lag.is_zero() || !jitter.is_zero() {
+        log::info!("lien lent simulé : {lag:?} + jusqu'à {jitter:?}");
+        connection.simulate_lag(lag, jitter);
     }
 }

@@ -571,6 +571,10 @@ impl VoxelGame {
                         net.port(),
                         net.peer_count()
                     ));
+                    ui.checkbox(
+                        &mut self.server.guests_command,
+                        "Commandes pour les invités (/give, /time, /tp…)",
+                    );
                 }
                 let label = if self.server.store.is_some() {
                     "Sauvegarder et retourner au menu"

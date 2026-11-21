@@ -5,12 +5,14 @@
 //! encore de partir : le serveur ralentit l'envoi des chunks quand le lien est lent, et coupe un pair
 //! dont la file déborde.
 
+use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TrySendError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::frame::{Frame, FrameReader};
 
@@ -46,6 +48,11 @@ pub struct Connection {
     closed: Arc<AtomicBool>,
     /// Les octets arrivés sur le fil (trames compressées comprises).
     received: Arc<AtomicUsize>,
+    /// Le retard simulé (voir [`Connection::simulate_lag`]) : les événements arrivés attendent ici
+    /// leur heure, dans l'ordre.
+    lag: Cell<(Duration, Duration)>,
+    held: RefCell<VecDeque<(Instant, Event)>>,
+    rng: Cell<u64>,
 }
 
 impl Connection {
@@ -95,7 +102,43 @@ impl Connection {
             queued,
             closed,
             received,
+            lag: Cell::new((Duration::ZERO, Duration::ZERO)),
+            held: RefCell::new(VecDeque::new()),
+            rng: Cell::new(0x9E37_79B9_7F4A_7C15 ^ u64::from(peer.port())),
         })
+    }
+
+    /// Simule un lien lent : chaque événement reçu attend `base` plus un tirage entre 0 et `jitter`
+    /// avant d'être rendu, sans jamais doubler le précédent. Sur TCP, une perte se voit comme un retard :
+    /// la gigue en tient lieu. Pour éprouver la prédiction et l'interpolation.
+    pub fn simulate_lag(&self, base: Duration, jitter: Duration) {
+        self.lag.set((base, jitter));
+    }
+
+    /// Le délai d'un événement qui arrive maintenant.
+    fn delay(&self) -> Duration {
+        let (base, jitter) = self.lag.get();
+        if jitter.is_zero() {
+            return base;
+        }
+        // xorshift : un tirage entre 0 et 1.
+        let mut x = self.rng.get();
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.rng.set(x);
+        base + jitter.mul_f64((x >> 11) as f64 / (1u64 << 53) as f64)
+    }
+
+    /// Range ce qui est arrivé, avec son heure de remise.
+    fn hold_arrivals(&self) {
+        let now = Instant::now();
+        let mut held = self.held.borrow_mut();
+        while let Ok(event) = self.incoming.try_recv() {
+            let at = now + self.delay();
+            let at = held.back().map_or(at, |(last, _)| at.max(*last));
+            held.push_back((at, event));
+        }
     }
 
     pub fn peer(&self) -> SocketAddr {
@@ -123,12 +166,33 @@ impl Connection {
 
     /// Ce qui est arrivé, sans attendre.
     pub fn try_recv(&self) -> Option<Event> {
-        self.incoming.try_recv().ok()
+        if self.lag.get() == (Duration::ZERO, Duration::ZERO) && self.held.borrow().is_empty() {
+            return self.incoming.try_recv().ok();
+        }
+        self.hold_arrivals();
+        let mut held = self.held.borrow_mut();
+        if held.front().is_some_and(|(at, _)| *at <= Instant::now()) {
+            held.pop_front().map(|(_, event)| event)
+        } else {
+            None
+        }
     }
 
     /// Attend ce qui arrive, au plus `timeout` (pour la poignée de main et les tests).
     pub fn recv_timeout(&self, timeout: Duration) -> Option<Event> {
-        self.incoming.recv_timeout(timeout).ok()
+        if self.lag.get() == (Duration::ZERO, Duration::ZERO) && self.held.borrow().is_empty() {
+            return self.incoming.recv_timeout(timeout).ok();
+        }
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(event) = self.try_recv() {
+                return Some(event);
+            }
+            if Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     /// Les octets arrivés sur le fil depuis l'ouverture.
@@ -334,10 +398,34 @@ mod tests {
     }
 
     #[test]
+    fn a_simulated_lag_delays_frames_and_keeps_their_order() {
+        let (server, client) = pair();
+        client.simulate_lag(Duration::from_millis(80), Duration::from_millis(40));
+        let sent = std::time::Instant::now();
+        for i in 0..5u8 {
+            server.send(encode(&[i])).unwrap();
+        }
+        let mut got = Vec::new();
+        while got.len() < 5 {
+            match client.recv_timeout(WAIT) {
+                Some(Event::Frame(bytes)) => {
+                    if got.is_empty() {
+                        assert!(sent.elapsed() >= Duration::from_millis(80), "trop tôt");
+                    }
+                    got.push(bytes[0]);
+                }
+                other => panic!("attendu une trame, reçu {other:?}"),
+            }
+        }
+        assert_eq!(got, [0, 1, 2, 3, 4]);
+    }
+
+    #[test]
     fn a_taken_port_moves_to_the_next_one() {
         let first = Listener::bind(0, 1).unwrap();
         let port = first.port();
-        let second = Listener::bind(port, 5).unwrap();
+        // Les autres tests ouvrent des ports en même temps : une marge large.
+        let second = Listener::bind(port, 50).unwrap();
         assert_ne!(second.port(), port);
     }
 }
