@@ -30,21 +30,27 @@ pub enum ScreenView {
 }
 
 impl VoxelGame {
+    /// La vue d'écran que la fenêtre a reçue.
+    pub(crate) fn shown_screen(&self) -> Option<&ScreenView> {
+        self.client.view.me.screen.as_ref()
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
     /// La vue de l'écran ouvert par le joueur courant, si cet écran en a une.
     pub(crate) fn screen_view(&self) -> Option<ScreenView> {
-        match self.server.players.me().screen? {
+        match self.players.me().screen? {
             Screen::Trade(id) => {
                 let mob = self.server_entity(id)?;
                 let key = self.mob_key(mob)?;
-                let kind = self.server.ecs.get::<crate::components::Mob>(mob)?.kind;
+                let kind = self.ecs.get::<crate::components::Mob>(mob)?.kind;
                 let name = self
-                    .server
                     .ecs
                     .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
                     .get(kind)
                     .map_or_else(|| key.clone(), |d| d.name.clone());
                 let uses = self
-                    .server
                     .ecs
                     .get::<crate::components::Trader>(mob)
                     .map(|t| t.uses.clone())
@@ -52,7 +58,6 @@ impl VoxelGame {
                 Some(ScreenView::Trade { key, name, uses })
             }
             Screen::Mod(_) => self
-                .server
                 .players
                 .me()
                 .mod_menu
@@ -66,14 +71,6 @@ impl VoxelGame {
         }
     }
 
-    /// La vue d'écran que la fenêtre a reçue.
-    pub(crate) fn shown_screen(&self) -> Option<&ScreenView> {
-        self.client.view.me.screen.as_ref()
-    }
-}
-
-impl crate::server_side::VoxelServer {
-    // (lot 4b) Méthodes du serveur.
     /// `Trade` : faire l'échange `offer` de l'habitant ouvert, `times` fois au plus.
     fn trade(&mut self, id: crate::entities::NetId, offer: usize, times: u32) {
         let Some(mob) = self.server_entity(id) else {

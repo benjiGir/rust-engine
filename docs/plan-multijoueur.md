@@ -793,11 +793,24 @@ Le code serveur lit encore la fenêtre à plusieurs endroits : `self.ui` est cit
   - mort et réapparition ;
   - attaque d'un rôdeur ;
   - le regard sauvegardé (90°, 10°) est retrouvé dans `players/<uuid>.ron`.
-- **Reste pour la suite du 4b** :
-  - un `VoxelServer` construit sans fenêtre (la construction est encore dans `VoxelGame::create`) ;
-  - les tests de `handle` à deux joueurs ;
-  - le pas fixe (`fixed_update`) partagé entre le serveur (ECS, machines, fluides, survie) et la fenêtre (entrées,
-    prédiction).
+##### 4b-3 : le serveur construit sans fenêtre (réalisé)
+
+- **`VoxelServer::boot`** (`server_boot.rs`) construit le serveur seul : registres, contenu, monde, dimensions,
+  générateur, chunks, fluides, mods, structures mobiles, ECS et systèmes, joueur local, inventaire, aventure. Il rend
+  aussi le regard de départ et la graine. `VoxelGame::create` l'appelle, puis construit la fenêtre (rendu, brouillard,
+  terrain lointain, réplique, caméra, son, main). `main.rs` passe de 2 409 à 2 056 lignes.
+- **`ServerSends`** (`server_sends.rs`) : ce qui a été envoyé à chaque joueur (expéditeurs de chunks, suivi des
+  entités, vues du joueur, compteur de pas) était rangé dans la réplique de la fenêtre ; c'est maintenant l'état du
+  serveur. `send_world`, `send_entities` et `replicate_player_views` sont des méthodes du serveur.
+- **Les tables globales** des fiches d'objets et des matériaux ne sont pas vidées par un serveur de test sans
+  sauvegarde : les autres tests s'en servent en même temps.
+- **Tests sans fenêtre** : un serveur construit en 0,2 s.
+  - Il sert deux joueurs : chacun garde sa case choisie et son regard, le chat part aux deux, et un joueur inconnu
+    n'a aucun effet.
+  - Les vues d'inventaire sont faites joueur par joueur.
+- **Reste pour le 4c** : le pas fixe est encore partagé entre le serveur (ECS, machines, fluides, survie) et la
+  fenêtre (entrées, prédiction). Surtout, la physique du joueur local tourne sur l'ECS du serveur : la fenêtre devra
+  avoir sa propre prédiction avant que le serveur parte sur son thread.
 
 ### Lot 5 : le réseau local
 

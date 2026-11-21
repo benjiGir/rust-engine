@@ -101,29 +101,6 @@ pub(crate) fn to_engine(
 impl VoxelGame {
     // ----- Lire et écrire un conteneur -----
 
-    /// Le contenu d'un conteneur pour la vue de la fenêtre (cases, disposition, améliorations
-    /// coupées, à paliers). Un conteneur ancien (27 cases) reçoit ses emplacements d'amélioration dès
-    /// qu'il est ouvert.
-    pub(crate) fn open_contents(
-        &mut self,
-        t: Target,
-    ) -> Option<(Vec<Option<engine_voxel::ItemStack>>, Layout, u32, bool)> {
-        let mut view = self.view(t)?;
-        if view.tiered && self.target_len(t) < Some(view.layout.total()) {
-            self.store(
-                t,
-                View {
-                    raw: view.raw.clone(),
-                    layout: view.layout,
-                    disabled: view.disabled,
-                    tiered: true,
-                },
-            );
-            view = self.view(t)?;
-        }
-        Some((view.raw, view.layout, view.disabled, view.tiered))
-    }
-
     // ----- Les gestes en gros -----
 
     /// Le Maj + clic est-il possible ici ? (un conteneur ouvert, la main vide)
@@ -300,25 +277,6 @@ impl VoxelGame {
         }
     }
 
-    fn target_len(&self, t: Target) -> Option<usize> {
-        match t {
-            Target::Block(pos) => self
-                .streamer()
-                .block_entity(pos)?
-                .caps
-                .as_ref()?
-                .inventory
-                .as_ref()
-                .map(|i| i.slots.len()),
-            Target::Cart(cart) => self
-                .server
-                .ecs
-                .get::<crate::carts::CartCargo>(cart)
-                .map(|c| c.0.slots.len()),
-            Target::Bag(number) => self.server.backpacks.bag(number).map(|b| b.slots.len()),
-        }
-    }
-
     fn storage_slot(&mut self, ui: &mut egui::Ui, index: usize) -> bool {
         let stack = self.shown_stack(index);
         match self.stack_widget(ui, stack, false) {
@@ -452,6 +410,47 @@ fn ghost_click(
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.
+    fn target_len(&self, t: Target) -> Option<usize> {
+        match t {
+            Target::Block(pos) => self
+                .streamer()
+                .block_entity(pos)?
+                .caps
+                .as_ref()?
+                .inventory
+                .as_ref()
+                .map(|i| i.slots.len()),
+            Target::Cart(cart) => self
+                .ecs
+                .get::<crate::carts::CartCargo>(cart)
+                .map(|c| c.0.slots.len()),
+            Target::Bag(number) => self.backpacks.bag(number).map(|b| b.slots.len()),
+        }
+    }
+
+    /// Le contenu d'un conteneur pour la vue de la fenêtre (cases, disposition, améliorations
+    /// coupées, à paliers). Un conteneur ancien (27 cases) reçoit ses emplacements d'amélioration dès
+    /// qu'il est ouvert.
+    pub(crate) fn open_contents(
+        &mut self,
+        t: Target,
+    ) -> Option<(Vec<Option<engine_voxel::ItemStack>>, Layout, u32, bool)> {
+        let mut view = self.view(t)?;
+        if view.tiered && self.target_len(t) < Some(view.layout.total()) {
+            self.store(
+                t,
+                View {
+                    raw: view.raw.clone(),
+                    layout: view.layout,
+                    disabled: view.disabled,
+                    tiered: true,
+                },
+            );
+            view = self.view(t)?;
+        }
+        Some((view.raw, view.layout, view.disabled, view.tiered))
+    }
+
     /// Une moitié de grand coffre qu'on casse ne garde que ses propres objets ; l'autre
     /// redevient un coffre simple avec les siens.
     pub(crate) fn split_chest(&mut self, pos: IVec3) -> Option<IVec3> {

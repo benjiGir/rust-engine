@@ -134,10 +134,6 @@ impl ClientEntities {
         self.item_models.borrow_mut().clear();
     }
 
-    pub fn interval(&self) -> u32 {
-        self.interval
-    }
-
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.views.len()

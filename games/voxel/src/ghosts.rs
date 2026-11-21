@@ -108,11 +108,32 @@ impl VoxelGame {
         }
     }
 
+    /// Retire un joueur (et son entité) ; le client oublie ce qu'il lui avait envoyé.
+    pub(crate) fn remove_ghost(&mut self, id: PlayerId) {
+        if let Some(state) = self.server.players.remove(id) {
+            self.server.ecs.despawn(state.entity);
+            self.server.players.sync_ecs(&mut self.server.ecs);
+            self.server.sends.forget(id);
+        }
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// Un fantôme garde toute sa vie : il reste une cible tant qu'on ne le retire pas.
+    pub(crate) fn keep_ghosts_alive(&mut self) {
+        for ghost in self.players.iter().filter(|p| p.ghost) {
+            if let Some(mut health) = self.ecs.get_mut::<crate::components::Health>(ghost.entity) {
+                health.current = health.max;
+            }
+        }
+    }
+
     /// Ajoute un joueur serveur sans fenêtre, les pieds en `feet`.
     pub(crate) fn add_ghost(&mut self, name: &str, feet: Vec3) -> PlayerId {
         let eye = feet + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT;
-        let entity = player::spawn(&mut self.server.ecs, eye, MoveMode::Walk);
-        let id = self.server.players.next_id();
+        let entity = player::spawn(&mut self.ecs, eye, MoveMode::Walk);
+        let id = self.players.next_id();
         let mut state = PlayerState::new(
             PlayerIdentity {
                 id,
@@ -122,35 +143,13 @@ impl VoxelGame {
             entity,
             Inventory::default(),
             Gear::new(BaseAttributes::default()),
-            &self.server.survival,
-            &self.server.hunger_rules,
+            &self.survival,
+            &self.hunger_rules,
         );
         state.ghost = true;
-        self.server.players.add(state);
-        self.server.players.sync_ecs(&mut self.server.ecs);
+        self.players.add(state);
+        self.players.sync_ecs(&mut self.ecs);
         id
-    }
-
-    /// Retire un joueur (et son entité) ; le client oublie ce qu'il lui avait envoyé.
-    pub(crate) fn remove_ghost(&mut self, id: PlayerId) {
-        if let Some(state) = self.server.players.remove(id) {
-            self.server.ecs.despawn(state.entity);
-            self.server.players.sync_ecs(&mut self.server.ecs);
-            self.client.view.forget_player(id);
-        }
-    }
-
-    /// Un fantôme garde toute sa vie : il reste une cible tant qu'on ne le retire pas.
-    pub(crate) fn keep_ghosts_alive(&mut self) {
-        for ghost in self.server.players.iter().filter(|p| p.ghost) {
-            if let Some(mut health) = self
-                .server
-                .ecs
-                .get_mut::<crate::components::Health>(ghost.entity)
-            {
-                health.current = health.max;
-            }
-        }
     }
 }
 

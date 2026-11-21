@@ -16,40 +16,29 @@
 //! vidée à chaque image. `VoxelGame::streamer()` désigne le monde du serveur, `VoxelGame::view_world()`
 //! celui que voit la fenêtre.
 
-use std::collections::HashMap;
-
 use crate::VoxelGame;
 use crate::client_entities::ClientEntities;
-use crate::entities::{EntityTracker, NetId, NetIds, Viewer, collect};
-use crate::player_view::{ClientPlayer, PlayerViews};
-use crate::players::PlayerId;
+use crate::entities::NetId;
+use crate::player_view::ClientPlayer;
 use crate::protocol::ServerMsg;
-use engine_voxel::{ChunkSender, ChunkStreamer, ChunkUpdate, StreamStats, View, World};
+use engine_voxel::{ChunkStreamer, ChunkUpdate, StreamStats, View, World};
 
 /// La réplique du client et les expéditeurs du serveur.
 pub struct ClientWorld {
     /// Le monde que voit la fenêtre : les chunks reçus, maillés ici.
     replica: ChunkStreamer,
-    /// Ce que chaque joueur a reçu du monde (voir `engine_voxel::ChunkSender`).
-    senders: HashMap<PlayerId, ChunkSender>,
     /// Les messages de chunks reçus, appliqués ensemble (voir [`ClientWorld::apply_received`]).
     incoming: Vec<ChunkUpdate>,
-    /// Ce que chaque joueur a reçu des entités (voir `entities.rs`).
-    trackers: HashMap<PlayerId, EntityTracker>,
     /// Les entités que voit la fenêtre : créatures, objets, wagons, projectiles, structures, autres
     /// joueurs (voir `client_entities.rs`).
     pub entities: ClientEntities,
-    /// Le pas fixe du serveur auquel en sont les entités.
-    tick: u64,
-    /// Ce que le serveur a envoyé en dernier des jauges et de l'inventaire de chaque joueur.
-    pub player_views: PlayerViews,
     /// Le joueur de la fenêtre, tel que le serveur le décrit (voir `player_view.rs`).
     pub me: ClientPlayer,
 }
 
 /// Le nombre de pas fixes entre deux envois de positions : 1 sur le lien en mémoire (60 Hz, comme
 /// l'ECS), 3 (20 Hz) sera celui du réseau. `VOXEL_ENTITY_INTERVAL` le change pour les essais.
-fn entity_interval() -> u32 {
+pub(crate) fn entity_interval() -> u32 {
     std::env::var("VOXEL_ENTITY_INTERVAL")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -61,25 +50,14 @@ impl ClientWorld {
     pub fn new(server: &ChunkStreamer) -> Self {
         Self {
             replica: ChunkStreamer::replica_of(server),
-            senders: HashMap::new(),
             incoming: Vec::new(),
-            trackers: HashMap::new(),
             entities: ClientEntities::new(entity_interval()),
-            tick: 0,
-            player_views: PlayerViews::default(),
             me: ClientPlayer::default(),
         }
     }
 
     pub fn replica(&self) -> &ChunkStreamer {
         &self.replica
-    }
-
-    /// Un joueur est parti : on oublie ce qu'on lui avait envoyé.
-    pub fn forget_player(&mut self, id: PlayerId) {
-        self.senders.remove(&id);
-        self.trackers.remove(&id);
-        self.player_views.forget(id);
     }
 
     pub fn replica_mut(&mut self) -> &mut ChunkStreamer {
@@ -138,11 +116,9 @@ impl ClientWorld {
         }
     }
 
-    /// Plus rien n'est en route : tout ce que le serveur voulait envoyer est reçu et maillé.
+    /// Plus rien n'est en route de ce côté : tout ce qui est reçu est maillé.
     pub fn idle(&self) -> bool {
-        self.incoming.is_empty()
-            && self.replica.is_idle()
-            && self.senders.values().all(|s| s.pending() == 0)
+        self.incoming.is_empty() && self.replica.is_idle()
     }
 }
 
@@ -179,7 +155,7 @@ impl VoxelGame {
 
     /// Le serveur et la réplique n'ont plus rien à faire, et tout ce qui est en route est arrivé.
     pub(crate) fn world_idle(&self) -> bool {
-        self.streamer().is_idle() && self.client.view.idle()
+        self.streamer().is_idle() && self.server.sends.idle() && self.client.view.idle()
     }
 
     /// Ce que les commandes de `ctl` ont changé après la fin de l'image : envoyé, remaillé et déjà au GPU.
@@ -200,46 +176,10 @@ impl VoxelGame {
         )
     }
 
-    /// Un pas fixe du serveur : il donne un numéro aux entités neuves, puis dit à chaque joueur ce qui
-    /// entre dans sa portée, en sort, bouge ou change d'apparence. Le client applique les messages
-    /// aussitôt (voir `apply_replies`) : le lien est la liste `replies`, vidée à chaque pas.
+    /// Un pas fixe : le serveur dit à chaque joueur ce qui change parmi les entités (voir
+    /// `server_sends.rs`), et la fenêtre applique ce qui la concerne.
     pub(crate) fn replicate_entities(&mut self) {
-        self.client.view.tick += 1;
-        NetIds::assign(&mut self.server.ecs);
-        self.keep_ghosts_alive();
-        let players = &self.server.players;
-        let all = collect(
-            &self.server.ecs,
-            &self.server.mods.subgrids.borrow(),
-            &|entity| players.by_entity(entity).map(|p| p.name.clone()),
-        );
-        let view = &mut self.client.view;
-        let interval = view.entities.interval();
-        let mut out = Vec::new();
-        for player in self.server.players.iter() {
-            // Le joueur n'a rien reçu du monde avant le premier envoi de chunks.
-            let Some(sender) = view.senders.get(&player.id) else {
-                continue;
-            };
-            let knows = |column| sender.has_column(column);
-            let position = self
-                .server
-                .ecs
-                .get::<crate::components::Transform>(player.entity)
-                .map_or(glam::Vec3::ZERO, |t| t.position);
-            let viewer = Viewer {
-                entity: player.entity,
-                position,
-                knows: &knows,
-            };
-            view.trackers
-                .entry(player.id)
-                .or_insert_with(|| EntityTracker::new(interval))
-                .step(view.tick, &viewer, &all, &mut out);
-            self.server
-                .replies
-                .extend(out.drain(..).map(|msg| (player.id, msg)));
-        }
+        self.server.send_entities();
         self.apply_replies();
     }
 
@@ -254,31 +194,8 @@ impl VoxelGame {
         if let Some(request) = self.server.travel.take() {
             self.client.request = Some(request);
         }
-        let changes = self.streamer_mut().take_changes();
-        let radius = self.client.view.replica().config().view_radius;
-        let mut updates = Vec::new();
-        for player in self.server.players.iter() {
-            let eye = crate::player::eye(&self.server.ecs, player.entity, 1.0);
-            let sender = self
-                .client
-                .view
-                .senders
-                .entry(player.id)
-                .or_insert_with(|| ChunkSender::new(radius));
-            sender.step(
-                &self.server.world.borrow(),
-                World::chunk_containing(eye),
-                &changes,
-                &mut updates,
-            );
-            // Les messages des autres joueurs partiront sur le réseau (lot 5).
-            self.server.replies.extend(
-                updates
-                    .drain(..)
-                    .map(|update| (player.id, update_msg(update))),
-            );
-        }
-        self.replicate_player_views();
+        self.server.send_world();
+        self.server.replicate_player_views();
         self.apply_replies();
         let eye = crate::player::eye(&self.server.ecs, self.server.players.entity(), 1.0);
         let view = View {
@@ -287,25 +204,6 @@ impl VoxelGame {
             mesh: true,
         };
         self.client.view.replica_mut().update_views(&[view]);
-    }
-}
-
-/// Un message de chunk du serveur, tel que le client le reçoit.
-fn update_msg(update: ChunkUpdate) -> ServerMsg {
-    match update {
-        ChunkUpdate::Chunk { pos, chunk } => ServerMsg::Chunk { pos, chunk },
-        ChunkUpdate::Changed {
-            pos,
-            chunk,
-            edits,
-            remesh,
-        } => ServerMsg::ChunkChanged {
-            pos,
-            chunk,
-            edits,
-            remesh,
-        },
-        ChunkUpdate::Unload(pos) => ServerMsg::Unload(pos),
     }
 }
 

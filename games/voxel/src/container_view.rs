@@ -61,9 +61,23 @@ fn ratio(done: f32, total: f32) -> f32 {
 }
 
 impl VoxelGame {
+    /// La vue du conteneur ouvert que la fenêtre a reçue.
+    pub(crate) fn shown_container(&self) -> Option<&ContainerView> {
+        self.client.view.me.container.as_ref()
+    }
+
+    /// La pile d'une case du conteneur ouvert, telle que la fenêtre la voit.
+    pub(crate) fn shown_stack(&self, index: usize) -> Option<ItemStack> {
+        self.shown_container()?
+            .stack(&self.server.content.items, index)
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
     /// Le conteneur ouvert par le joueur courant, décrit pour sa fenêtre.
     pub(crate) fn open_container_view(&mut self) -> Option<ContainerView> {
-        let (target, furnace, brewing, cart) = match self.server.players.me().open? {
+        let (target, furnace, brewing, cart) = match self.players.me().open? {
             OpenContainer::Chest(pos) => (Target::Block(pos), [0.0; 2], 0.0, None),
             OpenContainer::Machine(pos) => {
                 let (furnace, brewing) = {
@@ -82,11 +96,7 @@ impl VoxelGame {
                 (Target::Block(pos), furnace, brewing, None)
             }
             OpenContainer::Cart(entity) => {
-                let cart = self
-                    .server
-                    .ecs
-                    .get::<Cart>(entity)
-                    .map(|c| (c.kind, c.burn))?;
+                let cart = self.ecs.get::<Cart>(entity).map(|c| (c.kind, c.burn))?;
                 (Target::Cart(entity), [0.0; 2], 0.0, Some(cart))
             }
             OpenContainer::Bag(number) => (Target::Bag(number), [0.0; 2], 0.0, None),
@@ -104,20 +114,6 @@ impl VoxelGame {
         })
     }
 
-    /// La vue du conteneur ouvert que la fenêtre a reçue.
-    pub(crate) fn shown_container(&self) -> Option<&ContainerView> {
-        self.client.view.me.container.as_ref()
-    }
-
-    /// La pile d'une case du conteneur ouvert, telle que la fenêtre la voit.
-    pub(crate) fn shown_stack(&self, index: usize) -> Option<ItemStack> {
-        self.shown_container()?
-            .stack(&self.server.content.items, index)
-    }
-}
-
-impl crate::server_side::VoxelServer {
-    // (lot 4b) Méthodes du serveur.
     /// `Craft` : fabriquer avec la grille du joueur courant, ou une recette du livre de recettes.
     pub(crate) fn craft(&mut self, size: u8, recipe: Option<u32>) {
         let size = usize::from(size).clamp(2, 3);

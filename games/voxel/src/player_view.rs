@@ -304,44 +304,6 @@ pub fn vitals_of(state: &PlayerState, health: [f32; 2], enchant_seed: u32) -> Vi
 }
 
 impl VoxelGame {
-    /// Fin d'image : chaque joueur reçoit ses jauges et son inventaire s'ils ont changé.
-    pub(crate) fn replicate_player_views(&mut self) {
-        let mut out = Vec::new();
-        let ids: Vec<PlayerId> = self.server.players.iter().map(|p| p.id).collect();
-        for id in ids {
-            // Le conteneur se décrit avec l'état de ce joueur (son `open`).
-            let before = self.server.players.set_acting(Some(id));
-            // Une bibliothèque ouverte range ce que les réseaux déposent dans sa case d'entrée.
-            if let Some(crate::ui::Screen::Library(pos)) = self.server.players.me().screen {
-                self.absorb_library(pos);
-            }
-            let container = self.open_container_view();
-            let screen = self.screen_view();
-            self.server.players.set_acting(before);
-            let Some(player) = self.server.players.get(id) else {
-                continue;
-            };
-            let health = crate::player::health(&self.server.ecs, player.entity);
-            let vitals = vitals_of(
-                player,
-                [health.current, health.max],
-                self.server.enchant_seed,
-            );
-            let inventory = InventoryView::of(&player.inventory);
-            let update = PlayerUpdate {
-                vitals,
-                inventory,
-                container,
-                screen,
-                quests: player.quest_book.progress(),
-            };
-            self.client.view.player_views.step(id, update, &mut out);
-            self.server
-                .replies
-                .extend(out.drain(..).map(|msg| (id, msg)));
-        }
-    }
-
     /// La fenêtre applique un retour du serveur.
     pub(crate) fn apply_feedback(&mut self, feedback: Feedback) {
         match feedback {
@@ -375,6 +337,38 @@ impl VoxelGame {
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.
+    /// Fin d'image : chaque joueur reçoit ses jauges et son inventaire s'ils ont changé.
+    pub(crate) fn replicate_player_views(&mut self) {
+        let mut out = Vec::new();
+        let ids: Vec<PlayerId> = self.players.iter().map(|p| p.id).collect();
+        for id in ids {
+            // Le conteneur se décrit avec l'état de ce joueur (son `open`).
+            let before = self.players.set_acting(Some(id));
+            // Une bibliothèque ouverte range ce que les réseaux déposent dans sa case d'entrée.
+            if let Some(crate::ui::Screen::Library(pos)) = self.players.me().screen {
+                self.absorb_library(pos);
+            }
+            let container = self.open_container_view();
+            let screen = self.screen_view();
+            self.players.set_acting(before);
+            let Some(player) = self.players.get(id) else {
+                continue;
+            };
+            let health = crate::player::health(&self.ecs, player.entity);
+            let vitals = vitals_of(player, [health.current, health.max], self.enchant_seed);
+            let inventory = InventoryView::of(&player.inventory);
+            let update = PlayerUpdate {
+                vitals,
+                inventory,
+                container,
+                screen,
+                quests: player.quest_book.progress(),
+            };
+            self.sends.player_views.step(id, update, &mut out);
+            self.replies.extend(out.drain(..).map(|msg| (id, msg)));
+        }
+    }
+
     /// Un son placé en `at`, pour tous les joueurs à portée d'oreille.
     pub(crate) fn sound_near(&mut self, sound: Sound, at: Vec3) {
         let heard: Vec<PlayerId> = self
