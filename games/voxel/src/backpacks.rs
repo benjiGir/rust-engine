@@ -101,7 +101,7 @@ pub fn is_backpack(key: &str) -> bool {
 }
 
 /// Les lignes que la fiche d'un sac ajoute : ses cases, et son numéro (vide pour un autre objet).
-pub fn card_lines(key: &str, damage: u32) -> Vec<(String, engine_render::egui::Color32)> {
+pub fn card_lines(key: &str, damage: u32) -> Vec<(String, crate::tone::Tone)> {
     let Some(tier) = tier_of(key) else {
         return Vec::new();
     };
@@ -112,7 +112,7 @@ pub fn card_lines(key: &str, damage: u32) -> Vec<(String, engine_render::egui::C
                 "{} cases · {} amélioration(s)",
                 layout.main, layout.upgrades
             ),
-            crate::skin::TEXT,
+            crate::tone::Tone::Text,
         ),
         (
             if damage == 0 {
@@ -120,7 +120,7 @@ pub fn card_lines(key: &str, damage: u32) -> Vec<(String, engine_render::egui::C
             } else {
                 format!("Sac n° {damage}")
             },
-            crate::skin::MUTED,
+            crate::tone::Tone::Muted,
         ),
     ]
 }

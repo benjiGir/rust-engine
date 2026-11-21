@@ -4,7 +4,6 @@
 //! Les nuages sont calculés dans le shader de ciel. Une goutte est une fine boîte et un flocon
 //! un petit cube. Ils tombent jusqu'au premier bloc plein sous eux : sous un toit, on est au sec.
 
-use engine_render::CubeInstance;
 use engine_voxel::{Precipitation, World, precipitation_at};
 use glam::{IVec3, Vec3};
 
@@ -151,13 +150,19 @@ impl Weather {
         (1.0 - 0.5 * self.overcast).max(self.flash)
     }
 
-    pub fn sky(&self) -> engine_render::Sky {
-        engine_render::Sky {
-            overcast: self.overcast,
-            flash: self.flash,
-            time: self.time,
-            seed: self.seed,
-        }
+    /// La lueur de l'éclair en cours (1 → 0).
+    pub fn flash(&self) -> f32 {
+        self.flash
+    }
+
+    /// Le temps écoulé, pour la dérive des nuages et le vent.
+    pub fn clock(&self) -> f32 {
+        self.time
+    }
+
+    /// La graine de la répartition des nuages.
+    pub fn seed(&self) -> u32 {
+        self.seed
     }
 
     /// Le ciel grisonne avec les nuages, et blanchit pendant un éclair.
@@ -304,23 +309,13 @@ impl Weather {
     }
 
     /// Les instances des précipitations locales.
-    pub fn instances(&self, out: &mut Vec<CubeInstance>) {
-        let snow = self.precipitation == Precipitation::Snow;
-        for drop in &self.drops {
-            if snow {
-                out.push(CubeInstance::new(
-                    drop.position,
-                    Vec3::splat(0.09),
-                    Vec3::splat(0.97),
-                ));
-            } else {
-                out.push(CubeInstance::new(
-                    drop.position,
-                    Vec3::new(0.025, 0.55, 0.025),
-                    Vec3::new(0.55, 0.65, 0.9),
-                ));
-            }
-        }
+    /// Ce qui tombe autour du joueur : la neige (sinon la pluie), et la place de chaque flocon ou goutte.
+    pub fn snowing(&self) -> bool {
+        self.precipitation == Precipitation::Snow
+    }
+
+    pub fn drops(&self) -> impl Iterator<Item = Vec3> + '_ {
+        self.drops.iter().map(|d| d.position)
     }
 }
 
@@ -385,9 +380,7 @@ mod tests {
         for _ in 0..40 {
             weather.update(0.05, &world, player);
         }
-        let mut quiet = Vec::new();
-        weather.instances(&mut quiet);
-        assert!(quiet.is_empty());
+        assert_eq!(weather.drops().count(), 0);
         weather.set(Sky::Rain);
         for _ in 0..(40 * 20) {
             weather.update(0.05, &world, player);
@@ -396,9 +389,7 @@ mod tests {
         assert!(!weather.drops.is_empty());
         // Sous le toit : aucune goutte ne passe sous y = 90.
         assert!(weather.drops.iter().all(|d| d.position.y > 89.0));
-        let mut out = Vec::new();
-        weather.instances(&mut out);
-        assert!(!out.is_empty());
+        assert!(weather.drops().count() > 0);
     }
 
     #[test]

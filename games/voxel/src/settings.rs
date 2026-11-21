@@ -6,7 +6,6 @@
 
 use std::path::{Path, PathBuf};
 
-use engine_core::winit::keyboard::KeyCode;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,7 +121,7 @@ impl Default for Keys {
 }
 
 impl Keys {
-    fn name_mut(&mut self, action: Action) -> &mut String {
+    pub(crate) fn name_mut(&mut self, action: Action) -> &mut String {
         match action {
             Action::Forward => &mut self.forward,
             Action::Back => &mut self.back,
@@ -141,7 +140,7 @@ impl Keys {
         }
     }
 
-    fn name_of(&self, action: Action) -> &str {
+    pub(crate) fn name_of(&self, action: Action) -> &str {
         match action {
             Action::Forward => &self.forward,
             Action::Back => &self.back,
@@ -164,69 +163,6 @@ impl Keys {
     pub fn name(&self, action: Action) -> &str {
         self.name_of(action)
     }
-
-    /// La touche d'une action (celle par défaut si le nom est inconnu).
-    pub fn key(&self, action: Action) -> KeyCode {
-        key_code(self.name_of(action))
-            .or_else(|| key_code(Keys::default().name_of(action)))
-            .unwrap_or(KeyCode::Escape)
-    }
-
-    pub fn set(&mut self, action: Action, key: KeyCode) {
-        if let Some(name) = key_name(key) {
-            *self.name_mut(action) = name.to_string();
-        }
-    }
-}
-
-/// Les touches qu'on peut associer à une action, avec leur nom.
-const KEYS: &[(&str, KeyCode)] = &[
-    ("KeyA", KeyCode::KeyA),
-    ("KeyB", KeyCode::KeyB),
-    ("KeyC", KeyCode::KeyC),
-    ("KeyD", KeyCode::KeyD),
-    ("KeyE", KeyCode::KeyE),
-    ("KeyF", KeyCode::KeyF),
-    ("KeyG", KeyCode::KeyG),
-    ("KeyH", KeyCode::KeyH),
-    ("KeyI", KeyCode::KeyI),
-    ("KeyJ", KeyCode::KeyJ),
-    ("KeyK", KeyCode::KeyK),
-    ("KeyL", KeyCode::KeyL),
-    ("KeyM", KeyCode::KeyM),
-    ("KeyN", KeyCode::KeyN),
-    ("KeyO", KeyCode::KeyO),
-    ("KeyP", KeyCode::KeyP),
-    ("KeyQ", KeyCode::KeyQ),
-    ("KeyR", KeyCode::KeyR),
-    ("KeyS", KeyCode::KeyS),
-    ("KeyT", KeyCode::KeyT),
-    ("KeyU", KeyCode::KeyU),
-    ("KeyV", KeyCode::KeyV),
-    ("KeyW", KeyCode::KeyW),
-    ("KeyX", KeyCode::KeyX),
-    ("KeyY", KeyCode::KeyY),
-    ("KeyZ", KeyCode::KeyZ),
-    ("Space", KeyCode::Space),
-    ("ShiftLeft", KeyCode::ShiftLeft),
-    ("ShiftRight", KeyCode::ShiftRight),
-    ("ControlLeft", KeyCode::ControlLeft),
-    ("ControlRight", KeyCode::ControlRight),
-    ("AltLeft", KeyCode::AltLeft),
-    ("Tab", KeyCode::Tab),
-    ("CapsLock", KeyCode::CapsLock),
-    ("ArrowUp", KeyCode::ArrowUp),
-    ("ArrowDown", KeyCode::ArrowDown),
-    ("ArrowLeft", KeyCode::ArrowLeft),
-    ("ArrowRight", KeyCode::ArrowRight),
-];
-
-pub fn key_code(name: &str) -> Option<KeyCode> {
-    KEYS.iter().find(|(n, _)| *n == name).map(|(_, k)| *k)
-}
-
-pub fn key_name(key: KeyCode) -> Option<&'static str> {
-    KEYS.iter().find(|(_, k)| *k == key).map(|(n, _)| *n)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -344,9 +280,9 @@ mod tests {
             loaded.chest_preview,
             "l'aperçu des coffres est activé par défaut"
         );
-        assert_eq!(loaded.keys.key(Action::Backpack), KeyCode::KeyB);
-        assert_eq!(loaded.keys.key(Action::Tiers), KeyCode::KeyJ);
-        assert_eq!(loaded.keys.key(Action::Quests), KeyCode::KeyL);
+        assert_eq!(loaded.keys.name(Action::Backpack), "KeyB");
+        assert_eq!(loaded.keys.name(Action::Tiers), "KeyJ");
+        assert_eq!(loaded.keys.name(Action::Quests), "KeyL");
         assert_eq!(loaded.fov, 80.0);
         assert!(!loaded.show_arm);
     }
@@ -355,11 +291,11 @@ mod tests {
     fn an_older_settings_file_without_the_backpack_key_still_loads() {
         let loaded: Settings =
             ron::from_str("(fov:80.0,keys:(forward:\"ArrowUp\",inventory:\"KeyI\"))").unwrap();
-        assert_eq!(loaded.keys.key(Action::Forward), KeyCode::ArrowUp);
-        assert_eq!(loaded.keys.key(Action::Inventory), KeyCode::KeyI);
-        assert_eq!(loaded.keys.key(Action::Backpack), KeyCode::KeyB);
-        assert_eq!(loaded.keys.key(Action::Tiers), KeyCode::KeyJ);
-        assert_eq!(loaded.keys.key(Action::Quests), KeyCode::KeyL);
+        assert_eq!(loaded.keys.name(Action::Forward), "ArrowUp");
+        assert_eq!(loaded.keys.name(Action::Inventory), "KeyI");
+        assert_eq!(loaded.keys.name(Action::Backpack), "KeyB");
+        assert_eq!(loaded.keys.name(Action::Tiers), "KeyJ");
+        assert_eq!(loaded.keys.name(Action::Quests), "KeyL");
         assert!(loaded.chest_preview);
     }
 
@@ -368,15 +304,15 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("voxel-settings-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut settings = Settings::default();
-        assert_eq!(settings.keys.key(Action::Forward), KeyCode::KeyW);
-        settings.keys.set(Action::Forward, KeyCode::ArrowUp);
+        assert_eq!(settings.keys.name(Action::Forward), "KeyW");
+        *settings.keys.name_mut(Action::Forward) = "ArrowUp".into();
         settings.fov = 90.0;
         settings.texture_pack = TexturePack::Earth64;
         settings.shader_pack = Some("crepuscule".into());
         settings.save(&dir);
         let back = Settings::load(&dir);
         assert_eq!(back, settings);
-        assert_eq!(back.keys.key(Action::Forward), KeyCode::ArrowUp);
+        assert_eq!(back.keys.name(Action::Forward), "ArrowUp");
         assert_eq!(back.keys.name(Action::Forward), "ArrowUp");
         // Un fichier abîmé : les valeurs par défaut, sans planter.
         std::fs::write(Settings::path(&dir), "(fov: oups").unwrap();

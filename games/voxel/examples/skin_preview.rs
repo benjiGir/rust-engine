@@ -12,6 +12,9 @@ mod item_models;
 #[path = "../src/skin.rs"]
 #[allow(dead_code)]
 mod skin;
+#[path = "../src/tone.rs"]
+#[allow(dead_code)]
+mod tone;
 
 use std::collections::HashMap;
 use std::path::Path;

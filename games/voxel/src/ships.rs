@@ -14,6 +14,7 @@
 //! Une structure assemblée ne se modifie pas : on la repose, on la change, on la réassemble.
 //! Ses machines (câbles, moteurs, hélices, leviers) continuent de tourner.
 
+use crate::key_codes::KeyCodes;
 use std::collections::HashMap;
 
 use engine_ecs::{Entity, World as Ecs};

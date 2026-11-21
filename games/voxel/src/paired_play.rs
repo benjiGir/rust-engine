@@ -3,7 +3,7 @@ use std::time::Instant;
 use engine_voxel::{BlockId, PlayerBody, bed, door};
 use glam::{IVec3, Vec3};
 
-use crate::{BlockPlaced, VoxelGame, audio, events, player};
+use crate::{BlockPlaced, VoxelGame, events, player};
 
 impl VoxelGame {}
 
@@ -48,7 +48,7 @@ impl crate::server_side::VoxelServer {
             self.sound_near(
                 crate::player_view::Sound::Block {
                     block: block.0,
-                    kind: audio::BlockSound::Place,
+                    kind: crate::sound_ids::BlockSound::Place,
                 },
                 pos.as_vec3() + glam::Vec3::splat(0.5),
             );

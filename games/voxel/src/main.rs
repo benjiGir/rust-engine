@@ -103,7 +103,9 @@ mod hot_reload;
 mod intents;
 mod interact;
 mod item_ctl;
+mod key_codes;
 mod launch;
+mod mob_render;
 #[cfg(test)]
 mod multiplayer_tests;
 mod net_client;
@@ -116,8 +118,11 @@ mod server_sends;
 mod server_side;
 mod server_step;
 mod sky_view;
+mod sound_ids;
 mod stream_upload;
 mod texture_packs;
+mod tone;
+mod weather_render;
 mod wire;
 pub use launch::{Launch, Request};
 mod conduit_fx;
@@ -185,6 +190,7 @@ mod villagers;
 mod water_fx;
 mod weather;
 
+use crate::key_codes::KeyCodes;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -774,7 +780,7 @@ impl VoxelGame {
             },
             &mut mob_boxes,
         );
-        self.client.weather.instances(&mut mob_boxes);
+        weather_render::instances(&self.client.weather, &mut mob_boxes);
         self.client
             .water_fx
             .instances(self.client.camera.position, &mut mob_boxes);
@@ -819,7 +825,7 @@ impl VoxelGame {
             .server
             .day
             .has_daylight_cycle()
-            .then(|| self.client.weather.sky());
+            .then(|| weather_render::sky(&self.client.weather));
         let fog_scale = self.client.weather.fog_scale();
         self.client.renderer.fog = Some(Fog {
             start: self.client.base_fog.0 * fog_scale,
@@ -1176,7 +1182,11 @@ impl VoxelGame {
         self.client.step_distance += Vec2::new(velocity.x, velocity.z).length() * dt;
         if self.client.step_distance >= 1.7 {
             self.client.step_distance = 0.0;
-            audio.play_block(&self.client.registry, below_block, audio::BlockSound::Step);
+            audio.play_block(
+                &self.client.registry,
+                below_block,
+                crate::sound_ids::BlockSound::Step,
+            );
         }
     }
 

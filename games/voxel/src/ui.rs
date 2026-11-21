@@ -391,8 +391,11 @@ impl VoxelGame {
             {
                 card.name = name;
             }
-            card.lines
-                .extend(crate::backpacks::card_lines(&def.key, stack.damage));
+            card.lines.extend(
+                crate::backpacks::card_lines(&def.key, stack.damage)
+                    .into_iter()
+                    .map(|(text, tone)| (text, crate::skin::tone(tone))),
+            );
             crate::ui_info::hover(response, &card);
         }
         press

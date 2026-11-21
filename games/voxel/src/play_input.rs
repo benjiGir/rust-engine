@@ -9,6 +9,7 @@
 //! chez le client, le simulateur compte son propre temps et vérifie `Dig Finish`.
 
 use super::*;
+use crate::key_codes::KeyCodes;
 use crate::protocol::{ClientMsg, DigPhase};
 
 impl VoxelGame {

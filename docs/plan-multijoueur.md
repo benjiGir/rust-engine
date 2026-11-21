@@ -1022,6 +1022,31 @@ lot 4, viendra plus tard) :
   sur Ctrl+C.
 - `check-arch` vérifie que `voxel_server` ne dépend ni de `winit`, ni de `wgpu`, ni d'`egui`, ni de `kira`.
 
+### Lot 8 : la simulation dans sa propre crate (`voxel_sim`)
+
+Le but : un serveur dédié qui ne lie ni winit, ni wgpu, ni egui, ni kira, vérifié par check-arch. État de départ
+(21 nov.) : sur 138 modules du jeu, 20 seulement sont de la simulation pure ; 85 touchent l'affichage ou la
+fenêtre (`VoxelGame`), et 39 autres ne le font que parce qu'ils citent l'un d'eux. Les liens sont peu nombreux :
+
+- `players`, `protocol`, `player_view`, `persistence`, `container_view` contiennent un bloc `impl VoxelGame` ;
+- `elites`, `mob_model`, `weather` dessinent (`engine_render::CubeInstance`) ;
+- `gems`, `charms`, `backpacks` colorent avec `egui::Color32` ;
+- `settings` lit `winit::KeyCode` ; `protocol` prend `audio::BlockSound` (kira).
+
+Une règle de Rust décide du reste : les méthodes d'un type se définissent dans sa crate. Toutes les parties
+`impl VoxelServer` (44 fichiers, dont 34 mêlés à de l'`impl VoxelGame`) partent donc dans `voxel_sim`.
+
+- **S1, couper les liens (réalisé)** : `BlockSound` passe dans `sound_ids.rs` ; les lignes de bulle d'aide
+  (charmes, sacs, gemmes) portent un `Tone` (`tone.rs`) que `skin::tone` colore ; le dessin des créatures
+  (`mob_render.rs`), du faisceau des élites (`entity_render.rs`) et de la météo (`weather_render.rs`) quitte
+  `mob_model`, `elites` et `weather` ; les touches winit passent dans `key_codes.rs` (trait `KeyCodes`), et
+  `Settings` ne garde que des noms. 27 modules sont désormais purs ; ceux qui touchent encore l'affichage sans
+  `VoxelGame` sont tous de la fenêtre, sauf `texture_packs` (sa configuration du registre sert au serveur).
+- **S2, séparer les fichiers mêlés** : la partie serveur et la partie fenêtre dans deux fichiers.
+- **S3, la crate** : `games/voxel_sim` (bibliothèque) reçoit les modules de simulation ; le jeu les réexporte à la
+  racine (`pub(crate) use voxel_sim::inventory;`…), donc `crate::inventory::…` ne change pas dans la fenêtre.
+- **S4, le binaire** : `voxel-server` dans `voxel_sim`, et la règle check-arch (`HEADLESS`).
+
 ### Lot 7 : tester et mesurer
 
 **Réalisé (21 nov.)** :

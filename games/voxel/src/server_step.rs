@@ -11,8 +11,8 @@ use engine_voxel::GridPos;
 use glam::{IVec3, Vec3};
 
 use crate::events::{BlockBroken, BlockPlaced, EntityDied, PlayerDamaged};
+use crate::player;
 use crate::server_side::VoxelServer;
-use crate::{audio, player};
 
 impl VoxelServer {
     /// Un pas fixe du monde.
@@ -125,7 +125,7 @@ impl VoxelServer {
             .broken
             .read(&self.ecs.resource::<Events<BlockBroken>>())
         {
-            let kind = audio::BlockSound::Break;
+            let kind = crate::sound_ids::BlockSound::Break;
             sounds.push((
                 Sound::Block {
                     block: event.block.0,
@@ -139,7 +139,7 @@ impl VoxelServer {
             .placed
             .read(&self.ecs.resource::<Events<BlockPlaced>>())
         {
-            let kind = audio::BlockSound::Place;
+            let kind = crate::sound_ids::BlockSound::Place;
             sounds.push((
                 Sound::Block {
                     block: event.block.0,

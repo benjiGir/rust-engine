@@ -94,7 +94,7 @@ pub fn draw(entities: &ClientEntities, env: &DrawEnv, out: &mut Vec<CubeInstance
                 };
                 // Le faisceau d'un envahisseur, visible de loin.
                 if let Some(elite) = view.look.elite.filter(|e| e.invader) {
-                    out.extend(crate::elites::beam(
+                    out.extend(beam(
                         pose.position,
                         elite.tint,
                         env.alpha + view.latest().position.x,
@@ -164,7 +164,7 @@ fn draw_model(parts: &[MobPart], model: &Model, env: &DrawEnv, out: &mut Vec<Cub
     let (sky, block) = env
         .world
         .light((model.position + Vec3::Y * 0.5).floor().as_ivec3());
-    for (part, mut cube) in parts.iter().zip(crate::mob_model::instances(
+    for (part, mut cube) in parts.iter().zip(crate::mob_render::instances(
         parts,
         model.phase,
         model.stride,
@@ -328,6 +328,25 @@ impl VoxelGame {
             painter.galley(text_rect.min, galley, crate::skin::TEXT);
         }
     }
+}
+
+/// Le faisceau d'un envahisseur : une colonne de lumière qui monte de ses pieds, et une gaine plus
+/// large et plus pâle autour. Elle se voit de loin, de jour comme de nuit.
+pub fn beam(position: Vec3, tint: Vec3, phase: f32) -> [CubeInstance; 2] {
+    const HEIGHT: f32 = 220.0;
+    let pulse = 0.85 + 0.15 * (phase * 3.0).sin();
+    let center = position + Vec3::Y * (HEIGHT * 0.5);
+    let core = CubeInstance::new(
+        center,
+        Vec3::new(0.7 * pulse, HEIGHT, 0.7 * pulse),
+        tint.lerp(Vec3::ONE, 0.6),
+    )
+    .with_light(1.0, 1.0)
+    .with_surface([0; 3], Vec3::ZERO, Vec3::ONE, false, 0.85);
+    let sheath = CubeInstance::new(center, Vec3::new(2.6 * pulse, HEIGHT, 2.6 * pulse), tint)
+        .with_light(1.0, 1.0)
+        .with_surface([0; 3], Vec3::ZERO, Vec3::ONE, false, 0.34);
+    [core, sheath]
 }
 
 #[cfg(test)]
@@ -520,5 +539,19 @@ mod tests {
         );
         let behind = camera.position - camera.forward() * 5.0;
         assert!(project(view_proj, rect, behind).is_none());
+    }
+}
+
+#[cfg(test)]
+mod beam_tests {
+    use super::*;
+
+    #[test]
+    fn the_beam_of_an_invader_is_a_tall_lit_column() {
+        let [core, sheath] = beam(Vec3::new(1.0, 60.0, 2.0), Vec3::new(0.9, 0.2, 0.2), 0.0);
+        assert!(core.size[1] >= 100.0 && sheath.size[0] > core.size[0]);
+        assert!(core.size[0] >= 0.5, "assez large pour se voir de loin");
+        assert_eq!(core.light, [1.0, 1.0], "toujours éclairé");
+        assert!(core.center[1] > 100.0 && core.center[0] == 1.0);
     }
 }

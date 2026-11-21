@@ -39,6 +39,9 @@ mod skin;
 #[path = "../src/texture_packs.rs"]
 #[allow(dead_code)]
 mod texture_packs;
+#[path = "../src/tone.rs"]
+#[allow(dead_code)]
+mod tone;
 #[path = "../src/ui_info.rs"]
 #[allow(dead_code)]
 mod ui_info;

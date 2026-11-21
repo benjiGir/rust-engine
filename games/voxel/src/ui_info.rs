@@ -50,12 +50,16 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
             skin::TEXT,
         ));
         // Un charme de potion : son état et ce qui le recharge (voir `charms.rs`).
-        lines.extend(crate::charms::card_lines(
-            &crate::adventure_data::current(),
-            &def.key,
-            damage,
-            Some(max),
-        ));
+        lines.extend(
+            crate::charms::card_lines(
+                &crate::adventure_data::current(),
+                &def.key,
+                damage,
+                Some(max),
+            )
+            .into_iter()
+            .map(|(text, tone)| (text, skin::tone(tone))),
+        );
     }
     // Tous les enchantements, un par ligne (outils, armures, livres enchantés).
     for label in crate::enchanting::labels(damage) {
@@ -81,7 +85,7 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
         lines.push(match socket {
             None => ("Emplacement de gemme : vide".into(), skin::MUTED),
             Some(key) => match crate::gems::gem_label(&data, key) {
-                Some((name, color)) => (format!("Gemme : {name}"), color),
+                Some((name, tone)) => (format!("Gemme : {name}"), skin::tone(tone)),
                 None => ("Gemme inconnue".into(), skin::MUTED),
             },
         });

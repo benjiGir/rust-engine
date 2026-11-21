@@ -23,12 +23,12 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 use crate::VoxelGame;
-use crate::audio::BlockSound;
 use crate::container_view::ContainerView;
 use crate::inventory::{Inventory, ItemStack, SLOTS, Slot};
 use crate::players::{PlayerId, PlayerState};
 use crate::potions::Effect;
 use crate::protocol::ServerMsg;
+use crate::sound_ids::BlockSound;
 
 /// La distance (en blocs) jusqu'à laquelle un joueur entend un son placé dans le monde.
 pub const HEARING: f32 = 24.0;

@@ -25,7 +25,6 @@
 use std::sync::Arc;
 
 use engine_ecs::{Entity, World};
-use engine_render::CubeInstance;
 use engine_voxel::Rng64;
 use glam::Vec3;
 
@@ -269,25 +268,6 @@ pub fn regen(world: &mut World) {
 /// La couleur d'une boîte d'élite : sa teinte se mêle à celle de la créature.
 pub fn tinted(color: Vec3, elite: &crate::entities::EliteLook) -> Vec3 {
     color.lerp(elite.tint, if elite.invader { 0.65 } else { 0.5 })
-}
-
-/// Le faisceau d'un envahisseur : une colonne de lumière qui monte de ses pieds, et une gaine plus
-/// large et plus pâle autour. Elle se voit de loin, de jour comme de nuit.
-pub fn beam(position: Vec3, tint: Vec3, phase: f32) -> [CubeInstance; 2] {
-    const HEIGHT: f32 = 220.0;
-    let pulse = 0.85 + 0.15 * (phase * 3.0).sin();
-    let center = position + Vec3::Y * (HEIGHT * 0.5);
-    let core = CubeInstance::new(
-        center,
-        Vec3::new(0.7 * pulse, HEIGHT, 0.7 * pulse),
-        tint.lerp(Vec3::ONE, 0.6),
-    )
-    .with_light(1.0, 1.0)
-    .with_surface([0; 3], Vec3::ZERO, Vec3::ONE, false, 0.85);
-    let sheath = CubeInstance::new(center, Vec3::new(2.6 * pulse, HEIGHT, 2.6 * pulse), tint)
-        .with_light(1.0, 1.0)
-        .with_surface([0; 3], Vec3::ZERO, Vec3::ONE, false, 0.34);
-    [core, sheath]
 }
 
 /// L'élite tuée, pour le butin : lue avant que la créature ne disparaisse.
@@ -594,13 +574,8 @@ mod tests {
     }
 
     #[test]
-    fn the_beam_of_an_invader_is_a_tall_lit_column() {
+    fn an_invader_tints_what_it_wears() {
         let (elite, _) = build(&data(), "Rôdeur", &[], true);
-        let [core, sheath] = beam(Vec3::new(1.0, 60.0, 2.0), elite.tint, 0.0);
-        assert!(core.size[1] >= 100.0 && sheath.size[0] > core.size[0]);
-        assert!(core.size[0] >= 0.5, "assez large pour se voir de loin");
-        assert_eq!(core.light, [1.0, 1.0], "toujours éclairé");
-        assert!(core.center[1] > 100.0 && core.center[0] == 1.0);
         let look = crate::entities::EliteLook {
             tint: elite.tint,
             invader: elite.invader,

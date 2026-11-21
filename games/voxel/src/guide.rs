@@ -265,10 +265,7 @@ mod tests {
             expand_keys("Ouvre avec {touche:inventory}.", &keys),
             "Ouvre avec [E]."
         );
-        keys.set(
-            Action::Inventory,
-            engine_core::winit::keyboard::KeyCode::KeyI,
-        );
+        *keys.name_mut(Action::Inventory) = "KeyI".into();
         assert_eq!(expand_keys("{touche:inventory}", &keys), "[I]");
         assert_eq!(expand_keys("{touche:quests}", &keys), "[L]");
         assert_eq!(expand_keys("{touche:sprint}", &keys), "[Ctrl gauche]");

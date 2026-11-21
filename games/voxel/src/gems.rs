@@ -29,7 +29,6 @@
 //! pose ou on échange la pile). La logique des gestes est dans `gem_sockets.rs` ; ce module-ci ne
 //! porte que les données (bonus, noms) que lisent aussi les bulles d'aide.
 
-use engine_render::egui::Color32;
 use engine_voxel::ItemDef;
 
 use crate::adventure_data::AdventureData;
@@ -65,7 +64,7 @@ pub fn modifiers(data: &AdventureData, def: &ItemDef, sheet: &ItemData) -> Vec<M
 }
 
 /// Le nom d'une gemme, avec sa qualité (« Rubis parfait ») et sa couleur.
-pub fn gem_label(data: &AdventureData, key: &str) -> Option<(String, Color32)> {
+pub fn gem_label(data: &AdventureData, key: &str) -> Option<(String, crate::tone::Tone)> {
     let (kind, quality) = data.gem_of(key)?;
     let (male, female) = data.qualities.get(quality)?;
     let (r, g, b) = kind.color;
@@ -75,7 +74,7 @@ pub fn gem_label(data: &AdventureData, key: &str) -> Option<(String, Color32)> {
             kind.name,
             if kind.feminine { female } else { male }
         ),
-        Color32::from_rgb(r, g, b),
+        crate::tone::Tone::Rgb(r, g, b),
     ))
 }
 

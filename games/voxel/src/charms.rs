@@ -19,12 +19,11 @@
 //!   charme), et une potion de soin rend de la vie toutes les dix secondes.
 
 use anyhow::{Context as _, Result, bail};
-use engine_render::egui::Color32;
 use serde::Deserialize;
 
 use crate::adventure_data::AdventureData;
 use crate::enchanting;
-use crate::skin;
+use crate::tone::Tone;
 
 /// Le bit de `damage` qui dit « actif ».
 pub const ACTIVE: u32 = 1 << 16;
@@ -126,33 +125,33 @@ pub fn card_lines(
     key: &str,
     damage: u32,
     durability: Option<u32>,
-) -> Vec<(String, Color32)> {
+) -> Vec<(String, Tone)> {
     if data.charm_of(key).is_none() {
         return Vec::new();
     }
     let mut lines = Vec::new();
     let durability = durability.unwrap_or(1);
     if is_empty(damage, durability) {
-        lines.push(("Vide : à recharger".to_string(), skin::RED));
+        lines.push(("Vide : à recharger".to_string(), Tone::Red));
     } else if is_active(damage) {
         lines.push((
             "Actif tant qu'il est dans l'inventaire".to_string(),
-            skin::SAGE,
+            Tone::Sage,
         ));
     } else {
         lines.push((
             "Inactif : clic droit pour l'activer".to_string(),
-            skin::MUTED,
+            Tone::Muted,
         ));
     }
     lines.push((
         format!("Charge : {:.0} %", charge(damage, durability) * 100.0),
-        skin::TEXT,
+        Tone::Text,
     ));
     lines.push((
         "Se recharge avec la potion dont il est fait : à la souris, un clic sur le charme"
             .to_string(),
-        skin::MUTED,
+        Tone::Muted,
     ));
     lines
 }

@@ -14,6 +14,7 @@
 //! - **Rails détecteurs** : le système de pas fixe de `carts.rs` range les changements, que
 //!   [`VoxelGame::update_cart_blocks`] applique aux machines.
 
+use crate::key_codes::KeyCodes;
 use std::collections::HashSet;
 
 use engine_voxel::{Inventory, ItemStack, RailKind, rail_at};
