@@ -49,6 +49,7 @@ impl VoxelServer {
         self.update_charms(dt);
         self.check_death();
         // Fin du pas : chaque joueur reçoit ce qui a changé parmi les entités.
+        self.update_portals(dt);
         // Les joueurs prédits que le serveur a déplacés reçoivent leur place (voir `predicted.rs`).
         self.correct_predicted();
         self.send_entities();
@@ -82,6 +83,8 @@ impl VoxelServer {
             night: self.day.is_night(),
         };
         self.update_effects(dt);
+        self.update_dimension_sky();
+        self.update_helm();
         self.schedule.run(Stage::Update, &mut self.ecs);
         self.play_event_sounds();
         self.forward_events_to_mods();

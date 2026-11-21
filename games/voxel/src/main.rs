@@ -424,6 +424,7 @@ impl VoxelGame {
                 body,
                 mining: None,
                 air_swing: false,
+                steer_sent: 0.0,
                 day: server.day.clone(),
                 weather: weather::Weather::follower(
                     seed,
@@ -595,7 +596,6 @@ impl VoxelGame {
         self.update_water_fx(dt);
         self.client.conduit_fx.advance(dt);
         self.update_soundscape(dt);
-        self.update_dimensions(dt);
         self.update_ships(ctx);
         self.update_carts(ctx);
         self.update_sky(dt);
@@ -659,7 +659,10 @@ impl VoxelGame {
 
         // Le travail du serveur à chaque image : l'heure, la météo, les villages, les systèmes de
         // l'image et les événements (voir `server_step.rs`).
-        self.server.frame(dt);
+        // En pause, le monde s'arrête : l'heure, les potions et les villages aussi.
+        if !matches!(self.mode, Mode::Paused(_)) {
+            self.server.frame(dt);
+        }
 
         // Tout le travail du monde côté thread principal : on le chronomètre.
         let start = Instant::now();

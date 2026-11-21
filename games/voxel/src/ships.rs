@@ -296,35 +296,50 @@ fn build(renderer: &mut Renderer, grid: &SubGrid) -> Built {
 }
 
 impl VoxelGame {
-    /// La barre : gauche et droite, tant que le pilote reste près de sa structure.
+    /// La barre : gauche et droite, envoyées au serveur quand elles changent (voir `update_helm`).
     pub(crate) fn update_ships(&mut self, ctx: &Context) {
-        let player = self.client.body.body.position;
+        let keys = &self.settings.keys;
+        let steer = f32::from(ctx.input.key_held(keys.key(Action::Right)) as u8)
+            - f32::from(ctx.input.key_held(keys.key(Action::Left)) as u8);
+        if steer != self.client.steer_sent {
+            self.client.steer_sent = steer;
+            self.send_now(crate::protocol::ClientMsg::Steer(steer));
+        }
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    /// Chaque image : la barre du pilote, tant qu'il reste près de sa structure, et la caméra du
+    /// joueur porté qui tourne avec elle (`ServerMsg::Turn`).
+    pub(crate) fn update_helm(&mut self) {
+        let player = crate::player::body(&self.ecs, self.players.entity()).position;
         let mut steer = 0.0;
-        if let Some(id) = self.server.helm {
-            let near = self.server.mods.subgrids.borrow().get(id).is_some_and(|g| {
+        if let Some(id) = self.helm {
+            let near = self.mods.subgrids.borrow().get(id).is_some_and(|g| {
                 let g = g.borrow();
                 g.to_local(player).distance(g.pivot) < g.len() as f32 + 10.0
             });
             if near {
-                let keys = &self.settings.keys;
-                steer = f32::from(ctx.input.key_held(keys.key(Action::Right)) as u8)
-                    - f32::from(ctx.input.key_held(keys.key(Action::Left)) as u8);
+                steer = self.steer;
             } else {
-                self.server.helm = None;
+                self.helm = None;
             }
         }
-        if let Some(mut control) = self.server.ecs.get_resource_mut::<ShipControl>() {
-            control.grid = control.forced.map(|f| f.0).or(self.server.helm);
+        let helm = self.helm;
+        if let Some(mut control) = self.ecs.get_resource_mut::<ShipControl>() {
+            control.grid = control.forced.map(|f| f.0).or(helm);
             control.steer = control.forced.map_or(steer, |f| f.1);
         }
-        // La caméra tourne avec la structure qui porte le joueur.
         let turn = self
-            .server
             .ecs
             .get_resource_mut::<ShipEvents>()
             .map(|mut e| std::mem::take(&mut e.player_turn))
             .unwrap_or(0.0);
-        self.client.camera.yaw += turn;
+        if turn != 0.0 {
+            let id = self.players.local_id();
+            self.replies
+                .push((id, crate::protocol::ServerMsg::Turn(turn)));
+        }
     }
 }
 

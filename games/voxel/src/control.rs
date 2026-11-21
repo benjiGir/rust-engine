@@ -1237,7 +1237,7 @@ impl VoxelGame {
                 Ok(ok())
             }
             Command::Dismount => {
-                if !self.dismount() {
+                if !self.server.dismount() {
                     bail!("dismount : le joueur n'est pas dans un wagon");
                 }
                 Ok(ok())

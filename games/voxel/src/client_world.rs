@@ -96,6 +96,7 @@ impl ClientWorld {
             ServerMsg::Correct { .. }
             | ServerMsg::Push { .. }
             | ServerMsg::Sky(_)
+            | ServerMsg::Turn(_)
             | ServerMsg::Feedback(_)
             | ServerMsg::Died { .. }
             | ServerMsg::Respawned

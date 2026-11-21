@@ -181,61 +181,6 @@ impl Dimensions {
 }
 
 impl VoxelGame {
-    /// À chaque image : pose le bloc d'arrivée quand son chunk est là, et fait passer le
-    /// portail où le joueur se tient depuis assez longtemps.
-    pub(crate) fn update_dimensions(&mut self, dt: f32) {
-        // Le ciel de la dimension (couleur et lumière fixes, ou le cycle du jour).
-        let sky = self.server.dims.current.sky.clone();
-        self.server
-            .day
-            .set_dimension_sky(sky.color.map(Vec3::from), sky.daylight);
-        if self.mode != crate::Mode::Playing {
-            return;
-        }
-        if let Some((cell, block)) = self.server.dims.pending_arrival {
-            let loaded = self
-                .server
-                .streamer()
-                .world()
-                .chunk(engine_voxel::World::chunk_containing(cell.as_vec3()))
-                .is_some();
-            if loaded {
-                self.server.dims.pending_arrival = None;
-                let done = self.server.edit(cell, block);
-                log::info!(
-                    "bloc d'arrivée en {cell} : {}",
-                    if done { "posé" } else { "refusé" }
-                );
-            }
-        }
-        let feet = self.client.body.body.position;
-        let cells = [feet.floor().as_ivec3(), (feet + Vec3::Y).floor().as_ivec3()];
-        let portal = {
-            let streamer = self.server.streamer();
-            cells.iter().find_map(|c| {
-                self.client
-                    .registry
-                    .def(streamer.world().block(*c))
-                    .portal
-                    .clone()
-            })
-        };
-        match portal {
-            None => {
-                self.server.dims.portal_timer = 0.0;
-                self.server.dims.portal_armed = true;
-            }
-            Some(target) if self.server.dims.portal_armed => {
-                self.server.dims.portal_timer += dt;
-                if self.server.dims.portal_timer >= PORTAL_TIME {
-                    self.server.dims.portal_timer = 0.0;
-                    self.server.travel(&target);
-                }
-            }
-            Some(_) => {}
-        }
-    }
-
     /// Les noms des dimensions du monde, pour `ctl` et la console.
     pub(crate) fn dimension_names(&self) -> Vec<String> {
         self.server
@@ -248,6 +193,55 @@ impl VoxelGame {
 }
 
 impl crate::server_side::VoxelServer {
+    /// À chaque pas : pose le bloc d'arrivée quand son chunk est là, et fait passer le portail où le
+    /// joueur se tient depuis assez longtemps.
+    pub(crate) fn update_portals(&mut self, dt: f32) {
+        if let Some((cell, block)) = self.dims.pending_arrival {
+            let loaded = self
+                .streamer()
+                .world()
+                .chunk(engine_voxel::World::chunk_containing(cell.as_vec3()))
+                .is_some();
+            if loaded {
+                self.dims.pending_arrival = None;
+                let done = self.edit(cell, block);
+                log::info!(
+                    "bloc d'arrivée en {cell} : {}",
+                    if done { "posé" } else { "refusé" }
+                );
+            }
+        }
+        let feet = crate::player::body(&self.ecs, self.players.entity()).position;
+        let cells = [feet.floor().as_ivec3(), (feet + Vec3::Y).floor().as_ivec3()];
+        let portal = {
+            let streamer = self.streamer();
+            cells
+                .iter()
+                .find_map(|c| self.registry.def(streamer.world().block(*c)).portal.clone())
+        };
+        match portal {
+            None => {
+                self.dims.portal_timer = 0.0;
+                self.dims.portal_armed = true;
+            }
+            Some(target) if self.dims.portal_armed => {
+                self.dims.portal_timer += dt;
+                if self.dims.portal_timer >= PORTAL_TIME {
+                    self.dims.portal_timer = 0.0;
+                    self.travel(&target);
+                }
+            }
+            Some(_) => {}
+        }
+    }
+
+    /// Le ciel de la dimension (couleur et lumière fixes, ou le cycle du jour).
+    pub(crate) fn update_dimension_sky(&mut self) {
+        let sky = self.dims.current.sky.clone();
+        self.day
+            .set_dimension_sky(sky.color.map(Vec3::from), sky.daylight);
+    }
+
     // (lot 4b) Méthodes du serveur.
     /// Passe dans une dimension : sauvegarde le monde ouvert, note l'arrivée dans `world.ron`, puis
     /// recharge le monde (voir le début de ce fichier). Refusé dans un monde sans sauvegarde.

@@ -885,9 +885,18 @@ Le code serveur lit encore la fenêtre à plusieurs endroits : `self.ui` est cit
   - le minage en cours et le geste dans le vide sont un état de la fenêtre (`ClientSide::mining`, `air_swing`),
     effacé à la mort ; les effets de potion tournent dans `VoxelServer::frame` ;
   - 16 lectures de `content` et `registry` écrites sur plusieurs lignes, oubliées au 4c-3b, passent à la fenêtre.
-- **Reste** : les quêtes (définitions du livre), les attributs, le menu des mods, les wagons et structures lus dans
-  l'ECS (fiches, pilotage), l'inspecteur de l'ECS, les portails, les wagons et structures pilotés depuis
-  l'image, et les outils (`ctl`, captures, démo, banc d'essai), qui écrivent dans le serveur.
+- **Wagons, structures et portails** (4c-3e) :
+  - descendre du wagon est un message (`ClientMsg::Dismount`) ;
+  - la barre d'une structure part en `ClientMsg::Steer` quand elle change ; le serveur garde le pilote près de sa
+    structure (`update_helm`, dans `frame`) et renvoie la rotation de la caméra en `ServerMsg::Turn` ;
+  - les portails et le bloc d'arrivée tournent dans le pas fixe du serveur (`update_portals`), le ciel de la
+    dimension dans `frame` ;
+  - la fiche d'un wagon visé prend son type dans la réplique ; seul l'aperçu de son contenu lit encore le serveur
+    (un message de détail sur la cible viendra au lot 5) ;
+  - en pause, la fenêtre n'appelle plus `frame` : l'heure, les potions et les villages s'arrêtent aussi (avant, l'heure
+    tournait pendant la pause).
+- **Reste** : les quêtes (définitions du livre), les attributs, le menu des mods, l'inspecteur de l'ECS, la vitesse
+  maximale des wagons (réglage de l'hôte), et les outils (`ctl`, captures, démo, banc d'essai), qui écrivent dans le serveur.
 
 ### Lot 5 : le réseau local
 

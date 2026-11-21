@@ -274,6 +274,7 @@ impl VoxelGame {
                 }
                 ServerMsg::Push { up, impulse } => self.client.body.push(up, impulse),
                 ServerMsg::Sky(view) => self.receive_sky(view),
+                ServerMsg::Turn(turn) => self.client.camera.yaw += turn,
                 ServerMsg::Feedback(feedback) => self.apply_feedback(feedback),
                 ServerMsg::Chat(line) => self.show_chat(&line),
                 ServerMsg::ModOptions { mod_id, data } => self.show_mod_options(mod_id, &data),
@@ -804,6 +805,10 @@ impl crate::server_side::VoxelServer {
             ClientMsg::SelectSlot(slot) => {
                 let inventory = &mut self.players.me_mut().inventory;
                 inventory.selected = usize::from(slot).min(inventory.slots.len() - 1);
+            }
+            ClientMsg::Steer(steer) => self.steer = steer.clamp(-1.0, 1.0),
+            ClientMsg::Dismount => {
+                self.dismount();
             }
             ClientMsg::Drop { aim, all } => {
                 self.with_aim(player, aim, |game| game.throw_selected(all));

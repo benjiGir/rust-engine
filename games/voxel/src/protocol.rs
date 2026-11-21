@@ -223,6 +223,11 @@ pub enum ClientMsg {
     },
     /// La case de la barre d'objets en main.
     SelectSlot(u8),
+    /// La barre d'une structure que le joueur pilote : -1 (gauche) à 1 (droite), envoyée quand elle
+    /// change. Le serveur l'ignore si le joueur ne tient pas de barre.
+    Steer(f32),
+    /// Descendre du wagon.
+    Dismount,
     /// Jeter un objet de la main (`all` : toute la pile).
     Drop {
         aim: Aim,
@@ -284,6 +289,8 @@ pub enum ServerMsg {
         up: f32,
         impulse: Vec3,
     },
+    /// La structure qui porte le joueur a tourné : sa caméra tourne avec (radians).
+    Turn(f32),
     /// Un chunk hors de portée : le client l'oublie.
     Unload(IVec3),
     /// Le pas fixe du serveur auquel appartiennent les messages d'entités qui suivent : le client

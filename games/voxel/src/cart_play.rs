@@ -29,19 +29,6 @@ const LOADER_BATCH: u32 = 4;
 const COUPLING_REACH: f32 = 6.0;
 
 impl VoxelGame {
-    /// Descendre du wagonnet (Maj).
-    pub(crate) fn dismount(&mut self) -> bool {
-        if !self
-            .server
-            .ecs
-            .has::<carts::Riding>(self.server.players.entity())
-        {
-            return false;
-        }
-        carts::dismount(&mut self.server.ecs, self.server.players.entity());
-        true
-    }
-
     /// Chaque image : la vitesse maximale des options, et Maj pour descendre.
     pub(crate) fn update_carts(&mut self, ctx: &Context) {
         if let Some(mut config) = self.server.ecs.get_resource_mut::<CartConfig>() {
@@ -55,7 +42,7 @@ impl VoxelGame {
             .key_pressed(self.settings.keys.key(Action::Descend))
             || ctx.input.key_pressed(KeyCode::ShiftRight);
         if sneak && self.client.mouse_captured && !self.client.ui.inventory_open {
-            self.dismount();
+            self.send_now(crate::protocol::ClientMsg::Dismount);
         }
     }
 
@@ -436,6 +423,17 @@ impl crate::server_side::VoxelServer {
             .hit
             .map_or(self.players.me().gear.reach(), |hit| hit.distance);
         carts::hit_cart(&self.ecs, aim.eye, aim.forward, block_distance).map(|(e, _)| e)
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    /// Descendre du wagonnet (Maj).
+    pub(crate) fn dismount(&mut self) -> bool {
+        if !self.ecs.has::<carts::Riding>(self.players.entity()) {
+            return false;
+        }
+        carts::dismount(&mut self.ecs, self.players.entity());
+        true
     }
 }
 

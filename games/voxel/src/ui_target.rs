@@ -20,7 +20,7 @@ impl VoxelGame {
             )
         });
         // Ce qui est visé vient de la réplique des entités : la fiche d'une créature (nom, vie, élite)
-        // aussi. Le wagon lit encore le serveur pour l'aperçu de son contenu (les menus, sous-lot 3d).
+        // aussi. Le wagon lit encore le serveur pour l'aperçu de son contenu.
         let aimed_id = self.client.view.entities.hit(
             self.client.camera.position,
             self.client.camera.forward(),
@@ -55,23 +55,17 @@ impl VoxelGame {
                 .map_or(inventory.slots.len(), |l| l.main);
             Some(crate::chest_preview::summarize(&inventory.slots, main))
         };
-        let cart = if mob.is_none() {
-            aimed.filter(|&c| {
-                self.server
-                    .ecs
-                    .get::<crate::carts::Cart>(c)
-                    .is_some_and(|cart| cart.kind.slots() > 1)
-            })
-        } else {
-            None
-        };
-        let mut card = if let Some(cart) = cart {
-            let kind = self
-                .server
-                .ecs
-                .get::<crate::carts::Cart>(cart)
-                .map(|c| c.kind);
-            if want_preview {
+        // Un wagon à contenu : son type vient de la réplique des entités.
+        let cart = aimed_id.and_then(|id| match self.client.view.entities.get(id)?.kind {
+            crate::entities::EntityKind::Cart { kind } if mob.is_none() && kind.slots() > 1 => {
+                Some(kind)
+            }
+            _ => None,
+        });
+        let mut card = if let Some(kind) = cart {
+            // L'aperçu du contenu lit encore le serveur (transitoire : le contenu d'un wagon n'est pas
+            // dans la réplique ; un message de détail sur la cible viendra avec le réseau, lot 5).
+            if want_preview && let Some(cart) = aimed {
                 preview = self
                     .server
                     .ecs
@@ -80,7 +74,7 @@ impl VoxelGame {
             }
             Card {
                 name_color: None,
-                name: kind.map_or("Wagon", |k| k.title()).to_string(),
+                name: kind.title().to_string(),
                 origin: ui_info::origin("core:cart"),
                 lines: Vec::new(),
             }

@@ -370,6 +370,7 @@ impl VoxelServer {
             day: DayCycle::new(time, env_parse("VOXEL_DAY_LENGTH").unwrap_or(600.0)),
             weather: weather::Weather::new(seed),
             helm: None,
+            steer: 0.0,
             difficulty,
             potions,
             enchant_seed: seed ^ 0xE5C4,
