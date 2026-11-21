@@ -1,12 +1,11 @@
 [package]
 name = "engine_inspect"
-description = "Le trait Inspect : afficher et modifier une valeur dans l'interface egui."
+description = "Le trait Inspect : décrire une valeur à un inspecteur, qui la dessine et la modifie."
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
 [dependencies]
-egui = { workspace = true }
 glam = { workspace = true }
 engine_inspect_derive = { workspace = true }
 

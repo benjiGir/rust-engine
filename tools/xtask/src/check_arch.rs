@@ -25,12 +25,13 @@ const MAX_LINES: usize = 2500;
 const NOT_ENGINE: [&str; 4] = ["games", "mods", "tools", "exercises"];
 
 /// Crates de simulation, et ce qu'elles n'ont pas le droit d'utiliser.
-const HEADLESS: [&str; 5] = [
+const HEADLESS: [&str; 6] = [
     "engine_voxel",
     "engine_ecs",
     "engine_mods",
     "engine_trace",
     "engine_net",
+    "engine_inspect",
 ];
 const DISPLAY: [&str; 6] = [
     "winit",

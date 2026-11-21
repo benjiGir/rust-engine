@@ -1369,7 +1369,7 @@ fn inspect_component<T: Inspect + 'static>(
     name: &str,
 ) {
     if let Some(mut component) = world.get_mut::<T>(entity) {
-        component.inspect(ui, name);
+        component.inspect(&mut crate::ui_inspect::EguiInspector(ui), name);
     }
 }
 

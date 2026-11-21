@@ -1052,6 +1052,9 @@ Une règle de Rust décide du reste : les méthodes d'un type se définissent da
   simulation ne citent plus aucun module de fenêtre. Pour S3 : `server_boot` prend encore à `main.rs`
   `project_root`, `assets_dir`, `env_parse`, `load_registry`, `EventReaders`, `DEFAULT_SEED`, `FLY_ALTITUDE` ; ils
   iront à la racine de la bibliothèque.
+- **S3a, `engine_inspect` sans egui (réalisé)** : `Inspect` décrit une valeur à un `Inspector` (réel, entier,
+  booléen, texte, vecteurs, absence, groupe) ; l'inspecteur egui (F3) est dans le jeu (`ui_inspect.rs`).
+  `engine_inspect` rejoint la règle `HEADLESS` de check-arch : la simulation peut dériver `Inspect`.
 - **S3, la crate** : `games/voxel_sim` (bibliothèque) reçoit les modules de simulation ; le jeu les réexporte à la
   racine (`pub(crate) use voxel_sim::inventory;`…), donc `crate::inventory::…` ne change pas dans la fenêtre.
 - **S4, le binaire** : `voxel-server` dans `voxel_sim`, et la règle check-arch (`HEADLESS`).

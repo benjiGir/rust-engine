@@ -15,13 +15,13 @@
 //! elle produit à peu près :
 //! ```ignore
 //! impl Inspect for Health {
-//!     fn inspect(&mut self, ui: &mut egui::Ui, label: &str) -> bool {
-//!         let mut changed = false;
-//!         ui.collapsing(label, |ui| {
-//!             changed |= self.current.inspect(ui, "current");
-//!             changed |= self.max.inspect(ui, "max");
-//!         });
-//!         changed
+//!     fn inspect(&mut self, inspector: &mut dyn Inspector, label: &str) -> bool {
+//!         inspector.group(label, &mut |inspector| {
+//!             let mut changed = false;
+//!             changed |= self.current.inspect(inspector, "current");
+//!             changed |= self.max.inspect(inspector, "max");
+//!             changed
+//!         })
 //!     }
 //!     fn field_names() -> &'static [&'static str] { &["current", "max"] }
 //! }
@@ -76,13 +76,17 @@ pub fn derive_inspect(input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         impl #impl_generics ::engine_inspect::Inspect for #name #type_generics #where_clause {
-            fn inspect(&mut self, ui: &mut ::engine_inspect::egui::Ui, label: &str) -> bool {
-                let mut changed = false;
-                ui.collapsing(label, |ui| {
+            fn inspect(
+                &mut self,
+                inspector: &mut dyn ::engine_inspect::Inspector,
+                label: &str,
+            ) -> bool {
+                inspector.group(label, &mut |inspector| {
+                    let mut changed = false;
                     // `#( ... )*` répète le bloc pour chaque élément des listes.
-                    #( changed |= ::engine_inspect::Inspect::inspect(&mut #accesses, ui, #labels); )*
-                });
-                changed
+                    #( changed |= ::engine_inspect::Inspect::inspect(&mut #accesses, inspector, #labels); )*
+                    changed
+                })
             }
 
             fn field_names() -> &'static [&'static str] {

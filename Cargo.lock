@@ -1162,7 +1162,6 @@ dependencies = [
 name = "engine_inspect"
 version = "0.1.0"
 dependencies = [
- "egui",
  "engine_inspect_derive",
  "glam",
 ]

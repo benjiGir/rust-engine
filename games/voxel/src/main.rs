@@ -139,6 +139,7 @@ mod sound_ids;
 mod stream_upload;
 mod texture_packs;
 mod tone;
+mod ui_inspect;
 mod weather_render;
 mod wire;
 pub use launch::{Launch, Request};
