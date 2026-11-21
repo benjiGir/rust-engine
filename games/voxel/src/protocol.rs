@@ -229,6 +229,12 @@ pub enum ClientMsg {
     },
     /// L'écran est fermé : la main et la grille d'artisanat retournent dans l'inventaire.
     CloseMenu,
+    /// Le regard du joueur a changé (la fenêtre l'envoie quand il bouge) : le serveur le garde pour
+    /// la sauvegarde et les scripts.
+    Look {
+        yaw: f32,
+        pitch: f32,
+    },
     /// Un bouton du conteneur ouvert : Déposer, Compléter, Tout prendre, Trier (et Maj + clic).
     ContainerOp(Op),
     /// Couper ou rallumer une amélioration du sac ouvert (son emplacement).
@@ -297,6 +303,19 @@ pub enum ServerMsg {
     OpenScreen(crate::ui::Screen),
     /// Le serveur ferme l'écran ouvert (un mod ferme son menu).
     CloseScreen,
+    /// Une ligne pour la console du joueur.
+    Chat(String),
+    /// La page d'options d'un mod (les octets de son menu).
+    ModOptions {
+        mod_id: String,
+        data: Vec<u8>,
+    },
+    /// Une jauge de mod au-dessus de la barre d'objets (`None` : l'enlever).
+    ModHud {
+        mod_id: String,
+        id: u32,
+        bar: Option<crate::player_api::HudBar>,
+    },
     /// La progression des quêtes du joueur, quand elle change.
     Quests(Option<crate::quest_progress::Progress>),
     /// Ce que l'écran ouvert montre et que seul le serveur sait, quand cela change.

@@ -50,8 +50,8 @@ impl VoxelGame {
             .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
             .clone();
         let namer = Namer {
-            items: &self.content.items,
-            blocks: &self.registry,
+            items: &self.server.content.items,
+            blocks: &self.server.registry,
             creatures: &mobs,
         };
         egui::Area::new(egui::Id::unique("pinned_quests"))

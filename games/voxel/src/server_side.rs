@@ -20,6 +20,17 @@ use crate::{
 /// L'état du serveur : le monde et ce qui le fait vivre (lot 4 du multijoueur,
 /// `docs/plan-multijoueur.md`). Il ne lit jamais la fenêtre (`ClientSide`).
 pub(crate) struct VoxelServer {
+    /// Un script de mod peut ouvrir son menu, seulement pendant le clic droit qui le demande.
+    pub(crate) allow_mod_menu: bool,
+    /// Les durées des éditions de l'image (pour les mesures de la fenêtre).
+    pub(crate) edit_times: Vec<std::time::Duration>,
+    /// Un changement de dimension demandé : la fenêtre recharge le monde (voir `dimensions.rs`).
+    pub(crate) travel: Option<crate::launch::Request>,
+    /// Les lignes de console à exécuter par la fenêtre hôte (voir `intents.rs::handle_command`).
+    pub(crate) pending_commands: Vec<String>,
+    /// Les blocs, et le reste du contenu (objets, recettes...) : partagés par `Arc`.
+    pub(crate) registry: Arc<engine_voxel::BlockRegistry>,
+    pub(crate) content: crate::content::Content,
     /// Le monde ECS : le joueur, les créatures, et des ressources partagées par les
     /// systèmes (le streamer des chunks, le registre des créatures, les événements).
     pub(crate) ecs: engine_ecs::World,
@@ -87,4 +98,20 @@ pub(crate) struct VoxelServer {
     pub(crate) check_moves: bool,
     /// Le numéro du pas fixe (pour les messages `Move`).
     pub(crate) sim_step: u64,
+}
+
+/// Le jeu de la fenêtre donne accès au serveur : une méthode passée à `VoxelServer` reste appelable
+/// depuis le code de la fenêtre pendant la migration (lot 4b), sans changer ses appelants.
+impl std::ops::Deref for crate::VoxelGame {
+    type Target = VoxelServer;
+
+    fn deref(&self) -> &VoxelServer {
+        &self.server
+    }
+}
+
+impl std::ops::DerefMut for crate::VoxelGame {
+    fn deref_mut(&mut self) -> &mut VoxelServer {
+        &mut self.server
+    }
 }

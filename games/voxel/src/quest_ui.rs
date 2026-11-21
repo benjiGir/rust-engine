@@ -477,8 +477,8 @@ impl VoxelGame {
                         );
                         let icon = self.client.ui.icon(
                             group.icon,
-                            &self.content.items,
-                            &self.registry,
+                            &self.server.content.items,
+                            &self.server.registry,
                             &self.client.block_textures,
                         );
                         let icon_rect = Rect::from_center_size(
@@ -546,8 +546,8 @@ impl VoxelGame {
             ui.allocate_exact_size(vec2(ui.available_width(), CHAPTER_ROW), Sense::click());
         let icon = self.client.ui.icon(
             chapter.icon,
-            &self.content.items,
-            &self.registry,
+            &self.server.content.items,
+            &self.server.registry,
             &self.client.block_textures,
         );
         let p = ui.painter();
@@ -631,64 +631,6 @@ impl VoxelGame {
         self.send_now(ClientMsg::Screen(ScreenAction::Quest(act)));
     }
 
-    /// `ScreenAction::Quest` : le serveur applique un geste du livre au joueur courant.
-    pub(crate) fn quest_act(&mut self, act: QuestAct) {
-        let Some(quests) = self.server.players.me().quest_book.quests() else {
-            return;
-        };
-        let count = quests.quests.len();
-        let quest_ok = |q: u32| (q as usize) < count;
-        match act {
-            QuestAct::LastChapter(id) => {
-                if let Ok(progress) = self.server.players.me_mut().quest_book.progress_mut() {
-                    progress.set_last_chapter(&id);
-                }
-            }
-            QuestAct::Claim(quest) if quest_ok(quest) => match self.claim_quest(quest as usize) {
-                Ok(gave) if gave.is_empty() => self.toast("Quête récupérée"),
-                Ok(gave) => self.toast(&format!("Récupéré : {gave}")),
-                Err(err) => self.toast(&err.to_string()),
-            },
-            QuestAct::ClaimAll => {
-                let claimed = self.claim_all_quests();
-                self.toast(&if claimed == 0 {
-                    "Rien à récupérer (ou un choix à faire)".to_string()
-                } else {
-                    format!("{claimed} quête(s) récupérée(s)")
-                });
-            }
-            QuestAct::Check(quest, task) if quest_ok(quest) => {
-                if let Ok(progress) = self.server.players.me_mut().quest_book.progress_mut() {
-                    progress.check(&quests, quest as usize, task as usize);
-                }
-                self.refresh_quests();
-            }
-            QuestAct::HandIn(quest, task) if quest_ok(quest) => {
-                // Pas de bannière : la fiche montre le compteur, et la quête finie s'annonce.
-                self.hand_in_quest(quest as usize, task as usize);
-            }
-            QuestAct::Choose(quest, reward, option) if quest_ok(quest) => {
-                if let Ok(progress) = self.server.players.me_mut().quest_book.progress_mut() {
-                    progress.choose(&quests, quest as usize, reward as usize, option as usize);
-                }
-            }
-            QuestAct::Pin(quest) if quest_ok(quest) => {
-                let id = quests.quests[quest as usize].id.clone();
-                let changed = self
-                    .server
-                    .players
-                    .me_mut()
-                    .quest_book
-                    .progress_mut()
-                    .is_ok_and(|p| p.toggle_pin(&id));
-                if !changed {
-                    self.toast("Trois quêtes épinglées au plus");
-                }
-            }
-            act => log::warn!("geste du livre de quêtes refusé : {act:?}"),
-        }
-    }
-
     /// Applique ce que le joueur a demandé pendant l'image.
     fn apply_quest_acts(&mut self, acts: Vec<Act>, quests: &Arc<Quests>) {
         for act in acts {
@@ -714,6 +656,7 @@ impl VoxelGame {
                 Act::Guide(chapter) => {
                     self.client.ui.browser.close();
                     if let Some(at) = self
+                        .server
                         .content
                         .guide
                         .chapters
@@ -765,8 +708,8 @@ impl VoxelGame {
         let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
         let icon = self.client.ui.icon(
             item,
-            &self.content.items,
-            &self.registry,
+            &self.server.content.items,
+            &self.server.registry,
             &self.client.block_textures,
         );
         let painter = ui.painter().clone();
@@ -774,7 +717,7 @@ impl VoxelGame {
         skin::stack(&painter, rect, icon, count, None, None);
         if response.hovered() {
             self.client.ui.browser.hovered = Some(item);
-            let mut card = crate::ui_info::item(self.content.items.get(item), count, 0);
+            let mut card = crate::ui_info::item(self.server.content.items.get(item), count, 0);
             if !hint.is_empty() {
                 card.lines.push((hint.to_string(), skin::MUTED));
             }
@@ -877,4 +820,64 @@ pub(super) fn badge(painter: &egui::Painter, at: Pos2, count: usize, time: f64) 
         FontId::monospace(10.0),
         skin::DARK,
     );
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// `ScreenAction::Quest` : le serveur applique un geste du livre au joueur courant.
+    pub(crate) fn quest_act(&mut self, act: QuestAct) {
+        let Some(quests) = self.players.me().quest_book.quests() else {
+            return;
+        };
+        let count = quests.quests.len();
+        let quest_ok = |q: u32| (q as usize) < count;
+        match act {
+            QuestAct::LastChapter(id) => {
+                if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
+                    progress.set_last_chapter(&id);
+                }
+            }
+            QuestAct::Claim(quest) if quest_ok(quest) => match self.claim_quest(quest as usize) {
+                Ok(gave) if gave.is_empty() => self.toast("Quête récupérée"),
+                Ok(gave) => self.toast(&format!("Récupéré : {gave}")),
+                Err(err) => self.toast(&err.to_string()),
+            },
+            QuestAct::ClaimAll => {
+                let claimed = self.claim_all_quests();
+                self.toast(&if claimed == 0 {
+                    "Rien à récupérer (ou un choix à faire)".to_string()
+                } else {
+                    format!("{claimed} quête(s) récupérée(s)")
+                });
+            }
+            QuestAct::Check(quest, task) if quest_ok(quest) => {
+                if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
+                    progress.check(&quests, quest as usize, task as usize);
+                }
+                self.refresh_quests();
+            }
+            QuestAct::HandIn(quest, task) if quest_ok(quest) => {
+                // Pas de bannière : la fiche montre le compteur, et la quête finie s'annonce.
+                self.hand_in_quest(quest as usize, task as usize);
+            }
+            QuestAct::Choose(quest, reward, option) if quest_ok(quest) => {
+                if let Ok(progress) = self.players.me_mut().quest_book.progress_mut() {
+                    progress.choose(&quests, quest as usize, reward as usize, option as usize);
+                }
+            }
+            QuestAct::Pin(quest) if quest_ok(quest) => {
+                let id = quests.quests[quest as usize].id.clone();
+                let changed = self
+                    .players
+                    .me_mut()
+                    .quest_book
+                    .progress_mut()
+                    .is_ok_and(|p| p.toggle_pin(&id));
+                if !changed {
+                    self.toast("Trois quêtes épinglées au plus");
+                }
+            }
+            act => log::warn!("geste du livre de quêtes refusé : {act:?}"),
+        }
+    }
 }

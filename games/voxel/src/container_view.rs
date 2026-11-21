@@ -104,18 +104,31 @@ impl VoxelGame {
         })
     }
 
+    /// La vue du conteneur ouvert que la fenêtre a reçue.
+    pub(crate) fn shown_container(&self) -> Option<&ContainerView> {
+        self.client.view.me.container.as_ref()
+    }
+
+    /// La pile d'une case du conteneur ouvert, telle que la fenêtre la voit.
+    pub(crate) fn shown_stack(&self, index: usize) -> Option<ItemStack> {
+        self.shown_container()?
+            .stack(&self.server.content.items, index)
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
     /// `Craft` : fabriquer avec la grille du joueur courant, ou une recette du livre de recettes.
     pub(crate) fn craft(&mut self, size: u8, recipe: Option<u32>) {
         let size = usize::from(size).clamp(2, 3);
         let items = self.content.items.clone();
         let made = match recipe {
             None => {
-                let grid = self.server.players.me_mut().inventory.craft_grid(size);
+                let grid = self.players.me_mut().inventory.craft_grid(size);
                 let Some(recipe) = self.content.recipes.find(&grid, size).cloned() else {
                     return;
                 };
-                self.server
-                    .players
+                self.players
                     .me_mut()
                     .inventory
                     .take_craft_result(&recipe, size, &items)
@@ -129,8 +142,7 @@ impl VoxelGame {
                 if recipe.grid_size() > size {
                     return;
                 }
-                self.server
-                    .players
+                self.players
                     .me_mut()
                     .inventory
                     .craft_from_book(&recipe, &items)
@@ -138,22 +150,8 @@ impl VoxelGame {
             }
         };
         if let Some((item, count)) = made {
-            self.server
-                .players
-                .me_mut()
-                .quest_book
-                .note_crafted(item, count);
+            self.players.me_mut().quest_book.note_crafted(item, count);
         }
-    }
-
-    /// La vue du conteneur ouvert que la fenêtre a reçue.
-    pub(crate) fn shown_container(&self) -> Option<&ContainerView> {
-        self.client.view.me.container.as_ref()
-    }
-
-    /// La pile d'une case du conteneur ouvert, telle que la fenêtre la voit.
-    pub(crate) fn shown_stack(&self, index: usize) -> Option<ItemStack> {
-        self.shown_container()?.stack(&self.content.items, index)
     }
 }
 

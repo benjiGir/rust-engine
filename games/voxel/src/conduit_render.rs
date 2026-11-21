@@ -18,7 +18,7 @@ impl VoxelGame {
         self.client.conduit_fx.instances(
             GridId::WORLD,
             streamer,
-            &self.content.items,
+            &self.server.content.items,
             fluids,
             self.client.camera.position,
             |p| p,
@@ -35,7 +35,7 @@ impl VoxelGame {
             self.client.conduit_fx.instances(
                 id,
                 &*grid,
-                &self.content.items,
+                &self.server.content.items,
                 fluids,
                 self.client.camera.position,
                 |p| grid.to_world(p),

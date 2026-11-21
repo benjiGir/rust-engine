@@ -104,8 +104,8 @@ impl VoxelGame {
         }
     }
 
-    /// Ajoute des lignes à la console (une par `\n`).
-    pub(crate) fn chat(&mut self, text: &str) {
+    /// La fenêtre affiche une ligne dans sa console.
+    pub(crate) fn show_chat(&mut self, text: &str) {
         let console = &mut self.client.ui.console;
         for line in text.lines() {
             console.lines.push_back((line.to_string(), Instant::now()));
@@ -122,96 +122,12 @@ impl VoxelGame {
         if line.is_empty() {
             return;
         }
-        self.chat(&format!("> /{line}"));
+        self.show_chat(&format!("> /{line}"));
         self.server.command_reply = None;
         self.send_now(ClientMsg::Command(line.to_string()));
         if let Some(reply) = self.server.command_reply.take() {
             self.chat(&reply.text);
         }
-    }
-
-    /// La réponse du simulateur à une ligne de console (`name` en minuscules).
-    pub(crate) fn console_reply(&mut self, name: &str, args: &str) -> CommandReply {
-        let text = |text: String| CommandReply { text, json: None };
-        match name {
-            "help" => text(self.console_help()),
-            "mods" => text(self.console_mods()),
-            _ => self.console_command(name, args),
-        }
-    }
-
-    fn console_help(&self) -> String {
-        let mut out = String::from(
-            "Commandes de la console :\n/help : cette liste\n/mods : ce que consomme chaque mod",
-        );
-        for (_, _, help) in GAME_COMMANDS {
-            out.push('\n');
-            out.push_str(help);
-        }
-        for (mod_id, name, help) in self.server.mods.commands() {
-            out.push_str(&format!("\n/{name} : {help} ({mod_id})"));
-        }
-        out
-    }
-
-    fn console_mods(&self) -> String {
-        let disabled = self.server.mods.disabled();
-        let lines: Vec<String> = self
-            .server
-            .mods
-            .mod_stats()
-            .into_iter()
-            .map(|(id, s)| {
-                let state = disabled
-                    .iter()
-                    .find(|(m, _)| *m == id)
-                    .map_or_else(String::new, |(_, why)| format!(" — DÉSACTIVÉ : {why}"));
-                format!(
-                    "{id} : {} instr. au dernier tick (pic {}, budget {}){state}",
-                    s.fuel_last_tick,
-                    s.fuel_peak_tick,
-                    engine_mods::TICK_BUDGET
-                )
-            })
-            .collect();
-        if lines.is_empty() {
-            "Aucun mod avec un script.".to_string()
-        } else {
-            lines.join("\n")
-        }
-    }
-
-    /// Une commande du jeu ou d'un mod ; sinon une explication.
-    fn console_command(&mut self, name: &str, args: &str) -> CommandReply {
-        let say = |text: String| CommandReply { text, json: None };
-        if let Some((_, ctl, _)) = GAME_COMMANDS.iter().find(|(n, _, _)| *n == name) {
-            let line = format!("{ctl} {args}");
-            let result = control::parse(&line).and_then(|c| self.execute_from_console(c));
-            let text = match &result {
-                Ok(_) => "fait".to_string(),
-                Err(err) => format!("Erreur : {err:#}"),
-            };
-            return CommandReply {
-                text,
-                json: Some(result),
-            };
-        }
-        // Une commande de mod : `nom`, ou `mod:nom` pour lever une ambiguïté.
-        let all = self.server.mods.commands();
-        let (wanted_mod, wanted_name) = match name.split_once(':') {
-            Some((m, n)) => (Some(m), n),
-            None => (None, name),
-        };
-        let found = all
-            .iter()
-            .find(|(m, n, _)| n == wanted_name && wanted_mod.is_none_or(|w| w == m))
-            .cloned();
-        let Some((mod_id, command, _)) = found else {
-            return say(format!("Commande inconnue : /{name} (voir /help)"));
-        };
-        let (reply, actions) = self.server.mods.command(&mod_id, &command, args);
-        self.apply_machine_actions(actions);
-        say(reply.unwrap_or_else(|| "fait".to_string()))
     }
 
     /// Les lignes récentes, au-dessus de la barre d'objets (console fermée).
@@ -315,5 +231,102 @@ impl VoxelGame {
                 }
                 response.request_focus();
             });
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// Ajoute des lignes à la console (une par `\n`).
+    /// Une ligne pour la console du joueur courant (le serveur la lui envoie).
+    pub(crate) fn chat(&mut self, text: &str) {
+        let id = self.players.current_id();
+        self.replies
+            .push((id, crate::protocol::ServerMsg::Chat(text.to_string())));
+    }
+
+    fn console_mods(&self) -> String {
+        let disabled = self.mods.disabled();
+        let lines: Vec<String> = self
+            .mods
+            .mod_stats()
+            .into_iter()
+            .map(|(id, s)| {
+                let state = disabled
+                    .iter()
+                    .find(|(m, _)| *m == id)
+                    .map_or_else(String::new, |(_, why)| format!(" — DÉSACTIVÉ : {why}"));
+                format!(
+                    "{id} : {} instr. au dernier tick (pic {}, budget {}){state}",
+                    s.fuel_last_tick,
+                    s.fuel_peak_tick,
+                    engine_mods::TICK_BUDGET
+                )
+            })
+            .collect();
+        if lines.is_empty() {
+            "Aucun mod avec un script.".to_string()
+        } else {
+            lines.join("\n")
+        }
+    }
+
+    fn console_help(&self) -> String {
+        let mut out = String::from(
+            "Commandes de la console :\n/help : cette liste\n/mods : ce que consomme chaque mod",
+        );
+        for (_, _, help) in GAME_COMMANDS {
+            out.push('\n');
+            out.push_str(help);
+        }
+        for (mod_id, name, help) in self.mods.commands() {
+            out.push_str(&format!("\n/{name} : {help} ({mod_id})"));
+        }
+        out
+    }
+}
+
+impl VoxelGame {
+    // (lot 4b) Méthodes de la fenêtre hôte.
+    /// La réponse du simulateur à une ligne de console (`name` en minuscules).
+    pub(crate) fn console_reply(&mut self, name: &str, args: &str) -> CommandReply {
+        let text = |text: String| CommandReply { text, json: None };
+        match name {
+            "help" => text(self.console_help()),
+            "mods" => text(self.console_mods()),
+            _ => self.console_command(name, args),
+        }
+    }
+
+    /// Une commande du jeu ou d'un mod ; sinon une explication.
+    fn console_command(&mut self, name: &str, args: &str) -> CommandReply {
+        let say = |text: String| CommandReply { text, json: None };
+        if let Some((_, ctl, _)) = GAME_COMMANDS.iter().find(|(n, _, _)| *n == name) {
+            let line = format!("{ctl} {args}");
+            let result = control::parse(&line).and_then(|c| self.execute_from_console(c));
+            let text = match &result {
+                Ok(_) => "fait".to_string(),
+                Err(err) => format!("Erreur : {err:#}"),
+            };
+            return CommandReply {
+                text,
+                json: Some(result),
+            };
+        }
+        // Une commande de mod : `nom`, ou `mod:nom` pour lever une ambiguïté.
+        let all = self.mods.commands();
+        let (wanted_mod, wanted_name) = match name.split_once(':') {
+            Some((m, n)) => (Some(m), n),
+            None => (None, name),
+        };
+        let found = all
+            .iter()
+            .find(|(m, n, _)| n == wanted_name && wanted_mod.is_none_or(|w| w == m))
+            .cloned();
+        let Some((mod_id, command, _)) = found else {
+            return say(format!("Commande inconnue : /{name} (voir /help)"));
+        };
+        let (reply, actions) = self.mods.command(&mod_id, &command, args);
+        self.apply_machine_actions(actions);
+        say(reply.unwrap_or_else(|| "fait".to_string()))
     }
 }

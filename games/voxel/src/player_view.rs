@@ -156,6 +156,8 @@ pub enum Feedback {
     Toast(String),
     /// Le bras du joueur frappe (un geste réussi : poser, utiliser, frapper).
     Punch,
+    /// Un palier du monde vient d'être débloqué (son nom) : la fenêtre l'annonce avec sa touche.
+    TierUnlocked(String),
 }
 
 /// Ce que la fenêtre a reçu de son joueur.
@@ -340,50 +342,6 @@ impl VoxelGame {
         }
     }
 
-    /// Un son pour le joueur qui agit (celui du message en cours, sinon celui de la fenêtre).
-    pub(crate) fn sound(&mut self, key: &str) {
-        let id = self.server.players.current_id();
-        self.server
-            .replies
-            .push((id, ServerMsg::Feedback(Feedback::Sound(Sound::key(key)))));
-    }
-
-    /// Un son placé en `at`, pour tous les joueurs à portée d'oreille.
-    pub(crate) fn sound_near(&mut self, sound: Sound, at: Vec3) {
-        let heard: Vec<PlayerId> = self
-            .server
-            .players
-            .iter()
-            .filter(|p| {
-                crate::player::eye(&self.server.ecs, p.entity, 1.0).distance_squared(at)
-                    <= HEARING * HEARING
-            })
-            .map(|p| p.id)
-            .collect();
-        for id in heard {
-            self.server
-                .replies
-                .push((id, ServerMsg::Feedback(Feedback::Sound(sound.clone()))));
-        }
-    }
-
-    /// Le bras du joueur qui agit frappe.
-    pub(crate) fn punch(&mut self) {
-        let id = self.server.players.current_id();
-        self.server
-            .replies
-            .push((id, ServerMsg::Feedback(Feedback::Punch)));
-    }
-
-    /// Un message en bas de l'écran du joueur qui agit.
-    pub(crate) fn toast(&mut self, text: &str) {
-        log::info!("{text}");
-        let id = self.server.players.current_id();
-        self.server
-            .replies
-            .push((id, ServerMsg::Feedback(Feedback::Toast(text.to_string()))));
-    }
-
     /// La fenêtre applique un retour du serveur.
     pub(crate) fn apply_feedback(&mut self, feedback: Feedback) {
         match feedback {
@@ -394,14 +352,66 @@ impl VoxelGame {
             }
             Feedback::Sound(Sound::Block { block, kind }) => {
                 if let Some(audio) = &mut self.client.audio {
-                    audio.play_block(&self.registry, engine_voxel::BlockId(block), kind);
+                    audio.play_block(&self.server.registry, engine_voxel::BlockId(block), kind);
                 }
             }
             Feedback::Toast(text) => {
                 self.client.ui.toast = Some((text, Instant::now()));
             }
             Feedback::Punch => self.client.hand.punch(),
+            Feedback::TierUnlocked(name) => {
+                let key = self
+                    .settings
+                    .keys
+                    .name(crate::settings::Action::Tiers)
+                    .to_string();
+                let text = format!("Palier débloqué : {name} (touche {key})");
+                log::info!("{text}");
+                self.client.ui.toast = Some((text, Instant::now()));
+            }
         }
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// Un son placé en `at`, pour tous les joueurs à portée d'oreille.
+    pub(crate) fn sound_near(&mut self, sound: Sound, at: Vec3) {
+        let heard: Vec<PlayerId> = self
+            .players
+            .iter()
+            .filter(|p| {
+                crate::player::eye(&self.ecs, p.entity, 1.0).distance_squared(at)
+                    <= HEARING * HEARING
+            })
+            .map(|p| p.id)
+            .collect();
+        for id in heard {
+            self.replies
+                .push((id, ServerMsg::Feedback(Feedback::Sound(sound.clone()))));
+        }
+    }
+
+    /// Le bras du joueur qui agit frappe.
+    pub(crate) fn punch(&mut self) {
+        let id = self.players.current_id();
+        self.replies
+            .push((id, ServerMsg::Feedback(Feedback::Punch)));
+    }
+
+    /// Un message en bas de l'écran du joueur qui agit.
+    pub(crate) fn toast(&mut self, text: &str) {
+        log::info!("{text}");
+        let id = self.players.current_id();
+        self.replies
+            .push((id, ServerMsg::Feedback(Feedback::Toast(text.to_string()))));
+    }
+
+    /// Un son pour le joueur qui agit (celui du message en cours, sinon celui de la fenêtre).
+    pub(crate) fn sound(&mut self, key: &str) {
+        let id = self.players.current_id();
+        self.replies
+            .push((id, ServerMsg::Feedback(Feedback::Sound(Sound::key(key)))));
     }
 }
 

@@ -685,9 +685,9 @@ impl VoxelGame {
 
     /// Les blocs à poser pour la scène (une fois le terrain chargé).
     fn build_scene(&mut self, scene: Scene) {
-        let torch = self.registry.id("core:torch");
-        let glow = self.registry.id("core:glowstone");
-        let stone = self.registry.id("core:stone");
+        let torch = self.server.registry.id("core:torch");
+        let glow = self.server.registry.id("core:glowstone");
+        let stone = self.server.registry.id("core:stone");
         match scene {
             Scene::Torches => {
                 for (dx, dz) in [(-6, -6), (6, -6), (-6, 6), (6, 6), (0, 0)] {
@@ -775,7 +775,7 @@ impl VoxelGame {
     /// Remplit l'écran de la capture : une grille d'artisanat, un four en marche, un coffre.
     fn build_screen(&mut self, scene: Scene) {
         use crate::inventory::ItemStack;
-        let items = self.content.items.clone();
+        let items = self.server.content.items.clone();
         let stack = |key: &str, count: u32| items.id(key).map(|i| ItemStack::new(i, count));
         self.server.players.me_mut().inventory.craft = [None; 9];
         match scene {
@@ -809,7 +809,7 @@ impl VoxelGame {
                 } else {
                     "core:chest"
                 };
-                let Some(block) = self.registry.id(key) else {
+                let Some(block) = self.server.registry.id(key) else {
                     return;
                 };
                 self.streamer_mut().set_block(pos, block);
@@ -925,7 +925,7 @@ impl VoxelGame {
     fn build_fluid(&mut self, which: FluidShot) {
         let (x, z) = which.spot();
         let o = self.origin() + IVec3::new(x, self.fluid_base(x, z), z);
-        let id = |key: &str| self.registry.id(key).unwrap_or(BlockId::AIR);
+        let id = |key: &str| self.server.registry.id(key).unwrap_or(BlockId::AIR);
         let (stone, glass, water, lava) = (
             id("core:stone"),
             id("core:glass"),
@@ -1070,7 +1070,7 @@ impl VoxelGame {
 
     /// Une pose du bras, figée pour la capture.
     fn pose_arm(&mut self, scene: Scene) {
-        let items = self.content.items.clone();
+        let items = self.server.content.items.clone();
         let wanted = match scene {
             Scene::ArmMine | Scene::ArmTool => items.id("core:stone_pickaxe"),
             Scene::ArmSword => items.id("core:iron_sword"),
@@ -1105,7 +1105,7 @@ impl VoxelGame {
     /// Un mécanisme sur une dalle de pierre : une horloge entourée de quatre lampes, et une
     /// seconde horloge qui alimente un casseur tourné vers une colonne de pierre.
     fn build_machines(&mut self) {
-        let id = |key: &str| self.registry.id(key);
+        let id = |key: &str| self.server.registry.id(key);
         let (Some(stone), Some(clock), Some(lamp)) =
             (id("core:stone"), id("core:clock"), id("core:lamp"))
         else {

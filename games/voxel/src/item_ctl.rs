@@ -140,7 +140,7 @@ impl VoxelGame {
         match command {
             Command::Enchant(list) => {
                 let selected = self.server.players.me_mut().inventory.selected;
-                let items = self.content.items.clone();
+                let items = self.server.content.items.clone();
                 let stack = self.server.players.me_mut().inventory.slots[selected]
                     .as_mut()
                     .context("enchant : rien en main")?;
@@ -161,7 +161,7 @@ impl VoxelGame {
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Equip(slot) => {
-                let items = self.content.items.clone();
+                let items = self.server.content.items.clone();
                 let stack = self.server.players.me_mut().inventory.slots[slot]
                     .context("equip : case vide")?;
                 let index = items
@@ -228,7 +228,7 @@ impl VoxelGame {
         let Some(stack) = self.server.players.me().inventory.selected_stack() else {
             return "{\"ok\":true,\"item\":null}".to_string();
         };
-        let key = &self.content.items.get(stack.item).key;
+        let key = &self.server.content.items.get(stack.item).key;
         let labels: Vec<String> = enchanting::labels(stack.damage)
             .iter()
             .map(|l| crate::control::json_str(l))

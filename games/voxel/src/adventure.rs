@@ -123,7 +123,7 @@ impl VoxelGame {
             .adventure
             .progress
             .note_depth(feet.y, engine_voxel::SEA_LEVEL);
-        let items = self.content.items.clone();
+        let items = self.server.content.items.clone();
         let boost = self.rarity_boost(data);
         let mut best = None;
         let mut visit = |stack: &mut Option<ItemStack>| {
@@ -151,108 +151,6 @@ impl VoxelGame {
                 .note_rarity(rarity);
         }
         self.unlock_tiers(data);
-    }
-
-    /// Débloque ce que la progression permet, avec un message.
-    pub(crate) fn unlock_tiers(&mut self, data: &AdventureData) {
-        if let Some(tier) = self
-            .server
-            .players
-            .me_mut()
-            .adventure
-            .progress
-            .refresh_unlocked(&data.tiers)
-        {
-            let name = data.tier(tier).map_or("?", |t| t.name.as_str()).to_string();
-            let key = self
-                .settings
-                .keys
-                .name(crate::settings::Action::Tiers)
-                .to_string();
-            self.toast(&format!("Palier débloqué : {name} (touche {key})"));
-            self.sound("core:enchant");
-        }
-    }
-
-    /// La hausse de rareté du palier choisi.
-    fn rarity_boost(&self, data: &AdventureData) -> f32 {
-        data.tier(self.server.players.me().adventure.progress.tier)
-            .map_or(0.0, |t| t.rarity_boost)
-    }
-
-    /// Un objet à affixes tiré au hasard dans la liste de butin du palier choisi.
-    pub(crate) fn roll_affixed_stack(&mut self, min_rarity: u8) -> Option<ItemStack> {
-        let data = adventure_data::current();
-        let items = self.content.items.clone();
-        let tier = self.server.players.me_mut().adventure.progress.tier;
-        let boost = self.rarity_boost(&data);
-        let seed = self.next_random();
-        roll_affixed(&data, &items, tier, boost, min_rarity, seed)
-    }
-
-    /// Une gemme tirée selon `drop`, et peut-être de la poussière.
-    fn roll_gem_stacks(&mut self, drop: GemDrop) -> Vec<ItemStack> {
-        let data = adventure_data::current();
-        let items = self.content.items.clone();
-        let mut rng = Rng64::new(self.next_random());
-        let mut out = Vec::new();
-        if rng.next_f32() < drop.chance && !data.gems.is_empty() {
-            let kind = &data.gems[rng.below(data.gems.len() as u32) as usize];
-            let top = data.qualities.len().saturating_sub(1) as u32;
-            let quality = between(&mut rng, (drop.quality.0.min(top), drop.quality.1.min(top)));
-            if let Some(id) = items.id(&kind.item_key(quality as usize)) {
-                out.push(ItemStack::new(id, 1));
-            }
-        }
-        if rng.next_f32() < drop.dust
-            && let Some(id) = crate::forge_tables::dust_item(&items)
-        {
-            out.push(ItemStack::new(id, 1));
-        }
-        out
-    }
-
-    /// Le butin d'adventure d'une créature morte : un objet à affixes (une chance pour une hostile,
-    /// toujours pour une élite), des gemmes. Les objets tombent là où elle est morte.
-    pub(crate) fn adventure_loot(&mut self, position: Vec3, hostile: bool, elite: Option<&Elite>) {
-        let data = adventure_data::current();
-        let at = position.floor().as_ivec3();
-        let mut stacks = Vec::new();
-        match elite {
-            Some(elite) => {
-                let (rarity, gems) = if elite.invader {
-                    (data.invader_min_rarity, data.invader_gem)
-                } else {
-                    (data.elite_min_rarity, data.elite_gem)
-                };
-                stacks.extend(self.roll_affixed_stack(rarity));
-                stacks.extend(self.roll_gem_stacks(gems));
-            }
-            None if hostile => {
-                let chance = data
-                    .tier(self.server.players.me_mut().adventure.progress.tier)
-                    .map_or(0.0, |t| t.drop_chance);
-                if Rng64::new(self.next_random()).next_f32() < chance {
-                    stacks.extend(self.roll_affixed_stack(0));
-                }
-            }
-            None => {}
-        }
-        for stack in stacks {
-            self.drop_stack(at, stack);
-        }
-    }
-
-    /// Une hostile vient de mourir près du joueur : la progression la compte.
-    pub(crate) fn credit_kill(&mut self, boss: bool) {
-        self.server
-            .players
-            .me_mut()
-            .adventure
-            .progress
-            .note_kill(boss);
-        let data = adventure_data::current();
-        self.unlock_tiers(&data);
     }
 
     /// Fait apparaître un envahisseur non loin du joueur : un son, un message, un faisceau.
@@ -321,32 +219,6 @@ impl VoxelGame {
         self.sound("core:cave_rumble");
         self.sound("core:enchant");
     }
-
-    /// Tire les objets « à tirer » d'un coffre qu'on ouvre (voir la doc du module).
-    pub(crate) fn resolve_chest_loot(&mut self, pos: IVec3) {
-        let data = adventure_data::current();
-        let items = self.content.items.clone();
-        let boost = self.rarity_boost(&data);
-        let mut streamer = self.streamer_mut();
-        let Some(mut entity) = streamer.block_entity(pos).cloned() else {
-            return;
-        };
-        let mut changed = false;
-        if let Some(inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut()) {
-            for stack in inventory.slots.iter_mut().flatten() {
-                if item_data::is_pending(stack.damage)
-                    && let Some(id) = items.id(&stack.item)
-                {
-                    stack.damage =
-                        affixes::resolve_pending(&data, items.get(id), stack.damage, boost);
-                    changed = true;
-                }
-            }
-        }
-        if changed {
-            streamer.set_block_entity(pos, Some(entity));
-        }
-    }
 }
 
 /// Un objet à affixes tiré dans la liste de butin (filtrée par palier). Pure : la graine décide.
@@ -376,6 +248,133 @@ pub fn roll_affixed(
         count: 1,
         damage,
     })
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// Tire les objets « à tirer » d'un coffre qu'on ouvre (voir la doc du module).
+    pub(crate) fn resolve_chest_loot(&mut self, pos: IVec3) {
+        let data = adventure_data::current();
+        let items = self.content.items.clone();
+        let boost = self.rarity_boost(&data);
+        let mut streamer = self.streamer_mut();
+        let Some(mut entity) = streamer.block_entity(pos).cloned() else {
+            return;
+        };
+        let mut changed = false;
+        if let Some(inventory) = entity.caps.as_mut().and_then(|c| c.inventory.as_mut()) {
+            for stack in inventory.slots.iter_mut().flatten() {
+                if item_data::is_pending(stack.damage)
+                    && let Some(id) = items.id(&stack.item)
+                {
+                    stack.damage =
+                        affixes::resolve_pending(&data, items.get(id), stack.damage, boost);
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            streamer.set_block_entity(pos, Some(entity));
+        }
+    }
+
+    /// La hausse de rareté du palier choisi.
+    fn rarity_boost(&self, data: &AdventureData) -> f32 {
+        data.tier(self.players.me().adventure.progress.tier)
+            .map_or(0.0, |t| t.rarity_boost)
+    }
+
+    /// Débloque ce que la progression permet, avec un message.
+    pub(crate) fn unlock_tiers(&mut self, data: &AdventureData) {
+        if let Some(tier) = self
+            .players
+            .me_mut()
+            .adventure
+            .progress
+            .refresh_unlocked(&data.tiers)
+        {
+            let name = data.tier(tier).map_or("?", |t| t.name.as_str()).to_string();
+            // La fenêtre ajoute la touche des paliers, qui est l'un de ses réglages.
+            let id = self.players.current_id();
+            self.replies.push((
+                id,
+                crate::protocol::ServerMsg::Feedback(crate::player_view::Feedback::TierUnlocked(
+                    name,
+                )),
+            ));
+            self.sound("core:enchant");
+        }
+    }
+
+    /// Une gemme tirée selon `drop`, et peut-être de la poussière.
+    fn roll_gem_stacks(&mut self, drop: GemDrop) -> Vec<ItemStack> {
+        let data = adventure_data::current();
+        let items = self.content.items.clone();
+        let mut rng = Rng64::new(self.next_random());
+        let mut out = Vec::new();
+        if rng.next_f32() < drop.chance && !data.gems.is_empty() {
+            let kind = &data.gems[rng.below(data.gems.len() as u32) as usize];
+            let top = data.qualities.len().saturating_sub(1) as u32;
+            let quality = between(&mut rng, (drop.quality.0.min(top), drop.quality.1.min(top)));
+            if let Some(id) = items.id(&kind.item_key(quality as usize)) {
+                out.push(ItemStack::new(id, 1));
+            }
+        }
+        if rng.next_f32() < drop.dust
+            && let Some(id) = crate::forge_tables::dust_item(&items)
+        {
+            out.push(ItemStack::new(id, 1));
+        }
+        out
+    }
+
+    /// Un objet à affixes tiré au hasard dans la liste de butin du palier choisi.
+    pub(crate) fn roll_affixed_stack(&mut self, min_rarity: u8) -> Option<ItemStack> {
+        let data = adventure_data::current();
+        let items = self.content.items.clone();
+        let tier = self.players.me_mut().adventure.progress.tier;
+        let boost = self.rarity_boost(&data);
+        let seed = self.next_random();
+        roll_affixed(&data, &items, tier, boost, min_rarity, seed)
+    }
+
+    /// Une hostile vient de mourir près du joueur : la progression la compte.
+    pub(crate) fn credit_kill(&mut self, boss: bool) {
+        self.players.me_mut().adventure.progress.note_kill(boss);
+        let data = adventure_data::current();
+        self.unlock_tiers(&data);
+    }
+
+    /// Le butin d'adventure d'une créature morte : un objet à affixes (une chance pour une hostile,
+    /// toujours pour une élite), des gemmes. Les objets tombent là où elle est morte.
+    pub(crate) fn adventure_loot(&mut self, position: Vec3, hostile: bool, elite: Option<&Elite>) {
+        let data = adventure_data::current();
+        let at = position.floor().as_ivec3();
+        let mut stacks = Vec::new();
+        match elite {
+            Some(elite) => {
+                let (rarity, gems) = if elite.invader {
+                    (data.invader_min_rarity, data.invader_gem)
+                } else {
+                    (data.elite_min_rarity, data.elite_gem)
+                };
+                stacks.extend(self.roll_affixed_stack(rarity));
+                stacks.extend(self.roll_gem_stacks(gems));
+            }
+            None if hostile => {
+                let chance = data
+                    .tier(self.players.me_mut().adventure.progress.tier)
+                    .map_or(0.0, |t| t.drop_chance);
+                if Rng64::new(self.next_random()).next_f32() < chance {
+                    stacks.extend(self.roll_affixed_stack(0));
+                }
+            }
+            None => {}
+        }
+        for stack in stacks {
+            self.drop_stack(at, stack);
+        }
+    }
 }
 
 #[cfg(test)]

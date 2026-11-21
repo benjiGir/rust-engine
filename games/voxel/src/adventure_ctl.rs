@@ -129,7 +129,7 @@ impl VoxelGame {
                     .or_else(|| rarity.parse().ok())
                     .filter(|r| usize::from(*r) < data.rarities.len())
                     .with_context(|| format!("loot : rareté inconnue « {rarity} »"))?;
-                let items = self.content.items.clone();
+                let items = self.server.content.items.clone();
                 let item = items
                     .id(&key)
                     .with_context(|| format!("loot : objet inconnu « {key} »"))?;
@@ -162,16 +162,16 @@ impl VoxelGame {
                     .find(|g| g.id == key)
                     .with_context(|| format!("gem : sorte inconnue « {key} »"))?;
                 let item = self
+                    .server
                     .content
                     .items
                     .id(&kind.item_key(quality - 1))
                     .context("gem : objet absent")?;
-                let left =
-                    self.server
-                        .players
-                        .me_mut()
-                        .inventory
-                        .add(item, count, &self.content.items);
+                let left = self.server.players.me_mut().inventory.add(
+                    item,
+                    count,
+                    &self.server.content.items,
+                );
                 Ok(format!("{{\"ok\":true,\"full\":{left}}}"))
             }
             Command::Tier(tier) => {
@@ -272,7 +272,7 @@ impl VoxelGame {
             }
             Command::Pending(pos, key, min) => {
                 let block = self.streamer().world().block(pos);
-                let slots = engine_voxel::container_slots(&self.registry, block)
+                let slots = engine_voxel::container_slots(&self.server.registry, block)
                     .context("pending : pas un conteneur")?;
                 let seed = (self.next_random() & 0xFFFF) as u16;
                 let mut streamer = self.streamer_mut();

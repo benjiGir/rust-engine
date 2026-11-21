@@ -296,171 +296,6 @@ fn build(renderer: &mut Renderer, grid: &SubGrid) -> Built {
 }
 
 impl VoxelGame {
-    /// Détache du monde la structure qui contient `pos`.
-    pub(crate) fn assemble(&mut self, pos: IVec3) -> Result<GridId, String> {
-        let terrain = terrain_blocks(&self.registry);
-        let shared = self.server.mods.subgrids.clone();
-        let id = {
-            let mut subs = shared.borrow_mut();
-            engine_voxel::extract(&mut self.streamer_mut(), &mut subs, pos, &|b| {
-                terrain.contains(&b)
-            })
-        }
-        .map_err(|e| e.to_string())?;
-        // Les machines de la structure démarrent, comme après un chargement.
-        let subs = shared.borrow();
-        let grid = subs.get(id).expect("grille créée").borrow();
-        let active: Vec<GridPos> = grid
-            .cells()
-            .filter(|c| {
-                self.server
-                    .mods
-                    .machines
-                    .has_behavior(grid.world().block(*c))
-            })
-            .map(|c| GridPos::new(id, c))
-            .collect();
-        drop(grid);
-        let mut actions = Vec::new();
-        let grids = Grids::with_subgrids(&self.server.world, &subs);
-        self.server
-            .mods
-            .machines
-            .grid_blocks_loaded(grids, &active, &mut actions);
-        drop(subs);
-        self.apply_machine_actions(actions);
-        self.client.target = None;
-        Ok(id)
-    }
-
-    /// Repose une structure dans le monde. Renvoie le nombre de blocs posés.
-    pub(crate) fn disassemble(&mut self, id: GridId) -> Result<usize, String> {
-        let shared = self.server.mods.subgrids.clone();
-        let grid = shared
-            .borrow_mut()
-            .remove(id)
-            .ok_or_else(|| "structure inconnue".to_string())?;
-        let placed = match engine_voxel::land(&mut self.streamer_mut(), &grid) {
-            Ok(placed) => placed,
-            Err(err) => {
-                shared.borrow_mut().insert(grid);
-                return Err(err.to_string());
-            }
-        };
-        if self.server.helm == Some(id) {
-            self.server.helm = None;
-        }
-        // Les machines se réveillent à leur nouvelle place.
-        for pos in &placed {
-            let block = self.streamer().world().block(*pos);
-            if self.server.mods.machines.has_behavior(block) {
-                let actions = self.server.mods.block_changed(*pos);
-                self.apply_machine_actions(actions);
-            }
-        }
-        self.client.target = None;
-        Ok(placed.len())
-    }
-
-    /// Le bloc de structure visé, s'il est plus près que celui du monde.
-    pub(crate) fn ship_hit(&self) -> Option<(GridId, engine_voxel::RayHit)> {
-        let subs = self.server.mods.subgrids.borrow();
-        let aim = self.aim();
-        let (origin, direction) = (aim.eye, aim.forward);
-        let mut best: Option<(GridId, engine_voxel::RayHit)> = None;
-        for id in subs.ids() {
-            let grid = subs.get(id).expect("identifiant connu").borrow();
-            let hit = engine_voxel::raycast(
-                grid.world(),
-                grid.to_local(origin),
-                grid.direction_to_local(direction),
-                self.server.players.me().gear.reach(),
-            );
-            if let Some(hit) = hit
-                && best.is_none_or(|(_, b)| hit.distance < b.distance)
-            {
-                best = Some((id, hit));
-            }
-        }
-        let world_distance = aim.hit.map_or(f32::MAX, |h| h.distance);
-        best.filter(|(_, hit)| hit.distance < world_distance)
-    }
-
-    /// Un clic droit sur un bloc de structure : l'assembleur la repose, la barre la dirige, un
-    /// levier ou un bouton marche ; le reste ne se modifie pas tant qu'elle est assemblée.
-    pub(crate) fn use_ship(&mut self) -> bool {
-        let Some((id, hit)) = self.ship_hit() else {
-            return false;
-        };
-        let (block, behavior) = {
-            let subs = self.server.mods.subgrids.borrow();
-            let grid = subs.get(id).expect("identifiant connu").borrow();
-            let def = self
-                .registry
-                .def(self.registry.base(grid.world().block(hit.block_pos)));
-            (def.key.clone(), def.behavior.clone())
-        };
-        match block.as_str() {
-            "core:assembler" => match self.disassemble(id) {
-                Ok(n) => self.toast(&format!("Structure reposée ({n} blocs)")),
-                Err(err) => self.toast(&err),
-            },
-            "core:helm" => {
-                if self.server.helm == Some(id) {
-                    self.server.helm = None;
-                    self.toast("Barre lâchée");
-                } else {
-                    self.server.helm = Some(id);
-                    self.toast("À la barre : gauche et droite pour tourner");
-                }
-            }
-            _ => {
-                let used = behavior.is_some() && {
-                    let subs = self.server.mods.subgrids.borrow();
-                    let grids = Grids::with_subgrids(&self.server.world, &subs);
-                    let mut actions = Vec::new();
-                    let used = self.server.mods.machines.use_grid_block(
-                        grids,
-                        GridPos::new(id, hit.block_pos),
-                        &mut actions,
-                    );
-                    drop(subs);
-                    self.apply_machine_actions(actions);
-                    used
-                };
-                if !used {
-                    self.toast("Pose la structure (assembleur) pour la modifier");
-                }
-            }
-        }
-        true
-    }
-
-    /// Un clic droit sur un assembleur du monde : la structure qui y est reliée s'en détache.
-    pub(crate) fn use_assembler(&mut self) -> bool {
-        let Some(hit) = self.aim().hit else {
-            return false;
-        };
-        let block = self.streamer().world().block(hit.block_pos);
-        if self.registry.def(self.registry.base(block)).key != "core:assembler" {
-            return false;
-        }
-        match self.assemble(hit.block_pos) {
-            Ok(id) => {
-                let size = self
-                    .server
-                    .mods
-                    .subgrids
-                    .borrow()
-                    .get(id)
-                    .map_or(0, |g| g.borrow().len());
-                self.toast(&format!("Structure assemblée ({size} blocs)"));
-            }
-            Err(err) => self.toast(&err),
-        }
-        true
-    }
-
     /// La barre : gauche et droite, tant que le pilote reste près de sa structure.
     pub(crate) fn update_ships(&mut self, ctx: &Context) {
         let player = player::body(&self.server.ecs, self.server.players.entity()).position;
@@ -490,6 +325,165 @@ impl VoxelGame {
             .map(|mut e| std::mem::take(&mut e.player_turn))
             .unwrap_or(0.0);
         self.client.camera.yaw += turn;
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// Repose une structure dans le monde. Renvoie le nombre de blocs posés.
+    pub(crate) fn disassemble(&mut self, id: GridId) -> Result<usize, String> {
+        let shared = self.mods.subgrids.clone();
+        let grid = shared
+            .borrow_mut()
+            .remove(id)
+            .ok_or_else(|| "structure inconnue".to_string())?;
+        let placed = match engine_voxel::land(&mut self.streamer_mut(), &grid) {
+            Ok(placed) => placed,
+            Err(err) => {
+                shared.borrow_mut().insert(grid);
+                return Err(err.to_string());
+            }
+        };
+        if self.helm == Some(id) {
+            self.helm = None;
+        }
+        // Les machines se réveillent à leur nouvelle place.
+        for pos in &placed {
+            let block = self.streamer().world().block(*pos);
+            if self.mods.machines.has_behavior(block) {
+                let actions = self.mods.block_changed(*pos);
+                self.apply_machine_actions(actions);
+            }
+        }
+        Ok(placed.len())
+    }
+
+    /// Détache du monde la structure qui contient `pos`.
+    pub(crate) fn assemble(&mut self, pos: IVec3) -> Result<GridId, String> {
+        let terrain = terrain_blocks(&self.registry);
+        let shared = self.mods.subgrids.clone();
+        let id = {
+            let mut subs = shared.borrow_mut();
+            engine_voxel::extract(&mut self.streamer_mut(), &mut subs, pos, &|b| {
+                terrain.contains(&b)
+            })
+        }
+        .map_err(|e| e.to_string())?;
+        // Les machines de la structure démarrent, comme après un chargement.
+        let subs = shared.borrow();
+        let grid = subs.get(id).expect("grille créée").borrow();
+        let active: Vec<GridPos> = grid
+            .cells()
+            .filter(|c| self.mods.machines.has_behavior(grid.world().block(*c)))
+            .map(|c| GridPos::new(id, c))
+            .collect();
+        drop(grid);
+        let mut actions = Vec::new();
+        let grids = Grids::with_subgrids(&self.world, &subs);
+        self.mods
+            .machines
+            .grid_blocks_loaded(grids, &active, &mut actions);
+        drop(subs);
+        self.apply_machine_actions(actions);
+        Ok(id)
+    }
+
+    /// Le bloc de structure visé, s'il est plus près que celui du monde.
+    pub(crate) fn ship_hit(&self) -> Option<(GridId, engine_voxel::RayHit)> {
+        let subs = self.mods.subgrids.borrow();
+        let aim = self.aim();
+        let (origin, direction) = (aim.eye, aim.forward);
+        let mut best: Option<(GridId, engine_voxel::RayHit)> = None;
+        for id in subs.ids() {
+            let grid = subs.get(id).expect("identifiant connu").borrow();
+            let hit = engine_voxel::raycast(
+                grid.world(),
+                grid.to_local(origin),
+                grid.direction_to_local(direction),
+                self.players.me().gear.reach(),
+            );
+            if let Some(hit) = hit
+                && best.is_none_or(|(_, b)| hit.distance < b.distance)
+            {
+                best = Some((id, hit));
+            }
+        }
+        let world_distance = aim.hit.map_or(f32::MAX, |h| h.distance);
+        best.filter(|(_, hit)| hit.distance < world_distance)
+    }
+
+    /// Un clic droit sur un bloc de structure : l'assembleur la repose, la barre la dirige, un
+    /// levier ou un bouton marche ; le reste ne se modifie pas tant qu'elle est assemblée.
+    pub(crate) fn use_ship(&mut self) -> bool {
+        let Some((id, hit)) = self.ship_hit() else {
+            return false;
+        };
+        let (block, behavior) = {
+            let subs = self.mods.subgrids.borrow();
+            let grid = subs.get(id).expect("identifiant connu").borrow();
+            let def = self
+                .registry
+                .def(self.registry.base(grid.world().block(hit.block_pos)));
+            (def.key.clone(), def.behavior.clone())
+        };
+        match block.as_str() {
+            "core:assembler" => match self.disassemble(id) {
+                Ok(n) => self.toast(&format!("Structure reposée ({n} blocs)")),
+                Err(err) => self.toast(&err),
+            },
+            "core:helm" => {
+                if self.helm == Some(id) {
+                    self.helm = None;
+                    self.toast("Barre lâchée");
+                } else {
+                    self.helm = Some(id);
+                    self.toast("À la barre : gauche et droite pour tourner");
+                }
+            }
+            _ => {
+                let used = behavior.is_some() && {
+                    let subs = self.mods.subgrids.borrow();
+                    let grids = Grids::with_subgrids(&self.world, &subs);
+                    let mut actions = Vec::new();
+                    let used = self.mods.machines.use_grid_block(
+                        grids,
+                        GridPos::new(id, hit.block_pos),
+                        &mut actions,
+                    );
+                    drop(subs);
+                    self.apply_machine_actions(actions);
+                    used
+                };
+                if !used {
+                    self.toast("Pose la structure (assembleur) pour la modifier");
+                }
+            }
+        }
+        true
+    }
+
+    /// Un clic droit sur un assembleur du monde : la structure qui y est reliée s'en détache.
+    pub(crate) fn use_assembler(&mut self) -> bool {
+        let Some(hit) = self.aim().hit else {
+            return false;
+        };
+        let block = self.streamer().world().block(hit.block_pos);
+        if self.registry.def(self.registry.base(block)).key != "core:assembler" {
+            return false;
+        }
+        match self.assemble(hit.block_pos) {
+            Ok(id) => {
+                let size = self
+                    .mods
+                    .subgrids
+                    .borrow()
+                    .get(id)
+                    .map_or(0, |g| g.borrow().len());
+                self.toast(&format!("Structure assemblée ({size} blocs)"));
+            }
+            Err(err) => self.toast(&err),
+        }
+        true
     }
 }
 

@@ -490,34 +490,9 @@ pub fn maintain_carried(
 }
 
 impl VoxelGame {
-    /// Ramasse un objet : les sacs d'abord (Ramassage), puis l'inventaire. Renvoie ce qui reste.
-    pub(crate) fn collect_stack(&mut self, stack: ItemStack) -> u32 {
-        let items = self.content.items.clone();
-        let bags = carried(
-            &self.server.players.me_mut().inventory,
-            &items,
-            &mut self.server.backpacks,
-        );
-        let left = if bags.is_empty() {
-            stack.count
-        } else {
-            pickup(&mut self.server.backpacks, &bags, &items, stack)
-        };
-        if left == 0 {
-            return 0;
-        }
-        self.server.players.me_mut().inventory.add_stack(
-            ItemStack {
-                count: left,
-                ..stack
-            },
-            &items,
-        )
-    }
-
     /// Les améliorations des sacs portés : l'aimant à chaque pas, le reste deux fois par seconde.
     pub(crate) fn update_backpacks(&mut self, dt: f32) {
-        let items = self.content.items.clone();
+        let items = self.server.content.items.clone();
         let bags = carried(
             &self.server.players.me_mut().inventory,
             &items,
@@ -538,7 +513,7 @@ impl VoxelGame {
             return;
         }
         self.server.backpacks.timer = 0.0;
-        let table = self.content.compact.clone();
+        let table = self.server.content.compact.clone();
         maintain_carried(&mut self.server.backpacks, &bags, &items, &table);
         restock(
             &mut self.server.players.me_mut().inventory,
@@ -555,7 +530,7 @@ impl VoxelGame {
         if missing <= 0.0 {
             return;
         }
-        let items = self.content.items.clone();
+        let items = self.server.content.items.clone();
         for c in bags {
             let Some(bag) = self.server.backpacks.bag(c.number) else {
                 continue;
@@ -613,22 +588,29 @@ impl VoxelGame {
         }
     }
 
-    /// Le sac en position `slot` de l'inventaire est ouvert : son numéro (assigné s'il est neuf).
-    pub(crate) fn bag_number_at(&mut self, slot: usize) -> Option<u32> {
-        let mut stack = self.server.players.me_mut().inventory.slots[slot]?;
-        let tier = tier_of(&self.content.items.get(stack.item).key)?;
-        let number = self.server.backpacks.number_for(&mut stack, tier)?;
-        self.server.players.me_mut().inventory.slots[slot] = Some(stack);
-        Some(number)
-    }
-
     /// Ouvre le premier sac de l'inventaire (barre d'abord).
     pub(crate) fn open_first_bag(&mut self) -> bool {
         let slot = (0..self.server.players.me_mut().inventory.slots.len()).find(|&i| {
             self.server.players.me_mut().inventory.slots[i]
-                .is_some_and(|s| is_backpack(&self.content.items.get(s.item).key))
+                .is_some_and(|s| is_backpack(&self.server.content.items.get(s.item).key))
         });
         slot.is_some_and(|slot| self.open_bag_at(slot))
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// Sauvegarde le magasin des sacs dans la racine du monde (si quelque chose a changé).
+    pub(crate) fn save_backpacks(&mut self) {
+        if !self.backpacks.dirty() {
+            return;
+        }
+        let Some(root) = self.dims.meta_store.clone().or_else(|| self.store.clone()) else {
+            return;
+        };
+        if let Err(err) = self.backpacks.save(root.dir()) {
+            log::error!("sauvegarde des sacs à dos : {err:#}");
+        }
     }
 
     /// Ouvre le sac de la case `slot`.
@@ -641,23 +623,38 @@ impl VoxelGame {
         true
     }
 
-    /// Sauvegarde le magasin des sacs dans la racine du monde (si quelque chose a changé).
-    pub(crate) fn save_backpacks(&mut self) {
-        if !self.server.backpacks.dirty() {
-            return;
-        }
-        let Some(root) = self
-            .server
-            .dims
-            .meta_store
-            .clone()
-            .or_else(|| self.server.store.clone())
-        else {
-            return;
+    /// Le sac en position `slot` de l'inventaire est ouvert : son numéro (assigné s'il est neuf).
+    pub(crate) fn bag_number_at(&mut self, slot: usize) -> Option<u32> {
+        let mut stack = self.players.me_mut().inventory.slots[slot]?;
+        let tier = tier_of(&self.content.items.get(stack.item).key)?;
+        let number = self.backpacks.number_for(&mut stack, tier)?;
+        self.players.me_mut().inventory.slots[slot] = Some(stack);
+        Some(number)
+    }
+
+    /// Ramasse un objet : les sacs d'abord (Ramassage), puis l'inventaire. Renvoie ce qui reste.
+    pub(crate) fn collect_stack(&mut self, stack: ItemStack) -> u32 {
+        let items = self.content.items.clone();
+        let bags = carried(
+            &self.players.me_mut().inventory,
+            &items,
+            &mut self.backpacks,
+        );
+        let left = if bags.is_empty() {
+            stack.count
+        } else {
+            pickup(&mut self.backpacks, &bags, &items, stack)
         };
-        if let Err(err) = self.server.backpacks.save(root.dir()) {
-            log::error!("sauvegarde des sacs à dos : {err:#}");
+        if left == 0 {
+            return 0;
         }
+        self.players.me_mut().inventory.add_stack(
+            ItemStack {
+                count: left,
+                ..stack
+            },
+            &items,
+        )
     }
 }
 

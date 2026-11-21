@@ -41,69 +41,6 @@ pub struct OpenModMenu {
 const REFRESH: Duration = Duration::from_millis(200);
 
 impl VoxelGame {
-    /// Un script demande d'ouvrir ou de mettre à jour son menu, pour le joueur courant. L'ouverture
-    /// n'est permise que pendant un clic droit du joueur (un mod ne surgit pas à l'écran quand il
-    /// veut) ; la mise à jour, seulement pour le menu que ce mod a lui-même ouvert, sur la même
-    /// machine.
-    pub(crate) fn show_mod_menu(&mut self, mod_id: String, at: GridPos, data: &[u8]) {
-        if let Err(err) = ModMenu::parse(data) {
-            log::warn!("[mod {mod_id}] menu refusé : {err:#}");
-            return;
-        }
-        let open = self.server.players.me().mod_menu.clone();
-        let updating = open
-            .as_ref()
-            .is_some_and(|m| m.owner == mod_id && m.at == at.pos);
-        if !updating && !self.client.ui.allow_mod_menu {
-            return;
-        }
-        if at.grid != engine_voxel::GridId::WORLD {
-            return;
-        }
-        let last_refresh = open.map_or_else(Instant::now, |m| m.last_refresh);
-        self.server.players.me_mut().mod_menu = Some(OpenModMenu {
-            owner: mod_id,
-            at: at.pos,
-            data: data.to_vec(),
-            last_refresh,
-        });
-        if !updating {
-            self.open_screen(Screen::Mod(at.pos));
-        }
-    }
-
-    /// Un script ferme son menu : chez chaque joueur qui l'a ouvert.
-    pub(crate) fn close_mod_menu_of(&mut self, mod_id: &str) {
-        let ids: Vec<_> = self
-            .server
-            .players
-            .iter()
-            .filter(|p| p.mod_menu.as_ref().is_some_and(|m| m.owner == mod_id))
-            .map(|p| p.id)
-            .collect();
-        for id in ids {
-            let before = self.server.players.set_acting(Some(id));
-            self.forget_mod_menu();
-            self.server.players.me_mut().screen = None;
-            self.server.players.set_acting(before);
-            self.server
-                .replies
-                .push((id, crate::protocol::ServerMsg::CloseScreen));
-        }
-    }
-
-    /// Dit au mod que le menu du joueur courant est fermé, et l'oublie (`CloseMenu`).
-    pub(crate) fn forget_mod_menu(&mut self) {
-        let Some(state) = self.server.players.me_mut().mod_menu.take() else {
-            return;
-        };
-        let actions =
-            self.server
-                .mods
-                .ui_event(&state.owner, UI_CLOSED, GridPos::world(state.at), 0, 0);
-        self.apply_machine_actions(actions);
-    }
-
     /// La fenêtre range le menu que le serveur décrit (seulement s'il a changé).
     pub(crate) fn receive_mod_menu(&mut self, owner: String, at: IVec3, data: Vec<u8>) {
         if self
@@ -168,25 +105,6 @@ impl VoxelGame {
             self.server.players.set_acting(before);
         }
     }
-
-    /// Transmet une action au mod du menu ouvert par le joueur courant.
-    pub(crate) fn send_mod_ui(&mut self, kind: i32, id: i32, value: i32) {
-        let Some((owner, at)) = self
-            .server
-            .players
-            .me()
-            .mod_menu
-            .as_ref()
-            .map(|m| (m.owner.clone(), m.at))
-        else {
-            return;
-        };
-        let actions = self
-            .server
-            .mods
-            .ui_event(&owner, kind, GridPos::world(at), id, value);
-        self.apply_machine_actions(actions);
-    }
 }
 
 pub use crate::ui_widgets::draw_widgets;
@@ -224,5 +142,85 @@ impl VoxelGame {
         self.client.ui.options_menu = None;
         self.client.ui.options_events.clear();
         self.server.mods.save_settings();
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// Un script demande d'ouvrir ou de mettre à jour son menu, pour le joueur courant. L'ouverture
+    /// n'est permise que pendant un clic droit du joueur (un mod ne surgit pas à l'écran quand il
+    /// veut) ; la mise à jour, seulement pour le menu que ce mod a lui-même ouvert, sur la même
+    /// machine.
+    pub(crate) fn show_mod_menu(&mut self, mod_id: String, at: GridPos, data: &[u8]) {
+        if let Err(err) = ModMenu::parse(data) {
+            log::warn!("[mod {mod_id}] menu refusé : {err:#}");
+            return;
+        }
+        let open = self.players.me().mod_menu.clone();
+        let updating = open
+            .as_ref()
+            .is_some_and(|m| m.owner == mod_id && m.at == at.pos);
+        if !updating && !self.allow_mod_menu {
+            return;
+        }
+        if at.grid != engine_voxel::GridId::WORLD {
+            return;
+        }
+        let last_refresh = open.map_or_else(Instant::now, |m| m.last_refresh);
+        self.players.me_mut().mod_menu = Some(OpenModMenu {
+            owner: mod_id,
+            at: at.pos,
+            data: data.to_vec(),
+            last_refresh,
+        });
+        if !updating {
+            self.open_screen(Screen::Mod(at.pos));
+        }
+    }
+
+    /// Un script ferme son menu : chez chaque joueur qui l'a ouvert.
+    pub(crate) fn close_mod_menu_of(&mut self, mod_id: &str) {
+        let ids: Vec<_> = self
+            .players
+            .iter()
+            .filter(|p| p.mod_menu.as_ref().is_some_and(|m| m.owner == mod_id))
+            .map(|p| p.id)
+            .collect();
+        for id in ids {
+            let before = self.players.set_acting(Some(id));
+            self.forget_mod_menu();
+            self.players.me_mut().screen = None;
+            self.players.set_acting(before);
+            self.replies
+                .push((id, crate::protocol::ServerMsg::CloseScreen));
+        }
+    }
+
+    /// Transmet une action au mod du menu ouvert par le joueur courant.
+    pub(crate) fn send_mod_ui(&mut self, kind: i32, id: i32, value: i32) {
+        let Some((owner, at)) = self
+            .players
+            .me()
+            .mod_menu
+            .as_ref()
+            .map(|m| (m.owner.clone(), m.at))
+        else {
+            return;
+        };
+        let actions = self
+            .mods
+            .ui_event(&owner, kind, GridPos::world(at), id, value);
+        self.apply_machine_actions(actions);
+    }
+
+    /// Dit au mod que le menu du joueur courant est fermé, et l'oublie (`CloseMenu`).
+    pub(crate) fn forget_mod_menu(&mut self) {
+        let Some(state) = self.players.me_mut().mod_menu.take() else {
+            return;
+        };
+        let actions = self
+            .mods
+            .ui_event(&state.owner, UI_CLOSED, GridPos::world(state.at), 0, 0);
+        self.apply_machine_actions(actions);
     }
 }

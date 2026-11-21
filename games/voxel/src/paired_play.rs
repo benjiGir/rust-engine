@@ -5,54 +5,10 @@ use glam::{IVec3, Vec3};
 
 use crate::{BlockPlaced, VoxelGame, audio, events, player};
 
-impl VoxelGame {
-    pub(crate) fn paired_placement(
-        &self,
-        pos: IVec3,
-        block: BlockId,
-        look: Vec3,
-    ) -> Option<[(IVec3, BlockId); 2]> {
-        if self.registry.def(block).key == bed::ITEM {
-            bed::placement(&self.registry, pos, look)
-        } else {
-            door::placement(&self.registry, block, pos, look)
-        }
-    }
+impl VoxelGame {}
 
-    pub(crate) fn place_pair(&mut self, parts: [(IVec3, BlockId); 2]) -> Option<()> {
-        let door = door::is_door(self.registry.def(parts[0].1));
-        let occupied = if door {
-            self.overlaps_door(parts)
-        } else {
-            let body = player::body(&self.server.ecs, self.server.players.entity());
-            parts
-                .iter()
-                .any(|&(pos, _)| body.overlaps_block(pos) || self.mob_overlaps(pos))
-        };
-        if occupied {
-            return None;
-        }
-        let start = Instant::now();
-        if !self.streamer_mut().place_pair(parts) {
-            return None;
-        }
-        self.client.frame_stats.record_edit(start.elapsed());
-        self.client.target = None;
-        let (pos, block) = parts[0];
-        events::send(
-            &self.server.ecs,
-            BlockPlaced {
-                pos,
-                block,
-                player: Some(self.server.players.current_id()),
-            },
-        );
-        for (pos, _) in parts {
-            self.after_edit(pos);
-        }
-        Some(())
-    }
-
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
     fn overlaps_door(&self, parts: [(IVec3, BlockId); 2]) -> bool {
         let occupied = |body: &PlayerBody| {
             let (min, max) = body.bounds();
@@ -65,10 +21,7 @@ impl VoxelGame {
                     .any(|b| min.cmplt(origin + b.max).all() && max.cmpgt(origin + b.min).all())
             })
         };
-        occupied(&player::body(
-            &self.server.ecs,
-            self.server.players.entity(),
-        )) || self.any_mob_body(occupied)
+        occupied(&player::body(&self.ecs, self.players.entity())) || self.any_mob_body(occupied)
     }
 
     pub(crate) fn use_door(&mut self, pos: IVec3) -> bool {
@@ -89,7 +42,6 @@ impl VoxelGame {
             return true;
         }
         if self.streamer_mut().toggle_door(pos) {
-            self.client.target = None;
             for (p, _) in parts {
                 self.notify_edit(p);
             }
@@ -103,5 +55,51 @@ impl VoxelGame {
             self.punch();
         }
         true
+    }
+
+    pub(crate) fn place_pair(&mut self, parts: [(IVec3, BlockId); 2]) -> Option<()> {
+        let door = door::is_door(self.registry.def(parts[0].1));
+        let occupied = if door {
+            self.overlaps_door(parts)
+        } else {
+            let body = player::body(&self.ecs, self.players.entity());
+            parts
+                .iter()
+                .any(|&(pos, _)| body.overlaps_block(pos) || self.mob_overlaps(pos))
+        };
+        if occupied {
+            return None;
+        }
+        let start = Instant::now();
+        if !self.streamer_mut().place_pair(parts) {
+            return None;
+        }
+        self.edit_times.push(start.elapsed());
+        let (pos, block) = parts[0];
+        events::send(
+            &self.ecs,
+            BlockPlaced {
+                pos,
+                block,
+                player: Some(self.players.current_id()),
+            },
+        );
+        for (pos, _) in parts {
+            self.after_edit(pos);
+        }
+        Some(())
+    }
+
+    pub(crate) fn paired_placement(
+        &self,
+        pos: IVec3,
+        block: BlockId,
+        look: Vec3,
+    ) -> Option<[(IVec3, BlockId); 2]> {
+        if self.registry.def(block).key == bed::ITEM {
+            bed::placement(&self.registry, pos, look)
+        } else {
+            door::placement(&self.registry, block, pos, look)
+        }
     }
 }

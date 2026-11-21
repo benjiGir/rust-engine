@@ -80,6 +80,11 @@ pub struct PlayerState {
     pub dead: bool,
     /// L'écran que le serveur a ouvert pour ce joueur (ses gestes ne valent que pour lui).
     pub screen: Option<crate::ui::Screen>,
+    /// Le dernier regard connu du joueur (direction, d'après ses messages `Move`).
+    pub look: glam::Vec3,
+    /// Son orientation (`ClientMsg::Look`), pour la sauvegarde.
+    pub yaw: f32,
+    pub pitch: f32,
     /// Le menu de mod ouvert par ce joueur (voir `mod_menu.rs`).
     pub mod_menu: Option<crate::mod_menu::OpenModMenu>,
     /// Le conteneur ouvert par ce joueur (coffre, four, sac, wagon) : les clics de cases ne valent
@@ -150,6 +155,9 @@ impl PlayerState {
             dead: false,
             screen: None,
             mod_menu: None,
+            look: glam::Vec3::NEG_Z,
+            yaw: 0.0,
+            pitch: 0.0,
             open: None,
             dig: None,
             last_move: None,

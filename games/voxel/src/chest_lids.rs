@@ -86,7 +86,8 @@ impl VoxelGame {
             _ => None,
         }
         .filter(|&pos| {
-            self.registry
+            self.server
+                .registry
                 .def(self.view_world().block(pos))
                 .lid
                 .is_some()

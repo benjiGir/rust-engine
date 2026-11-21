@@ -818,7 +818,7 @@ impl VoxelGame {
             Command::Eat => {
                 self.require_playing("eat")?;
                 // L'aliment en main, sinon le premier de l'inventaire.
-                let items = &self.content.items;
+                let items = &self.server.content.items;
                 let is_food = |slot: &Option<crate::inventory::ItemStack>| {
                     slot.is_some_and(|s| items.get(s.item).food.is_some())
                 };
@@ -909,15 +909,6 @@ impl VoxelGame {
             .hit(acting.eye, acting.forward, block_distance)
     }
 
-    /// Les commandes de la console : `break` et `place x y z bloc` s'exécutent ici, les autres
-    /// comme depuis `ctl`.
-    pub(crate) fn execute_from_console(&mut self, command: Command) -> Result<String> {
-        match command {
-            Command::Break(_) | Command::Place(Some(_)) => self.execute_inner(command),
-            other => self.execute(other),
-        }
-    }
-
     /// Les commandes qui ne simulent pas une entrée du joueur (et celles de la console).
     pub(crate) fn execute_inner(&mut self, command: Command) -> Result<String> {
         let playing = self.mode == Mode::Playing;
@@ -999,7 +990,7 @@ impl VoxelGame {
                 Ok(format!(
                     "{{\"ok\":true,\"pos\":{},\"block\":{},\"loaded\":{},\"light\":[{sky},{light}]}}",
                     ivec3(pos),
-                    json_str(&self.registry.def(block).key),
+                    json_str(&self.server.registry.def(block).key),
                     streamer.is_generated(engine_voxel::World::chunk_containing(pos.as_vec3())),
                 ))
             }
@@ -1012,7 +1003,7 @@ impl VoxelGame {
                 if block.is_air() {
                     bail!("break : rien à casser en {}", ivec3(pos));
                 }
-                let key = self.registry.def(block).key.clone();
+                let key = self.server.registry.def(block).key.clone();
                 if !self.break_block(pos) {
                     bail!("break : {key} est incassable ou hors du monde chargé");
                 }
@@ -1024,17 +1015,18 @@ impl VoxelGame {
             }
             Command::Place(Some((pos, key))) => {
                 let block = self
+                    .server
                     .registry
                     .id(&key)
                     .with_context(|| format!("place : bloc inconnu « {key} »"))?;
                 if block == BlockId::AIR {
                     bail!("place : pour enlever un bloc, utiliser break");
                 }
-                if engine_voxel::bed::is_part(&self.registry, block) {
+                if engine_voxel::bed::is_part(&self.server.registry, block) {
                     bail!("place : utiliser core:bed pour poser le lit entier");
                 }
-                if engine_voxel::door::is_door(self.registry.def(block))
-                    && !self.registry.def(block).placeable
+                if engine_voxel::door::is_door(self.server.registry.def(block))
+                    && !self.server.registry.def(block).placeable
                 {
                     bail!("place : utiliser l'objet de porte pour poser les deux moitiés");
                 }
@@ -1067,23 +1059,23 @@ impl VoxelGame {
             }
             Command::Give(key, amount) => {
                 let item = self
+                    .server
                     .content
                     .items
                     .id(&key)
                     .with_context(|| format!("give : objet inconnu « {key} »"))?;
-                let left =
-                    self.server
-                        .players
-                        .me_mut()
-                        .inventory
-                        .add(item, amount, &self.content.items);
+                let left = self.server.players.me_mut().inventory.add(
+                    item,
+                    amount,
+                    &self.server.content.items,
+                );
                 Ok(format!(
                     "{{\"ok\":true,\"given\":{},\"full\":{left}}}",
                     amount - left
                 ))
             }
             Command::Inventory => {
-                let items = &self.content.items;
+                let items = &self.server.content.items;
                 let slots: Vec<String> = self
                     .server
                     .players
@@ -1122,7 +1114,7 @@ impl VoxelGame {
             }
             Command::Inspect(pos) => {
                 let streamer = self.streamer();
-                let block = json_str(&self.registry.def(streamer.world().block(pos)).key);
+                let block = json_str(&self.server.registry.def(streamer.world().block(pos)).key);
                 let Some(caps) = streamer
                     .block_entity(pos)
                     .and_then(|e| e.caps.as_deref().map(|c| (e.power, c)))
@@ -1486,7 +1478,10 @@ impl VoxelGame {
             }
             Command::Resume => {
                 self.leave_mod_options();
-                self.mode = Mode::Playing;
+                // Seulement depuis la pause : un joueur mort réapparaît par `respawn`.
+                if matches!(self.mode, Mode::Paused(_)) {
+                    self.mode = Mode::Playing;
+                }
                 Ok(ok())
             }
             Command::ModOptions(id) => {
@@ -1594,7 +1589,13 @@ impl VoxelGame {
             Some(hit) => format!(
                 "{{\"pos\":{},\"block\":{},\"face\":{},\"distance\":{:.2}}}",
                 ivec3(hit.block_pos),
-                json_str(&self.registry.def(streamer.world().block(hit.block_pos)).key),
+                json_str(
+                    &self
+                        .server
+                        .registry
+                        .def(streamer.world().block(hit.block_pos))
+                        .key
+                ),
                 ivec3(hit.normal),
                 hit.distance
             ),
@@ -1604,7 +1605,7 @@ impl VoxelGame {
             Some(stack) => format!(
                 "{{\"slot\":{},\"item\":{},\"count\":{}}}",
                 self.server.players.me().inventory.selected + 1,
-                json_str(&self.content.items.get(stack.item).key),
+                json_str(&self.server.content.items.get(stack.item).key),
                 stack.count
             ),
             None => format!(
@@ -1653,7 +1654,7 @@ impl VoxelGame {
                 .players
                 .me()
                 .inventory
-                .protection(&self.content.items),
+                .protection(&self.server.content.items),
             self.server.players.me().hunger.food,
             self.server.players.me().hunger.saturation,
             self.server.players.me().hunger.exhaustion,
@@ -1699,6 +1700,18 @@ pub(crate) fn json_str(text: &str) -> String {
     }
     out.push('"');
     out
+}
+
+impl VoxelGame {
+    // (lot 4b) Méthodes de la fenêtre hôte.
+    /// Les commandes de la console : `break` et `place x y z bloc` s'exécutent ici, les autres
+    /// comme depuis `ctl`.
+    pub(crate) fn execute_from_console(&mut self, command: Command) -> Result<String> {
+        match command {
+            Command::Break(_) | Command::Place(Some(_)) => self.execute_inner(command),
+            other => self.execute(other),
+        }
+    }
 }
 
 #[cfg(test)]

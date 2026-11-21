@@ -7,18 +7,24 @@ use crate::enchanting;
 use crate::inventory::{Click, ItemStack, Slot};
 use crate::ui::Screen;
 
-impl VoxelGame {
+impl VoxelGame {}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
     /// Un livre enchanté ou un tome d'extraction au curseur, un clic sur un objet de l'inventaire,
     /// dans l'écran d'une table d'enchantement ou d'une enclume. `true` si le clic est traité.
     pub(crate) fn try_book_click(&mut self, slot: Slot, click: Click) -> bool {
         if click != Click::Primary
-            || !matches!(self.client.ui.screen, Screen::Enchant(_) | Screen::Anvil)
+            || !matches!(
+                self.players.me().screen,
+                Some(Screen::Enchant(_) | Screen::Anvil)
+            )
         {
             return false;
         }
         let (Some(held), Some(target)) = (
-            self.server.players.me_mut().inventory.cursor,
-            *self.server.players.me_mut().inventory.slot_mut(slot),
+            self.players.me_mut().inventory.cursor,
+            *self.players.me_mut().inventory.slot_mut(slot),
         ) else {
             return false;
         };
@@ -39,11 +45,11 @@ impl VoxelGame {
                 self.toast("Ce livre n'apporte rien à cet objet");
                 return true;
             };
-            if let Some(stack) = self.server.players.me_mut().inventory.slot_mut(slot) {
+            if let Some(stack) = self.players.me_mut().inventory.slot_mut(slot) {
                 stack.damage = damage;
             }
             enchanting::release(held.damage);
-            self.server.players.me_mut().inventory.cursor = None;
+            self.players.me_mut().inventory.cursor = None;
             let names: Vec<String> = changed
                 .iter()
                 .map(|&(kind, level)| enchanting::label(kind, level))
@@ -60,17 +66,17 @@ impl VoxelGame {
             let (Some(blank), Some(enchanted)) = (items.id(BOOK), items.id(ENCHANTED_BOOK)) else {
                 return false;
             };
-            if !self.server.players.me_mut().inventory.remove(blank, 1) {
+            if !self.players.me_mut().inventory.remove(blank, 1) {
                 self.toast("Il faut un livre vierge dans l'inventaire");
                 return true;
             }
-            if let Some(stack) = self.server.players.me_mut().inventory.slot_mut(slot) {
+            if let Some(stack) = self.players.me_mut().inventory.slot_mut(slot) {
                 stack.damage = stripped;
             }
-            if let Some(cursor) = self.server.players.me_mut().inventory.cursor.as_mut() {
+            if let Some(cursor) = self.players.me_mut().inventory.cursor.as_mut() {
                 cursor.count -= 1;
                 if cursor.count == 0 {
-                    self.server.players.me_mut().inventory.cursor = None;
+                    self.players.me_mut().inventory.cursor = None;
                 }
             }
             self.give_or_drop(ItemStack {
@@ -85,11 +91,16 @@ impl VoxelGame {
         false
     }
 
+    /// Le petit son des gestes d'enchantement.
+    pub(crate) fn bell(&mut self) {
+        self.sound("core:enchant");
+    }
+
     /// Range une pile dans l'inventaire, sinon la jette aux pieds du joueur.
     pub(crate) fn give_or_drop(&mut self, stack: ItemStack) {
         let left = self.collect_stack(stack);
         if left > 0 {
-            let at = crate::player::body(&self.server.ecs, self.server.players.entity())
+            let at = crate::player::body(&self.ecs, self.players.entity())
                 .position
                 .floor()
                 .as_ivec3();
@@ -100,13 +111,6 @@ impl VoxelGame {
                     ..stack
                 },
             );
-        }
-    }
-
-    /// Le petit son des gestes d'enchantement.
-    pub(crate) fn bell(&mut self) {
-        if let Some(audio) = &mut self.client.audio {
-            audio.play("core:enchant");
         }
     }
 }

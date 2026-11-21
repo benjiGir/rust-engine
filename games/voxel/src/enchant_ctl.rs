@@ -140,7 +140,8 @@ impl VoxelGame {
                 let block = if key == "air" {
                     engine_voxel::BlockId::AIR
                 } else {
-                    self.registry
+                    self.server
+                        .registry
                         .id(&key)
                         .with_context(|| format!("shelves : bloc inconnu « {key} »"))?
                 };
@@ -160,7 +161,7 @@ impl VoxelGame {
             }
             Command::Offers(at) => {
                 let stats = self.table_stats(at);
-                let items = self.content.items.clone();
+                let items = self.server.content.items.clone();
                 let stack = self
                     .server
                     .players
@@ -215,6 +216,7 @@ impl VoxelGame {
             }
             Command::Book(list) => {
                 let book = self
+                    .server
                     .content
                     .items
                     .id(ENCHANTED_BOOK)
@@ -230,7 +232,8 @@ impl VoxelGame {
                 let max = {
                     let streamer = self.streamer();
                     enchant_library::max_level_of(
-                        self.registry
+                        self.server
+                            .registry
                             .def(streamer.world().block(at))
                             .enchanting
                             .as_ref(),
@@ -278,7 +281,7 @@ impl VoxelGame {
                 ))
             }
             Command::Charms => {
-                let items = self.content.items.clone();
+                let items = self.server.content.items.clone();
                 let data = crate::adventure_data::current();
                 let rows: Vec<String> = self
                     .server

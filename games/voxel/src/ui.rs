@@ -49,7 +49,6 @@ pub struct GameUi {
     /// Les actions du joueur dans ce menu, à transmettre au script : (type, id, valeur).
     pub mod_events: Vec<(i32, i32, i32)>,
     /// Vrai pendant un clic droit : un script peut alors ouvrir son menu.
-    pub allow_mod_menu: bool,
     /// Les jauges que les mods affichent (voir `player_api.rs`).
     pub mod_hud: crate::player_api::HudBars,
     /// La console : saisie, lignes et commandes validées.
@@ -175,7 +174,6 @@ impl GameUi {
             target_bottom: 12.0,
             mod_menu: None,
             mod_events: Vec::new(),
-            allow_mod_menu: false,
             mod_hud: Default::default(),
             console: Default::default(),
             options_menu: None,
@@ -386,10 +384,10 @@ impl VoxelGame {
                 // Pour les touches R, U et A de l'explorateur de recettes.
                 self.client.ui.browser.hovered = Some(stack.item);
             }
-            let def = self.content.items.get(stack.item);
+            let def = self.server.content.items.get(stack.item);
             let mut card = crate::ui_info::item(def, stack.count, stack.damage);
             if let Some(name) =
-                crate::shape_materials::piece_name(&self.registry, def, stack.damage)
+                crate::shape_materials::piece_name(&self.server.registry, def, stack.damage)
             {
                 card.name = name;
             }
@@ -405,11 +403,12 @@ impl VoxelGame {
         let icon = self.client.ui.icon_of(
             stack.item,
             stack.damage,
-            &self.content.items,
-            &self.registry,
+            &self.server.content.items,
+            &self.server.registry,
             &self.client.block_textures,
         );
         let durability = self
+            .server
             .content
             .items
             .get(stack.item)
@@ -476,34 +475,6 @@ impl VoxelGame {
         });
     }
 
-    /// Applique un clic à une case du joueur ou d'un conteneur.
-    pub(crate) fn click_target(&mut self, target: SlotRef, click: Click) -> bool {
-        match target {
-            SlotRef::Player(slot) => {
-                // Une gemme ou un sceau au curseur sur un objet : sertir, retirer, ajouter.
-                // Un livre, un tome ou une potion au curseur : voir `enchant_books.rs` et `charms.rs`.
-                if !self.try_gem_click(slot, click)
-                    && !self.try_book_click(slot, click)
-                    && !self.try_charm_recharge(slot, click)
-                {
-                    self.server
-                        .players
-                        .me_mut()
-                        .inventory
-                        .click(slot, &self.content.items, click);
-                }
-                true
-            }
-            // Résolue par le serveur avant d'arriver ici (voir `slot_ref_for`).
-            SlotRef::Open(_) => false,
-            SlotRef::Container(pos, index) => self.click_container(pos, index, click),
-            SlotRef::Cart(cart, index) => self.click_cart(cart, index, click),
-            SlotRef::Bag(number, index) => {
-                self.click_storage(crate::storage_ui::Target::Bag(number), index, click)
-            }
-        }
-    }
-
     /// La pile d'une case.
     fn stack_at(&self, target: SlotRef) -> Option<ItemStack> {
         match target {
@@ -530,7 +501,7 @@ impl VoxelGame {
             self.client.ui.split = None;
             return;
         }
-        let name = self.content.items.get(stack.item).name.clone();
+        let name = self.server.content.items.get(stack.item).name.clone();
         let mut action = None;
         crate::ui_layout::window(ctx, "Diviser la pile", 360.0)
             .order(egui::Order::Foreground)
@@ -764,12 +735,12 @@ impl VoxelGame {
                             .as_ref()
                             .and_then(crate::affixes::display_rarity)
                             .map_or(skin::TEXT, |r| crate::forge_ui::rarity_color(&data, r));
-                        let item = self.content.items.get(held.item);
+                        let item = self.server.content.items.get(held.item);
                         let name = sheet
                             .and_then(|s| s.name)
                             .or_else(|| {
                                 crate::shape_materials::piece_name(
-                                    &self.registry,
+                                    &self.server.registry,
                                     item,
                                     held.damage,
                                 )
@@ -801,7 +772,7 @@ impl VoxelGame {
             .inventory
             .as_inventory()
             .craft_grid(size);
-        let recipe = self.content.recipes.find(&grid, size).cloned();
+        let recipe = self.server.content.recipes.find(&grid, size).cloned();
         crate::ui_layout::crafting(ui, size, |ui, index| {
             if let Some(index) = index {
                 self.slot_widget(ui, Slot::Craft(index / size * 3 + index % size), false);
@@ -828,6 +799,7 @@ impl VoxelGame {
         let inventory = self.client.view.me.inventory.as_inventory();
         // Le numéro de chaque recette dans la liste : c'est lui qui part au serveur.
         let craftable: Vec<(u32, Recipe)> = self
+            .server
             .content
             .recipes
             .iter()
@@ -859,11 +831,11 @@ impl VoxelGame {
                             .ingredients()
                             .iter()
                             .filter_map(|i| i.example())
-                            .map(|i| self.content.items.get(i).name.clone())
+                            .map(|i| self.server.content.items.get(i).name.clone())
                             .collect();
                         ui.label(format!(
                             "{}\n{}",
-                            self.content.items.get(item).name,
+                            self.server.content.items.get(item).name,
                             compact(&names)
                         ));
                     });
@@ -1011,7 +983,7 @@ impl VoxelGame {
                     .players
                     .me_mut()
                     .inventory
-                    .protection(&self.content.items)
+                    .protection(&self.server.content.items)
             ))
             .size(11.0),
         );
@@ -1063,12 +1035,6 @@ impl VoxelGame {
         }
     }
 
-    /// Un clic sur une case d'un coffre ou d'une machine : la pile est relue puis réécrite
-    /// dans l'entité du bloc (voir `storage_ui.rs` pour les règles des coffres à paliers).
-    fn click_container(&mut self, pos: IVec3, index: usize, click: Click) -> bool {
-        self.click_storage(crate::storage_ui::Target::Block(pos), index, click)
-    }
-
     /// Le titre de l'écran d'un wagon (et sa réserve de combustible, pour une locomotive).
     fn cart_title(&self) -> String {
         match self.shown_container().and_then(|c| c.cart) {
@@ -1113,43 +1079,6 @@ impl VoxelGame {
         }
     }
 
-    /// La pile rangée dans une case d'un wagon.
-    pub(crate) fn cart_stack(&self, cart: Entity, index: usize) -> Option<ItemStack> {
-        let cargo = self.server.ecs.get::<crate::carts::CartCargo>(cart)?;
-        let stored = cargo.0.slots.get(index)?.as_ref()?;
-        Some(ItemStack {
-            item: self.content.items.id(&stored.item)?,
-            count: stored.count,
-            damage: stored.damage,
-        })
-    }
-
-    /// Un clic sur une case d'un wagon.
-    fn click_cart(&mut self, cart: Entity, index: usize, click: Click) -> bool {
-        let mut slot = self.cart_stack(cart, index);
-        let mut cursor = self.server.players.me_mut().inventory.cursor.take();
-        // Une locomotive n'accepte que du combustible.
-        let fuel = self
-            .server
-            .ecs
-            .get::<crate::carts::Cart>(cart)
-            .is_some_and(|c| c.kind == crate::carts::CartKind::Locomotive);
-        let accepts = |item: ItemId| !fuel || self.content.smelting.burn_ticks(item).is_some();
-        click_slot(&mut slot, &mut cursor, &self.content.items, accepts, click);
-        self.server.players.me_mut().inventory.cursor = cursor;
-        let items = self.content.items.clone();
-        if let Some(mut cargo) = self.server.ecs.get_mut::<crate::carts::CartCargo>(cart)
-            && let Some(target) = cargo.0.slots.get_mut(index)
-        {
-            *target = slot.map(|s| engine_voxel::ItemStack {
-                item: items.get(s.item).key.clone(),
-                count: s.count,
-                damage: s.damage,
-            });
-        }
-        true
-    }
-
     /// Les échanges d'un habitant : une ligne par échange, un bouton pour le faire.
     /// L'échange avec un habitant, à la manière de Minecraft : à gauche la liste des offres, chacune
     /// avec ses objets dessinés (prix, flèche, produit), grisée si l'on ne peut pas payer et marquée
@@ -1167,7 +1096,7 @@ impl VoxelGame {
         };
         let inventory = self.client.view.me.inventory.as_inventory();
         let trades = self.server.trades.for_mob(&key).to_vec();
-        let items = self.content.items.clone();
+        let items = self.server.content.items.clone();
         let item_name = |item: engine_voxel::ItemId| items.get(item).name.clone();
         ui.label(egui::RichText::new(name).strong().size(18.0));
         if trades.is_empty() {
@@ -1563,4 +1492,76 @@ fn trade_arrow(painter: &egui::Painter, from: f32, to: f32, y: f32, color: egui:
         color,
         egui::Stroke::NONE,
     ));
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// La pile rangée dans une case d'un wagon.
+    pub(crate) fn cart_stack(&self, cart: Entity, index: usize) -> Option<ItemStack> {
+        let cargo = self.ecs.get::<crate::carts::CartCargo>(cart)?;
+        let stored = cargo.0.slots.get(index)?.as_ref()?;
+        Some(ItemStack {
+            item: self.content.items.id(&stored.item)?,
+            count: stored.count,
+            damage: stored.damage,
+        })
+    }
+
+    /// Un clic sur une case d'un coffre ou d'une machine : la pile est relue puis réécrite
+    /// dans l'entité du bloc (voir `storage_ui.rs` pour les règles des coffres à paliers).
+    fn click_container(&mut self, pos: IVec3, index: usize, click: Click) -> bool {
+        self.click_storage(crate::storage_ui::Target::Block(pos), index, click)
+    }
+
+    /// Un clic sur une case d'un wagon.
+    fn click_cart(&mut self, cart: Entity, index: usize, click: Click) -> bool {
+        let mut slot = self.cart_stack(cart, index);
+        let mut cursor = self.players.me_mut().inventory.cursor.take();
+        // Une locomotive n'accepte que du combustible.
+        let fuel = self
+            .ecs
+            .get::<crate::carts::Cart>(cart)
+            .is_some_and(|c| c.kind == crate::carts::CartKind::Locomotive);
+        let accepts = |item: ItemId| !fuel || self.content.smelting.burn_ticks(item).is_some();
+        click_slot(&mut slot, &mut cursor, &self.content.items, accepts, click);
+        self.players.me_mut().inventory.cursor = cursor;
+        let items = self.content.items.clone();
+        if let Some(mut cargo) = self.ecs.get_mut::<crate::carts::CartCargo>(cart)
+            && let Some(target) = cargo.0.slots.get_mut(index)
+        {
+            *target = slot.map(|s| engine_voxel::ItemStack {
+                item: items.get(s.item).key.clone(),
+                count: s.count,
+                damage: s.damage,
+            });
+        }
+        true
+    }
+
+    /// Applique un clic à une case du joueur ou d'un conteneur.
+    pub(crate) fn click_target(&mut self, target: SlotRef, click: Click) -> bool {
+        match target {
+            SlotRef::Player(slot) => {
+                // Une gemme ou un sceau au curseur sur un objet : sertir, retirer, ajouter.
+                // Un livre, un tome ou une potion au curseur : voir `enchant_books.rs` et `charms.rs`.
+                if !self.try_gem_click(slot, click)
+                    && !self.try_book_click(slot, click)
+                    && !self.try_charm_recharge(slot, click)
+                {
+                    self.players
+                        .me_mut()
+                        .inventory
+                        .click(slot, &self.content.items, click);
+                }
+                true
+            }
+            // Résolue par le serveur avant d'arriver ici (voir `slot_ref_for`).
+            SlotRef::Open(_) => false,
+            SlotRef::Container(pos, index) => self.click_container(pos, index, click),
+            SlotRef::Cart(cart, index) => self.click_cart(cart, index, click),
+            SlotRef::Bag(number, index) => {
+                self.click_storage(crate::storage_ui::Target::Bag(number), index, click)
+            }
+        }
+    }
 }

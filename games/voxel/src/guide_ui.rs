@@ -20,18 +20,6 @@ pub struct GuideState {
 const CHAPTERS_WIDTH: f32 = 152.0;
 
 impl VoxelGame {
-    /// Un clic droit avec le guide en main : l'ouvre. `true` si c'était le guide.
-    pub(crate) fn use_guide(&mut self) -> bool {
-        let Some(stack) = self.server.players.me_mut().inventory.selected_stack() else {
-            return false;
-        };
-        if self.content.items.get(stack.item).key != GUIDE_ITEM {
-            return false;
-        }
-        self.open_screen(Screen::Guide);
-        true
-    }
-
     /// Ouvre le guide à la page où on l'avait laissé.
     pub(crate) fn open_guide(&mut self) {
         self.client.ui.screen = Screen::Guide;
@@ -40,7 +28,7 @@ impl VoxelGame {
 
     /// Le corps de l'écran du guide.
     pub(crate) fn guide_panel(&mut self, ui: &mut egui::Ui) {
-        let guide = self.content.guide.clone();
+        let guide = self.server.content.guide.clone();
         if guide.chapters.is_empty() {
             ui.label("Ce guide est vide.");
             return;
@@ -129,5 +117,20 @@ impl VoxelGame {
         if let Some(item) = open {
             self.client.ui.browser.open(item, Lookup::Recipes);
         }
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// Un clic droit avec le guide en main : l'ouvre. `true` si c'était le guide.
+    pub(crate) fn use_guide(&mut self) -> bool {
+        let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
+            return false;
+        };
+        if self.content.items.get(stack.item).key != GUIDE_ITEM {
+            return false;
+        }
+        self.open_screen(Screen::Guide);
+        true
     }
 }

@@ -188,7 +188,8 @@ impl VoxelGame {
     /// Les objets qui correspondent à la recherche, dans l'ordre du registre.
     fn browser_items(&self) -> Vec<ItemId> {
         let query = self.client.ui.browser.search.trim();
-        self.content
+        self.server
+            .content
             .items
             .iter()
             .filter(|(_, def)| query.is_empty() || matches(def, query))
@@ -285,7 +286,7 @@ impl VoxelGame {
             .settings
             .bookmarks
             .iter()
-            .filter_map(|key| self.content.items.id(key))
+            .filter_map(|key| self.server.content.items.id(key))
             .collect();
         if bookmarks.is_empty() {
             return;
@@ -350,15 +351,15 @@ impl VoxelGame {
     fn list_press(&mut self, item: ItemId, press: Press) {
         if self.client.ui.browser.cheat {
             let count = match press {
-                Press::Primary => self.content.items.get(item).max_stack.max(1),
+                Press::Primary => self.server.content.items.get(item).max_stack.max(1),
                 Press::Secondary => 1,
             };
-            let left = self
-                .server
-                .players
-                .me_mut()
-                .inventory
-                .add(item, count, &self.content.items);
+            let left =
+                self.server
+                    .players
+                    .me_mut()
+                    .inventory
+                    .add(item, count, &self.server.content.items);
             if left > 0 {
                 self.client.ui.toast = Some(("Inventaire plein".into(), std::time::Instant::now()));
             }
@@ -386,8 +387,8 @@ impl VoxelGame {
         skin::slot(&painter, rect, false, response.hovered());
         let icon = self.client.ui.icon(
             item,
-            &self.content.items,
-            &self.registry,
+            &self.server.content.items,
+            &self.server.registry,
             &self.client.block_textures,
         );
         skin::stack(&painter, rect, icon, count, None, None);
@@ -401,7 +402,7 @@ impl VoxelGame {
         } else {
             None
         };
-        let mut card = crate::ui_info::item(self.content.items.get(item), count, 0);
+        let mut card = crate::ui_info::item(self.server.content.items.get(item), count, 0);
         if let Some(n) = alternatives.filter(|&n| n > 1) {
             card.lines
                 .insert(0, (format!("Au choix parmi {n} objets"), skin::GOLD));
@@ -441,13 +442,13 @@ impl VoxelGame {
         let Some(focus) = self.client.ui.browser.view else {
             return;
         };
-        let index = self.content.recipe_index.clone();
+        let index = self.server.content.recipe_index.clone();
         let list = match focus.lookup {
             Lookup::Recipes => index.recipes_for(focus.item),
             Lookup::Uses => index.uses_of(focus.item),
         };
         let groups = RecipeIndex::by_category(&list);
-        let name = self.content.items.get(focus.item).name.clone();
+        let name = self.server.content.items.get(focus.item).name.clone();
         let title = match focus.lookup {
             Lookup::Recipes => format!("Recettes : {name}"),
             Lookup::Uses => format!("Usages : {name}"),
@@ -677,12 +678,18 @@ impl VoxelGame {
                 // Autant que possible : jusqu'à une pile du produit.
                 let (item, _) = recipe.result();
                 let limit = if all {
-                    self.content.items.get(item).max_stack.max(1)
+                    self.server.content.items.get(item).max_stack.max(1)
                 } else {
                     1
                 };
                 // Le serveur fabrique : la recette part par son rang dans la liste des recettes.
-                let Some(index) = self.content.recipes.iter().position(|r| *r == recipe) else {
+                let Some(index) = self
+                    .server
+                    .content
+                    .recipes
+                    .iter()
+                    .position(|r| *r == recipe)
+                else {
                     return;
                 };
                 let size = if self.client.ui.screen == Screen::Workbench {
@@ -730,7 +737,7 @@ impl VoxelGame {
 
     /// Ajoute ou retire un favori, et l'enregistre dans les options.
     fn toggle_bookmark(&mut self, item: ItemId) {
-        let key = self.content.items.get(item).key.clone();
+        let key = self.server.content.items.get(item).key.clone();
         let bookmarks = &mut self.settings.bookmarks;
         match bookmarks.iter().position(|k| *k == key) {
             Some(at) => {

@@ -183,33 +183,6 @@ pub(crate) fn slot_ref_for(
 }
 
 impl VoxelGame {
-    /// La visée de l'action en cours ; hors d'un message, celle de la fenêtre (le bloc visé de
-    /// l'image et la caméra).
-    pub(crate) fn aim(&self) -> ActingAim {
-        if let Some(aim) = self.server.acting {
-            return aim;
-        }
-        let eye = self.client.camera.position;
-        let forward = self.client.camera.forward();
-        ActingAim {
-            player: self.server.players.current_id(),
-            eye,
-            forward,
-            hit: self.client.target,
-            // La fenêtre choisit ce qu'elle frappe dans sa réplique (voir `window_entity`) ; le simulateur
-            // refait sa propre visée à chaque message.
-            mob: None,
-        }
-    }
-
-    /// L'entité que retrouve le serveur sous ce numéro, si elle existe encore.
-    pub(crate) fn server_entity(&self, id: NetId) -> Option<Entity> {
-        self.server
-            .ecs
-            .get_resource::<NetIds>()?
-            .entity(&self.server.ecs, id)
-    }
-
     /// La visée de la fenêtre, telle qu'elle part dans un message.
     pub(crate) fn window_aim(&self) -> Aim {
         Aim {
@@ -243,6 +216,18 @@ impl VoxelGame {
     /// Applique les messages du joueur local dans l'ordre, puis les réponses du simulateur.
     pub(crate) fn flush_outbox(&mut self) {
         let local = self.server.players.local_id();
+        // Le regard de la fenêtre, quand il a changé (le serveur le garde pour la sauvegarde).
+        let look = (self.client.camera.yaw, self.client.camera.pitch);
+        if look != self.client.last_look {
+            self.client.last_look = look;
+            self.client.outbox.insert(
+                0,
+                ClientMsg::Look {
+                    yaw: look.0,
+                    pitch: look.1,
+                },
+            );
+        }
         let mut guard = 0;
         // Un message peut en provoquer d'autres (fermer un écran...) : on vide jusqu'au bout.
         while !self.client.outbox.is_empty() && guard < 64 {
@@ -250,6 +235,7 @@ impl VoxelGame {
             for msg in std::mem::take(&mut self.client.outbox) {
                 self.handle(local, msg);
             }
+            self.run_pending_commands();
         }
         // Les vues du joueur (inventaire, conteneur ouvert) suivent tout de suite : un clic dans un
         // écran se voit dès cette image.
@@ -257,6 +243,16 @@ impl VoxelGame {
             self.replicate_player_views();
         }
         self.apply_replies();
+    }
+
+    /// Les commandes de console que le serveur a reçues : la fenêtre hôte les exécute (elles passent
+    /// par le pilotage `ctl`, voir `handle_command`).
+    fn run_pending_commands(&mut self) {
+        for line in std::mem::take(&mut self.server.pending_commands) {
+            let (name, args) = line.split_once(char::is_whitespace).unwrap_or((&line, ""));
+            let reply = self.console_reply(&name.to_lowercase(), args.trim());
+            self.server.command_reply = Some(reply);
+        }
     }
 
     /// Les réponses du simulateur au joueur de la fenêtre. Celles des autres joueurs partiront sur
@@ -287,6 +283,9 @@ impl VoxelGame {
                         position + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT;
                 }
                 ServerMsg::Feedback(feedback) => self.apply_feedback(feedback),
+                ServerMsg::Chat(line) => self.show_chat(&line),
+                ServerMsg::ModOptions { mod_id, data } => self.show_mod_options(mod_id, &data),
+                ServerMsg::ModHud { mod_id, id, bar } => self.receive_mod_hud(mod_id, id, bar),
                 ServerMsg::OpenScreen(screen) => self.show_screen(screen),
                 ServerMsg::CloseScreen => self.close_screen(),
                 ServerMsg::ScreenView(Some(crate::screen_actions::ScreenView::Mod {
@@ -316,239 +315,9 @@ impl VoxelGame {
         self.client.view.apply_received();
     }
 
-    /// Applique une intention du client. Tout ce que le simulateur touche pendant ce temps est
-    /// l'état de `player`.
-    pub(crate) fn handle(&mut self, player: PlayerId, msg: ClientMsg) {
-        if self.server.players.get(player).is_none() {
-            log::warn!("message d'un joueur inconnu ({player:?}) : ignoré");
-            return;
-        }
-        let previous_player = self.server.players.set_acting(Some(player));
-        let previous_aim = self.server.acting.take();
-        self.apply(player, msg);
-        self.server.acting = previous_aim;
-        self.server.players.set_acting(previous_player);
-    }
-
-    fn apply(&mut self, player: PlayerId, msg: ClientMsg) {
-        match msg {
-            ClientMsg::Move {
-                position,
-                on_ground,
-                mode,
-                step,
-                ..
-            } => self.handle_move(
-                player,
-                MoveSample {
-                    position,
-                    mode,
-                    on_ground,
-                    step,
-                },
-            ),
-            ClientMsg::Dig {
-                aim, phase, pos, ..
-            } => self.handle_dig(player, aim, phase, pos),
-            ClientMsg::Attack { aim, entity } => {
-                // Un numéro que le serveur ne connaît pas (ou d'une entité morte) est refusé.
-                match self.server_entity(entity) {
-                    Some(claimed) => {
-                        self.with_aim(player, aim, |game| game.handle_attack(claimed));
-                    }
-                    None => log::debug!("coup refusé : {entity:?} est inconnu"),
-                }
-            }
-            ClientMsg::Use { aim, sneaking } => {
-                self.with_aim(player, aim, |game| game.handle_use(sneaking));
-            }
-            ClientMsg::Eat { held } => self.server.players.me_mut().eating = held,
-            ClientMsg::SelectSlot(slot) => {
-                let inventory = &mut self.server.players.me_mut().inventory;
-                inventory.selected = usize::from(slot).min(inventory.slots.len() - 1);
-            }
-            ClientMsg::Drop { aim, all } => {
-                self.with_aim(player, aim, |game| game.throw_selected(all));
-            }
-            ClientMsg::SlotClick {
-                slot,
-                button,
-                shift,
-            } => self.handle_slot_click(slot, button, shift),
-            ClientMsg::CloseMenu => self.close_menu(),
-            ClientMsg::ContainerOp(op) => match self.open_target() {
-                Some(target) => self.storage_transfer(target, op),
-                None => log::debug!("bouton de conteneur sans conteneur ouvert : ignoré"),
-            },
-            ClientMsg::ToggleUpgrade(slot) => {
-                if let Some(OpenContainer::Bag(number)) = self.server.players.me().open
-                    && let Some(bag) = self.server.backpacks.bag_mut(number)
-                    && slot < 32
-                {
-                    bag.disabled ^= 1 << slot;
-                }
-            }
-            ClientMsg::Craft { size, recipe } => self.craft(size, recipe),
-            ClientMsg::Screen(action) => self.screen_action(action),
-            ClientMsg::Chat(text) => {
-                let name = self.server.players.me().name.clone();
-                self.chat(&format!("<{name}> {text}"));
-            }
-            ClientMsg::Command(line) => self.handle_command(&line),
-            ClientMsg::Respawn => {
-                if self.server.players.current_is_local() && self.server.players.me().dead {
-                    self.respawn();
-                } else {
-                    log::debug!("réapparition ignorée : le joueur n'est pas mort");
-                }
-            }
-        }
-    }
-
-    /// Refait la visée du joueur dans son monde, puis lance `action` avec elle. Un œil trop loin de
-    /// celui du joueur refuse l'action.
-    fn with_aim(&mut self, player: PlayerId, aim: Aim, action: impl FnOnce(&mut Self)) -> bool {
-        let Some(acting) = self.resolve_aim(player, aim) else {
-            return false;
-        };
-        debug_assert_eq!(acting.player, self.server.players.current_id());
-        let previous = self.server.acting.replace(acting);
-        action(self);
-        self.server.acting = previous;
-        true
-    }
-
-    /// Le lancer de rayon du simulateur, depuis l'œil et le regard du client.
-    pub(crate) fn resolve_aim(&self, player: PlayerId, aim: Aim) -> Option<ActingAim> {
-        let state = self.server.players.get(player)?;
-        let server_eye = player::eye(&self.server.ecs, state.entity, 1.0);
-        if !eye_is_plausible(aim.eye, server_eye) {
-            log::warn!(
-                "visée refusée : l'œil annoncé {:?} est loin de {:?}",
-                aim.eye,
-                server_eye
-            );
-            return None;
-        }
-        cast_aim(
-            self.streamer().world(),
-            &self.server.ecs,
-            player,
-            aim,
-            state.gear.reach(),
-        )
-    }
-
     // ----- Le mouvement -----
 
-    /// Contrôle un mouvement que le client a déjà joué. Un refus ramène le joueur à sa dernière
-    /// position acceptée.
-    fn handle_move(&mut self, player: PlayerId, next: MoveSample) {
-        let Some(state) = self.server.players.get(player) else {
-            return;
-        };
-        let Some(previous) = state.last_move else {
-            // Le premier mouvement n'a rien à quoi se comparer.
-            self.server.players.me_mut().last_move = Some(next);
-            return;
-        };
-        let limits = MoveLimits::new(next.mode, state.gear.move_speed());
-        let result = {
-            let streamer = self.streamer();
-            let world = streamer.world();
-            movement_check(&previous, &next, limits, |cell| {
-                world.is_solid(cell) && world.collision_boxes(cell).is_some_and(|b| b.is_empty())
-            })
-        };
-        match result {
-            Ok(()) => self.server.players.me_mut().last_move = Some(next),
-            Err(refusal) => {
-                log::warn!(
-                    "mouvement refusé ({refusal:?}) : retour en {}",
-                    previous.position
-                );
-                self.server.replies.push((
-                    player,
-                    ServerMsg::Correct {
-                        position: previous.position,
-                    },
-                ));
-                if let MoveRefusal::Invalid = refusal {
-                    self.server.players.me_mut().last_move = None;
-                }
-            }
-        }
-    }
-
-    /// Le joueur a été déplacé par le jeu (réapparition, téléportation) : sa prochaine position
-    /// n'est pas à comparer avec l'ancienne.
-    pub(crate) fn forget_last_move(&mut self) {
-        self.server.players.local_mut().last_move = None;
-    }
-
     // ----- Le minage -----
-
-    /// Le temps que prend le joueur courant à casser `block` en `pos` avec ce qu'il tient. `None` :
-    /// incassable. 0 : instantané.
-    pub(crate) fn mining_time(&self, pos: IVec3, block: BlockId) -> Option<f32> {
-        let tool = self.held_tool();
-        let time = engine_voxel::break_time(&self.mining_def(pos, block), tool.as_ref())?;
-        // La vitesse de minage (Efficacité, affixes) est un attribut.
-        Some(
-            time / self
-                .server
-                .players
-                .me()
-                .gear
-                .value(attributes::Attribute::MiningSpeed),
-        )
-    }
-
-    fn handle_dig(&mut self, player: PlayerId, aim: Aim, phase: DigPhase, pos: IVec3) {
-        match phase {
-            DigPhase::Abort => self.server.players.me_mut().dig = None,
-            DigPhase::Start => {
-                self.with_aim(player, aim, |game| {
-                    let aimed = game.aim().hit.map(|hit| hit.block_pos);
-                    if aimed != Some(pos) {
-                        log::debug!(
-                            "minage refusé : le simulateur ne voit pas {pos} dans la visée"
-                        );
-                        game.server.players.me_mut().dig = None;
-                        return;
-                    }
-                    let block = game.streamer().world().block(pos);
-                    // La première image est créditée comme chez le client (qui y a déjà avancé).
-                    let first = game.client.frame_dt;
-                    game.server.players.me_mut().dig = game
-                        .mining_time(pos, block)
-                        .map(|time| start_dig(pos, block, time, first));
-                });
-            }
-            DigPhase::Finish => self.finish_dig(player, aim, pos),
-        }
-    }
-
-    /// `Dig Finish` : le même bloc qu'au début, à portée, et assez de temps écoulé.
-    fn finish_dig(&mut self, player: PlayerId, aim: Aim, pos: IVec3) {
-        let Some(dig) = self.server.players.me_mut().dig.take() else {
-            log::warn!("minage refusé : {pos} n'a pas été commencé");
-            return;
-        };
-        let reach = self.server.players.me().gear.reach();
-        let block_now = self.streamer().world().block(pos);
-        if let Some(why) = dig_refusal(&dig, pos, block_now, aim.eye, reach) {
-            // Au lot 3, le simulateur renverra l'état du bloc au client ; ici, un journal.
-            log::warn!(
-                "minage refusé en {pos} : {why} ({:.0} % du temps)",
-                dig.progress * 100.0
-            );
-            return;
-        }
-        self.with_aim(player, aim, |game| {
-            game.break_block(pos);
-        });
-    }
 
     /// À chaque pas fixe : le temps de minage théorique avance pour tous les joueurs qui creusent,
     /// avec l'outil qu'ils tiennent à ce moment.
@@ -623,29 +392,153 @@ impl VoxelGame {
 
     // ----- Les coups -----
 
-    /// Un coup : sur la créature que le simulateur voit sous le regard, sinon sur le wagon. Ce que
-    /// le client désigne doit être ce que le simulateur voit.
-    fn handle_attack(&mut self, claimed: Entity) {
-        let aim = self.aim();
-        if aim.mob == Some(claimed) {
-            let strike = self.strike_mob(claimed, aim.forward);
-            if strike.is_some() {
-                self.exert(self.server.hunger_rules.attack);
+    // ----- Le clic droit -----
+
+    // ----- Les cases -----
+
+    /// La fenêtre ouvre l'écran que le serveur lui a ouvert.
+    pub(crate) fn show_screen(&mut self, screen: Screen) {
+        match screen {
+            Screen::Trade(_) => self.client.ui.trade_selected = 0,
+            Screen::Mod(_) if self.client.ui.screen == screen && self.client.ui.inventory_open => {
+                return;
             }
-            if self.held_tool().is_some() {
-                self.wear_held();
-            }
-            self.server.outcome = strike.map_or(Outcome::Nothing, Outcome::Struck);
-        } else if aim.mob.is_none() && self.aimed_cart() == Some(claimed) {
-            if self.punch_cart() {
-                self.server.outcome = Outcome::Punched;
-            }
-        } else {
-            log::debug!("coup refusé : le simulateur ne voit pas {claimed} dans la visée");
+            _ => {}
+        }
+        self.client.ui.screen = screen;
+        self.client.ui.inventory_open = true;
+    }
+
+    // ----- La console -----
+
+    /// La case de l'interface, telle qu'elle part dans un message.
+    pub(crate) fn slot_target_of(&self, target: SlotRef) -> SlotTarget {
+        match target {
+            SlotRef::Player(slot) => SlotTarget::Player(slot),
+            SlotRef::Open(index) => SlotTarget::Open(index),
+            SlotRef::Container(pos, index) => SlotTarget::Block { pos, index },
+            SlotRef::Cart(cart, index) => SlotTarget::Cart {
+                cart: self
+                    .server
+                    .ecs
+                    .get::<NetId>(cart)
+                    .map_or(NetId(0), |id| *id),
+                index,
+            },
+            SlotRef::Bag(number, index) => SlotTarget::Bag { number, index },
+        }
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// La visée de l'action en cours ; hors d'un message, celle de la fenêtre (le bloc visé de
+    /// l'image et la caméra).
+    pub(crate) fn aim(&self) -> ActingAim {
+        if let Some(aim) = self.acting {
+            return aim;
+        }
+        // Hors d'un message : l'œil et le dernier regard connu du joueur courant, sans bloc visé.
+        let me = self.players.me();
+        ActingAim {
+            player: self.players.current_id(),
+            eye: player::eye(&self.ecs, me.entity, 1.0),
+            forward: me.look,
+            hit: None,
+            // La fenêtre choisit ce qu'elle frappe dans sa réplique (voir `window_entity`) ; le simulateur
+            // refait sa propre visée à chaque message.
+            mob: None,
         }
     }
 
-    // ----- Le clic droit -----
+    /// Ouvre un écran pour le joueur courant : le serveur note ce qu'il a ouvert (un conteneur, une
+    /// table...), puis lui envoie `OpenScreen`, que sa fenêtre affiche.
+    pub(crate) fn open_screen(&mut self, screen: Screen) {
+        let open = match screen {
+            Screen::Chest(pos) => Some(OpenContainer::Chest(pos)),
+            // Une machine de mod garde ses cases dans son entité de bloc, comme un four.
+            Screen::Furnace(pos) | Screen::Brewing(pos) | Screen::Mod(pos) => {
+                Some(OpenContainer::Machine(pos))
+            }
+            Screen::Controller(pos) => Some(OpenContainer::Controller(pos)),
+            Screen::Cart(cart) => self.server_entity(cart).map(OpenContainer::Cart),
+            Screen::Bag(number) => Some(OpenContainer::Bag(number)),
+            _ => None,
+        };
+        let me = self.players.me_mut();
+        me.open = open;
+        me.screen = Some(screen);
+        let id = self.players.current_id();
+        self.replies.push((id, ServerMsg::OpenScreen(screen)));
+    }
+
+    /// Jette un exemplaire (ou toute la pile) en conservant son usure et son enchantement.
+    pub(crate) fn throw_selected(&mut self, all: bool) {
+        let Some(stack) = self.players.me().inventory.selected_stack() else {
+            return;
+        };
+        let aim = self.aim();
+        let center = aim.eye + aim.forward * 0.45;
+        if self.streamer().world().is_solid(center.floor().as_ivec3()) {
+            return;
+        }
+        let count = if all { stack.count } else { 1 };
+        for _ in 0..count {
+            self.players.me_mut().inventory.consume_selected();
+        }
+        let seed = self.next_random();
+        let entity = drops::spawn(
+            &mut self.ecs,
+            inventory::ItemStack { count, ..stack },
+            center,
+            seed,
+        );
+        if let Some(mut velocity) = self.ecs.get_mut::<components::Velocity>(entity) {
+            velocity.0 = aim.forward * 3.5 + Vec3::Y;
+        }
+        self.punch();
+    }
+
+    /// La case désignée par un message, si le joueur courant peut la toucher.
+    fn slot_ref(&self, slot: SlotTarget) -> Option<SlotRef> {
+        slot_ref_for(self.players.me(), slot, &|id| self.server_entity(id))
+    }
+
+    /// Le lancer de rayon du simulateur, depuis l'œil et le regard du client.
+    pub(crate) fn resolve_aim(&self, player: PlayerId, aim: Aim) -> Option<ActingAim> {
+        let state = self.players.get(player)?;
+        let server_eye = player::eye(&self.ecs, state.entity, 1.0);
+        if !eye_is_plausible(aim.eye, server_eye) {
+            log::warn!(
+                "visée refusée : l'œil annoncé {:?} est loin de {:?}",
+                aim.eye,
+                server_eye
+            );
+            return None;
+        }
+        cast_aim(
+            self.streamer().world(),
+            &self.ecs,
+            player,
+            aim,
+            state.gear.reach(),
+        )
+    }
+
+    /// Le temps que prend le joueur courant à casser `block` en `pos` avec ce qu'il tient. `None` :
+    /// incassable. 0 : instantané.
+    pub(crate) fn mining_time(&self, pos: IVec3, block: BlockId) -> Option<f32> {
+        let tool = self.held_tool();
+        let time = engine_voxel::break_time(&self.mining_def(pos, block), tool.as_ref())?;
+        // La vitesse de minage (Efficacité, affixes) est un attribut.
+        Some(
+            time / self
+                .players
+                .me()
+                .gear
+                .value(attributes::Attribute::MiningSpeed),
+        )
+    }
 
     /// Un clic droit : les usages s'enchaînent (wagon, structure, porte, lit, conteneur, machine,
     /// habitant, animal, houe, engrais, charme, guide, objet de mod), puis on pose le bloc tenu.
@@ -665,7 +558,7 @@ impl VoxelGame {
             || self.use_charm()
             || self.use_guide()
             || self.use_mod_item();
-        self.server.outcome = if used {
+        self.outcome = if used {
             Outcome::Used
         } else {
             self.place_at_target()
@@ -673,34 +566,74 @@ impl VoxelGame {
         };
     }
 
-    /// Jette un exemplaire (ou toute la pile) en conservant son usure et son enchantement.
-    pub(crate) fn throw_selected(&mut self, all: bool) {
-        let Some(stack) = self.server.players.me().inventory.selected_stack() else {
-            return;
-        };
+    /// Un coup : sur la créature que le simulateur voit sous le regard, sinon sur le wagon. Ce que
+    /// le client désigne doit être ce que le simulateur voit.
+    fn handle_attack(&mut self, claimed: Entity) {
         let aim = self.aim();
-        let center = aim.eye + aim.forward * 0.45;
-        if self.streamer().world().is_solid(center.floor().as_ivec3()) {
-            return;
+        if aim.mob == Some(claimed) {
+            let strike = self.strike_mob(claimed, aim.forward);
+            if strike.is_some() {
+                self.exert(self.hunger_rules.attack);
+            }
+            if self.held_tool().is_some() {
+                self.wear_held();
+            }
+            self.outcome = strike.map_or(Outcome::Nothing, Outcome::Struck);
+        } else if aim.mob.is_none() && self.aimed_cart() == Some(claimed) {
+            if self.punch_cart() {
+                self.outcome = Outcome::Punched;
+            }
+        } else {
+            log::debug!("coup refusé : le simulateur ne voit pas {claimed} dans la visée");
         }
-        let count = if all { stack.count } else { 1 };
-        for _ in 0..count {
-            self.server.players.me_mut().inventory.consume_selected();
-        }
-        let seed = self.next_random();
-        let entity = drops::spawn(
-            &mut self.server.ecs,
-            inventory::ItemStack { count, ..stack },
-            center,
-            seed,
-        );
-        if let Some(mut velocity) = self.server.ecs.get_mut::<components::Velocity>(entity) {
-            velocity.0 = aim.forward * 3.5 + Vec3::Y;
-        }
-        self.punch();
     }
 
-    // ----- Les cases -----
+    /// Le joueur a été déplacé par le jeu (réapparition, téléportation) : sa prochaine position
+    /// n'est pas à comparer avec l'ancienne.
+    pub(crate) fn forget_last_move(&mut self) {
+        self.players.local_mut().last_move = None;
+    }
+
+    /// `Dig Finish` : le même bloc qu'au début, à portée, et assez de temps écoulé.
+    fn finish_dig(&mut self, player: PlayerId, aim: Aim, pos: IVec3) {
+        let Some(dig) = self.players.me_mut().dig.take() else {
+            log::warn!("minage refusé : {pos} n'a pas été commencé");
+            return;
+        };
+        let reach = self.players.me().gear.reach();
+        let block_now = self.streamer().world().block(pos);
+        if let Some(why) = dig_refusal(&dig, pos, block_now, aim.eye, reach) {
+            // Au lot 3, le simulateur renverra l'état du bloc au client ; ici, un journal.
+            log::warn!(
+                "minage refusé en {pos} : {why} ({:.0} % du temps)",
+                dig.progress * 100.0
+            );
+            return;
+        }
+        self.with_aim(player, aim, |game| {
+            game.break_block(pos);
+        });
+    }
+
+    /// Refait la visée du joueur dans son monde, puis lance `action` avec elle. Un œil trop loin de
+    /// celui du joueur refuse l'action.
+    fn with_aim(&mut self, player: PlayerId, aim: Aim, action: impl FnOnce(&mut Self)) -> bool {
+        let Some(acting) = self.resolve_aim(player, aim) else {
+            return false;
+        };
+        debug_assert_eq!(acting.player, self.players.current_id());
+        // Le dernier regard connu du joueur (les scripts de mods le lisent hors d'une action).
+        self.players.me_mut().look = acting.forward;
+        let previous = self.acting.replace(acting);
+        action(self);
+        self.acting = previous;
+        true
+    }
+
+    /// L'entité que retrouve le serveur sous ce numéro, si elle existe encore.
+    pub(crate) fn server_entity(&self, id: NetId) -> Option<Entity> {
+        self.ecs.get_resource::<NetIds>()?.entity(&self.ecs, id)
+    }
 
     /// Un clic sur une case : celle du joueur, ou d'un conteneur qu'il a ouvert.
     fn handle_slot_click(&mut self, slot: SlotTarget, button: ClickButton, shift: bool) {
@@ -716,67 +649,102 @@ impl VoxelGame {
         self.click_target(target, button.into());
         // Un four ou un alambic dort peut-être : on le réveille au prochain tick.
         if let SlotRef::Container(pos, _) = target {
-            self.server
-                .mods
+            self.mods
                 .machines
                 .schedule(engine_voxel::GridPos::world(pos), 1);
         }
     }
 
-    /// La case désignée par un message, si le joueur courant peut la toucher.
-    fn slot_ref(&self, slot: SlotTarget) -> Option<SlotRef> {
-        slot_ref_for(self.server.players.me(), slot, &|id| self.server_entity(id))
-    }
-
-    /// Ouvre un écran pour le joueur courant : le serveur note ce qu'il a ouvert (un conteneur, une
-    /// table...), puis lui envoie `OpenScreen`, que sa fenêtre affiche.
-    pub(crate) fn open_screen(&mut self, screen: Screen) {
-        let open = match screen {
-            Screen::Chest(pos) => Some(OpenContainer::Chest(pos)),
-            // Une machine de mod garde ses cases dans son entité de bloc, comme un four.
-            Screen::Furnace(pos) | Screen::Brewing(pos) | Screen::Mod(pos) => {
-                Some(OpenContainer::Machine(pos))
-            }
-            Screen::Controller(pos) => Some(OpenContainer::Controller(pos)),
-            Screen::Cart(cart) => self.server_entity(cart).map(OpenContainer::Cart),
-            Screen::Bag(number) => Some(OpenContainer::Bag(number)),
-            _ => None,
+    /// Contrôle un mouvement que le client a déjà joué. Un refus ramène le joueur à sa dernière
+    /// position acceptée.
+    fn handle_move(&mut self, player: PlayerId, next: MoveSample) {
+        let Some(state) = self.players.get(player) else {
+            return;
         };
-        let me = self.server.players.me_mut();
-        me.open = open;
-        me.screen = Some(screen);
-        let id = self.server.players.current_id();
-        self.server
-            .replies
-            .push((id, ServerMsg::OpenScreen(screen)));
+        let Some(previous) = state.last_move else {
+            // Le premier mouvement n'a rien à quoi se comparer.
+            self.players.me_mut().last_move = Some(next);
+            return;
+        };
+        let limits = MoveLimits::new(next.mode, state.gear.move_speed());
+        let result = {
+            let streamer = self.streamer();
+            let world = streamer.world();
+            movement_check(&previous, &next, limits, |cell| {
+                world.is_solid(cell) && world.collision_boxes(cell).is_some_and(|b| b.is_empty())
+            })
+        };
+        match result {
+            Ok(()) => self.players.me_mut().last_move = Some(next),
+            Err(refusal) => {
+                log::warn!(
+                    "mouvement refusé ({refusal:?}) : retour en {}",
+                    previous.position
+                );
+                self.replies.push((
+                    player,
+                    ServerMsg::Correct {
+                        position: previous.position,
+                    },
+                ));
+                if let MoveRefusal::Invalid = refusal {
+                    self.players.me_mut().last_move = None;
+                }
+            }
+        }
     }
 
-    /// La fenêtre ouvre l'écran que le serveur lui a ouvert.
-    pub(crate) fn show_screen(&mut self, screen: Screen) {
-        match screen {
-            Screen::Trade(_) => self.client.ui.trade_selected = 0,
-            Screen::Mod(_) if self.client.ui.screen == screen && self.client.ui.inventory_open => {
-                return;
+    fn handle_dig(&mut self, player: PlayerId, aim: Aim, phase: DigPhase, pos: IVec3) {
+        match phase {
+            DigPhase::Abort => self.players.me_mut().dig = None,
+            DigPhase::Start => {
+                self.with_aim(player, aim, |game| {
+                    let aimed = game.aim().hit.map(|hit| hit.block_pos);
+                    if aimed != Some(pos) {
+                        log::debug!(
+                            "minage refusé : le simulateur ne voit pas {pos} dans la visée"
+                        );
+                        game.players.me_mut().dig = None;
+                        return;
+                    }
+                    let block = game.streamer().world().block(pos);
+                    // La première image est créditée comme chez le client (qui y a déjà avancé) : un
+                    // pas fixe, la durée d'image n'étant pas connue du serveur.
+                    let first = 1.0 / 60.0;
+                    game.players.me_mut().dig = game
+                        .mining_time(pos, block)
+                        .map(|time| start_dig(pos, block, time, first));
+                });
             }
-            _ => {}
+            DigPhase::Finish => self.finish_dig(player, aim, pos),
         }
-        self.client.ui.screen = screen;
-        self.client.ui.inventory_open = true;
+    }
+
+    /// Une ligne de console : une commande du jeu ou d'un mod (sans écho ; la réponse est gardée
+    /// dans `command_reply`).
+    fn handle_command(&mut self, line: &str) {
+        let line = line.trim().trim_start_matches('/').trim();
+        if line.is_empty() {
+            return;
+        }
+        // Les commandes du jeu passent encore par le pilotage de la fenêtre (`ctl`) : la fenêtre
+        // hôte les exécute juste après ce message (`run_pending_commands`). Un exécuteur côté
+        // serveur viendra avec le réseau (lot 5).
+        self.pending_commands.push(line.to_string());
     }
 
     /// `CloseMenu` : la main et la grille d'artisanat retournent dans l'inventaire (ce qui n'y tient
     /// pas tombe par terre), et le conteneur n'est plus ouvert.
     pub(crate) fn close_menu(&mut self) {
         self.forget_mod_menu();
-        self.server.players.me_mut().open = None;
-        self.server.players.me_mut().screen = None;
+        self.players.me_mut().open = None;
+        self.players.me_mut().screen = None;
         let loose = self
-            .server
             .players
             .me_mut()
             .inventory
             .put_away(&self.content.items);
-        let at = player::body(&self.server.ecs, self.server.players.entity())
+        let at = player::body(&self.ecs, self.players.entity())
             .position
             .floor()
             .as_ivec3()
@@ -786,35 +754,114 @@ impl VoxelGame {
         }
     }
 
-    // ----- La console -----
-
-    /// Une ligne de console : une commande du jeu ou d'un mod (sans écho ; la réponse est gardée
-    /// dans `command_reply`).
-    fn handle_command(&mut self, line: &str) {
-        let line = line.trim().trim_start_matches('/').trim();
-        if line.is_empty() {
-            return;
+    fn apply(&mut self, player: PlayerId, msg: ClientMsg) {
+        match msg {
+            ClientMsg::Move {
+                position,
+                on_ground,
+                mode,
+                step,
+                yaw,
+                pitch,
+                ..
+            } => {
+                let (sin_yaw, cos_yaw) = yaw.sin_cos();
+                let (sin_pitch, cos_pitch) = pitch.sin_cos();
+                self.players.me_mut().look =
+                    Vec3::new(cos_yaw * cos_pitch, sin_pitch, sin_yaw * cos_pitch);
+                self.handle_move(
+                    player,
+                    MoveSample {
+                        position,
+                        mode,
+                        on_ground,
+                        step,
+                    },
+                )
+            }
+            ClientMsg::Dig {
+                aim, phase, pos, ..
+            } => self.handle_dig(player, aim, phase, pos),
+            ClientMsg::Attack { aim, entity } => {
+                // Un numéro que le serveur ne connaît pas (ou d'une entité morte) est refusé.
+                match self.server_entity(entity) {
+                    Some(claimed) => {
+                        self.with_aim(player, aim, |game| game.handle_attack(claimed));
+                    }
+                    None => log::debug!("coup refusé : {entity:?} est inconnu"),
+                }
+            }
+            ClientMsg::Use { aim, sneaking } => {
+                self.with_aim(player, aim, |game| game.handle_use(sneaking));
+            }
+            ClientMsg::Eat { held } => self.players.me_mut().eating = held,
+            ClientMsg::SelectSlot(slot) => {
+                let inventory = &mut self.players.me_mut().inventory;
+                inventory.selected = usize::from(slot).min(inventory.slots.len() - 1);
+            }
+            ClientMsg::Drop { aim, all } => {
+                self.with_aim(player, aim, |game| game.throw_selected(all));
+            }
+            ClientMsg::SlotClick {
+                slot,
+                button,
+                shift,
+            } => self.handle_slot_click(slot, button, shift),
+            ClientMsg::CloseMenu => self.close_menu(),
+            ClientMsg::ContainerOp(op) => match self.open_target() {
+                Some(target) => self.storage_transfer(target, op),
+                None => log::debug!("bouton de conteneur sans conteneur ouvert : ignoré"),
+            },
+            ClientMsg::ToggleUpgrade(slot) => {
+                if let Some(OpenContainer::Bag(number)) = self.players.me().open
+                    && let Some(bag) = self.backpacks.bag_mut(number)
+                    && slot < 32
+                {
+                    bag.disabled ^= 1 << slot;
+                }
+            }
+            ClientMsg::Craft { size, recipe } => self.craft(size, recipe),
+            ClientMsg::Screen(action) => self.screen_action(action),
+            ClientMsg::Look { yaw, pitch } => {
+                let (sin_yaw, cos_yaw) = yaw.sin_cos();
+                let (sin_pitch, cos_pitch) = pitch.sin_cos();
+                let me = self.players.me_mut();
+                me.yaw = yaw;
+                me.pitch = pitch;
+                me.look = Vec3::new(cos_yaw * cos_pitch, sin_pitch, sin_yaw * cos_pitch);
+            }
+            ClientMsg::Chat(text) => {
+                // Le chat va à tous les joueurs.
+                let name = self.players.me().name.clone();
+                let line = format!("<{name}> {text}");
+                let ids: Vec<PlayerId> = self.players.iter().map(|p| p.id).collect();
+                for id in ids {
+                    self.replies.push((id, ServerMsg::Chat(line.clone())));
+                }
+            }
+            ClientMsg::Command(line) => self.handle_command(&line),
+            ClientMsg::Respawn => {
+                if self.players.current_is_local() && self.players.me().dead {
+                    self.respawn();
+                } else {
+                    log::debug!("réapparition ignorée : le joueur n'est pas mort");
+                }
+            }
         }
-        let (name, args) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
-        self.server.command_reply = Some(self.console_reply(&name.to_lowercase(), args.trim()));
     }
 
-    /// La case de l'interface, telle qu'elle part dans un message.
-    pub(crate) fn slot_target_of(&self, target: SlotRef) -> SlotTarget {
-        match target {
-            SlotRef::Player(slot) => SlotTarget::Player(slot),
-            SlotRef::Open(index) => SlotTarget::Open(index),
-            SlotRef::Container(pos, index) => SlotTarget::Block { pos, index },
-            SlotRef::Cart(cart, index) => SlotTarget::Cart {
-                cart: self
-                    .server
-                    .ecs
-                    .get::<NetId>(cart)
-                    .map_or(NetId(0), |id| *id),
-                index,
-            },
-            SlotRef::Bag(number, index) => SlotTarget::Bag { number, index },
+    /// Applique une intention du client. Tout ce que le simulateur touche pendant ce temps est
+    /// l'état de `player`.
+    pub(crate) fn handle(&mut self, player: PlayerId, msg: ClientMsg) {
+        if self.players.get(player).is_none() {
+            log::warn!("message d'un joueur inconnu ({player:?}) : ignoré");
+            return;
         }
+        let previous_player = self.players.set_acting(Some(player));
+        let previous_aim = self.acting.take();
+        self.apply(player, msg);
+        self.acting = previous_aim;
+        self.players.set_acting(previous_player);
     }
 }
 

@@ -753,6 +753,52 @@ Le code serveur lit encore la fenêtre à plusieurs endroits : `self.ui` est cit
 | **4b. Le serveur sans fenêtre** | Les champs du serveur passent dans `VoxelServer`, et les fonctions du serveur deviennent des méthodes de `VoxelServer`, module par module. Chaque accès du serveur à `client` devient un message (la plupart existent déjà : `Feedback`, `OpenScreen`...) ou une donnée du joueur. Un `VoxelServer` se construit sans fenêtre, si bien que `handle` se teste enfin pour deux joueurs. |
 | **4c. Le thread** | Le serveur est construit sur son thread, avec un pas fixe de 60 Hz. Le lien devient deux canaux, et les appels avec réponse (sauvegarde, fermeture, dimension) ont un délai maximal. |
 
+##### 4a, 4b-1, 4b-2 (réalisés)
+
+- **4a** (`dc42258`) : `ClientSide` (`client_side.rs`). **4b-1** (`1b56e2e`) : `VoxelServer` (`server_side.rs`).
+  Ce sont deux déplacements mécaniques, sans changement de comportement.
+- **4b-2 : `handle` et toute sa chaîne d'appels sont des méthodes de `VoxelServer`.** Cela fait environ 330 méthodes :
+  intentions, clic droit, minage, conteneurs, écrans, survie, quêtes, aventure, mods...
+  - Le registre et le contenu sont passés au serveur.
+  - `VoxelGame` se déréférence vers `VoxelServer` (`Deref`), si bien que le code de la fenêtre appelle les méthodes du
+    serveur sans changement.
+  - La migration a été faite avec un outil : compiler, déplacer chaque méthode réclamée, recommencer, en s'arrêtant
+    sur les méthodes qui lisent la fenêtre.
+- **Les liens coupés à la frontière** :
+  - **La visée de la fenêtre** : `self.client.target = None` après une édition est supprimé, puisque la fenêtre
+    refait sa visée à chaque image.
+  - **Les sons d'interface** passent par `sound`.
+  - **Le chat** : `ServerMsg::Chat`, pour le joueur courant, ou pour tous dans le cas du chat d'un joueur.
+  - **Les mods** :
+    - leurs jauges passent par `ServerMsg::ModHud` (à tous les joueurs) ;
+    - leurs pages d'options par `ServerMsg::ModOptions` ;
+    - le droit d'ouvrir un menu de mod (`allow_mod_menu`) est passé au serveur.
+  - **L'annonce d'un palier** : `Feedback::TierUnlocked`, et la fenêtre y ajoute sa touche.
+  - **Un changement de dimension** : `VoxelServer::travel`, que la fenêtre relève.
+  - **La téléportation par un script** : `ServerMsg::Correct`.
+  - **Le regard du joueur** est retenu par le serveur, avec deux sources :
+    - `ClientMsg::Look`, envoyé quand il change (pour la sauvegarde) ;
+    - chaque action visée (pour les scripts).
+  - **La visée hors d'un message** : l'œil et le dernier regard du joueur, sans bloc visé.
+  - **Le minage** : la première image est créditée d'un pas fixe.
+  - **Les durées d'édition** sont relevées par la fenêtre (`edit_times`).
+- **Reste côté fenêtre, temporairement** : les commandes de la console. Le serveur les met en attente
+  (`pending_commands`), et la fenêtre hôte les exécute juste après le message, car elles passent par le pilotage
+  `ctl`. Il faudra un exécuteur de commandes côté serveur, avec des droits, au lot 5.
+- **Correctif** : `ctl resume` ne sort plus que de la pause. Avant, il sortait aussi de l'écran de mort sans
+  réapparition, et le serveur gardait le joueur mort.
+- **Vérifié en jeu** :
+  - casser, poser et coffre ;
+  - commande de console (`/time`) ;
+  - mort et réapparition ;
+  - attaque d'un rôdeur ;
+  - le regard sauvegardé (90°, 10°) est retrouvé dans `players/<uuid>.ron`.
+- **Reste pour la suite du 4b** :
+  - un `VoxelServer` construit sans fenêtre (la construction est encore dans `VoxelGame::create`) ;
+  - les tests de `handle` à deux joueurs ;
+  - le pas fixe (`fixed_update`) partagé entre le serveur (ECS, machines, fluides, survie) et la fenêtre (entrées,
+    prédiction).
+
 ### Lot 5 : le réseau local
 
 - `engine_net` :

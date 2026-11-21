@@ -20,6 +20,8 @@ use crate::{
 /// `docs/plan-multijoueur.md`). Le rendu, la caméra, l'interface, le son, les effets, la réplique
 /// du monde et des entités, la main et la prédiction, les captures et le bench.
 pub(crate) struct ClientSide {
+    /// Le dernier regard envoyé au serveur (`ClientMsg::Look`).
+    pub(crate) last_look: (f32, f32),
     pub(crate) renderer: Renderer,
     pub(crate) camera: Camera,
     pub(crate) mouse_captured: bool,

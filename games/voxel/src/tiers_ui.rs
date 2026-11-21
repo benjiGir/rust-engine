@@ -121,12 +121,14 @@ impl VoxelGame {
             ));
         }
     }
+}
 
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
     /// `Tier` : le serveur change le palier du joueur courant, s'il est débloqué.
     pub(crate) fn choose_tier(&mut self, index: u8) {
         let data = adventure_data::current();
         if self
-            .server
             .players
             .me_mut()
             .adventure

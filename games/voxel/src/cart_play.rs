@@ -29,100 +29,6 @@ const LOADER_BATCH: u32 = 4;
 const COUPLING_REACH: f32 = 6.0;
 
 impl VoxelGame {
-    /// La clé de l'objet tenu en main.
-    fn held_key(&self) -> Option<String> {
-        let item = self.server.players.me().inventory.selected_item()?;
-        Some(self.content.items.get(item).key.clone())
-    }
-
-    /// Le wagon visé, s'il est plus près que le bloc visé.
-    pub(crate) fn aimed_cart(&self) -> Option<Entity> {
-        let aim = self.aim();
-        let block_distance = aim
-            .hit
-            .map_or(self.server.players.me().gear.reach(), |hit| hit.distance);
-        carts::hit_cart(&self.server.ecs, aim.eye, aim.forward, block_distance).map(|(e, _)| e)
-    }
-
-    /// Un clic droit : poser un wagon sur un rail, atteler, monter ou ouvrir un wagon.
-    pub(crate) fn use_cart(&mut self) -> bool {
-        let held = self.held_key();
-        if held.as_deref() == Some("core:coupler") {
-            return self.aimed_cart().is_some_and(|e| self.couple_click(e));
-        }
-        if let Some(kind) = held.as_deref().and_then(CartKind::from_item_key)
-            && self.place_cart(kind)
-        {
-            return true;
-        }
-        let Some(entity) = self.aimed_cart() else {
-            return false;
-        };
-        let Some(kind) = self.server.ecs.get::<Cart>(entity).map(|c| c.kind) else {
-            return false;
-        };
-        if kind == CartKind::Minecart {
-            self.ride(entity)
-        } else {
-            let Some(id) = self
-                .server
-                .ecs
-                .get::<crate::entities::NetId>(entity)
-                .map(|id| *id)
-            else {
-                return false;
-            };
-            self.open_screen(ui::Screen::Cart(id));
-            true
-        }
-    }
-
-    /// Pose le wagon tenu sur le rail visé.
-    fn place_cart(&mut self, kind: CartKind) -> bool {
-        let aim = self.aim();
-        let Some(hit) = aim.hit else {
-            return false;
-        };
-        if rail_at(&*self.streamer(), hit.block_pos).is_none() {
-            return false;
-        }
-        // Pas de deux wagons au même endroit.
-        let spot = hit.block_pos.as_vec3() + Vec3::new(0.5, 0.1, 0.5);
-        let mut crowded = false;
-        self.server
-            .ecs
-            .query::<(&Transform, &Cart)>()
-            .for_each(|_, (t, _)| crowded |= t.position.distance(spot) < 0.9);
-        if crowded {
-            self.toast("Un wagon est déjà là");
-            return false;
-        }
-        let look = aim.forward;
-        if carts::place(&mut self.server.ecs, kind, hit.block_pos, look).is_none() {
-            return false;
-        }
-        self.server.players.me_mut().inventory.consume_selected();
-        self.punch();
-        self.sound("core:place_hard");
-        true
-    }
-
-    /// S'asseoir dans un wagonnet.
-    pub(crate) fn ride(&mut self, cart: Entity) -> bool {
-        if player::mode(&self.server.ecs, self.server.players.entity()) == MoveMode::Fly {
-            self.toast("Pas en vol");
-            return false;
-        }
-        if carts::board(&mut self.server.ecs, self.server.players.entity(), cart) {
-            self.punch();
-            self.toast("Maj : descendre. Avancer : pousser.");
-            true
-        } else {
-            self.toast("Le wagonnet est occupé");
-            false
-        }
-    }
-
     /// Descendre du wagonnet (Maj).
     pub(crate) fn dismount(&mut self) -> bool {
         if !self
@@ -134,96 +40,6 @@ impl VoxelGame {
         }
         carts::dismount(&mut self.server.ecs, self.server.players.entity());
         true
-    }
-
-    /// Un clic de l'attelage sur un wagon : le premier est retenu, le second est relié au premier.
-    fn couple_click(&mut self, entity: Entity) -> bool {
-        let first = self
-            .server
-            .ecs
-            .resource::<CartPending>()
-            .0
-            .filter(|&e| self.server.ecs.is_alive(e));
-        let Some(first) = first else {
-            self.server.ecs.resource_mut::<CartPending>().0 = Some(entity);
-            self.toast("Attelage : choisis un second wagon");
-            return true;
-        };
-        self.server.ecs.resource_mut::<CartPending>().0 = None;
-        if first == entity {
-            self.toast("Attelage annulé");
-            return true;
-        }
-        let position = |world: &engine_ecs::World, e| world.get::<Transform>(e).map(|t| t.position);
-        let (Some(a), Some(b)) = (
-            position(&self.server.ecs, first),
-            position(&self.server.ecs, entity),
-        ) else {
-            return true;
-        };
-        if a.distance(b) > COUPLING_REACH {
-            self.toast("Ces wagons sont trop éloignés");
-            return true;
-        }
-        match carts::toggle_coupling(&self.server.ecs, first, entity) {
-            Some(true) => self.toast("Wagons attelés"),
-            Some(false) => self.toast("Wagons détachés"),
-            None => {}
-        }
-        self.punch();
-        true
-    }
-
-    /// Un coup de poing sur un wagon : le premier le fait rougir, le second le casse.
-    pub(crate) fn punch_cart(&mut self) -> bool {
-        let Some(entity) = self.aimed_cart() else {
-            return false;
-        };
-        let broken = {
-            let Some(mut cart) = self.server.ecs.get_mut::<Cart>(entity) else {
-                return false;
-            };
-            let broken = cart.hurt > 0.0;
-            cart.hurt = 1.2;
-            broken
-        };
-        self.punch();
-        self.sound("core:break_soft");
-        if broken {
-            self.break_cart(entity);
-        }
-        true
-    }
-
-    /// Casse un wagon : son objet et son contenu tombent à sa place.
-    pub(crate) fn break_cart(&mut self, entity: Entity) {
-        let Some((kind, position)) = self
-            .server
-            .ecs
-            .get::<Cart>(entity)
-            .map(|c| c.kind)
-            .zip(self.server.ecs.get::<Transform>(entity).map(|t| t.position))
-        else {
-            return;
-        };
-        let contents = carts::remove(&mut self.server.ecs, entity);
-        let at = (position + Vec3::Y * 0.3).floor().as_ivec3();
-        let items = self.content.items.clone();
-        if let Some(id) = items.id(&kind.item_key()) {
-            self.drop_stack(at, inventory::ItemStack::new(id, 1));
-        }
-        for stack in contents {
-            if let Some(item) = items.id(&stack.item) {
-                self.drop_stack(
-                    at,
-                    inventory::ItemStack {
-                        item,
-                        count: stack.count,
-                        damage: stack.damage,
-                    },
-                );
-            }
-        }
     }
 
     /// Chaque image : la vitesse maximale des options, et Maj pour descendre.
@@ -296,7 +112,7 @@ impl VoxelGame {
                 let at = rail + offset;
                 let behavior = {
                     let block = self.streamer().world().block(at);
-                    self.registry.def(block).behavior.clone()
+                    self.server.registry.def(block).behavior.clone()
                 };
                 let load = match behavior.as_deref() {
                     Some("core:cart_loader") => true,
@@ -445,6 +261,182 @@ pub fn stuck(from: &Inventory, to: &mut Inventory) -> bool {
         .iter()
         .flatten()
         .all(|s: &ItemStack| to.insert(None, &s.item, 1, true) == 0)
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// S'asseoir dans un wagonnet.
+    pub(crate) fn ride(&mut self, cart: Entity) -> bool {
+        if player::mode(&self.ecs, self.players.entity()) == MoveMode::Fly {
+            self.toast("Pas en vol");
+            return false;
+        }
+        if carts::board(&mut self.ecs, self.players.entity(), cart) {
+            self.punch();
+            self.toast("Maj : descendre. Avancer : pousser.");
+            true
+        } else {
+            self.toast("Le wagonnet est occupé");
+            false
+        }
+    }
+
+    /// Pose le wagon tenu sur le rail visé.
+    fn place_cart(&mut self, kind: CartKind) -> bool {
+        let aim = self.aim();
+        let Some(hit) = aim.hit else {
+            return false;
+        };
+        if rail_at(&*self.streamer(), hit.block_pos).is_none() {
+            return false;
+        }
+        // Pas de deux wagons au même endroit.
+        let spot = hit.block_pos.as_vec3() + Vec3::new(0.5, 0.1, 0.5);
+        let mut crowded = false;
+        self.ecs
+            .query::<(&Transform, &Cart)>()
+            .for_each(|_, (t, _)| crowded |= t.position.distance(spot) < 0.9);
+        if crowded {
+            self.toast("Un wagon est déjà là");
+            return false;
+        }
+        let look = aim.forward;
+        if carts::place(&mut self.ecs, kind, hit.block_pos, look).is_none() {
+            return false;
+        }
+        self.players.me_mut().inventory.consume_selected();
+        self.punch();
+        self.sound("core:place_hard");
+        true
+    }
+
+    /// La clé de l'objet tenu en main.
+    fn held_key(&self) -> Option<String> {
+        let item = self.players.me().inventory.selected_item()?;
+        Some(self.content.items.get(item).key.clone())
+    }
+
+    /// Un clic de l'attelage sur un wagon : le premier est retenu, le second est relié au premier.
+    fn couple_click(&mut self, entity: Entity) -> bool {
+        let first = self
+            .ecs
+            .resource::<CartPending>()
+            .0
+            .filter(|&e| self.ecs.is_alive(e));
+        let Some(first) = first else {
+            self.ecs.resource_mut::<CartPending>().0 = Some(entity);
+            self.toast("Attelage : choisis un second wagon");
+            return true;
+        };
+        self.ecs.resource_mut::<CartPending>().0 = None;
+        if first == entity {
+            self.toast("Attelage annulé");
+            return true;
+        }
+        let position = |world: &engine_ecs::World, e| world.get::<Transform>(e).map(|t| t.position);
+        let (Some(a), Some(b)) = (position(&self.ecs, first), position(&self.ecs, entity)) else {
+            return true;
+        };
+        if a.distance(b) > COUPLING_REACH {
+            self.toast("Ces wagons sont trop éloignés");
+            return true;
+        }
+        match carts::toggle_coupling(&self.ecs, first, entity) {
+            Some(true) => self.toast("Wagons attelés"),
+            Some(false) => self.toast("Wagons détachés"),
+            None => {}
+        }
+        self.punch();
+        true
+    }
+
+    /// Casse un wagon : son objet et son contenu tombent à sa place.
+    pub(crate) fn break_cart(&mut self, entity: Entity) {
+        let Some((kind, position)) = self
+            .ecs
+            .get::<Cart>(entity)
+            .map(|c| c.kind)
+            .zip(self.ecs.get::<Transform>(entity).map(|t| t.position))
+        else {
+            return;
+        };
+        let contents = carts::remove(&mut self.ecs, entity);
+        let at = (position + Vec3::Y * 0.3).floor().as_ivec3();
+        let items = self.content.items.clone();
+        if let Some(id) = items.id(&kind.item_key()) {
+            self.drop_stack(at, inventory::ItemStack::new(id, 1));
+        }
+        for stack in contents {
+            if let Some(item) = items.id(&stack.item) {
+                self.drop_stack(
+                    at,
+                    inventory::ItemStack {
+                        item,
+                        count: stack.count,
+                        damage: stack.damage,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Un clic droit : poser un wagon sur un rail, atteler, monter ou ouvrir un wagon.
+    pub(crate) fn use_cart(&mut self) -> bool {
+        let held = self.held_key();
+        if held.as_deref() == Some("core:coupler") {
+            return self.aimed_cart().is_some_and(|e| self.couple_click(e));
+        }
+        if let Some(kind) = held.as_deref().and_then(CartKind::from_item_key)
+            && self.place_cart(kind)
+        {
+            return true;
+        }
+        let Some(entity) = self.aimed_cart() else {
+            return false;
+        };
+        let Some(kind) = self.ecs.get::<Cart>(entity).map(|c| c.kind) else {
+            return false;
+        };
+        if kind == CartKind::Minecart {
+            self.ride(entity)
+        } else {
+            let Some(id) = self.ecs.get::<crate::entities::NetId>(entity).map(|id| *id) else {
+                return false;
+            };
+            self.open_screen(ui::Screen::Cart(id));
+            true
+        }
+    }
+
+    /// Un coup de poing sur un wagon : le premier le fait rougir, le second le casse.
+    pub(crate) fn punch_cart(&mut self) -> bool {
+        let Some(entity) = self.aimed_cart() else {
+            return false;
+        };
+        let broken = {
+            let Some(mut cart) = self.ecs.get_mut::<Cart>(entity) else {
+                return false;
+            };
+            let broken = cart.hurt > 0.0;
+            cart.hurt = 1.2;
+            broken
+        };
+        self.punch();
+        self.sound("core:break_soft");
+        if broken {
+            self.break_cart(entity);
+        }
+        true
+    }
+
+    /// Le wagon visé, s'il est plus près que le bloc visé.
+    pub(crate) fn aimed_cart(&self) -> Option<Entity> {
+        let aim = self.aim();
+        let block_distance = aim
+            .hit
+            .map_or(self.players.me().gear.reach(), |hit| hit.distance);
+        carts::hit_cart(&self.ecs, aim.eye, aim.forward, block_distance).map(|(e, _)| e)
+    }
 }
 
 #[cfg(test)]

@@ -376,8 +376,8 @@ impl VoxelGame {
         );
         let icon = self.client.ui.icon(
             quest.icon,
-            &self.content.items,
-            &self.registry,
+            &self.server.content.items,
+            &self.server.registry,
             &self.client.block_textures,
         );
         painter.image(
@@ -443,8 +443,8 @@ impl VoxelGame {
             .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
             .clone();
         let namer = Namer {
-            items: &self.content.items,
-            blocks: &self.registry,
+            items: &self.server.content.items,
+            blocks: &self.server.registry,
             creatures: &mobs,
         };
         let remaining = labels::remaining(quest, &progress, &namer);

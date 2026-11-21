@@ -64,17 +64,29 @@ pub fn broken_bag(
     })
 }
 
-impl VoxelGame {
+impl VoxelGame {}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// Le numéro du sac posé en `pos`, s'il y en a un.
+    pub(crate) fn placed_bag_number(&self, pos: IVec3) -> Option<u32> {
+        let streamer = self.streamer();
+        if !is_placed_bag(&self.registry, streamer.world().block(pos)) {
+            return None;
+        }
+        read_number(&streamer.block_entity(pos)?.data)
+    }
+
     /// Maj + clic droit avec un sac en main : le pose au sol. `true` si l'objet en main est un sac
     /// (même si la pose échoue : on ne veut pas ouvrir le sac à la place).
     pub(crate) fn place_backpack(&mut self) -> bool {
-        let Some(stack) = self.server.players.me_mut().inventory.selected_stack() else {
+        let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
             return false;
         };
         if !backpacks::is_backpack(&self.content.items.get(stack.item).key) {
             return false;
         }
-        let slot = self.server.players.me_mut().inventory.selected;
+        let slot = self.players.me_mut().inventory.selected;
         let Some(number) = self.bag_number_at(slot) else {
             self.toast("Plus aucun numéro de sac disponible");
             return true;
@@ -90,15 +102,6 @@ impl VoxelGame {
         entity.data = write_number(number);
         self.streamer_mut().set_block_entity(pos, Some(entity));
         true
-    }
-
-    /// Le numéro du sac posé en `pos`, s'il y en a un.
-    pub(crate) fn placed_bag_number(&self, pos: IVec3) -> Option<u32> {
-        let streamer = self.streamer();
-        if !is_placed_bag(&self.registry, streamer.world().block(pos)) {
-            return None;
-        }
-        read_number(&streamer.block_entity(pos)?.data)
     }
 }
 

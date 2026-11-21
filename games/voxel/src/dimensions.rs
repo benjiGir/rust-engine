@@ -211,9 +211,13 @@ impl VoxelGame {
         let cells = [feet.floor().as_ivec3(), (feet + Vec3::Y).floor().as_ivec3()];
         let portal = {
             let streamer = self.streamer();
-            cells
-                .iter()
-                .find_map(|c| self.registry.def(streamer.world().block(*c)).portal.clone())
+            cells.iter().find_map(|c| {
+                self.server
+                    .registry
+                    .def(streamer.world().block(*c))
+                    .portal
+                    .clone()
+            })
         };
         match portal {
             None => {
@@ -231,35 +235,6 @@ impl VoxelGame {
         }
     }
 
-    /// Passe dans une dimension : sauvegarde le monde ouvert, note l'arrivée dans `world.ron`, puis
-    /// recharge le monde (voir le début de ce fichier). Refusé dans un monde sans sauvegarde.
-    pub(crate) fn travel(&mut self, target: &str) -> bool {
-        let Some(root) = self.server.dims.meta_store.clone() else {
-            log::warn!("les dimensions demandent un monde sauvegardé (pas le monde jetable)");
-            return false;
-        };
-        if target == self.server.dims.current.key {
-            return false;
-        }
-        if self.server.dims.registry.get(target).is_none() {
-            log::warn!("dimension « {target} » inconnue");
-            return false;
-        }
-        log::info!("passage vers la dimension « {target} »");
-        // Les chunks de la dimension quittée, puis le joueur : `save_now` écrit les deux, et le
-        // `world.ron` définitif est celui-ci (position conservée, dimension et arrivée notées).
-        self.server.dims.leaving = Some(target.to_string());
-        self.save_now();
-        self.client.request = Some(Request::Play(Launch {
-            world: Some(root.dir().to_path_buf()),
-            seed: None,
-            title: false,
-            difficulty: None,
-            dimension: Some(target.to_string()),
-        }));
-        true
-    }
-
     /// Les noms des dimensions du monde, pour `ctl` et la console.
     pub(crate) fn dimension_names(&self) -> Vec<String> {
         self.server
@@ -268,6 +243,39 @@ impl VoxelGame {
             .iter()
             .map(|d| d.key.clone())
             .collect()
+    }
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// Passe dans une dimension : sauvegarde le monde ouvert, note l'arrivée dans `world.ron`, puis
+    /// recharge le monde (voir le début de ce fichier). Refusé dans un monde sans sauvegarde.
+    pub(crate) fn travel(&mut self, target: &str) -> bool {
+        let Some(root) = self.dims.meta_store.clone() else {
+            log::warn!("les dimensions demandent un monde sauvegardé (pas le monde jetable)");
+            return false;
+        };
+        if target == self.dims.current.key {
+            return false;
+        }
+        if self.dims.registry.get(target).is_none() {
+            log::warn!("dimension « {target} » inconnue");
+            return false;
+        }
+        log::info!("passage vers la dimension « {target} »");
+        // Les chunks de la dimension quittée, puis le joueur : `save_now` écrit les deux, et le
+        // `world.ron` définitif est celui-ci (position conservée, dimension et arrivée notées).
+        self.dims.leaving = Some(target.to_string());
+        self.save_now();
+        // La fenêtre recharge le monde dans la nouvelle dimension (`take_travel`).
+        self.travel = Some(Request::Play(Launch {
+            world: Some(root.dir().to_path_buf()),
+            seed: None,
+            title: false,
+            difficulty: None,
+            dimension: Some(target.to_string()),
+        }));
+        true
     }
 }
 

@@ -37,8 +37,8 @@ impl VoxelGame {
             .ecs
             .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
             .clone();
-        let items = self.content.items.clone();
-        let registry = self.registry.clone();
+        let items = self.server.content.items.clone();
+        let registry = self.server.registry.clone();
         let namer = Namer {
             items: &items,
             blocks: &registry,

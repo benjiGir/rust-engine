@@ -14,7 +14,6 @@
 use engine_voxel::{BlockId, ToolKind};
 use glam::{IVec3, Vec3};
 
-use crate::VoxelGame;
 use crate::attributes::Attribute;
 use crate::components::{Mob, Transform};
 use crate::inventory::ItemStack;
@@ -38,7 +37,8 @@ pub fn fall_after_feather(amount: f32, resist: f32) -> f32 {
     amount * (1.0 - resist.clamp(0.0, 1.0))
 }
 
-impl VoxelGame {
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
     /// Ce que lâche un bloc, par terre à sa place (ou dans l'inventaire avec Aspiration).
     pub(crate) fn drop_loot(
         &mut self,
@@ -53,13 +53,7 @@ impl VoxelGame {
         // Toucher de soie : le bloc lui-même (jamais un fluide ni un bloc de passage).
         let silk = tool.is_some()
             && harvest
-            && self
-                .server
-                .players
-                .me_mut()
-                .gear
-                .value(Attribute::SilkTouch)
-                > 0.0
+            && self.players.me_mut().gear.value(Attribute::SilkTouch) > 0.0
             && def.placeable
             && !def.liquid
             && !def.unbreakable;
@@ -76,13 +70,7 @@ impl VoxelGame {
                 .roll(block, tool, harvest, &self.content.items, &mut rng)
         };
         // Fortune : les minerais.
-        let fortune = self
-            .server
-            .players
-            .me_mut()
-            .gear
-            .value(Attribute::Fortune)
-            .round() as u32;
+        let fortune = self.players.me_mut().gear.value(Attribute::Fortune).round() as u32;
         let ore = def.xp != (0, 0);
         for (item, count) in loot {
             let count = if ore && !silk {
@@ -95,13 +83,36 @@ impl VoxelGame {
         }
     }
 
+    /// Une créature vient de frapper le joueur depuis `from` : les Épines lui renvoient des dégâts.
+    pub(crate) fn reflect_thorns(&mut self, from: Vec3) {
+        let thorns = self.players.me_mut().gear.value(Attribute::Thorns);
+        if thorns <= 0.0 {
+            return;
+        }
+        let mut nearest: Option<(f32, engine_ecs::Entity)> = None;
+        self.ecs
+            .query::<(&Transform, &Mob)>()
+            .for_each(|entity, (transform, _)| {
+                let distance = transform.position.distance(from);
+                if distance <= THORNS_RANGE && nearest.is_none_or(|(best, _)| distance < best) {
+                    nearest = Some((distance, entity));
+                }
+            });
+        if let Some((_, mob)) = nearest {
+            let at = crate::player::body(&self.ecs, self.players.entity()).position;
+            crate::mobs::damage_mob(&mut self.ecs, mob, thorns, at);
+            let me = self.players.local_id();
+            self.ecs.insert(mob, crate::players::LastHitBy(me));
+        }
+    }
+
     /// Lâche un butin : directement dans l'inventaire si le joueur a Aspiration (et que `near` dit
     /// que le butin est à sa portée), par terre sinon ou pour ce qui ne tient pas.
     pub(crate) fn give_loot(&mut self, pos: IVec3, stack: ItemStack, near: bool) {
         if stack.count == 0 {
             return;
         }
-        let stack = if near && self.server.players.me_mut().gear.value(Attribute::Magnet) > 0.0 {
+        let stack = if near && self.players.me_mut().gear.value(Attribute::Magnet) > 0.0 {
             let left = self.collect_stack(stack);
             if left == 0 {
                 return;
@@ -116,37 +127,10 @@ impl VoxelGame {
         self.drop_stack(pos, stack);
     }
 
-    /// Une créature vient de frapper le joueur depuis `from` : les Épines lui renvoient des dégâts.
-    pub(crate) fn reflect_thorns(&mut self, from: Vec3) {
-        let thorns = self.server.players.me_mut().gear.value(Attribute::Thorns);
-        if thorns <= 0.0 {
-            return;
-        }
-        let mut nearest: Option<(f32, engine_ecs::Entity)> = None;
-        self.server
-            .ecs
-            .query::<(&Transform, &Mob)>()
-            .for_each(|entity, (transform, _)| {
-                let distance = transform.position.distance(from);
-                if distance <= THORNS_RANGE && nearest.is_none_or(|(best, _)| distance < best) {
-                    nearest = Some((distance, entity));
-                }
-            });
-        if let Some((_, mob)) = nearest {
-            let at = crate::player::body(&self.server.ecs, self.server.players.entity()).position;
-            crate::mobs::damage_mob(&mut self.server.ecs, mob, thorns, at);
-            let me = self.server.players.local_id();
-            self.server.ecs.insert(mob, crate::players::LastHitBy(me));
-        }
-    }
-
     /// Les dégâts d'un coup de l'environnement, après Légèreté pour une chute.
     pub(crate) fn environment_damage(&self, amount: f32, cause: DamageCause) -> f32 {
         if cause == DamageCause::Fall {
-            fall_after_feather(
-                amount,
-                self.server.players.me().gear.value(Attribute::FallResist),
-            )
+            fall_after_feather(amount, self.players.me().gear.value(Attribute::FallResist))
         } else {
             amount
         }

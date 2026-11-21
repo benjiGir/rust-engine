@@ -221,6 +221,9 @@ impl ClientEntities {
             | ServerMsg::Respawned
             | ServerMsg::OpenScreen(_)
             | ServerMsg::CloseScreen
+            | ServerMsg::Chat(_)
+            | ServerMsg::ModOptions { .. }
+            | ServerMsg::ModHud { .. }
             | ServerMsg::Chunk { .. }
             | ServerMsg::ChunkChanged { .. } => {}
         }

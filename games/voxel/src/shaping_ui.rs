@@ -41,7 +41,7 @@ impl VoxelGame {
         let Some(stack) = self.client.view.me.inventory.craft[0] else {
             return Input::Empty;
         };
-        let def = self.content.items.get(stack.item);
+        let def = self.server.content.items.get(stack.item);
         if let Some(kind) = shape_materials::kind_of(def) {
             return match shape_materials::key_of(stack.damage) {
                 Some(material) => Input::Pieces(kind, material, stack.count),
@@ -51,7 +51,7 @@ impl VoxelGame {
         let Some(block) = def.block else {
             return Input::Refused(def.name.clone(), "ce n'est pas un bloc");
         };
-        match shaped::why_not_shapeable(self.registry.def(block)) {
+        match shaped::why_not_shapeable(self.server.registry.def(block)) {
             None => Input::Block(def.key.clone(), def.name.clone()),
             Some(reason) => Input::Refused(def.name.clone(), reason),
         }
@@ -85,7 +85,7 @@ impl VoxelGame {
                     );
                 }
                 Input::Pieces(kind, material, count) => {
-                    let name = shape_materials::material_name(&self.registry, material);
+                    let name = shape_materials::material_name(&self.server.registry, material);
                     ui.strong(format!("{} × {count}", kind.name()));
                     ui.label(format!("En {}.", name.to_lowercase()));
                 }
@@ -124,7 +124,7 @@ impl VoxelGame {
 
     /// Une entrée de la grille : l'icône de la pièce et son rendement ; un clic taille.
     fn shape_entry(&mut self, ui: &mut egui::Ui, kind: PieceKind, number: u32) {
-        let Some(item) = self.content.items.id(kind.key()) else {
+        let Some(item) = self.server.content.items.id(kind.key()) else {
             return;
         };
         let preview = ItemStack {
@@ -161,7 +161,7 @@ impl VoxelGame {
             );
             return;
         }
-        let name = shape_materials::material_name(&self.registry, material);
+        let name = shape_materials::material_name(&self.server.registry, material);
         let all = ui.input(|i| i.modifiers.shift);
         let wanted = if all { blocks } else { 1 };
         let clicked = ui
@@ -171,11 +171,41 @@ impl VoxelGame {
             self.send_now(ClientMsg::Screen(ScreenAction::Rebuild { all }));
         }
     }
+}
+
+impl crate::server_side::VoxelServer {
+    // (lot 4b) Méthodes du serveur.
+    /// Refait des blocs pleins avec les pièces de `slot` : un bloc, ou tous ceux que la pile permet.
+    pub(crate) fn rebuild(&mut self, slot: Slot, all: bool) -> Result<u32, String> {
+        let Some(stack) = *self.players.me_mut().inventory.slot_mut(slot) else {
+            return Err("rien à reconstituer".into());
+        };
+        let kind = shape_materials::kind_of(self.content.items.get(stack.item))
+            .ok_or("ce ne sont pas des pièces")?;
+        let material = shape_materials::key_of(stack.damage).ok_or("pièces sans matière")?;
+        let item = self
+            .content
+            .items
+            .id(&material)
+            .ok_or_else(|| format!("« {material} » n'existe plus"))?;
+        let possible = stack.count / kind.per_block();
+        if possible == 0 {
+            return Err(format!("il faut {} pièces pour un bloc", kind.per_block()));
+        }
+        let blocks = if all { possible } else { 1 };
+        let left = stack.count - blocks * kind.per_block();
+        *self.players.me_mut().inventory.slot_mut(slot) = (left > 0).then_some(ItemStack {
+            count: left,
+            ..stack
+        });
+        self.give_or_drop(ItemStack::new(item, blocks));
+        Ok(blocks)
+    }
 
     /// Taille des blocs de `slot` en pièces de la sorte `kind` : un bloc, ou toute la pile. `Err`
     /// dit pourquoi rien n'est fait.
     pub(crate) fn carve(&mut self, slot: Slot, kind: PieceKind, all: bool) -> Result<u32, String> {
-        let Some(stack) = *self.server.players.me_mut().inventory.slot_mut(slot) else {
+        let Some(stack) = *self.players.me_mut().inventory.slot_mut(slot) else {
             return Err("rien à tailler".into());
         };
         let def = self.content.items.get(stack.item);
@@ -193,7 +223,7 @@ impl VoxelGame {
             count: blocks * kind.per_block(),
             damage: shape_materials::number_of(&key),
         };
-        *self.server.players.me_mut().inventory.slot_mut(slot) =
+        *self.players.me_mut().inventory.slot_mut(slot) =
             (stack.count > blocks).then_some(ItemStack {
                 count: stack.count - blocks,
                 ..stack
@@ -201,32 +231,5 @@ impl VoxelGame {
         self.give_or_drop(made);
         self.sound("core:place_hard");
         Ok(made.count)
-    }
-
-    /// Refait des blocs pleins avec les pièces de `slot` : un bloc, ou tous ceux que la pile permet.
-    pub(crate) fn rebuild(&mut self, slot: Slot, all: bool) -> Result<u32, String> {
-        let Some(stack) = *self.server.players.me_mut().inventory.slot_mut(slot) else {
-            return Err("rien à reconstituer".into());
-        };
-        let kind = shape_materials::kind_of(self.content.items.get(stack.item))
-            .ok_or("ce ne sont pas des pièces")?;
-        let material = shape_materials::key_of(stack.damage).ok_or("pièces sans matière")?;
-        let item = self
-            .content
-            .items
-            .id(&material)
-            .ok_or_else(|| format!("« {material} » n'existe plus"))?;
-        let possible = stack.count / kind.per_block();
-        if possible == 0 {
-            return Err(format!("il faut {} pièces pour un bloc", kind.per_block()));
-        }
-        let blocks = if all { possible } else { 1 };
-        let left = stack.count - blocks * kind.per_block();
-        *self.server.players.me_mut().inventory.slot_mut(slot) = (left > 0).then_some(ItemStack {
-            count: left,
-            ..stack
-        });
-        self.give_or_drop(ItemStack::new(item, blocks));
-        Ok(blocks)
     }
 }

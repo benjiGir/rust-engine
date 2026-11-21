@@ -147,7 +147,7 @@ impl VoxelGame {
                     .for_each(|_, (t, d)| {
                         list.push(format!(
                             "{{\"item\":{},\"count\":{},\"damage\":{},\"pos\":[{:.2},{:.2},{:.2}],\"age\":{:.1}}}",
-                            crate::control::json_str(&self.content.items.get(d.stack.item).key),
+                            crate::control::json_str(&self.server.content.items.get(d.stack.item).key),
                             d.stack.count,
                             d.stack.damage,
                             t.position.x,
@@ -169,21 +169,21 @@ impl VoxelGame {
                     .and_then(|e| e.caps.as_ref()?.inventory.as_ref())
                     .with_context(|| format!("container : pas d'inventaire en {pos}"))?;
                 let block = streamer.world().block(pos);
-                let layout = engine_voxel::layout_of(&self.registry, block);
+                let layout = engine_voxel::layout_of(&self.server.registry, block);
                 Ok(format!(
                     "{{\"ok\":true,\"block\":{},\"slots\":{},\"main\":{},\"upgrades\":{},\"items\":{}}}",
-                    crate::control::json_str(&self.registry.def(block).key),
+                    crate::control::json_str(&self.server.registry.def(block).key),
                     inventory.slots.len(),
                     layout.map_or(inventory.slots.len(), |l| l.main),
                     layout.map_or(0, |l| l.upgrades),
-                    slots_json(&self.content.items, &inventory.slots),
+                    slots_json(&self.server.content.items, &inventory.slots),
                 ))
             }
             Command::Bag(number) => {
                 let number = match (number, self.client.ui.screen) {
                     (Some(n), _) | (None, Screen::Bag(n)) => n,
                     (None, _) => {
-                        let items = self.content.items.clone();
+                        let items = self.server.content.items.clone();
                         crate::backpacks::carried(
                             &self.server.players.me_mut().inventory,
                             &items,
@@ -205,7 +205,7 @@ impl VoxelGame {
                     bag.slots.len(),
                     bag.layout().main,
                     bag.disabled,
-                    slots_json(&self.content.items, &bag.slots),
+                    slots_json(&self.server.content.items, &bag.slots),
                 ))
             }
         }

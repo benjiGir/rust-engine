@@ -120,7 +120,10 @@ impl ClientWorld {
             | ServerMsg::Died { .. }
             | ServerMsg::Respawned
             | ServerMsg::OpenScreen(_)
-            | ServerMsg::CloseScreen => {}
+            | ServerMsg::CloseScreen
+            | ServerMsg::Chat(_)
+            | ServerMsg::ModOptions { .. }
+            | ServerMsg::ModHud { .. } => {}
             // Les entités : Tick, Spawn, Despawn, Moves, EntityState, GridBlocks.
             entity_msg => self.entities.receive(&entity_msg),
         }
@@ -243,6 +246,14 @@ impl VoxelGame {
     /// Fin d'image : le serveur envoie ce qui a changé à chaque joueur, le client applique les messages
     /// reçus et sa réplique remaille (les éditions dans cette image, le reste en tâche de fond).
     pub(crate) fn sync_world_view(&mut self) {
+        // Ce que le serveur a laissé pour la fenêtre : les durées des éditions (mesures), et un
+        // changement de dimension à faire (recharger le monde).
+        for time in std::mem::take(&mut self.server.edit_times) {
+            self.client.frame_stats.record_edit(time);
+        }
+        if let Some(request) = self.server.travel.take() {
+            self.client.request = Some(request);
+        }
         let changes = self.streamer_mut().take_changes();
         let radius = self.client.view.replica().config().view_radius;
         let mut updates = Vec::new();
