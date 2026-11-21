@@ -264,6 +264,7 @@ impl VoxelGame {
         mut renderer: Renderer,
         launch: Launch,
         settings: settings::Settings,
+        joined: Option<net_client::Joined>,
     ) -> Result<Self> {
         renderer.crosshair = !launch.title;
         // `std::env::var` renvoie `Err` si la variable n'existe pas : `.ok()` en fait un `Option`.
@@ -309,14 +310,14 @@ impl VoxelGame {
         // terrain lointain en dépend) et le joueur placé où l'hôte l'accueille (voir `net_client.rs`).
         let mut remote = None;
         if let Some(address) = &launch.join {
-            // `VOXEL_NAME` et `VOXEL_UUID` : un second joueur sur la même machine (essais).
-            let name = std::env::var("VOXEL_NAME").unwrap_or_else(|_| settings.player_name.clone());
-            let uuid = std::env::var("VOXEL_UUID")
-                .ok()
-                .and_then(|u| players::parse_uuid(&u))
-                .or_else(|| players::parse_uuid(&settings.player_uuid))
-                .unwrap_or_default();
-            let joined = net_client::join(address, &server, &name, uuid)?;
+            // Déjà accueilli depuis le menu, ou (`VOXEL_JOIN`) la poignée de main maintenant.
+            let joined = match joined {
+                Some(joined) => joined,
+                None => {
+                    let (name, uuid) = net_client::identity(&settings);
+                    net_client::join(address, &server, &name, uuid)?
+                }
+            };
             if joined.seed != seed {
                 let shell = Launch {
                     seed: Some(joined.seed),
@@ -467,6 +468,7 @@ impl VoxelGame {
                 eating_sent: false,
                 body,
                 remote,
+                lan: None,
                 mining: None,
                 air_swing: false,
                 steer_sent: 0.0,
@@ -920,13 +922,32 @@ impl App {
             ctx.exit();
             return Ok(());
         }
-        let renderer = game.shutdown();
         let launch = match request {
             Request::Play(launch) => launch,
             _ => Launch::title(),
         };
+        // Rejoindre : la poignée de main avant de quitter ce monde (même contenu, même empreinte) ;
+        // un refus laisse au menu, avec la raison.
+        let mut joined = None;
+        if let Some(address) = &launch.join {
+            let (name, uuid) = net_client::identity(&settings);
+            match net_client::join(address, &game.server, &name, uuid) {
+                Ok(welcome) => joined = Some(welcome),
+                Err(err) => {
+                    log::warn!("{err:#}");
+                    let mut game = game;
+                    game.mode = Mode::Title(menus::TitlePage::Join {
+                        address: address.clone(),
+                        error: Some(format!("{err:#}")),
+                    });
+                    self.game = Some(game);
+                    return Ok(());
+                }
+            }
+        }
+        let renderer = game.shutdown();
         log::info!("chargement : {launch:?}");
-        self.game = Some(VoxelGame::create(ctx, renderer, launch, settings)?);
+        self.game = Some(VoxelGame::create(ctx, renderer, launch, settings, joined)?);
         Ok(())
     }
 }
@@ -955,7 +976,7 @@ impl Game for App {
         }
         let launch = Launch::from_env().unwrap_or_else(Launch::title);
         Ok(Self {
-            game: Some(VoxelGame::create(ctx, renderer, launch, settings)?),
+            game: Some(VoxelGame::create(ctx, renderer, launch, settings, None)?),
             menu_demo: std::env::var("VOXEL_MENU_DEMO")
                 .ok()
                 .map(|_| (Instant::now(), 0)),

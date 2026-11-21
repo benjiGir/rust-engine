@@ -949,8 +949,14 @@ lot 4, viendra plus tard) :
     mort peut réapparaître, et la pause n'arrête plus le monde quand la partie est ouverte ;
   - vérifié avec deux fenêtres : l'invité voit le monde de l'hôte et son inventaire, marche (l'hôte le voit
     bouger), part (l'hôte le sauvegarde).
-- **5e (à faire)** : l'annonce sur le réseau local et l'écran « Rejoindre », le bouton « Ouvrir au réseau local »
-  du menu pause, le nom au-dessus des autres joueurs, la liste (Tab), le chat (T), `ctl` limité à l'hôte.
+- **5e-1, les menus (réalisé)** :
+  - `engine_net::lan` : l'hôte annonce sa partie en UDP toutes les 1,5 s (diffusion, ou la boucle locale sans
+    réseau) ; `Discovery` garde les parties entendues depuis moins de 5 s ;
+  - menu pause : « Ouvrir au réseau local » (port, nombre d'invités) ; menu principal : « Multijoueur » liste les
+    parties annoncées et prend une adresse (le port 25 600 par défaut) ;
+  - la poignée de main se fait avant de quitter le monde du menu (même contenu, même empreinte) : un refus ou un
+    hôte absent laisse au menu, avec la raison ; la perte de l'hôte ramène au menu.
+- **5e-2 (à faire)** : le nom au-dessus des autres joueurs, la liste (Tab), le chat (T), `ctl` limité à l'hôte.
 
 
 - `engine_net` :

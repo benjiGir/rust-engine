@@ -101,6 +101,8 @@ pub(crate) struct ClientSide {
     /// Le lien avec l'hôte, pour un invité (voir `net_client.rs`) ; `None` : cette fenêtre fait
     /// tourner le monde.
     pub(crate) remote: Option<crate::net_client::RemoteLink>,
+    /// L'écoute des parties annoncées, ouverte sur l'écran « Multijoueur ».
+    pub(crate) lan: Option<engine_net::Discovery>,
     /// Le corps du joueur, simulé ici (voir `predicted.rs`).
     pub(crate) body: crate::predicted::PredictedBody,
 }

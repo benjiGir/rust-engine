@@ -38,6 +38,11 @@ pub enum TitlePage {
         selection: crate::shader_packs::Selection,
         from_options: bool,
     },
+    /// Rejoindre une partie : celles annoncées sur le réseau local, ou une adresse.
+    Join {
+        address: String,
+        error: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -215,12 +220,21 @@ impl VoxelGame {
                         error: None,
                     });
                 }
-                let (textures, shaders) =
-                    crate::ui_layout::paired_buttons(ui, "Packs de textures…", "Packs de shaders…");
-                if textures {
+                if button(ui, "Multijoueur") {
+                    self.mode = Mode::Title(TitlePage::Join {
+                        address: String::new(),
+                        error: None,
+                    });
+                }
+                if button(ui, "Packs de textures…") {
                     self.mode = Mode::Title(TitlePage::TexturePacks {
                         selected: self.settings.texture_pack,
                     });
+                }
+                if button(ui, "Packs de shaders") {
+                    self.mode = Mode::Title(TitlePage::ShaderPacks) {
+                        selected: self.settings.shader_pack,
+                    }
                 }
                 if shaders {
                     self.mode = Mode::Title(TitlePage::ShaderPacks {
@@ -406,23 +420,6 @@ impl VoxelGame {
                     crate::texture_packs::Action::None => TitlePage::TexturePacks { selected },
                 });
             }
-            TitlePage::ShaderPacks {
-                mut selection,
-                from_options,
-            } => {
-                self.mode = Mode::Title(if self.shader_panel(ctx, &mut selection) {
-                    if from_options {
-                        TitlePage::Options
-                    } else {
-                        TitlePage::Main
-                    }
-                } else {
-                    TitlePage::ShaderPacks {
-                        selection,
-                        from_options,
-                    }
-                });
-            }
         }
     }
 
@@ -479,6 +476,25 @@ impl VoxelGame {
                     if button(ui, &format!("Options : {name}")) {
                         self.open_mod_options(&id);
                     }
+                }
+                // Ouvrir la partie au réseau local (l'hôte seulement, une fois).
+                if self.hosting()
+                    && self.server.net.is_none()
+                    && button(ui, "Ouvrir au réseau local")
+                {
+                    match self.server.open_lan(crate::net_host::DEFAULT_PORT) {
+                        Ok(port) => self
+                            .server
+                            .toast(&format!("Partie ouverte au réseau local (port {port})")),
+                        Err(err) => self.server.toast(&format!("Impossible d'ouvrir : {err}")),
+                    }
+                }
+                if let Some(net) = &self.server.net {
+                    ui.label(format!(
+                        "Ouverte au réseau local, port {} ({} invité(s))",
+                        net.port(),
+                        net.peer_count()
+                    ));
                 }
                 let label = if self.server.store.is_some() {
                     "Sauvegarder et retourner au menu"

@@ -94,6 +94,8 @@ pub struct NetHost {
     /// Les trames des chunks envoyés dans cette image : un chunk encodé une fois pour tous les joueurs.
     /// L'`Arc` est gardé avec la trame : son adresse ne peut pas resservir tant qu'il est là.
     chunk_frames: HashMap<(IVec3, usize), (Arc<Chunk>, Frame)>,
+    /// L'annonce de la partie sur le réseau local (`None` si l'UDP n'est pas disponible).
+    announcer: Option<engine_net::Announcer>,
 }
 
 impl NetHost {
@@ -101,10 +103,6 @@ impl NetHost {
         self.listener.port()
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "l'écran des joueurs (Tab) viendra")
-    )]
     pub fn peer_count(&self) -> usize {
         self.peers.len()
     }
@@ -122,12 +120,17 @@ impl VoxelServer {
         }
         let listener = Listener::bind(port, 10)?;
         let port = listener.port();
+        let name = format!("Partie de {}", self.players.local().name);
+        let announcer = engine_net::Announcer::new(port, &name, engine_net::ANNOUNCE_PORT)
+            .map_err(|err| log::warn!("annonce sur le réseau local impossible : {err}"))
+            .ok();
         log::info!("partie ouverte au réseau local sur le port {port}");
         self.net = Some(NetHost {
             listener,
             pending: Vec::new(),
             peers: HashMap::new(),
             chunk_frames: HashMap::new(),
+            announcer,
         });
         Ok(port)
     }
@@ -138,6 +141,9 @@ impl VoxelServer {
         let Some(net) = &mut self.net else {
             return;
         };
+        if let Some(announcer) = &mut net.announcer {
+            announcer.tick();
+        }
         loop {
             match net.listener.accept() {
                 Ok(Some(connection)) => {

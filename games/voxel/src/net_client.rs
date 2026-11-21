@@ -40,6 +40,18 @@ pub struct Joined {
     pub seed: u32,
 }
 
+/// Le nom et l'identifiant sous lesquels se présenter : ceux des réglages, ou `VOXEL_NAME` et
+/// `VOXEL_UUID` (un second joueur sur la même machine, pour les essais).
+pub fn identity(settings: &crate::settings::Settings) -> (String, u128) {
+    let name = std::env::var("VOXEL_NAME").unwrap_or_else(|_| settings.player_name.clone());
+    let uuid = std::env::var("VOXEL_UUID")
+        .ok()
+        .and_then(|u| crate::players::parse_uuid(&u))
+        .or_else(|| crate::players::parse_uuid(&settings.player_uuid))
+        .unwrap_or_default();
+    (name, uuid)
+}
+
 /// Se présente à l'hôte et attend sa réponse.
 pub fn join(address: &str, server: &VoxelServer, name: &str, uuid: u128) -> Result<Joined> {
     let connection = Connection::connect(address, JOIN_TIMEOUT)
