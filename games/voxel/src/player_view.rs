@@ -22,7 +22,6 @@ use std::time::Instant;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
-use crate::VoxelGame;
 use crate::container_view::ContainerView;
 use crate::inventory::{Inventory, ItemStack, SLOTS, Slot};
 use crate::players::{PlayerId, PlayerState};
@@ -329,38 +328,6 @@ pub fn vitals_of(
     }
 }
 
-impl VoxelGame {
-    /// La fenêtre applique un retour du serveur.
-    pub(crate) fn apply_feedback(&mut self, feedback: Feedback) {
-        match feedback {
-            Feedback::Sound(Sound::Key(key)) => {
-                if let Some(audio) = &mut self.client.audio {
-                    audio.play(&key);
-                }
-            }
-            Feedback::Sound(Sound::Block { block, kind }) => {
-                if let Some(audio) = &mut self.client.audio {
-                    audio.play_block(&self.client.registry, engine_voxel::BlockId(block), kind);
-                }
-            }
-            Feedback::Toast(text) => {
-                self.client.ui.toast = Some((text, Instant::now()));
-            }
-            Feedback::Punch => self.client.hand.punch(),
-            Feedback::TierUnlocked(name) => {
-                let key = self
-                    .settings
-                    .keys
-                    .name(crate::settings::Action::Tiers)
-                    .to_string();
-                let text = format!("Palier débloqué : {name} (touche {key})");
-                log::info!("{text}");
-                self.client.ui.toast = Some((text, Instant::now()));
-            }
-        }
-    }
-}
-
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.
     /// Fin d'image : chaque joueur reçoit ses jauges et son inventaire s'ils ont changé.
@@ -371,7 +338,7 @@ impl crate::server_side::VoxelServer {
             // Le conteneur se décrit avec l'état de ce joueur (son `open`).
             let before = self.players.set_acting(Some(id));
             // Une bibliothèque ouverte range ce que les réseaux déposent dans sa case d'entrée.
-            if let Some(crate::ui::Screen::Library(pos)) = self.players.me().screen {
+            if let Some(crate::screens::Screen::Library(pos)) = self.players.me().screen {
                 self.absorb_library(pos);
             }
             let container = self.open_container_view();

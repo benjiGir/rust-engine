@@ -16,11 +16,10 @@
 use engine_voxel::{FurnaceState, ItemStack as StoredStack, Layout};
 use serde::{Deserialize, Serialize};
 
-use crate::VoxelGame;
 use crate::carts::{Cart, CartKind};
 use crate::inventory::ItemStack;
 use crate::players::OpenContainer;
-use crate::storage_ui::Target;
+use crate::storage_ui_server::Target;
 
 /// Ce que la fenêtre montre du conteneur ouvert.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -57,19 +56,6 @@ fn ratio(done: f32, total: f32) -> f32 {
         (done / total).clamp(0.0, 1.0)
     } else {
         0.0
-    }
-}
-
-impl VoxelGame {
-    /// La vue du conteneur ouvert que la fenêtre a reçue.
-    pub(crate) fn shown_container(&self) -> Option<&ContainerView> {
-        self.client.view.me.container.as_ref()
-    }
-
-    /// La pile d'une case du conteneur ouvert, telle que la fenêtre la voit.
-    pub(crate) fn shown_stack(&self, index: usize) -> Option<ItemStack> {
-        self.shown_container()?
-            .stack(&self.client.content.items, index)
     }
 }
 

@@ -10,7 +10,6 @@
 use engine_voxel::{BlockEntity, BlockId, BlockRegistry, ItemRegistry};
 use glam::IVec3;
 
-use crate::VoxelGame;
 use crate::backpacks::{self, MAX_NUMBER};
 use crate::inventory::ItemStack;
 
@@ -63,8 +62,6 @@ pub fn broken_bag(
         damage,
     })
 }
-
-impl VoxelGame {}
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.

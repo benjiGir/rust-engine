@@ -20,7 +20,6 @@ use engine_voxel::{
 };
 use glam::{IVec3, Vec3};
 
-use crate::VoxelGame;
 use crate::launch::{Launch, Request};
 
 /// Le temps qu'il faut rester dans un portail pour le franchir (secondes).
@@ -177,18 +176,6 @@ impl Dimensions {
             self.pending_arrival = Some((IVec3::new(bx, height + 1, bz), block));
         }
         Vec3::new(x as f32 + 0.5, ground as f32 + 1.0 + 1.62, z as f32 + 0.5)
-    }
-}
-
-impl VoxelGame {
-    /// Les noms des dimensions du monde, pour `ctl` et la console.
-    pub(crate) fn dimension_names(&self) -> Vec<String> {
-        self.server
-            .dims
-            .registry
-            .iter()
-            .map(|d| d.key.clone())
-            .collect()
     }
 }
 

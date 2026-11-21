@@ -1,10 +1,12 @@
 //! L'écran du Guide du voyageur : les chapitres à gauche, la page à droite, et sous le texte les
 //! objets dont un clic ouvre les recettes dans l'explorateur. Le contenu est dans `guide.rs`.
 
+#[allow(unused_imports)]
+use crate::guide_ui_server::*;
 use engine_render::egui;
 
 use crate::VoxelGame;
-use crate::guide::{GUIDE_ITEM, expand_keys};
+use crate::guide::expand_keys;
 use crate::inventory::ItemStack;
 use crate::recipe_browser::Lookup;
 use crate::ui::{Press, Screen};
@@ -117,20 +119,5 @@ impl VoxelGame {
         if let Some(item) = open {
             self.client.ui.browser.open(item, Lookup::Recipes);
         }
-    }
-}
-
-impl crate::server_side::VoxelServer {
-    // (lot 4b) Méthodes du serveur.
-    /// Un clic droit avec le guide en main : l'ouvre. `true` si c'était le guide.
-    pub(crate) fn use_guide(&mut self) -> bool {
-        let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
-            return false;
-        };
-        if self.content.items.get(stack.item).key != GUIDE_ITEM {
-            return false;
-        }
-        self.open_screen(Screen::Guide);
-        true
     }
 }

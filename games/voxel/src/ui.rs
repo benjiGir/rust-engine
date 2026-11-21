@@ -5,6 +5,9 @@
 //! l'interface depuis zéro (« un bouton ici, un texte là »), et egui s'occupe de
 //! l'état (survol, clics). Pas d'objets « bouton » à créer et à garder à jour.
 
+#[allow(unused_imports)]
+pub(crate) use crate::screens::Screen;
+use crate::ui_server::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -15,13 +18,12 @@ use engine_inspect::Inspect;
 use engine_render::egui::{self, Color32, TextureHandle, TextureOptions};
 use engine_render::{TEXTURE_SIZE, UiFrame};
 use engine_voxel::{BlockRegistry, Icon, ItemId, ItemRegistry, Recipe};
-use glam::IVec3;
 
 use crate::VoxelGame;
 use crate::components::{
     Collider, Health, Hurt, Mob, MoveIntent, Player, PreviousPosition, Transform, Velocity, Wander,
 };
-use crate::inventory::{Click, HOTBAR, ItemStack, Slot, click_slot};
+use crate::inventory::{Click, HOTBAR, ItemStack, Slot};
 use crate::mobs::MobRegistry;
 
 pub struct GameUi {
@@ -78,20 +80,6 @@ pub struct Split {
     pub amount: u32,
 }
 
-/// Une case, du joueur ou d'un conteneur (coffre, four).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SlotRef {
-    Player(Slot),
-    /// Une case du conteneur ouvert, quel qu'il soit : c'est ainsi que la fenêtre les désigne (le
-    /// serveur sait ce que le joueur a ouvert, voir `slot_ref_for`).
-    Open(usize),
-    Container(IVec3, usize),
-    /// Une case de l'inventaire d'un wagon.
-    Cart(Entity, usize),
-    /// Une case d'un sac à dos (son numéro, la case).
-    Bag(u32, usize),
-}
-
 /// Le bouton pressé sur une case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Press {
@@ -101,50 +89,6 @@ pub(crate) enum Press {
     Quick,
     /// Maj + clic droit : ouvrir « Diviser la pile ».
     Split,
-}
-
-/// L'écran ouvert. Il passe dans `ServerMsg::OpenScreen` : un wagon ou un habitant y est désigné par
-/// son numéro réseau (`NetId`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum Screen {
-    /// L'inventaire (E) : armure, grille 2 × 2, livre de recettes.
-    Inventory,
-    /// L'établi : grille 3 × 3.
-    Workbench,
-    Furnace(IVec3),
-    /// L'alambic.
-    Brewing(IVec3),
-    Chest(IVec3),
-    /// Un sac à dos, par son numéro (voir `backpacks.rs`).
-    Bag(u32),
-    /// Le contrôleur de stockage (voir `storage_ui.rs`).
-    Controller(IVec3),
-    /// L'inventaire d'un wagon (voir `cart_play.rs`).
-    Cart(crate::entities::NetId),
-    /// L'échange avec un habitant.
-    Trade(crate::entities::NetId),
-    /// La table d'enchantement posée à cet endroit (ses étagères sont lues autour d'elle).
-    Enchant(IVec3),
-    /// L'enclume simple (voir `enchant_books.rs`).
-    Anvil,
-    /// La bibliothèque d'enchantements (voir `enchant_library.rs`).
-    Library(IVec3),
-    /// La table de récupération (voir `forge_ui.rs`).
-    Salvage,
-    /// La table de réforge (voir `forge_ui.rs`).
-    Reforge,
-    /// L'établi de taille (voir `shaping_ui.rs`).
-    Shaping,
-    /// Les paliers du monde (voir `tiers_ui.rs`).
-    Tiers,
-    /// Le Guide du voyageur (voir `guide_ui.rs`).
-    Guide,
-    /// Le livre de quêtes, plein écran (voir `quest_ui.rs`).
-    Quests,
-    /// Le menu d'une machine de mod (voir `mod_menu.rs`).
-    Mod(IVec3),
-    /// La console de commandes (voir `console.rs`).
-    Console,
 }
 
 impl GameUi {
@@ -1013,7 +957,7 @@ impl VoxelGame {
             return;
         };
         let mut events = Vec::new();
-        crate::mod_menu::draw_widgets(
+        crate::ui_widgets::draw_widgets(
             ui,
             &mut state.menu.widgets,
             &mut events,
@@ -1495,76 +1439,4 @@ fn trade_arrow(painter: &egui::Painter, from: f32, to: f32, y: f32, color: egui:
         color,
         egui::Stroke::NONE,
     ));
-}
-
-impl crate::server_side::VoxelServer {
-    // (lot 4b) Méthodes du serveur.
-    /// La pile rangée dans une case d'un wagon.
-    pub(crate) fn cart_stack(&self, cart: Entity, index: usize) -> Option<ItemStack> {
-        let cargo = self.ecs.get::<crate::carts::CartCargo>(cart)?;
-        let stored = cargo.0.slots.get(index)?.as_ref()?;
-        Some(ItemStack {
-            item: self.content.items.id(&stored.item)?,
-            count: stored.count,
-            damage: stored.damage,
-        })
-    }
-
-    /// Un clic sur une case d'un coffre ou d'une machine : la pile est relue puis réécrite
-    /// dans l'entité du bloc (voir `storage_ui.rs` pour les règles des coffres à paliers).
-    fn click_container(&mut self, pos: IVec3, index: usize, click: Click) -> bool {
-        self.click_storage(crate::storage_ui::Target::Block(pos), index, click)
-    }
-
-    /// Un clic sur une case d'un wagon.
-    fn click_cart(&mut self, cart: Entity, index: usize, click: Click) -> bool {
-        let mut slot = self.cart_stack(cart, index);
-        let mut cursor = self.players.me_mut().inventory.cursor.take();
-        // Une locomotive n'accepte que du combustible.
-        let fuel = self
-            .ecs
-            .get::<crate::carts::Cart>(cart)
-            .is_some_and(|c| c.kind == crate::carts::CartKind::Locomotive);
-        let accepts = |item: ItemId| !fuel || self.content.smelting.burn_ticks(item).is_some();
-        click_slot(&mut slot, &mut cursor, &self.content.items, accepts, click);
-        self.players.me_mut().inventory.cursor = cursor;
-        let items = self.content.items.clone();
-        if let Some(mut cargo) = self.ecs.get_mut::<crate::carts::CartCargo>(cart)
-            && let Some(target) = cargo.0.slots.get_mut(index)
-        {
-            *target = slot.map(|s| engine_voxel::ItemStack {
-                item: items.get(s.item).key.clone(),
-                count: s.count,
-                damage: s.damage,
-            });
-        }
-        true
-    }
-
-    /// Applique un clic à une case du joueur ou d'un conteneur.
-    pub(crate) fn click_target(&mut self, target: SlotRef, click: Click) -> bool {
-        match target {
-            SlotRef::Player(slot) => {
-                // Une gemme ou un sceau au curseur sur un objet : sertir, retirer, ajouter.
-                // Un livre, un tome ou une potion au curseur : voir `enchant_books.rs` et `charms.rs`.
-                if !self.try_gem_click(slot, click)
-                    && !self.try_book_click(slot, click)
-                    && !self.try_charm_recharge(slot, click)
-                {
-                    self.players
-                        .me_mut()
-                        .inventory
-                        .click(slot, &self.content.items, click);
-                }
-                true
-            }
-            // Résolue par le serveur avant d'arriver ici (voir `slot_ref_for`).
-            SlotRef::Open(_) => false,
-            SlotRef::Container(pos, index) => self.click_container(pos, index, click),
-            SlotRef::Cart(cart, index) => self.click_cart(cart, index, click),
-            SlotRef::Bag(number, index) => {
-                self.click_storage(crate::storage_ui::Target::Bag(number), index, click)
-            }
-        }
-    }
 }

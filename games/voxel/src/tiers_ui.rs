@@ -6,13 +6,15 @@
 //! envahisseurs) et la rareté du butin ; celles qui sont déjà là ne changent pas. Les règles sont dans
 //! `tiers.rs`, les données dans `tiers.ron`.
 
+#[allow(unused_imports)]
+use crate::tiers_ui_server::*;
 use engine_render::egui;
 
 use crate::VoxelGame;
 use crate::adventure_data::{self, TierDef};
+use crate::screens::Screen;
 use crate::skin;
 use crate::tiers;
-use crate::ui::Screen;
 
 /// Les couleurs de l'écran : le cadre de l'inventaire est clair, il lui faut du texte sombre.
 const DONE: egui::Color32 = egui::Color32::from_rgb(40, 110, 50);
@@ -119,28 +121,6 @@ impl VoxelGame {
             self.send_now(crate::protocol::ClientMsg::Screen(
                 crate::protocol::ScreenAction::Tier(index),
             ));
-        }
-    }
-}
-
-impl crate::server_side::VoxelServer {
-    // (lot 4b) Méthodes du serveur.
-    /// `Tier` : le serveur change le palier du joueur courant, s'il est débloqué.
-    pub(crate) fn choose_tier(&mut self, index: u8) {
-        let data = adventure_data::current();
-        if self
-            .players
-            .me_mut()
-            .adventure
-            .progress
-            .select(index, &data.tiers)
-        {
-            let name = data
-                .tier(index)
-                .map_or("?", |t| t.name.as_str())
-                .to_string();
-            self.toast(&format!("Palier : {name}"));
-            self.sound("core:enchant");
         }
     }
 }

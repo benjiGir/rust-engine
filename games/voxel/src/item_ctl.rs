@@ -205,7 +205,7 @@ impl VoxelGame {
                         self.client.ui.attributes.open = true;
                         if !self.client.ui.inventory_open {
                             self.client.ui.inventory_open = true;
-                            self.client.ui.screen = crate::ui::Screen::Inventory;
+                            self.client.ui.screen = crate::screens::Screen::Inventory;
                             self.client.mouse_captured = false;
                         }
                     }
@@ -231,12 +231,12 @@ impl VoxelGame {
         let key = &self.client.content.items.get(stack.item).key;
         let labels: Vec<String> = enchanting::labels(stack.damage)
             .iter()
-            .map(|l| crate::control::json_str(l))
+            .map(|l| crate::json_text::json_str(l))
             .collect();
         let extended = item_data::is_extended(stack.damage);
         format!(
             "{{\"ok\":true,\"item\":{},\"damage\":{},\"extended\":{},\"number\":{},\"wear\":{},\"enchantments\":[{}],\"sheets\":{}}}",
-            crate::control::json_str(key),
+            crate::json_text::json_str(key),
             stack.damage,
             extended,
             if extended {

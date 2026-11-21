@@ -30,7 +30,6 @@ use engine_ecs::Entity;
 use engine_voxel::{ItemRegistry, Rng64};
 use glam::{IVec3, Vec3};
 
-use crate::VoxelGame;
 use crate::adventure_data::{self, AdventureData, GemDrop};
 use crate::affixes;
 use crate::elites::{self, Elite};
@@ -80,8 +79,6 @@ fn between(rng: &mut Rng64, (min, max): (u32, u32)) -> u32 {
         min + rng.below(max - min + 1)
     }
 }
-
-impl VoxelGame {}
 
 /// Un objet à affixes tiré dans la liste de butin (filtrée par palier). Pure : la graine décide.
 pub fn roll_affixed(

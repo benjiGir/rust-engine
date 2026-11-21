@@ -35,45 +35,12 @@ use engine_voxel::shaped::{self, Link, Part, Piece, PieceKind, Shaped};
 use engine_voxel::{BlockDef, BlockId, RayHit};
 use glam::{IVec3, Vec3};
 
-use crate::VoxelGame;
 use crate::events::{self, BlockBroken, BlockPlaced};
 use crate::inventory::ItemStack;
 use crate::shape_materials;
-use crate::ui_info::Card;
-
-impl VoxelGame {
-    /// La fiche de visée d'une case de formes : ses matériaux, et la pièce visée.
-    pub(crate) fn describe_shaped(&self, card: &mut Card, hit: &RayHit) {
-        let Some(shaped) = self.server.shaped_at(hit.block_pos) else {
-            return;
-        };
-        let names: Vec<String> = shaped
-            .materials
-            .iter()
-            .map(|m| shape_materials::material_name(&self.client.registry, m).to_lowercase())
-            .collect();
-        card.name = format!("Case de formes : {}", names.join(", "));
-        if let Some(index) = self.server.aimed_part(hit.block_pos, &shaped) {
-            let part = shaped.parts[index];
-            let material =
-                shape_materials::material_name(&self.client.registry, shaped.material_of(&part));
-            let (what, size) = describe_piece(&part.piece);
-            card.lines.insert(
-                0,
-                (
-                    format!(
-                        "Pièce visée : {what} de {} ({size})",
-                        material.to_lowercase()
-                    ),
-                    crate::skin::TEXT,
-                ),
-            );
-        }
-    }
-}
 
 /// Le nom d'une pièce et sa taille, pour la fiche de visée.
-fn describe_piece(piece: &shaped::Piece) -> (String, String) {
+pub(crate) fn describe_piece(piece: &shaped::Piece) -> (String, String) {
     let text = |a: &str, b: String| (a.to_string(), b);
     match *piece {
         Piece::Layer { thickness, .. } if thickness >= 16 => text("bloc", "16/16".to_string()),
@@ -404,7 +371,7 @@ impl crate::server_side::VoxelServer {
     }
 
     /// L'indice de la pièce visée dans la case `pos`.
-    fn aimed_part(&self, pos: IVec3, shaped: &Shaped) -> Option<usize> {
+    pub(crate) fn aimed_part(&self, pos: IVec3, shaped: &Shaped) -> Option<usize> {
         // Une forme raccordée est seule dans sa case : c'est elle, bras compris.
         if shaped.link().is_some() {
             return Some(0);

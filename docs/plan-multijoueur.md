@@ -1042,7 +1042,16 @@ Une règle de Rust décide du reste : les méthodes d'un type se définissent da
   `mob_model`, `elites` et `weather` ; les touches winit passent dans `key_codes.rs` (trait `KeyCodes`), et
   `Settings` ne garde que des noms. 27 modules sont désormais purs ; ceux qui touchent encore l'affichage sans
   `VoxelGame` sont tous de la fenêtre, sauf `texture_packs` (sa configuration du registre sert au serveur).
-- **S2, séparer les fichiers mêlés** : la partie serveur et la partie fenêtre dans deux fichiers.
+- **S2, séparer les fichiers mêlés (réalisé)** : 13 modules de simulation perdent leurs méthodes `VoxelGame`
+  (`x.rs` → `x_window.rs` : `intents`, `ships`, `cart_play`, `player_view`, `predicted`…) ; 12 modules d'interface
+  perdent leurs méthodes `VoxelServer` et ce qu'elles utilisaient (`x.rs` → `x_server.rs` : `ui`, `quest_ui`,
+  `storage_ui`, `enchant_ui`, `console`, `death`…) ; 8 `impl VoxelGame {}` vides disparaissent. Les types partagés
+  passent côté simulation : `Screen` et la table de taille (`screens.rs`), `json_str` (`json_text.rs`), la poignée
+  de main du client (`net_join.rs`), `entity_interval`, `SPLASH`, `THUNDER`. Les imports globaux de la racine
+  (`use crate::*`, `use super::*`) des modules de simulation deviennent explicites. Bilan : 106 modules de
+  simulation ne citent plus aucun module de fenêtre. Pour S3 : `server_boot` prend encore à `main.rs`
+  `project_root`, `assets_dir`, `env_parse`, `load_registry`, `EventReaders`, `DEFAULT_SEED`, `FLY_ALTITUDE` ; ils
+  iront à la racine de la bibliothèque.
 - **S3, la crate** : `games/voxel_sim` (bibliothèque) reçoit les modules de simulation ; le jeu les réexporte à la
   racine (`pub(crate) use voxel_sim::inventory;`…), donc `crate::inventory::…` ne change pas dans la fenêtre.
 - **S4, le binaire** : `voxel-server` dans `voxel_sim`, et la règle check-arch (`HEADLESS`).

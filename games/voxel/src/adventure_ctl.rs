@@ -24,7 +24,7 @@ use crate::VoxelGame;
 use crate::adventure_data;
 use crate::affixes;
 use crate::inventory::ItemStack;
-use crate::ui::Screen;
+use crate::screens::Screen;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
@@ -219,7 +219,7 @@ impl VoxelGame {
                 )>().for_each(|_, (elite, health, transform)| {
                     rows.push(format!(
                         "{{\"name\":{},\"invader\":{},\"health\":{:.1},\"max\":{:.1},\"damage\":{:.2},\"speed\":{:.2},\"armor\":{:.1},\"pos\":[{:.1},{:.1},{:.1}]}}",
-                        crate::control::json_str(&elite.name),
+                        crate::json_text::json_str(&elite.name),
                         elite.invader,
                         health.current,
                         health.max,
@@ -353,7 +353,7 @@ impl VoxelGame {
         let name = crate::elites::of(&self.server.ecs, entity).map_or_else(String::new, |e| e.name);
         Ok(format!(
             "{{\"ok\":true,\"name\":{},\"pos\":[{:.1},{:.1},{:.1}]}}",
-            crate::control::json_str(&name),
+            crate::json_text::json_str(&name),
             at.x,
             at.y,
             at.z

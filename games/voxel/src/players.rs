@@ -77,7 +77,7 @@ pub struct PlayerState {
     /// Mort, en attente de réapparaître : sa mort a déjà été traitée (objets lâchés, message).
     pub dead: bool,
     /// L'écran que le serveur a ouvert pour ce joueur (ses gestes ne valent que pour lui).
-    pub screen: Option<crate::ui::Screen>,
+    pub screen: Option<crate::screens::Screen>,
     /// Le dernier regard connu du joueur (direction, d'après ses messages `Move`).
     pub look: glam::Vec3,
     /// Son orientation (`ClientMsg::Look`), pour la sauvegarde.

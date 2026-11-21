@@ -22,7 +22,7 @@ use crate::entities::{EntityKind, GridSnapshot, Look, NetId, Pose};
 use crate::inventory::{Click, Slot};
 use crate::player::MoveMode;
 use crate::player_view::{Feedback, InventoryView, VitalsView};
-use crate::storage_ui::Op;
+use crate::storage_ui_server::Op;
 
 /// Ce que le joueur regarde : l'œil et la direction du regard, au moment de l'action.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -336,7 +336,7 @@ pub enum ServerMsg {
     /// Le joueur est revenu à la vie.
     Respawned,
     /// Le serveur ouvre un écran (conteneur, table, échange, menu de mod...).
-    OpenScreen(crate::ui::Screen),
+    OpenScreen(crate::screens::Screen),
     /// Le serveur ferme l'écran ouvert (un mod ferme son menu).
     CloseScreen,
     /// Une ligne pour la console du joueur.
@@ -352,7 +352,7 @@ pub enum ServerMsg {
     ModHud {
         mod_id: String,
         id: u32,
-        bar: Option<crate::player_api::HudBar>,
+        bar: Option<crate::player_api_server::HudBar>,
     },
     /// La progression des quêtes du joueur, quand elle change.
     Quests(Option<crate::quest_progress::Progress>),
@@ -418,11 +418,11 @@ mod tests {
             let bytes = postcard::to_allocvec(&msg).unwrap();
             assert_eq!(postcard::from_bytes::<ClientMsg>(&bytes).unwrap(), msg);
         }
-        let open = ServerMsg::OpenScreen(crate::ui::Screen::Cart(NetId(4)));
+        let open = ServerMsg::OpenScreen(crate::screens::Screen::Cart(NetId(4)));
         let bytes = postcard::to_allocvec(&open).unwrap();
         assert!(matches!(
             postcard::from_bytes::<ServerMsg>(&bytes).unwrap(),
-            ServerMsg::OpenScreen(crate::ui::Screen::Cart(NetId(4)))
+            ServerMsg::OpenScreen(crate::screens::Screen::Cart(NetId(4)))
         ));
     }
 

@@ -43,7 +43,7 @@ impl VoxelGame {
                         format!(
                             "{{\"id\":{},\"name\":{},\"ghost\":{},\"pos\":[{:.2},{:.2},{:.2}]}}",
                             p.id.0,
-                            crate::control::json_str(&p.name),
+                            crate::json_text::json_str(&p.name),
                             p.ghost,
                             feet.x,
                             feet.y,

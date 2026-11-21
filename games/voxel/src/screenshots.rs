@@ -383,7 +383,7 @@ impl VoxelGame {
                         | Scene::Trade
                         | Scene::ShapingTable
                 );
-                self.client.ui.screen = crate::ui::Screen::Inventory;
+                self.client.ui.screen = crate::screens::Screen::Inventory;
                 // Le bras n'apparaît que dans ses propres captures.
                 let arm = matches!(
                     shot.scene,
@@ -785,7 +785,7 @@ impl VoxelGame {
                 self.server.players.me_mut().inventory.armor[0] = stack("core:iron_helmet", 1);
                 self.server.players.me_mut().inventory.armor[1] =
                     stack("core:copper_chestplate", 1);
-                self.client.ui.screen = crate::ui::Screen::Inventory;
+                self.client.ui.screen = crate::screens::Screen::Inventory;
             }
             Scene::Workbench => {
                 // Une pioche en bois : trois planches en haut, deux bâtons au milieu.
@@ -800,7 +800,7 @@ impl VoxelGame {
                     12,
                     &items,
                 );
-                self.client.ui.screen = crate::ui::Screen::Workbench;
+                self.client.ui.screen = crate::screens::Screen::Workbench;
             }
             Scene::Furnace | Scene::Chest => {
                 let (x, z) = (3, 3);
@@ -851,9 +851,9 @@ impl VoxelGame {
                         let (actions, _) = self.server.mods.fixed_step(self.client.camera.position);
                         self.server.apply_machine_actions(actions);
                     }
-                    self.client.ui.screen = crate::ui::Screen::Furnace(pos);
+                    self.client.ui.screen = crate::screens::Screen::Furnace(pos);
                 } else {
-                    self.client.ui.screen = crate::ui::Screen::Chest(pos);
+                    self.client.ui.screen = crate::screens::Screen::Chest(pos);
                 }
             }
             Scene::Trade => {
@@ -904,7 +904,7 @@ impl VoxelGame {
                     .get::<crate::entities::NetId>(mob)
                     .map(|id| *id)
                 {
-                    self.client.ui.screen = crate::ui::Screen::Trade(id);
+                    self.client.ui.screen = crate::screens::Screen::Trade(id);
                 }
                 self.client.ui.trade_selected = 4;
             }

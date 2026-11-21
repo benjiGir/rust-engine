@@ -14,15 +14,23 @@
 //! Une structure assemblée ne se modifie pas : on la repose, on la change, on la réassemble.
 //! Ses machines (câbles, moteurs, hélices, leviers) continuent de tourner.
 
-use crate::key_codes::KeyCodes;
+use crate::gpu_vertices;
+use engine_render::Aabb;
+use engine_render::MeshId;
+use engine_render::Renderer;
+use engine_voxel::BlockId;
+use engine_voxel::BlockRegistry;
+use engine_voxel::CHUNK_SIZE;
+use glam::IVec3;
+use glam::Vec3;
 use std::collections::HashMap;
 
 use engine_ecs::{Entity, World as Ecs};
 use engine_voxel::{GridId, GridPos, Grids, ShipInput, SubGrid, step_ship};
 
-use super::*;
 use crate::components::{Collider, OnGrid, Transform};
 use crate::shared::{SharedSubGrids, StreamerExt};
+use crate::{components, mobs};
 
 /// À qui obéit la barre, et dans quel sens : `-1` à gauche, `1` à droite.
 #[derive(Debug, Clone, Copy, Default)]
@@ -293,19 +301,6 @@ fn build(renderer: &mut Renderer, grid: &SubGrid) -> Built {
     Built {
         revision: grid.revision(),
         chunks,
-    }
-}
-
-impl VoxelGame {
-    /// La barre : gauche et droite, envoyées au serveur quand elles changent (voir `update_helm`).
-    pub(crate) fn update_ships(&mut self, ctx: &Context) {
-        let keys = &self.settings.keys;
-        let steer = f32::from(ctx.input.key_held(keys.key(Action::Right)) as u8)
-            - f32::from(ctx.input.key_held(keys.key(Action::Left)) as u8);
-        if steer != self.client.steer_sent {
-            self.client.steer_sent = steer;
-            self.send_now(crate::protocol::ClientMsg::Steer(steer));
-        }
     }
 }
 

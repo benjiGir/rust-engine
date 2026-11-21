@@ -24,7 +24,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result, bail};
 
 use crate::VoxelGame;
-use crate::control::json_str;
+use crate::json_text::json_str;
 use crate::quest_progress::Status;
 use crate::quests::{ItemSpec, Quests, Task};
 

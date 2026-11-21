@@ -1,13 +1,10 @@
 //! Les gestes des livres dans le jeu : un livre enchanté ou un tome d'extraction au curseur, un clic
 //! sur un objet. Les règles (niveaux, application, extraction) sont dans `enchant_books.rs`.
 
-use crate::VoxelGame;
 use crate::enchant_books::{BOOK, BookKind, ENCHANTED_BOOK, TOME_EXTRACTION, apply_book, extract};
 use crate::enchanting;
 use crate::inventory::{Click, ItemStack, Slot};
-use crate::ui::Screen;
-
-impl VoxelGame {}
+use crate::screens::Screen;
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.

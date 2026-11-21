@@ -15,7 +15,6 @@ use engine_mods::mobs::{self, MobSnapshot};
 use engine_voxel::MachineAction;
 use glam::Vec3;
 
-use crate::VoxelGame;
 use crate::components::{
     BrainGoal, BrainState, Collider, Health, Hurt, Mob, MoveIntent, Transform, Wander,
 };
@@ -31,8 +30,6 @@ const REACH: f32 = 3.0;
 const ATTACK_COOLDOWN: f32 = 1.0;
 /// Le temps entre deux lots (secondes) : 4 fois par seconde.
 const BATCH_SECONDS: f32 = 0.25;
-
-impl VoxelGame {}
 
 /// Les créatures à comportement qui vont quelque part (`mob_move_to`) : un chemin vers leur but
 /// (recalculé si elles se coincent), suivi à chaque pas de simulation, entre deux appels du

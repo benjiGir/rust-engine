@@ -605,7 +605,7 @@ impl VoxelGame {
                     // Le menu est sorti de l'état pendant le dessin ; les actions sont mises en file.
                     if let Some((owner, mut menu)) = self.client.ui.options_menu.take() {
                         let mut events = Vec::new();
-                        crate::mod_menu::draw_widgets(
+                        crate::ui_widgets::draw_widgets(
                             ui,
                             &mut menu.widgets,
                             &mut events,

@@ -44,7 +44,6 @@ use engine_voxel::{
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
-use crate::VoxelGame;
 use crate::inventory::{HOTBAR, Inventory, ItemStack};
 
 /// Le plus grand numéro de sac : les 16 bits bas de `damage`.
@@ -489,17 +488,6 @@ pub fn maintain_carried(
     }
 }
 
-impl VoxelGame {
-    /// Ouvre le premier sac de l'inventaire (barre d'abord).
-    pub(crate) fn open_first_bag(&mut self) -> bool {
-        let slot = (0..self.server.players.me_mut().inventory.slots.len()).find(|&i| {
-            self.server.players.me_mut().inventory.slots[i]
-                .is_some_and(|s| is_backpack(&self.client.content.items.get(s.item).key))
-        });
-        slot.is_some_and(|slot| self.server.open_bag_at(slot))
-    }
-}
-
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.
     /// Un aliment d'un sac, mangé si la faim a assez baissé pour ne rien perdre.
@@ -611,7 +599,7 @@ impl crate::server_side::VoxelServer {
             self.toast("Plus aucun numéro de sac disponible");
             return false;
         };
-        self.open_screen(crate::ui::Screen::Bag(number));
+        self.open_screen(crate::screens::Screen::Bag(number));
         true
     }
 
@@ -977,14 +965,14 @@ mod tests {
         assert!(inventory.slots.iter().all(Option::is_none));
         let stored: Vec<Option<engine_voxel::ItemStack>> = chest
             .iter()
-            .map(|s| s.map(|s| crate::storage_ui::to_engine(&items, s)))
+            .map(|s| s.map(|s| crate::storage_ui_server::to_engine(&items, s)))
             .collect();
         assert_eq!(stored.iter().flatten().next().unwrap().damage, 321);
         let mut back: Vec<Option<ItemStack>> = stored
             .iter()
             .map(|s| {
                 s.as_ref()
-                    .and_then(|s| crate::storage_ui::to_game(&items, s))
+                    .and_then(|s| crate::storage_ui_server::to_game(&items, s))
             })
             .collect();
         crate::transfer::move_all(

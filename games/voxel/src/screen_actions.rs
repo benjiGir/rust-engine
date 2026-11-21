@@ -5,9 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::VoxelGame;
 use crate::protocol::ScreenAction;
-use crate::ui::Screen;
+use crate::screens::Screen;
 
 /// Ce qu'un écran montre et que seul le serveur sait (l'état d'un habitant...). Envoyée quand elle
 /// change (`ServerMsg::ScreenView`), comme les autres vues du joueur.
@@ -27,13 +26,6 @@ pub enum ScreenView {
         at: glam::IVec3,
         data: Vec<u8>,
     },
-}
-
-impl VoxelGame {
-    /// La vue d'écran que la fenêtre a reçue.
-    pub(crate) fn shown_screen(&self) -> Option<&ScreenView> {
-        self.client.view.me.screen.as_ref()
-    }
 }
 
 impl crate::server_side::VoxelServer {

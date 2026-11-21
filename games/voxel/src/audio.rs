@@ -18,6 +18,7 @@
 //! Les sons passent par deux pistes (« bus ») dont on règle le volume séparément,
 //! comme sur une table de mixage : les effets (pas, blocs) et l'ambiance (vent, grillons).
 
+pub use crate::sound_ids::{SPLASH, THUNDER};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -32,9 +33,7 @@ use kira::{AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Tween};
 
 const AMBIENCE_DAY: &str = "core:ambience_day";
 const AMBIENCE_NIGHT: &str = "core:ambience_night";
-pub const SPLASH: &str = "core:splash";
 const RAIN: &str = "core:rain";
-pub const THUNDER: &str = "core:thunder";
 /// Les sons d'ambiance joués de temps en temps, et les morceaux de musique.
 pub const AMBIENT_SOUNDS: &[&str] = &[
     "core:birds",

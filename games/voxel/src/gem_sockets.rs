@@ -3,7 +3,6 @@
 
 use engine_voxel::ItemRegistry;
 
-use crate::VoxelGame;
 use crate::adventure_data::AdventureData;
 use crate::affixes;
 use crate::enchanting;
@@ -88,8 +87,6 @@ pub fn use_on(
     }
     outcome
 }
-
-impl VoxelGame {}
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.

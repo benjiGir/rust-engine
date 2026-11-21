@@ -30,7 +30,6 @@ use engine_ecs::{EventReader, Events};
 use engine_voxel::{BiomeRegistry, BlockRegistry, DimensionRegistry, ItemId, Rng64};
 use serde::Deserialize;
 
-use crate::VoxelGame;
 use crate::events::{BlockBroken, BlockPlaced, EntityDied};
 use crate::inventory::ItemStack;
 use crate::quest_progress::{ClaimError, Event, Grant, Progress, Snapshot};
@@ -229,7 +228,7 @@ impl QuestBook {
             .map(|p| {
                 p.pinned
                     .iter()
-                    .map(|id| crate::control::json_str(id))
+                    .map(|id| crate::json_text::json_str(id))
                     .collect()
             })
             .unwrap_or_default();
@@ -242,8 +241,6 @@ impl QuestBook {
 fn plain_key(key: &str) -> String {
     key.split('[').next().unwrap_or(key).to_string()
 }
-
-impl VoxelGame {}
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.

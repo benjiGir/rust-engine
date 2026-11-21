@@ -3,7 +3,40 @@
 //! `VoxelGame::create` s'en sert puis construit la fenêtre ; les tests et, plus tard, le serveur
 //! dédié l'utilisent tels quels.
 
-use crate::*;
+use crate::DEFAULT_SEED;
+use crate::EventReaders;
+use crate::FLY_ALTITUDE;
+use crate::assets_dir;
+use crate::daytime::DayCycle;
+use crate::env_parse;
+use crate::inventory::Inventory;
+use crate::launch::Launch;
+use crate::load_registry;
+use crate::mobs::MobRegistry;
+use crate::player::MoveMode;
+use crate::project_root;
+use crate::server_side::VoxelServer;
+use crate::{
+    adventure, adventure_data, attributes, backpacks, breeding, carts, components, content,
+    dimensions, elites, enchant_library, events, gear, intents, inventory, item_data, mob_brains,
+    mobs, modding, navigation, persistence, player, players, potions, projectiles, settings,
+    shape_materials, shared, ships, spawning, stress, survival, texture_packs, trading, villagers,
+    weather,
+};
+use anyhow::{Context as _, Result};
+use engine_ecs::Schedule;
+use engine_ecs::Stage;
+use engine_voxel::BlockId;
+use engine_voxel::ChunkStreamer;
+use engine_voxel::StreamingConfig;
+use glam::IVec3;
+use glam::Vec3;
+use std::cell::RefCell;
+use std::path::Path;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::time::Instant;
 
 /// Le serveur construit, et ce que la fenêtre en reprend pour démarrer.
 pub(crate) struct Boot {

@@ -3,9 +3,7 @@ use std::time::Instant;
 use engine_voxel::{BlockId, PlayerBody, bed, door};
 use glam::{IVec3, Vec3};
 
-use crate::{BlockPlaced, VoxelGame, events, player};
-
-impl VoxelGame {}
+use crate::{BlockPlaced, events, player};
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.

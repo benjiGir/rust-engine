@@ -13,6 +13,7 @@
 //!
 //! Idée reprise d'Horizon (`docs/agent-control.md`), réécrite ici.
 
+pub(crate) use crate::json_text::json_str;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -1713,23 +1714,6 @@ pub(crate) fn vec3(v: Vec3) -> String {
 
 fn ivec3(v: IVec3) -> String {
     format!("[{},{},{}]", v.x, v.y, v.z)
-}
-
-/// Une chaîne JSON, entre guillemets, échappée.
-pub(crate) fn json_str(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 2);
-    out.push('"');
-    for c in text.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            c if c.is_control() => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
 }
 
 impl VoxelGame {

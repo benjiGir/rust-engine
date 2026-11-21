@@ -3,7 +3,8 @@
 
 use engine_voxel::ItemId;
 
-use crate::{audio, inventory};
+use crate::inventory;
+use crate::sound_ids as audio;
 
 impl crate::server_side::VoxelServer {
     // (lot 4b) Méthodes du serveur.

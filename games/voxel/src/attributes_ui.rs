@@ -169,16 +169,16 @@ impl VoxelGame {
                 let sources: Vec<String> = detail(attrs, a)
                     .iter()
                     .skip(1)
-                    .map(|l| crate::control::json_str(l))
+                    .map(|l| crate::json_text::json_str(l))
                     .collect();
                 format!(
                     "{{\"id\":{},\"name\":{},\"value\":{:.4},\"base\":{:.4},\"modified\":{},\"text\":{},\"sources\":[{}]}}",
                     a.id(),
-                    crate::control::json_str(a.name()),
+                    crate::json_text::json_str(a.name()),
                     attrs.value(a),
                     attrs.base(a),
                     attrs.is_modified(a),
-                    crate::control::json_str(&a.format(attrs.value(a))),
+                    crate::json_text::json_str(&a.format(attrs.value(a))),
                     sources.join(",")
                 )
             })

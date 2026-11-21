@@ -36,22 +36,13 @@ pub struct ClientWorld {
     pub me: ClientPlayer,
 }
 
-/// Le nombre de pas fixes entre deux envois de positions : 1 sur le lien en mémoire (60 Hz, comme
-/// l'ECS), 3 (20 Hz) sera celui du réseau. `VOXEL_ENTITY_INTERVAL` le change pour les essais.
-pub(crate) fn entity_interval() -> u32 {
-    std::env::var("VOXEL_ENTITY_INTERVAL")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .map_or(1, |n: u32| n.clamp(1, 12))
-}
-
 impl ClientWorld {
     /// La réplique d'un serveur : même registre, mêmes réglages de maillage, aucun chunk.
     pub fn new(server: &ChunkStreamer) -> Self {
         Self {
             replica: ChunkStreamer::replica_of(server),
             incoming: Vec::new(),
-            entities: ClientEntities::new(entity_interval()),
+            entities: ClientEntities::new(crate::server_sends::entity_interval()),
             me: ClientPlayer::default(),
         }
     }

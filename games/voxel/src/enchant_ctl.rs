@@ -23,7 +23,7 @@ use crate::enchant_library::{self, Library};
 use crate::enchant_table::{self, Subject};
 use crate::enchanting::{self, Enchantment};
 use crate::inventory::ItemStack;
-use crate::ui::Screen;
+use crate::screens::Screen;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
@@ -194,8 +194,8 @@ impl VoxelGame {
                             o.points,
                             o.gems,
                             o.clues,
-                            crate::control::json_str(&o.preview()),
-                            crate::control::json_str(&o.label())
+                            crate::json_text::json_str(&o.preview()),
+                            crate::json_text::json_str(&o.label())
                         )
                     })
                     .collect();
@@ -266,7 +266,7 @@ impl VoxelGame {
                     .map(|(kind, points, best)| {
                         format!(
                             "{{\"enchantment\":{},\"points\":{points},\"best\":{best}}}",
-                            crate::control::json_str(&kind.name())
+                            crate::json_text::json_str(&kind.name())
                         )
                     })
                     .collect();
@@ -296,7 +296,7 @@ impl VoxelGame {
                         data.charm_of(&def.key)?;
                         Some(format!(
                             "{{\"item\":{},\"active\":{},\"charge\":{:.3}}}",
-                            crate::control::json_str(&def.key),
+                            crate::json_text::json_str(&def.key),
                             crate::charms::is_active(s.damage),
                             crate::charms::charge(s.damage, def.durability.unwrap_or(1))
                         ))

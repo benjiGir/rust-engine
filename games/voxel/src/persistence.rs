@@ -12,7 +12,6 @@ use anyhow::Result;
 use engine_voxel::{BlockRegistry, FORMAT_VERSION, PlayerFile, PlayerSave, SaveStore, WorldMeta};
 use glam::Vec3;
 
-use crate::VoxelGame;
 use crate::player::MoveMode;
 use crate::players::{PlayerState, uuid_name};
 
@@ -77,8 +76,6 @@ pub fn check_mods(meta: &WorldMeta, registry: &BlockRegistry) {
         );
     }
 }
-
-impl VoxelGame {}
 
 /// Ce que le joueur local a sauvegardé : son fichier de `players/` s'il en a un, sinon (un monde
 /// d'avant les fichiers de joueurs) le joueur de `world.ron`, qui devient l'hôte. Le résultat est le

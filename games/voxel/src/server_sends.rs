@@ -86,7 +86,7 @@ impl VoxelServer {
         let all = collect(&self.ecs, &self.mods.subgrids.borrow(), &|entity| {
             players.by_entity(entity).map(|p| p.name.clone())
         });
-        let interval = crate::client_world::entity_interval();
+        let interval = crate::server_sends::entity_interval();
         let tick = self.sends.tick;
         let mut out = Vec::new();
         for player in self.players.iter() {
@@ -132,4 +132,13 @@ fn update_msg(update: ChunkUpdate) -> ServerMsg {
         },
         ChunkUpdate::Unload(pos) => ServerMsg::Unload(pos),
     }
+}
+
+/// Le nombre de pas fixes entre deux envois de positions : 1 sur le lien en mémoire (60 Hz, comme
+/// l'ECS), 3 (20 Hz) sera celui du réseau. `VOXEL_ENTITY_INTERVAL` le change pour les essais.
+pub(crate) fn entity_interval() -> u32 {
+    std::env::var("VOXEL_ENTITY_INTERVAL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .map_or(1, |n: u32| n.clamp(1, 12))
 }

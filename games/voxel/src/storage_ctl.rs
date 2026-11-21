@@ -18,8 +18,8 @@ use glam::IVec3;
 
 use crate::VoxelGame;
 use crate::players::OpenContainer;
-use crate::storage_ui::Op;
-use crate::ui::Screen;
+use crate::screens::Screen;
+use crate::storage_ui_server::Op;
 
 /// Une commande du stockage, lue par `control.rs`.
 #[derive(Debug, Clone, PartialEq)]
@@ -95,7 +95,7 @@ fn slots_json(
             let _ = items;
             out.push(format!(
                 "[{i},{},{},{}]",
-                crate::control::json_str(&s.item),
+                crate::json_text::json_str(&s.item),
                 s.count,
                 s.damage
             ));
@@ -148,7 +148,7 @@ impl VoxelGame {
                     .for_each(|_, (t, d)| {
                         list.push(format!(
                             "{{\"item\":{},\"count\":{},\"damage\":{},\"pos\":[{:.2},{:.2},{:.2}],\"age\":{:.1}}}",
-                            crate::control::json_str(&self.client.content.items.get(d.stack.item).key),
+                            crate::json_text::json_str(&self.client.content.items.get(d.stack.item).key),
                             d.stack.count,
                             d.stack.damage,
                             t.position.x,
@@ -173,7 +173,7 @@ impl VoxelGame {
                 let layout = engine_voxel::layout_of(&self.client.registry, block);
                 Ok(format!(
                     "{{\"ok\":true,\"block\":{},\"slots\":{},\"main\":{},\"upgrades\":{},\"items\":{}}}",
-                    crate::control::json_str(&self.client.registry.def(block).key),
+                    crate::json_text::json_str(&self.client.registry.def(block).key),
                     inventory.slots.len(),
                     layout.map_or(inventory.slots.len(), |l| l.main),
                     layout.map_or(0, |l| l.upgrades),

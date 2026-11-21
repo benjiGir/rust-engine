@@ -24,8 +24,8 @@ use engine_render::egui::{self, RichText};
 use engine_voxel::{Choice, ItemDef, ItemId, Recipe, RecipeCategory, RecipeIndex, RecipeLayout};
 
 use crate::VoxelGame;
+use crate::screens::Screen;
 use crate::skin;
-use crate::ui::Screen;
 
 /// Ce qu'on cherche sur un objet : comment le fabriquer, ou à quoi il sert.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

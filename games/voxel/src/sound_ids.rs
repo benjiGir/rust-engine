@@ -8,3 +8,7 @@ pub enum BlockSound {
     Break,
     Place,
 }
+
+pub const SPLASH: &str = "core:splash";
+
+pub const THUNDER: &str = "core:thunder";

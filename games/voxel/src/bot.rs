@@ -15,7 +15,7 @@ use engine_voxel::{BlockId, BlockRegistry, PLAYER_EYE_HEIGHT, World};
 use glam::{IVec3, Vec3};
 
 use crate::container_view::ContainerView;
-use crate::net_client::{RemoteLink, join_with};
+use crate::net_join::{RemoteLink, join_with};
 use crate::player::{MoveMode, WALK_SPEED};
 use crate::player_view::InventoryView;
 use crate::players::PlayerId;
