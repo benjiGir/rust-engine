@@ -966,7 +966,7 @@ impl Game for App {
         if players::ensure_identity(&mut settings) {
             settings.save(&project_root());
         }
-        // `VOXEL_TEXTURE_PACK=classic|earth32` : un pack imposé pour cette exécution (captures de recette),
+        // `VOXEL_TEXTURE_PACK` impose un pack pour cette exécution (captures de recette),
         // sans toucher à `settings.ron` : seules les actions du menu des options l'écrivent.
         match std::env::var("VOXEL_TEXTURE_PACK").as_deref() {
             Ok("earth64") => settings.texture_pack = settings::TexturePack::Earth64,

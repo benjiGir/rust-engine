@@ -81,15 +81,15 @@ fn harmonize(
     trim: Option<crate::machine_faces::Trim>,
 ) {
     let in_trim = |index| trim.is_some_and(|trim| trim.contains(index, SIDE));
+    let pixels = &mut canvas.0;
+    let count = pixels.iter().filter(|p| p[3] > 0).count().max(1) as f64;
     for channel in 0..3 {
         let target = mean(source, channel);
-        let count = canvas.0.iter().filter(|p| p[3] > 0).count().max(1) as f64;
         let mut best = (f64::MAX, 0);
         let (mut low, mut high) = (-255, 255);
         while low <= high {
             let bias = (low + high) / 2;
-            let actual = canvas
-                .0
+            let actual = pixels
                 .iter()
                 .enumerate()
                 .filter(|(_, p)| p[3] > 0)
@@ -109,7 +109,7 @@ fn harmonize(
                 high = bias - 1;
             }
         }
-        for (i, p) in canvas.0.iter_mut().enumerate() {
+        for (i, p) in pixels.iter_mut().enumerate() {
             if p[3] > 0 && !in_trim(i) {
                 p[channel] = quantize(p[channel] as i32 + best.1);
             }
