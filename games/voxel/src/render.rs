@@ -10,6 +10,7 @@ pub mod hand;
 pub mod hand_model;
 pub mod item_art;
 pub mod item_models;
+pub mod leaves_fx;
 pub mod mobs;
 #[cfg(test)]
 mod mobs_tests;

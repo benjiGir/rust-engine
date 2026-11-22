@@ -64,6 +64,8 @@ pub(crate) struct ClientSide {
     /// `Some` en mode `VOXEL_SCREENSHOTS` : la visite guidée en cours.
     pub(crate) tour: Option<screenshots::Tour>,
     pub(crate) water_fx: water_fx::WaterFx,
+    /// Les feuilles qui tombent (voir `render/leaves_fx.rs`).
+    pub(crate) leaves_fx: crate::render::leaves_fx::LeavesFx,
     pub(crate) conduit_fx: conduit_fx::ConduitFx,
     /// Le terrain lointain simplifié (voir `render/far_terrain.rs`), s'il est activé.
     pub(crate) far: Option<far_terrain::FarTerrain>,

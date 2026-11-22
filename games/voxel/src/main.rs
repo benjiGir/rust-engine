@@ -364,6 +364,7 @@ impl VoxelGame {
                 demo,
                 tour,
                 water_fx: Default::default(),
+                leaves_fx: Default::default(),
                 conduit_fx: Default::default(),
                 far,
                 grid_meshes: crate::vehicles::ships::GridMeshes::default(),
@@ -578,6 +579,7 @@ impl VoxelGame {
             self.handle_keys(ctx);
         }
         self.update_water_fx(dt);
+        self.update_leaves_fx(dt);
         self.client.conduit_fx.advance(dt);
         self.update_soundscape(dt);
         self.update_ships(ctx);
@@ -699,6 +701,11 @@ impl VoxelGame {
         self.client
             .water_fx
             .instances(self.client.camera.position, &mut mob_boxes);
+        self.client.leaves_fx.instances(
+            self.client.view.world(),
+            self.client.camera.position,
+            &mut mob_boxes,
+        );
         self.draw_conduit_contents(&mut mob_boxes);
         self.direction_hint(&mut mob_boxes);
         self.client

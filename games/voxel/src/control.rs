@@ -1707,7 +1707,7 @@ impl VoxelGame {
 \"yaw\":{:.1},\"pitch\":{:.1},\"health\":[{:.1},{:.1}],\"time\":{:.3},\"clock\":{},\
 \"dimension\":{},\"biome\":{},\"target\":{target},\"selected\":{selected},\"walking\":{},\
 \"chunks\":{{\"loaded\":{},\"queued\":{},\"idle\":{}}},\
-\"render\":{{\"drawn\":{},\"hidden\":{},\"total\":{},\"triangles\":{},\"cave_culling\":{}}},\
+\"render\":{{\"drawn\":{},\"hidden\":{},\"total\":{},\"triangles\":{},\"cave_culling\":{},\"falling_leaves\":{}}},\
 \"survival\":{{\"air\":{:.2},\"burning\":{:.2},\"protection\":{},\
 \"food\":{:.2},\"saturation\":{:.2},\"exhaustion\":{:.3},\"bed\":{},\"death\":{},\"xp\":{},\"level\":{}}}}}",
             // Les mêmes mots que la commande `mode`.
@@ -1736,6 +1736,7 @@ impl VoxelGame {
             self.client.last_render.meshes_total,
             self.client.last_render.triangles,
             self.client.culling.enabled,
+            self.client.leaves_fx.count(),
             self.server.players.me().vitals.air,
             self.server.players.me().vitals.burning,
             self.server

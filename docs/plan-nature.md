@@ -55,7 +55,7 @@ cerisiers (sakura) dont les pétales tombent.
 | Lot | Contenu | Vérification |
 |---|---|---|
 | **N1, le vent (réalisé)** | un vent global (direction, force, rafales qui passent en vagues sur le paysage), plus fort sous la pluie et l'orage ; les feuilles ondulent plus et selon ce vent ; les plantes (herbes, fleurs, cultures, fougères) se couchent bien plus que les feuilles. Tout se calcule dans le shader, depuis la météo que le serveur envoie déjà : rien de plus sur le réseau | captures et une courte vidéo au calme et sous l'orage ; le coût en image (`cargo xtask bench`) |
-| **N2, les feuilles qui tombent** | des feuilles se détachent du dessous du feuillage proche du joueur et tombent en tournoyant, poussées par le vent de N1 ; leur couleur suit l'essence (et la teinte du biome) ; plus nombreuses par vent fort et en automne des érables ; un plafond de particules (quelques centaines), dessinées comme les éclaboussures de l'eau | captures en forêt, au calme et sous l'orage ; coût mesuré au bench |
+| **N2, les feuilles qui tombent (réalisé)** | des feuilles se détachent du dessous du feuillage proche du joueur et tombent en tournoyant, poussées par le vent de N1 ; leur couleur suit l'essence (et la teinte du biome) ; plus nombreuses par vent fort et en automne des érables ; un plafond de particules (quelques centaines), dessinées comme les éclaboussures de l'eau | captures en forêt, au calme et sous l'orage ; coût mesuré au bench |
 | **N3, des forêts plus denses et des arbres plus variés** | densité relevée des forêts (×2 à ×3 selon le biome, réglée sur des captures) ; des arbres plus grands et moins réguliers : chênes et bouleaux de tailles variées, couronnes irrégulières, grands chênes à branches, **chêne noir** à tronc 2 × 2 pour la forêt sombre, bouleaux élancés, sapins géants ; sous-bois (buissons, jeunes arbres) ; le serré monte plus haut que l'isolé | cartes de biomes et captures avant/après ; temps de génération et de maillage mesurés (le bench), pour que la densité ne coûte pas d'images |
 | **N4, les cerisiers** | bois, feuilles et planches de cerisier (textures dans les trois packs) ; un **cerisier** : tronc qui se divise, large couronne rose qui retombe ; un biome **cerisaie** (pentes tempérées, entre prairie et montagne) ; un **tapis de pétales** posable (1 à 4 par case) au sol à la place des fleurs ; les cerisiers lâchent des **pétales** (N2) plus que les autres arbres | carte des biomes (où sont les cerisaies), captures de jour et au couchant |
 | **N5, les prés et les champs** | **orge** et **avoine** : graines, quatre stades, récolte, recettes (pain d'orge, porridge ; l'avoine nourrit les chevaux) ; des **champs sauvages** de blé, d'orge et d'avoine en taches dans les plaines, les prairies et la steppe (on y trouve les graines) ; **herbe haute sur deux blocs** ; **buissons à baies** (baies sucrées en taïga, myrtilles en forêt froide) qu'on récolte d'un clic droit et qui repoussent ; des **champs de fleurs** : biome de tournesols et prairies de fleurs plus fournies, quelques fleurs nouvelles | captures des prés ; un test de pousse et de récolte |
@@ -96,6 +96,15 @@ d'œil en jeu.
   continuité, direction propre au monde), les shaders validés par les tests des packs, et des captures
   d'une savane au calme puis sous l'orage à 0,4 s d'écart. Pas mesuré au bench : le shader ne fait que
   quelques opérations de plus par sommet qui se balance. La pluie tombe encore droite.
+- **N2** : `games/voxel/src/render/leaves_fx.rs`. La fenêtre examine 200 colonnes par seconde autour de
+  la caméra (18 blocs de rayon) et y cherche le dessous du feuillage (une feuille au-dessus du vide) ;
+  une feuille s'en détache avec une chance qui monte avec le vent (× 5,7 sous l'orage), et plus souvent
+  sous les érables et les arbres en fleurs. Elle tombe à 0,75 bloc par seconde en se balançant et en
+  basculant, portée par le vent de N1, se pose à plat sur le sol ou l'eau et s'efface en 4 secondes. Sa
+  couleur est celle de son essence, teintée par le feuillage du biome, avec une nuance propre. Au plus
+  320 feuilles, de petites boîtes plates dessinées avec les créatures. L'état de `ctl` donne leur nombre
+  (`render.falling_leaves`). Mesuré à la lisière d'une jungle clairsemée (graine 3) : 13 feuilles en l'air
+  au calme, 36 sous l'orage. Deux tests (chute, dérive, pose, plus de feuilles au vent, plafond).
 
 ## Choix à valider
 
