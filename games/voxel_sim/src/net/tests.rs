@@ -46,10 +46,17 @@ fn a_block_placed_by_one_player_is_seen_by_the_other() {
     }
     let ground = a.ground_below(a.feet).unwrap();
     a.move_to(Vec3::new(a.feet.x, ground, a.feet.z));
+    // Le sol deux blocs devant A : son chunk peut arriver un peu après celui de ses pieds.
+    let ahead = a.feet + Vec3::X * 2.0;
+    a.wait_until(
+        WAIT,
+        || pump(&mut server),
+        |a| a.ground_below(ahead).is_some(),
+    )
+    .unwrap();
     // A tient de la terre et vise le dessus du sol, deux blocs devant lui.
     let slot = give(&mut server, a.player, "core:dirt", 4);
     a.send(&ClientMsg::SelectSlot(slot as u8));
-    let ahead = a.feet + Vec3::X * 2.0;
     let top = a.ground_below(ahead).expect("le sol devant est arrivé");
     let target = IVec3::new(
         ahead.x.floor() as i32,
@@ -167,8 +174,14 @@ fn two_players(server: &mut VoxelServer) -> (crate::net::bot::Bot, crate::net::b
     let mut a = bot(server, port, "Alice", 1);
     let mut b = bot(server, port, "Bob", 2);
     for player in [&mut a, &mut b] {
+        // Le sol sous ses pieds, et celui des deux blocs devant lui (voir `surface_ahead`) : un
+        // chunk voisin peut arriver un peu plus tard.
         player
-            .wait_until(WAIT, || pump(server), |p| p.ground_below(p.feet).is_some())
+            .wait_until(
+                WAIT,
+                || pump(server),
+                |p| (0..=2).all(|dx| p.ground_below(p.feet + Vec3::X * dx as f32).is_some()),
+            )
             .unwrap();
         let ground = player.ground_below(player.feet).unwrap();
         player.move_to(Vec3::new(player.feet.x, ground, player.feet.z));
