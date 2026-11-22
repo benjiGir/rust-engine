@@ -240,7 +240,7 @@ fn doors_place_toggle_and_break_as_a_pair_across_a_vertical_chunk_border() {
     let registry = s.world().registry().clone();
     let rock = registry.id("core:cobblestone").unwrap();
     let door = registry.id("core:wooden_glass_door").unwrap();
-    let parts = crate::door::placement(&registry, door, bottom, Vec3::Z).unwrap();
+    let parts = crate::blocks::door::placement(&registry, door, bottom, Vec3::Z).unwrap();
     s.slots
         .insert(World::split(bottom).0, Slot::Generated(MeshState::Missing));
     s.set_block_quiet(bottom - IVec3::Y, rock);
@@ -265,7 +265,7 @@ fn doors_place_toggle_and_break_as_a_pair_across_a_vertical_chunk_border() {
     assert!(!mesh.indices.is_empty() && !mesh.translucent_indices.is_empty());
     assert!(s.toggle_door(top));
     for (p, _) in parts {
-        assert!(crate::door::is_open(registry.def(s.world.block(p))));
+        assert!(crate::blocks::door::is_open(registry.def(s.world.block(p))));
         assert_eq!(registry.light_opacity(s.world.block(p)), 0);
     }
     assert!(crate::raycast(s.world(), origin, Vec3::Z, 2.0).is_none());
@@ -309,13 +309,13 @@ fn both_bed_halves_cross_chunk_borders_and_require_space_and_support() {
     s.set_block_quiet(head, BlockId::AIR);
 
     let items = crate::ItemRegistry::builtin(&registry).unwrap();
-    let bed = items.id(crate::bed::ITEM).unwrap();
+    let bed = items.id(crate::blocks::bed::ITEM).unwrap();
     for broken in [head, foot] {
         let parts = s.place_bed(foot, Vec3::X).unwrap();
         assert_eq!(parts.map(|(p, _)| p), [foot, head]);
         for (p, block) in parts {
             assert_eq!(items.of_block(block), Some(bed));
-            assert_eq!(crate::bed::head_at(s.world(), p), Some(head));
+            assert_eq!(crate::blocks::bed::head_at(s.world(), p), Some(head));
             let hit = crate::raycast(
                 s.world(),
                 p.as_vec3() + Vec3::new(0.5, 2.0, 0.5),

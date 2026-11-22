@@ -21,7 +21,7 @@ pub fn block_icon(blocks: &BlockRegistry, block: BlockId, textures: &[Vec<u8>]) 
         )
         .into_raw();
     }
-    if let Some(parts) = engine_voxel::paired_block::display_parts(blocks, block) {
+    if let Some(parts) = engine_voxel::blocks::paired_block::display_parts(blocks, block) {
         let parts = parts.map(|(id, offset)| (blocks.def(id), offset));
         render(&parts, textures, 12.5)
     } else {

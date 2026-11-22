@@ -3,7 +3,7 @@
 //!
 //! Un chunk modifié puis déchargé (ou resté sur disque d'une session précédente) laisse un
 //! [`ChunkSurface`] : pour chacune de ses 32 × 32 colonnes, le bloc de **sol** le plus haut. Les
-//! tuiles lointaines ([`crate::far`]) le préfèrent au générateur ([`EditedSurfaces::surface_at`]).
+//! tuiles lointaines ([`crate::worldgen::far`]) le préfèrent au générateur ([`EditedSurfaces::surface_at`]).
 //!
 //! # Qu'est-ce qu'un sol ?
 //!
@@ -34,9 +34,9 @@ use glam::IVec3;
 
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
-use crate::generator::{MAX_CHUNK_Y, MIN_CHUNK_Y};
 use crate::registry::{BlockDef, BlockRegistry, Shape, Tint};
 use crate::save::SaveStore;
+use crate::worldgen::generator::{MAX_CHUNK_Y, MIN_CHUNK_Y};
 
 /// Au-delà, on oublie quelles colonnes ont déjà été lues sur disque (elles seront relues, sans
 /// doublon) : la mémoire reste bornée pendant une longue exploration.

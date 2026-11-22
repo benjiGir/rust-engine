@@ -1,7 +1,7 @@
 //! Le moteur de densité (lot 1 du plan v3) : chaque nœud, les splines, la compilation, les bornes, le
 //! remplissage par chunk (interpolation par cellules et caches), le déterminisme et le coût.
 
-use engine_voxel::density_graph::{CELL_HEIGHT, CELL_WIDTH, DensityError, DensityGraph};
+use engine_voxel::worldgen::density_graph::{CELL_HEIGHT, CELL_WIDTH, DensityError, DensityGraph};
 use glam::IVec3;
 
 fn graph(functions: &str) -> DensityGraph {

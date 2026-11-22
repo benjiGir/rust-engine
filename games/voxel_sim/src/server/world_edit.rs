@@ -60,7 +60,8 @@ impl crate::server::VoxelServer {
             let harvest = self.registry.def(broken).tier == 0;
             self.drop_loot(p, broken, None, harvest);
             self.notify_edit(p);
-            if let Some((other, _)) = engine_voxel::paired_block::partner(&self.registry, p, broken)
+            if let Some((other, _)) =
+                engine_voxel::blocks::paired_block::partner(&self.registry, p, broken)
             {
                 self.notify_edit(other);
             }
@@ -74,7 +75,7 @@ impl crate::server::VoxelServer {
 
     pub fn edit(&mut self, pos: IVec3, block: BlockId) -> bool {
         let old = self.streamer().world().block(pos);
-        let partner = engine_voxel::paired_block::partner(&self.registry, pos, old)
+        let partner = engine_voxel::blocks::paired_block::partner(&self.registry, pos, old)
             .filter(|&(p, expected)| old != block && self.streamer().world().block(p) == expected);
         let half = (old != block).then(|| self.split_chest(pos)).flatten();
         // Un bloc à inventaire (coffre, four, machine de mod) lâche son contenu quand il change.

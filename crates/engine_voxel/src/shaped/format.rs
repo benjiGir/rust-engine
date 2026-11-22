@@ -15,7 +15,7 @@
 use super::kind::PieceKind;
 use super::slope::{self, Corner};
 use super::{MAX_MATERIALS, MAX_PARTS, Part, Piece, Shaped};
-use crate::capabilities::Face;
+use crate::tech::capabilities::Face;
 
 /// La version écrite.
 pub const VERSION: u8 = 2;

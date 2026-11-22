@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
 use super::*;
-use crate::generator::TerrainGenerator;
 use crate::streaming::{StreamEvent, StreamingConfig};
+use crate::worldgen::generator::TerrainGenerator;
 
 const RADIUS: i32 = 2;
 

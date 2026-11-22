@@ -7,6 +7,8 @@
 //! - **dans le monde** : un bloc qui le référence (`core:water` a `fluid: "water"`).
 //!   L'écoulement (un automate cellulaire avec des ticks programmés) viendra en phase 9c.
 
+pub(crate) mod sim;
+
 use std::collections::HashMap;
 use std::path::Path;
 

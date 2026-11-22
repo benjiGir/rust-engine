@@ -134,7 +134,7 @@ impl BlockAccess for ChunkStreamer {
 pub struct Grids<'a> {
     world: &'a RefCell<ChunkStreamer>,
     /// Les structures mobiles (phase 9d), s'il y en a : une table `GridId → sous-grille`.
-    subs: Option<&'a crate::subgrid::SubGrids>,
+    subs: Option<&'a crate::motion::subgrid::SubGrids>,
 }
 
 impl<'a> Grids<'a> {
@@ -146,7 +146,7 @@ impl<'a> Grids<'a> {
     /// Le monde et ses structures mobiles : les machines d'un vaisseau tournent comme les autres.
     pub fn with_subgrids(
         world: &'a RefCell<ChunkStreamer>,
-        subs: &'a crate::subgrid::SubGrids,
+        subs: &'a crate::motion::subgrid::SubGrids,
     ) -> Self {
         Self {
             world,
@@ -186,9 +186,9 @@ impl<'a> Grids<'a> {
     pub fn write<R>(&self, at: GridPos, f: impl FnOnce(&mut BlockEntity) -> R) -> Option<R> {
         let mut grid = self.get(at.grid)?.borrow_mut();
         let entity = grid.block_entity_mut(at.pos)?;
-        let before = crate::connections::ports(entity.caps.as_deref());
+        let before = crate::blocks::connections::ports(entity.caps.as_deref());
         let result = f(entity);
-        if before != crate::connections::ports(entity.caps.as_deref()) {
+        if before != crate::blocks::connections::ports(entity.caps.as_deref()) {
             grid.invalidate_visuals(at.pos);
         }
         Some(result)
@@ -202,9 +202,9 @@ impl<'a> Grids<'a> {
     ) -> Option<R> {
         let mut grid = self.get(at.grid)?.borrow_mut();
         let entity = grid.ensure_block_entity(at.pos)?;
-        let before = crate::connections::ports(entity.caps.as_deref());
+        let before = crate::blocks::connections::ports(entity.caps.as_deref());
         let result = f(entity);
-        if before != crate::connections::ports(entity.caps.as_deref()) {
+        if before != crate::blocks::connections::ports(entity.caps.as_deref()) {
             grid.invalidate_visuals(at.pos);
         }
         Some(result)

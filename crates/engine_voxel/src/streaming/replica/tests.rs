@@ -6,12 +6,12 @@ use glam::Vec3;
 use rustc_hash::FxHashMap as HashMap;
 
 use super::*;
-use crate::chunk_sender::ChunkSender;
-use crate::generator::TerrainGenerator;
 use crate::mesh::{ChunkMesh, mesh_binary};
 use crate::registry::BlockRegistry;
 use crate::registry::test_blocks::stone;
+use crate::streaming::chunk_sender::ChunkSender;
 use crate::streaming::{StreamEvent, StreamingConfig, View};
+use crate::worldgen::generator::TerrainGenerator;
 
 const RADIUS: i32 = 2;
 

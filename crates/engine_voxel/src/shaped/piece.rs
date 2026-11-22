@@ -20,7 +20,7 @@ use super::connected::{self, Link, Neighbours};
 use super::grid::{self, IntBox, N, Occupancy, boxes_occupancy};
 use super::kind::{PieceKind, corner_slice_cost, slice_cost};
 use super::slope::{self, Corner};
-use crate::capabilities::Face;
+use crate::tech::capabilities::Face;
 
 /// Une pièce de la case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

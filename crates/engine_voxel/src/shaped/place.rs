@@ -19,7 +19,7 @@ use super::kind::PieceKind;
 use super::piece::{Piece, micro_mask};
 use super::slope::{self, Corner};
 use super::{Part, Shaped};
-use crate::capabilities::Face;
+use crate::tech::capabilities::Face;
 
 /// Où et comment poser une pièce quand on vise un point. `point` est le point visé, en blocs, relatif
 /// à la case visée (0 à 1) ; `normal` la normale de la face visée (un axe) ; `look` le regard du

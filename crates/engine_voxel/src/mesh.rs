@@ -26,11 +26,11 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, Vec3};
 
-use crate::biome::{BiomeId, BiomeRegistry};
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
 use crate::registry::{BlockBox, BlockDef, BlockRegistry, RotationAxis, Shape, Tint};
 use crate::world::World;
+use crate::worldgen::biome::{BiomeId, BiomeRegistry};
 
 mod binary;
 mod shaped;
@@ -499,7 +499,9 @@ impl Neighbourhood {
         });
         // Un réservoir (pas de quantité) est plein ; la surface est un peu sous le haut
         // du bloc, comme une eau calme.
-        let level = amount.map_or(1.0, |a| (a as f32 / crate::fluid_sim::FULL as f32).min(1.0));
+        let level = amount.map_or(1.0, |a| {
+            (a as f32 / crate::fluids::sim::FULL as f32).min(1.0)
+        });
         Some(level * FLUID_SURFACE)
     }
 
@@ -913,14 +915,14 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                 let sway_top = flags & FLAG_SWAY;
                 if def.shape == Shape::Model {
                     let mut flags = block_flags(def);
-                    if crate::door::is_door(def) {
+                    if crate::blocks::door::is_door(def) {
                         let open = u32::from(def.state_values[0]);
                         let turns = (u32::from(def.state_values[1]) + open) % 4;
                         flags |= FLAG_MODEL_UV | (turns << FLAG_TURN_SHIFT);
                         if open != 0 {
                             flags |= FLAG_DOOR_OPEN;
                         }
-                    } else if crate::bed::is_part(&hood.registry, block) {
+                    } else if crate::blocks::bed::is_part(&hood.registry, block) {
                         flags |=
                             FLAG_MODEL_UV | (u32::from(def.state_values[0]) << FLAG_TURN_SHIFT);
                     } else if def.has_end_textures() || def.lid.is_some() {
@@ -1059,15 +1061,19 @@ fn model_boxes(
     flags: u32,
 ) {
     let (_, own_sky, own_light) = hood.cell(p);
-    let boxes =
-        crate::connections::boxes_at(&hood.registry, p, |p| hood.get(p), |p| hood.entity(p));
+    let boxes = crate::blocks::connections::boxes_at(
+        &hood.registry,
+        p,
+        |p| hood.get(p),
+        |p| hood.entity(p),
+    );
     let shell = crate::conduit_shell(def, &boxes);
     let (solid, windows) = shell.as_ref().map_or((boxes.as_ref(), &[][..]), |s| {
         (s.rails.as_slice(), s.windows.as_slice())
     });
     let chest_body = def.lid.as_ref().map(|lid| chest_walls(solid[lid.body]));
     let chest_joint = def.lid.as_ref().and_then(|_| {
-        crate::double_chest::partner(&hood.registry, p, hood.get(p))
+        crate::blocks::double_chest::partner(&hood.registry, p, hood.get(p))
             .filter(|&(other, expected)| hood.get(other) == expected)
             .map(|(other, _)| other - p)
     });
@@ -1157,7 +1163,7 @@ fn model_boxes(
                         base + corner,
                         normal,
                         if pane {
-                            crate::door::GLAZING_COLOR
+                            crate::blocks::door::GLAZING_COLOR
                         } else if glass {
                             [0.35, 0.5, 0.46, 0.14]
                         } else {
@@ -1451,8 +1457,8 @@ fn greedy(hood: &Neighbourhood) -> ChunkMesh {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generator::TerrainGenerator;
     use crate::registry::test_blocks::{grass, stone};
+    use crate::worldgen::generator::TerrainGenerator;
 
     #[test]
     fn rotating_parts_keep_their_pivot_at_chunk_edges_and_expand_render_bounds() {

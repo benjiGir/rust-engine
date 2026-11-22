@@ -45,8 +45,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::block::BlockId;
 use crate::chunk::{BlockEntity, Chunk};
-use crate::generation::{GenerationMeta, GenerationVersion};
 use crate::registry::BlockRegistry;
+use crate::worldgen::generation::{GenerationMeta, GenerationVersion};
 
 /// Version du format. À augmenter si la structure des fichiers change.
 /// Version 2 : les chunks portent aussi leurs blocs actifs (machines).
@@ -436,7 +436,7 @@ impl SaveStore {
         let Ok(region) = self.region(Self::region_of(IVec3::new(cx, 0, cz))) else {
             return Vec::new();
         };
-        (crate::generator::MIN_CHUNK_Y..crate::generator::MAX_CHUNK_Y)
+        (crate::worldgen::generator::MIN_CHUNK_Y..crate::worldgen::generator::MAX_CHUNK_Y)
             .filter(|&cy| region.contains_key(&IVec3::new(cx, cy, cz)))
             .collect()
     }
@@ -592,10 +592,10 @@ mod v2 {
     use anyhow::Result;
     use serde::Deserialize;
 
-    use crate::capabilities::{
+    use crate::chunk::BlockEntity;
+    use crate::tech::capabilities::{
         Capabilities, EnergyStorage, FluidTank, Inventory, ItemStack, Kinetic, Sides,
     };
-    use crate::chunk::BlockEntity;
 
     #[derive(Deserialize)]
     struct Stack {
@@ -757,8 +757,8 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::generation::{DataRecord, DimensionRecord, KindRecord};
     use crate::registry::test_blocks::{dirt, stone};
+    use crate::worldgen::generation::{DataRecord, DimensionRecord, KindRecord};
 
     /// Un dossier temporaire neuf, propre à ce test.
     pub(crate) fn temp_dir(name: &str) -> PathBuf {
@@ -967,7 +967,7 @@ pub(crate) mod tests {
     /// Un état actif du format 2 : (puissance, données, capacités).
     type EntityV2 = (u8, Vec<u8>, Option<Box<CapsV2>>);
     /// Un inventaire du format 2 : des cases (objet, quantité), sans usure.
-    type InventoryV2 = (Vec<Option<(String, u32)>>, crate::capabilities::Sides);
+    type InventoryV2 = (Vec<Option<(String, u32)>>, crate::tech::capabilities::Sides);
 
     /// Un chunk du format 2, avec un coffre (inventaire sans usure).
     #[derive(Serialize)]
@@ -979,10 +979,10 @@ pub(crate) mod tests {
 
     #[derive(Serialize)]
     struct CapsV2 {
-        energy: Option<crate::capabilities::EnergyStorage>,
-        tanks: Vec<crate::capabilities::FluidTank>,
+        energy: Option<crate::tech::capabilities::EnergyStorage>,
+        tanks: Vec<crate::tech::capabilities::FluidTank>,
         inventory: Option<InventoryV2>,
-        kinetic: Option<crate::capabilities::Kinetic>,
+        kinetic: Option<crate::tech::capabilities::Kinetic>,
     }
 
     #[test]
@@ -1058,7 +1058,7 @@ pub(crate) mod tests {
             tanks: Vec::new(),
             inventory: Some((
                 vec![Some(("core:stone".into(), 12)), None],
-                crate::capabilities::Sides::ALL,
+                crate::tech::capabilities::Sides::ALL,
             )),
             kinetic: None,
         };

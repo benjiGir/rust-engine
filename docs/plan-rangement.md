@@ -100,7 +100,7 @@ reste interne.
 |---|---|---|
 | **R1, la simulation (réalisé)** | les 112 fichiers de `voxel_sim` dans leurs dossiers, renommés ; les chemins mis à jour dans `voxel_sim` et dans `voxel` ; la liste des réexportations de `main.rs` remplacée | fmt, clippy, les 1 199 tests, `check-arch` ; le jeu et `voxel-server` démarrent |
 | **R2, le jeu (réalisé)** | les 74 fichiers de `voxel` dans leurs dossiers, renommés | idem, et un coup d'œil en jeu (menus, écrans, autre joueur) |
-| **R3, le moteur** | les 55 fichiers d'`engine_voxel` dans leurs dossiers, interface publique inchangée | idem, et `cargo xtask build-mods` |
+| **R3, le moteur (réalisé)** | les 55 fichiers d'`engine_voxel` dans leurs dossiers, interface publique inchangée | idem, et `cargo xtask build-mods` |
 | **R4, la règle et la doc** | `check-arch` refuse plus de 20 fichiers `.rs` par dossier ; `docs/architecture.md` et les docs qui citent des chemins mis à jour | `check-arch` passe, et échoue sur un dossier de 21 fichiers |
 
 Chaque lot se fait sur un arbre propre (pas de travail en cours dans les fichiers déplacés) : un fichier
@@ -126,6 +126,13 @@ gardent leurs anciens chemins : ils racontent l'histoire.
   rangent dans des modules en ligne (`#[path = "../src/render"] mod render { pub mod item_models; }`), à
   l'image du jeu. Vérifié : fmt, clippy (exemples compris), les 1 199 tests, `check-arch`, et en jeu
   l'inventaire, la fiche des attributs et le livre de quêtes.
+- **R3** : les 55 fichiers d'`engine_voxel` sont rangés en `worldgen/` (11), `blocks/` (7), `tech/` (10),
+  `motion/` (6), `fluids/` (1) et `streaming/` (+3) ; la racine garde 13 fichiers et les parents. Les types
+  restent exportés à la racine de la crate (`engine_voxel::BlockRegistry`) ; seuls les cinq modules publics
+  changent de chemin : `engine_voxel::blocks::{bed, door, double_chest, paired_block}` et
+  `engine_voxel::worldgen::density_graph`. Un piège : `conduit_shell` est à la fois un module et une
+  fonction réexportée ; l'appel `crate::conduit_shell(...)` garde son chemin. Vérifié : fmt, clippy, les
+  1 199 tests, `check-arch`, les benchmarks compilent, `cargo xtask build-mods`.
 
 ## Choix à valider
 

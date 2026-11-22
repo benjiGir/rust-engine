@@ -1082,10 +1082,10 @@ impl VoxelGame {
                 if block == BlockId::AIR {
                     bail!("place : pour enlever un bloc, utiliser break");
                 }
-                if engine_voxel::bed::is_part(&self.client.registry, block) {
+                if engine_voxel::blocks::bed::is_part(&self.client.registry, block) {
                     bail!("place : utiliser core:bed pour poser le lit entier");
                 }
-                if engine_voxel::door::is_door(self.client.registry.def(block))
+                if engine_voxel::blocks::door::is_door(self.client.registry.def(block))
                     && !self.client.registry.def(block).placeable
                 {
                     bail!("place : utiliser l'objet de porte pour poser les deux moitiés");

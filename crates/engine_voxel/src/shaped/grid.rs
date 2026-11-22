@@ -4,7 +4,7 @@
 //! savoir si elle est pleine et cacher les faces intérieures au maillage. Les fonctions sont
 //! volontairement petites et sans état : les pièces les composent.
 
-use crate::capabilities::Face;
+use crate::tech::capabilities::Face;
 
 /// Les seizièmes d'un côté de case.
 pub(crate) const N: usize = 16;

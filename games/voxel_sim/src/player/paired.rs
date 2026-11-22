@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use engine_voxel::{BlockId, PlayerBody, bed, door};
+use engine_voxel::{BlockId, PlayerBody, blocks::bed, blocks::door};
 use glam::{IVec3, Vec3};
 
 use crate::{BlockPlaced, events, player};

@@ -123,7 +123,7 @@ impl VoxelGame {
             } else if let Some(hit) = self.client.target {
                 let s = self.view_streamer();
                 // La moitié droite d'un grand coffre montre l'inventaire de la gauche.
-                let pos = engine_voxel::double_chest::storage_pos(s, hit.block_pos);
+                let pos = engine_voxel::blocks::double_chest::storage_pos(s, hit.block_pos);
                 let block = s.world().block(pos);
                 let caps = s.block_entity(pos).and_then(|e| e.caps.as_deref());
                 (block, lines(block, caps), summary(block, caps))

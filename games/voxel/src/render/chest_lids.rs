@@ -93,8 +93,8 @@ impl VoxelGame {
                 .is_some()
         });
         // Les deux couvercles d'un grand coffre s'ouvrent ensemble.
-        let other =
-            target.and_then(|pos| engine_voxel::double_chest::paired(self.view_streamer(), pos));
+        let other = target
+            .and_then(|pos| engine_voxel::blocks::double_chest::paired(self.view_streamer(), pos));
         let targets: Vec<IVec3> = target.into_iter().chain(other).collect();
         let now = self.client.renderer.time;
         let (closing, opening) = self.client.chest_lids.update(&targets, now);

@@ -226,8 +226,8 @@ impl Cell<'_> {
         &self,
         mesh: &mut ChunkMesh,
         material: &Material,
-        base: crate::capabilities::Face,
-        up: crate::capabilities::Face,
+        base: crate::tech::capabilities::Face,
+        up: crate::tech::capabilities::Face,
         level: u8,
         corner: Corner,
     ) {

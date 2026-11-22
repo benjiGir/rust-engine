@@ -312,7 +312,7 @@ impl PlayerBody {
         let amount = |p: IVec3| {
             world
                 .fluid_amount(p)
-                .map_or(crate::fluid_sim::FULL, i32::from)
+                .map_or(crate::fluids::sim::FULL, i32::from)
         };
         let mut push = Vec3::ZERO;
         for side in [IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z] {
@@ -321,7 +321,7 @@ impl PlayerBody {
             // ou de sable ne pousse pas.
             if registry.def(world.block(other)).liquid && world.block(other) == world.block(here) {
                 let diff = amount(here) - amount(other);
-                push += side.as_vec3() * (diff as f32 / crate::fluid_sim::FULL as f32);
+                push += side.as_vec3() * (diff as f32 / crate::fluids::sim::FULL as f32);
             }
         }
         (push * CURRENT_PUSH).clamp_length_max(MAX_CURRENT)
@@ -340,7 +340,7 @@ impl PlayerBody {
                 return None;
             }
             let level = world.fluid_amount(pos).map_or(1.0, |a| {
-                (f32::from(a) / crate::fluid_sim::FULL as f32).min(1.0)
+                (f32::from(a) / crate::fluids::sim::FULL as f32).min(1.0)
             });
             Some(y as f32 + level * 0.875)
         })
@@ -369,10 +369,9 @@ impl PlayerBody {
             let level = if covered {
                 1.0
             } else {
-                world
-                    .fluid_amount(pos)
-                    .map_or(1.0, |a| (a as f32 / crate::fluid_sim::FULL as f32).min(1.0))
-                    * 0.875
+                world.fluid_amount(pos).map_or(1.0, |a| {
+                    (a as f32 / crate::fluids::sim::FULL as f32).min(1.0)
+                }) * 0.875
             };
             let (low, high) = (y as f32, y as f32 + level);
             under += (high.min(top) - low.max(bottom)).max(0.0);

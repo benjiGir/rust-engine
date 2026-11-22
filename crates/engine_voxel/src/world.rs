@@ -9,11 +9,11 @@ use std::sync::Arc;
 
 use glam::{IVec3, Vec3};
 
-use crate::biome::BiomeRegistry;
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE, Chunk};
 use crate::fluids::FluidRegistry;
 use crate::registry::BlockRegistry;
+use crate::worldgen::biome::BiomeRegistry;
 
 const SIZE: i32 = CHUNK_SIZE as i32;
 
@@ -61,7 +61,7 @@ impl World {
             registry,
             biomes: None,
             fluids: None,
-            vertical: 0..crate::generator::WORLD_HEIGHT_CHUNKS,
+            vertical: 0..crate::worldgen::generator::WORLD_HEIGHT_CHUNKS,
         }
     }
 
@@ -76,10 +76,10 @@ impl World {
 
     /// Change les couches du monde (le streamer y met celles de son générateur). Bornées au stockage.
     pub fn set_vertical(&mut self, vertical: std::ops::Range<i32>) {
-        let start = vertical.start.max(crate::generator::MIN_CHUNK_Y);
+        let start = vertical.start.max(crate::worldgen::generator::MIN_CHUNK_Y);
         let end = vertical
             .end
-            .min(crate::generator::MAX_CHUNK_Y)
+            .min(crate::worldgen::generator::MAX_CHUNK_Y)
             .max(start + 1);
         self.vertical = start..end;
     }
@@ -137,7 +137,7 @@ impl World {
 
     /// Les boîtes actuelles du bloc (vide : cube plein), raccords des voisins compris.
     pub fn block_boxes(&self, pos: IVec3) -> std::borrow::Cow<'_, [crate::registry::BlockBox]> {
-        crate::connections::boxes_at(
+        crate::blocks::connections::boxes_at(
             &self.registry,
             pos,
             |p| self.block(p),
@@ -154,7 +154,7 @@ impl World {
         &self,
         pos: IVec3,
     ) -> Option<std::borrow::Cow<'_, [crate::registry::BlockBox]>> {
-        crate::connections::collision_at(
+        crate::blocks::connections::collision_at(
             &self.registry,
             pos,
             |p| self.block(p),

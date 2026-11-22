@@ -2,7 +2,7 @@
 
 use super::grid::{N, set, volume};
 use super::*;
-use crate::capabilities::Face;
+use crate::tech::capabilities::Face;
 
 const OAK: &str = "core:oak_planks";
 const STONE: &str = "core:stone";
@@ -454,8 +454,8 @@ fn the_registry_knows_the_shaped_block() {
 
 #[test]
 fn storing_a_cell_simplifies_it() {
-    use crate::generator::TerrainGenerator;
     use crate::streaming::{StreamingConfig, tests::pump_until_idle};
+    use crate::worldgen::generator::TerrainGenerator;
     let config = StreamingConfig {
         view_radius: 1,
         ..StreamingConfig::default()
@@ -1374,8 +1374,8 @@ fn slopes_stick_to_the_aimed_wall_or_the_floor() {
 
 #[test]
 fn a_neighbour_that_changes_remeshes_the_connected_cell_even_across_a_chunk() {
-    use crate::generator::TerrainGenerator;
     use crate::streaming::{StreamEvent, StreamingConfig};
+    use crate::worldgen::generator::TerrainGenerator;
     let config = StreamingConfig {
         view_radius: 1,
         ..StreamingConfig::default()

@@ -4,7 +4,7 @@
 use crate::components::{Health, Mob, Transform};
 use crate::player;
 use crate::player::survival::{Hunger, Vitals};
-use engine_voxel::bed;
+use engine_voxel::blocks::bed;
 use glam::{IVec3, Vec3};
 
 impl crate::server::VoxelServer {

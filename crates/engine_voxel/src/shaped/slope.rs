@@ -27,7 +27,7 @@
 use glam::{IVec3, Vec3};
 
 use super::grid::{self, IntBox, N, Occupancy};
-use crate::capabilities::Face;
+use crate::tech::capabilities::Face;
 
 /// Le coin d'une pente.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

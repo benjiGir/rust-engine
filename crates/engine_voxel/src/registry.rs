@@ -106,13 +106,13 @@ pub struct BlockDef {
     /// Indice de la boîte vitrée, incluse dans la collision du bloc.
     pub glazing: Option<usize>,
     /// Géométries calculées depuis les voisins ; aucune variante enregistrée.
-    pub connections: Option<Arc<crate::connections::ConnectedShape>>,
+    pub connections: Option<Arc<crate::blocks::connections::ConnectedShape>>,
     /// Les états du bloc (orientation, moitié...), dans l'ordre déclaré. Chaque combinaison
     /// est un bloc du registre : voir [`BlockRegistry::variant`]. Vide si le bloc n'en a pas.
     pub states: Vec<StateKind>,
     /// Ce bloc est un conduit d'un réseau (câble, tuyau, arbre) : il relie ses voisins de la
     /// même sorte, et le jeu répartit énergie, fluide ou rotation entre les machines branchées.
-    pub conduit: Option<crate::networks::NetworkKind>,
+    pub conduit: Option<crate::tech::networks::NetworkKind>,
     /// Le canal d'un conduit (`mon_mod:vapeur`) : deux conduits de même sorte ne se relient que
     /// s'ils ont le même canal. Sans canal, tous les conduits de la sorte se relient.
     pub channel: Option<String>,
@@ -121,7 +121,7 @@ pub struct BlockDef {
     pub portal: Option<String>,
     /// Ce bloc est un rail (voir `rails.rs`) : sa forme est calculée depuis les rails voisins.
     /// Son dessin est un panneau posé au sol (`Shape::Rail`), orienté selon cette forme.
-    pub rail: Option<crate::rails::RailKind>,
+    pub rail: Option<crate::motion::rails::RailKind>,
     /// Le débit d'un conduit : au plus ce nombre d'unités par passage (le plus faible du réseau
     /// l'emporte). Sans valeur : le débit par défaut de la sorte.
     pub throughput: Option<u32>,
@@ -569,20 +569,20 @@ struct BlockFileEntry {
     #[serde(default)]
     glazing: Option<usize>,
     #[serde(default)]
-    connections: Option<crate::connections::ConnectionSize>,
+    connections: Option<crate::blocks::connections::ConnectionSize>,
     /// Les états : une variante du bloc par combinaison (voir [`StateKind`]).
     #[serde(default)]
     states: Vec<StateKind>,
     /// `conduit: Kinetic` (ou `Energy`, `Fluid`) : le bloc est un conduit de réseau.
     #[serde(default)]
-    conduit: Option<crate::networks::NetworkKind>,
+    conduit: Option<crate::tech::networks::NetworkKind>,
     #[serde(default)]
     channel: Option<String>,
     #[serde(default)]
     portal: Option<String>,
     /// `rail: Normal` (ou `Booster`, `Detector`, `Activator`, `Stop`) : le bloc est un rail.
     #[serde(default)]
-    rail: Option<crate::rails::RailKind>,
+    rail: Option<crate::motion::rails::RailKind>,
     #[serde(default)]
     throughput: Option<u32>,
     #[serde(default)]
@@ -870,9 +870,9 @@ impl BlockRegistry {
                 if !matches!(
                     entry.conduit,
                     Some(
-                        crate::networks::NetworkKind::Items
-                            | crate::networks::NetworkKind::Energy
-                            | crate::networks::NetworkKind::Fluid
+                        crate::tech::networks::NetworkKind::Items
+                            | crate::tech::networks::NetworkKind::Energy
+                            | crate::tech::networks::NetworkKind::Fluid
                     )
                 ) {
                     bail!(
@@ -902,7 +902,7 @@ impl BlockRegistry {
                     "{origin} : connections remplace boxes et ne se combine pas avec states ou rotation");
                 anyhow::ensure!(entry.conduit.or_else(||entry.behavior.as_deref().and_then(crate::NetworkKind::of_behavior)).is_some(),
                     "{origin} : connections exige un conduit de réseau");
-                crate::connections::ConnectedShape::new(size).map(Arc::new)
+                crate::blocks::connections::ConnectedShape::new(size).map(Arc::new)
             }).transpose().with_context(||format!("{origin} : {}",entry.id))?;
             // L'objet et l'icône montrent un segment droit ; dans le monde, les voisins décident.
             let boxes = if entry.rail.is_some() {
@@ -1199,7 +1199,7 @@ impl BlockRegistry {
                 .boxes
                 .iter()
                 // Les deux moitiés sont dessinées dans le repère du modèle avant rotation.
-                .map(|&b| crate::double_chest::half_box(b, part))
+                .map(|&b| crate::blocks::double_chest::half_box(b, part))
                 .map(|b| {
                     b.mapped(|c| {
                         states
@@ -1211,7 +1211,7 @@ impl BlockRegistry {
                 .collect();
             def.flow = flow_of(&states, &values, template.directed);
             def.state_values = values;
-            if crate::door::is_open(&def) {
+            if crate::blocks::door::is_open(&def) {
                 def.light_opacity = 0;
             }
             if let Some(rotation) = &mut def.rotation {
@@ -2012,10 +2012,10 @@ pub(crate) mod tests {
         for id in [rod, along_x] {
             assert_eq!(
                 r.def(id).conduit,
-                Some(crate::networks::NetworkKind::Kinetic)
+                Some(crate::tech::networks::NetworkKind::Kinetic)
             );
         }
-        let machines = crate::machines::Machines::with_natives(&r);
+        let machines = crate::tech::machines::Machines::with_natives(&r);
         assert!(machines.has_behavior(rod) && machines.has_behavior(along_x));
         let err = BlockRegistry::empty()
             .add_source(
@@ -2102,7 +2102,10 @@ pub(crate) mod tests {
         )
         .unwrap();
         let belt = r.def(r.id("test:belt").unwrap());
-        assert_eq!(belt.conduit, Some(crate::networks::NetworkKind::Items));
+        assert_eq!(
+            belt.conduit,
+            Some(crate::tech::networks::NetworkKind::Items)
+        );
         assert_eq!(
             (belt.channel.as_deref(), belt.throughput),
             (Some("test:belts"), Some(4))

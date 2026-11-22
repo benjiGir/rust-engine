@@ -14,14 +14,25 @@
 //! | Moteur | énergie `In` + rotation | 8 d'énergie par tick pour 64 tr/min, 512 de contrainte |
 //! | Ventilateur | rotation | consomme 128 de contrainte ; tourne quand il reçoit de la vitesse |
 
+pub(crate) mod capabilities;
+pub(crate) mod circuits;
+pub(crate) mod conduit_shell;
+pub(crate) mod containers;
+pub(crate) mod crafting;
+pub(crate) mod machines;
+pub(crate) mod network_visual;
+pub(crate) mod networks;
+pub(crate) mod recipe_index;
+pub(crate) mod storage;
+
 use std::rc::Rc;
 
 use crate::block::BlockId;
-use crate::capabilities::{Capabilities, EnergyStorage, FluidTank, Io, Kinetic, Sides};
-use crate::circuits::restyle;
 use crate::grid::{GridId, GridPos};
-use crate::machines::{BlockBehavior, MachineContext};
 use crate::registry::BlockRegistry;
+use crate::tech::capabilities::{Capabilities, EnergyStorage, FluidTank, Io, Kinetic, Sides};
+use crate::tech::circuits::restyle;
+use crate::tech::machines::{BlockBehavior, MachineContext};
 
 const SOLAR_PER_SECOND: u64 = 80;
 const LAMP_COST: u64 = 4;

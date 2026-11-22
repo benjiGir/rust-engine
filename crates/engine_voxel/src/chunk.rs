@@ -5,7 +5,7 @@ use rustc_hash::FxHashMap as HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::block::BlockId;
-use crate::capabilities::Capabilities;
+use crate::tech::capabilities::Capabilities;
 
 /// L'état attaché à un bloc « actif » (une machine, une lampe, une horloge...).
 ///

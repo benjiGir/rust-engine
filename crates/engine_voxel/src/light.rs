@@ -570,7 +570,7 @@ mod tests {
     /// exactement la même lumière qu'un calcul complet.
     #[test]
     fn incremental_updates_match_a_full_recompute() {
-        let generator = crate::generator::TerrainGenerator::new(3);
+        let generator = crate::worldgen::generator::TerrainGenerator::new(3);
         let mut world = generator.generate_region(5, 5);
         let lit: Vec<IVec2> = (1..4)
             .flat_map(|x| (1..4).map(move |z| IVec2::new(x, z)))
@@ -600,7 +600,7 @@ mod tests {
 
         let mut fresh = world.clone();
         light_all(&mut fresh, &[IVec2::new(2, 2)]);
-        for y in 0..crate::generator::WORLD_HEIGHT_CHUNKS * SIZE {
+        for y in 0..crate::worldgen::generator::WORLD_HEIGHT_CHUNKS * SIZE {
             for z in 64..96 {
                 for x in 64..96 {
                     let p = IVec3::new(x, y, z);

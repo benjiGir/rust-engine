@@ -61,6 +61,10 @@
 //!   `send(chunk)`, le thread de fond ne peut plus y toucher (il a été « moved »),
 //!   et le thread principal en devient l'unique propriétaire. Aucune copie, aucun verrou.
 
+pub(crate) mod chunk_sender;
+pub(crate) mod pipeline_timing;
+pub(crate) mod transfer;
+
 use std::collections::VecDeque;
 use std::collections::hash_map::Entry;
 
@@ -73,14 +77,14 @@ use glam::{IVec2, IVec3, Vec2, Vec3};
 
 use crate::block::BlockId;
 use crate::chunk::{BlockEntity, Chunk};
-use crate::generator::TerrainGenerator;
 use crate::light::{ColumnLight, LightRegion, apply_column_light, update_light};
 use crate::mesh::{ChunkMesh, Mesher, Neighbourhood};
-use crate::pipeline_timing::{PipelineReport, PipelineTimings};
 use crate::registry::BlockRegistry;
 use crate::save::{ChunkToSave, SaveReport, SaveStore, UnknownBlocks};
-use crate::transfer::TransferBudget;
+use crate::streaming::pipeline_timing::{PipelineReport, PipelineTimings};
+use crate::streaming::transfer::TransferBudget;
 use crate::world::World;
+use crate::worldgen::generator::TerrainGenerator;
 
 mod replica;
 mod views;
@@ -725,8 +729,11 @@ impl ChunkStreamer {
             crate::shaped::is_shaped_block(self.world.registry().def(self.world.block(pos)))
                 && self.block_entity(pos).map(|e| &e.data) != entity.as_ref().map(|e| &e.data);
         if reshaped
-            || crate::connections::ports(self.block_entity(pos).and_then(|e| e.caps.as_deref()))
-                != crate::connections::ports(entity.as_ref().and_then(|e| e.caps.as_deref()))
+            || crate::blocks::connections::ports(
+                self.block_entity(pos).and_then(|e| e.caps.as_deref()),
+            ) != crate::blocks::connections::ports(
+                entity.as_ref().and_then(|e| e.caps.as_deref()),
+            )
         {
             self.invalidate_block_visuals(pos);
         }
@@ -741,13 +748,14 @@ impl ChunkStreamer {
 
     /// Pose les deux moitiés ensemble, même si elles sont dans des chunks différents.
     pub fn place_bed(&mut self, foot: IVec3, look: Vec3) -> Option<[(IVec3, BlockId); 2]> {
-        let parts = crate::bed::placement(self.world.registry(), foot, look)?;
+        let parts = crate::blocks::bed::placement(self.world.registry(), foot, look)?;
         self.place_pair(parts).then_some(parts)
     }
 
     pub fn place_pair(&mut self, parts: [(IVec3, BlockId); 2]) -> bool {
         let registry = self.world.registry();
-        if crate::paired_block::partner(registry, parts[0].0, parts[0].1) != Some(parts[1]) {
+        if crate::blocks::paired_block::partner(registry, parts[0].0, parts[0].1) != Some(parts[1])
+        {
             return false;
         }
         if parts.iter().any(|&(pos, block)| {
@@ -765,7 +773,7 @@ impl ChunkStreamer {
     }
 
     pub fn toggle_door(&mut self, pos: IVec3) -> bool {
-        let Some(parts) = crate::door::toggled(&self.world, pos) else {
+        let Some(parts) = crate::blocks::door::toggled(&self.world, pos) else {
             return false;
         };
         if parts.iter().any(|&(p, _)| !self.can_edit_cell(p)) {
@@ -793,7 +801,7 @@ impl ChunkStreamer {
             return true;
         }
         if let Some((other, expected)) =
-            crate::paired_block::partner(self.world.registry(), pos, old)
+            crate::blocks::paired_block::partner(self.world.registry(), pos, old)
         {
             // Attendre le chunk voisin évite de laisser une moitié dans une sauvegarde.
             if !self.can_edit_cell(other) {

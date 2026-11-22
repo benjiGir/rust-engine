@@ -8,15 +8,16 @@ use glam::Vec3;
 pub fn build(item: ItemId, items: &ItemRegistry, blocks: &BlockRegistry) -> Vec<CubeInstance> {
     let def = items.get(item);
     match &def.icon {
-        Icon::Block(id) => engine_voxel::paired_block::display_parts(blocks, *id).map_or_else(
-            || block_parts(blocks.def(*id), Vec3::ZERO, blocks),
-            |parts| {
-                parts
-                    .into_iter()
-                    .flat_map(|(id, offset)| block_parts(blocks.def(id), offset, blocks))
-                    .collect()
-            },
-        ),
+        Icon::Block(id) => engine_voxel::blocks::paired_block::display_parts(blocks, *id)
+            .map_or_else(
+                || block_parts(blocks.def(*id), Vec3::ZERO, blocks),
+                |parts| {
+                    parts
+                        .into_iter()
+                        .flat_map(|(id, offset)| block_parts(blocks.def(id), offset, blocks))
+                        .collect()
+                },
+            ),
         Icon::Texture(key) => sprite(key, "items", blocks),
     }
 }
@@ -45,7 +46,7 @@ fn block_parts(
             let center = offset + (b.min + b.max) * 0.5 - Vec3::splat(0.5);
             let size = b.max - b.min;
             if block.glazing == Some(i) {
-                let [r, g, b, alpha] = engine_voxel::door::GLAZING_COLOR;
+                let [r, g, b, alpha] = engine_voxel::blocks::door::GLAZING_COLOR;
                 return CubeInstance::new(center, size, Vec3::new(r, g, b)).with_surface(
                     [0; 3],
                     Vec3::ZERO,

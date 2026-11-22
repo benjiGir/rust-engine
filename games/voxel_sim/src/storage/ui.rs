@@ -62,7 +62,7 @@ impl crate::server::VoxelServer {
     /// Une moitié de grand coffre qu'on casse ne garde que ses propres objets ; l'autre
     /// redevient un coffre simple avec les siens.
     pub fn split_chest(&mut self, pos: IVec3) -> Option<IVec3> {
-        engine_voxel::double_chest::split(&mut *self.streamer_mut(), pos)
+        engine_voxel::blocks::double_chest::split(&mut *self.streamer_mut(), pos)
     }
 
     /// Un coffre posé contre un coffre identique forme un grand coffre.
@@ -70,7 +70,7 @@ impl crate::server::VoxelServer {
         let registry = self.registry.clone();
         let streamer = self.streamer();
         let block = streamer.world().block(pos);
-        engine_voxel::double_chest::part(&registry, block)?;
+        engine_voxel::blocks::double_chest::part(&registry, block)?;
         // Un coffre de structure tire ses objets avant de rejoindre l'autre.
         let neighbours: Vec<IVec3> = [IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z]
             .iter()
@@ -81,7 +81,7 @@ impl crate::server::VoxelServer {
         for p in neighbours {
             self.resolve_chest_loot(p);
         }
-        engine_voxel::double_chest::merge(&mut *self.streamer_mut(), pos)
+        engine_voxel::blocks::double_chest::merge(&mut *self.streamer_mut(), pos)
     }
 
     /// Ce qui tombe quand le bloc en `pos` change : ses objets, sans les filtres (cases fantômes).
@@ -210,7 +210,8 @@ impl crate::server::VoxelServer {
             return true;
         }
         // Un grand coffre s'ouvre sur sa moitié gauche, qui garde l'inventaire.
-        let opened = engine_voxel::double_chest::storage_pos(&*self.streamer(), hit.block_pos);
+        let opened =
+            engine_voxel::blocks::double_chest::storage_pos(&*self.streamer(), hit.block_pos);
         let block = self.streamer().world().block(opened);
         let def = self.registry.def(block);
         let screen = match def.behavior.as_deref() {
