@@ -105,7 +105,7 @@ pour jouer et pour héberger.
 | **I1, les chemins (réalisé)** | `voxel_sim::paths`, `GamePaths` ; tous les chemins passent par lui ; le dépôt reste la racine en développement | les 1 166 tests ; le jeu se lance comme avant ; un test de la recherche de racine (exécutable, `VOXEL_DATA`, dépôt) |
 | **I2, les dossiers du joueur (réalisé)** | `shader_packs/` à la racine ; `screenshots/` et `logs/latest.log` ; doublons de mods signalés | un mod et un pack déposés à la main apparaissent |
 | **I3, lecture seule (réalisé)** | repli sur le dossier utilisateur du système quand l'installation n'est pas inscriptible | un test avec un dossier en lecture seule |
-| **I4, l'empaquetage** | `cargo xtask package`, puis lancer le jeu et le serveur **depuis `dist/`, hors du dépôt** | le jeu démarre, un monde se crée, le serveur dédié tourne, un invité le rejoint, tout depuis `dist/` |
+| **I4, l'empaquetage (réalisé)** | `cargo xtask package`, puis lancer le jeu et le serveur **depuis `dist/`, hors du dépôt** | le jeu démarre, un monde se crée, le serveur dédié tourne, un invité le rejoint, tout depuis `dist/` |
 
 ## Réalisé
 
@@ -133,6 +133,18 @@ pour jouer et pour héberger.
   est écarté et signalé. `--data-dir` ne déclenche pas le repli. Vérifié avec une installation copiée en
   lecture seule (`chmod 555`) : le jeu et `voxel-server` écrivent dans `~/Library/Application Support/Voxel`,
   les packs livrés et ceux du joueur apparaissent dans les menus, le mod du joueur passe devant le livré.
+- **I4** : `cargo xtask package [--target <triple>]` compile `voxel` et `voxel-server` en release, lance
+  `build-mods`, puis fabrique `dist/Voxel-<version>-<système>-<processeur>/` : les deux exécutables, `game/core`,
+  les mods sans `script/` ni `target/` (il s'arrête si un `.wasm` manque), les packs de textures et de
+  shaders, `LISEZMOI.txt` (jouer, ajouter un mod ou un pack, héberger, lecture seule) ; puis le `.zip`
+  (`ditto` sous macOS, `tar` sous Windows, `zip` ailleurs). Pas de `settings.ron` livré : le jeu l'écrit au
+  premier lancement avec les valeurs par défaut. Hors du dépôt, les shaders du moteur ne sont plus relus ni
+  surveillés depuis le chemin de compilation (`GamePaths::from_repository`). Vérifié sur macOS (aarch64) :
+  archive de 46 Mo (94 Mo décompressée) ouverte hors du dépôt ; le jeu y crée son monde, son journal et ses
+  réglages et charge les 6 mods sans rien lire du dépôt ; `voxel-server` y écrit `server.ron` et accueille un
+  invité (`voxel --bots 1`). Le serveur s'arrête quand son entrée standard se ferme : pour un service, lui
+  garder une entrée ouverte. Le `.app` signé et l'installateur Windows restent à faire ; Windows et Linux
+  n'ont pas été essayés.
 
 ## Choix à valider
 

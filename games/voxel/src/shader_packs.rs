@@ -118,6 +118,10 @@ impl Effects {
 }
 
 fn read_base(path: &str, builtin: &'static str) -> Result<Cow<'static, str>> {
+    // Hors du dépôt, les shaders embarqués : le chemin de compilation ne veut rien dire.
+    if !voxel_sim::paths::get().from_repository() {
+        return Ok(Cow::Borrowed(builtin));
+    }
     match fs::read_to_string(path) {
         Ok(source) => Ok(Cow::Owned(source)),
         // Les éditions distribuées embarquent leurs shaders.

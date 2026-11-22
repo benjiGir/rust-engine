@@ -73,6 +73,13 @@ impl GamePaths {
             .collect()
     }
 
+    /// Le jeu tourne-t-il depuis le dépôt (`cargo run`, avec ou sans `--data-dir`) ? Seulement alors
+    /// les sources du moteur (shaders) se relisent à chaud : une installation embarque les siennes.
+    pub fn from_repository(&self) -> bool {
+        !matches!(self.layout, Layout::Install | Layout::UserDir)
+            && self.game.file_name().is_some_and(|name| name != GAME_DIR)
+    }
+
     /// Les dossiers de mods, celui du joueur d'abord.
     pub fn mods_dirs(&self) -> Vec<PathBuf> {
         self.layered("mods")
@@ -285,6 +292,7 @@ mod tests {
         assert_eq!(paths.settings, install.join("settings.ron"));
         assert_eq!(paths.server_config, install.join("server.ron"));
         assert_eq!(paths.shader_packs, install.join("shader_packs"));
+        assert!(!paths.from_repository());
         assert_eq!(paths.screenshots, install.join("screenshots"));
         assert_eq!(paths.logs, install.join("logs"));
         let _ = std::fs::remove_dir_all(&install);
@@ -337,6 +345,7 @@ mod tests {
         assert_eq!(paths.root, PathBuf::from("/depot"));
         assert_eq!(paths.mods, PathBuf::from("/depot/mods"));
         assert_eq!(paths.shader_packs, PathBuf::from("/depot/shader_packs"));
+        assert!(paths.from_repository());
     }
 
     #[test]

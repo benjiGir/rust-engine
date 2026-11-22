@@ -1360,7 +1360,11 @@ fn start_hot_reload() -> Option<hot_reload::HotReload> {
     dirs.extend(paths.mods_dirs());
     dirs.extend(paths.texture_pack_dirs());
     dirs.extend(paths.shader_pack_dirs());
-    if let Some(shaders) = std::path::Path::new(engine_render::CHUNK_SHADER_PATH).parent() {
+    // Les shaders du moteur : seulement en développement (une installation les embarque, et le
+    // dépôt de la machine qui l'a compilée n'a pas à compter).
+    if paths.from_repository()
+        && let Some(shaders) = std::path::Path::new(engine_render::CHUNK_SHADER_PATH).parent()
+    {
         dirs.push(shaders.to_path_buf());
     }
     hot_reload::HotReload::new(&dirs)

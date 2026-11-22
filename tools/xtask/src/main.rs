@@ -15,6 +15,8 @@
 //!   température, continentalité, biomes ; `--generator v1|v3`) ; les options sont décrites dans
 //!   `crates/engine_voxel/examples/worldmap.rs`.
 //! - `hooks [--check]` : génère l'interface des mods depuis son catalogue (voir `hooks.rs`).
+//! - `package [--target <triple>]` : fabrique le dossier du jeu à distribuer et son `.zip` dans
+//!   `dist/` (voir `package.rs`).
 
 mod bench;
 mod check_arch;
@@ -23,6 +25,7 @@ mod docs;
 mod hooks;
 mod net;
 mod new_mod;
+mod package;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -48,10 +51,15 @@ fn main() -> Result<()> {
         "bench" => bench::run(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         "map" => map(&std::env::args().skip(2).collect::<Vec<_>>()),
         "bots" => net::bots(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
+        "package" => package::run(
+            &root(),
+            &std::env::args().skip(2).collect::<Vec<_>>(),
+            build_mods,
+        ),
         "bench-net" => net::bench(&root(), &std::env::args().skip(2).collect::<Vec<_>>()),
         _ => {
             eprintln!(
-                "usage : cargo xtask build-mods | new-mod <id> | test-mod <id> | docs | check-arch | ctl [--port N] <commande>... | bench | bench-net [s] | bots N adresse | hooks | map"
+                "usage : cargo xtask build-mods | new-mod <id> | test-mod <id> | docs | check-arch | ctl [--port N] <commande>... | bench | bench-net [s] | bots N adresse | hooks | map | package [--target <triple>]"
             );
             bail!("tâche inconnue : « {task} »")
         }
