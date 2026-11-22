@@ -84,7 +84,7 @@ mod tests {
         use voxel_sim::settings::TexturePack;
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut registry = crate::test_registry();
-        crate::texture_packs::configure(
+        crate::render::texture_packs::configure(
             &mut registry,
             TexturePack::Earth64,
             &[root.join("texture_packs")],

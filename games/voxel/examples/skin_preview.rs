@@ -1,17 +1,20 @@
 //! Planche de contrôle du thème et des icônes, sans fenêtre ni sauvegarde de monde.
 //! `cargo run -p voxel --example skin_preview -- /tmp/voxel-skin.png`
 
+#[path = "../src/render"]
+mod render {
+    pub mod item_art;
+    pub mod item_models;
+}
+#[path = "../src/ui"]
+mod ui {
+    #[allow(dead_code)]
+    pub mod skin;
+}
 #[path = "../src/assets.rs"]
 #[allow(dead_code)]
 mod assets;
 mod common;
-#[path = "../src/item_art.rs"]
-mod item_art;
-#[path = "../src/item_models.rs"]
-mod item_models;
-#[path = "../src/skin.rs"]
-#[allow(dead_code)]
-mod skin;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -46,7 +49,7 @@ fn main() -> Result<()> {
         })
         .collect::<Result<_>>()?;
     let ctx = egui::Context::default();
-    skin::apply(&ctx);
+    crate::ui::skin::apply(&ctx);
     let items = engine_voxel::ItemRegistry::builtin(&registry)?;
     let mut models = Vec::new();
     for key in [
@@ -60,7 +63,7 @@ fn main() -> Result<()> {
         "core:bucket",
         "core:wheat",
     ] {
-        let parts = item_models::build(
+        let parts = crate::render::item_models::build(
             items.id(key).context("objet de la planche")?,
             &items,
             &registry,
@@ -92,7 +95,7 @@ fn main() -> Result<()> {
             matches!(def.shape, Shape::Cube | Shape::Model),
             "modèle attendu"
         );
-        let pixels = item_art::block_icon(&registry, block, &textures);
+        let pixels = crate::render::item_art::block_icon(&registry, block, &textures);
         icons.push(ctx.load_texture(
             key,
             egui::ColorImage::from_rgba_unmultiplied([32, 32], &pixels),
@@ -145,7 +148,7 @@ fn main() -> Result<()> {
                 egui::Align2::LEFT_TOP,
                 "TERRE / ARDOISE / CUIVRE",
                 egui::FontId::monospace(14.0),
-                skin::MUTED,
+                crate::ui::skin::MUTED,
             );
             egui::Window::new("menu")
                 .fixed_pos(egui::pos2(40.0, 60.0))
@@ -155,29 +158,30 @@ fn main() -> Result<()> {
                 .show(ui.ctx(), |ui| {
                     ui.vertical_centered(|ui| {
                         ui.set_width(300.0);
-                        skin::logo(ui);
+                        crate::ui::skin::logo(ui);
                         ui.label(
                             egui::RichText::new("TERRES SAUVAGES · ATELIERS · AVENTURES")
                                 .size(10.0)
-                                .color(skin::MUTED),
+                                .color(crate::ui::skin::MUTED),
                         );
                         ui.add_space(16.0);
                         for text in ["Jouer", "Nouveau monde", "Options", "Quitter"] {
-                            skin::menu_button(ui, text);
+                            crate::ui::skin::menu_button(ui, text);
                         }
                         ui.add_space(8.0);
                     });
                 });
             egui::Window::new("inventaire")
                 .fixed_pos(egui::pos2(410.0, 60.0))
-                .frame(skin::inventory_panel())
+                .frame(crate::ui::skin::inventory_panel())
                 .title_bar(false)
                 .resizable(false)
                 .show(ui.ctx(), |ui| {
-                    skin::inventory_style(ui);
+                    crate::ui::skin::inventory_style(ui);
                     ui.heading("Inventaire");
                     ui.label(
-                        egui::RichText::new("Matières · outils · provisions").color(skin::INK),
+                        egui::RichText::new("Matières · outils · provisions")
+                            .color(crate::ui::skin::INK),
                     );
                     ui.add_space(12.0);
                     for row in 0..3 {
@@ -187,10 +191,15 @@ fn main() -> Result<()> {
                                     egui::vec2(48.0, 48.0),
                                     egui::Sense::hover(),
                                 );
-                                skin::slot(ui.painter(), rect, row == 1 && col == 3, false);
+                                crate::ui::skin::slot(
+                                    ui.painter(),
+                                    rect,
+                                    row == 1 && col == 3,
+                                    false,
+                                );
                                 ui.painter().image(
                                     icons[row * 9 + col].id(),
-                                    skin::icon_rect(rect),
+                                    crate::ui::skin::icon_rect(rect),
                                     egui::Rect::from_min_max(
                                         egui::Pos2::ZERO,
                                         egui::pos2(1.0, 1.0),
@@ -213,7 +222,7 @@ fn main() -> Result<()> {
                     ui.add(
                         egui::ProgressBar::new(0.62)
                             .corner_radius(0)
-                            .fill(skin::COPPER)
+                            .fill(crate::ui::skin::COPPER)
                             .text("Fonte en cours"),
                     );
                 });
@@ -222,17 +231,17 @@ fn main() -> Result<()> {
                 .show(ui.ctx(), |ui| {
                     ui.label(
                         egui::RichText::new("PALETTE COMMUNE")
-                            .color(skin::MUTED)
+                            .color(crate::ui::skin::MUTED)
                             .size(11.0),
                     );
                     ui.horizontal(|ui| {
                         for color in [
-                            skin::PANEL,
-                            skin::BORDER,
-                            skin::COPPER,
-                            skin::SAGE,
-                            skin::GOLD,
-                            skin::TEXT,
+                            crate::ui::skin::PANEL,
+                            crate::ui::skin::BORDER,
+                            crate::ui::skin::COPPER,
+                            crate::ui::skin::SAGE,
+                            crate::ui::skin::GOLD,
+                            crate::ui::skin::TEXT,
                         ] {
                             let (rect, _) = ui
                                 .allocate_exact_size(egui::vec2(41.0, 28.0), egui::Sense::hover());
@@ -246,14 +255,15 @@ fn main() -> Result<()> {
                     let (rect, _) =
                         ui.allocate_exact_size(egui::vec2(444.0, 18.0), egui::Sense::hover());
                     for i in 0..10 {
-                        for (offset, color, seed) in
-                            [(0.0, skin::RED, false), (284.0, skin::GOLD, true)]
-                        {
+                        for (offset, color, seed) in [
+                            (0.0, crate::ui::skin::RED, false),
+                            (284.0, crate::ui::skin::GOLD, true),
+                        ] {
                             let cell = egui::Rect::from_min_size(
                                 rect.min + egui::vec2(offset + i as f32 * 16.0, 0.0),
                                 egui::vec2(13.0, 13.0),
                             );
-                            skin::meter(
+                            crate::ui::skin::meter(
                                 ui.painter(),
                                 cell,
                                 if i < 8 {
@@ -271,7 +281,7 @@ fn main() -> Result<()> {
                     ui.add(
                         egui::ProgressBar::new(0.45)
                             .corner_radius(0)
-                            .fill(skin::SAGE)
+                            .fill(crate::ui::skin::SAGE)
                             .desired_width(444.0)
                             .desired_height(5.0),
                     );
@@ -279,10 +289,10 @@ fn main() -> Result<()> {
                         for (i, icon) in icons.iter().take(9).enumerate() {
                             let (rect, _) = ui
                                 .allocate_exact_size(egui::vec2(48.0, 48.0), egui::Sense::hover());
-                            skin::slot(ui.painter(), rect, i == 0, false);
+                            crate::ui::skin::slot(ui.painter(), rect, i == 0, false);
                             ui.painter().image(
                                 icon.id(),
-                                skin::icon_rect(rect),
+                                crate::ui::skin::icon_rect(rect),
                                 egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
                                 Color32::WHITE,
                             );
@@ -291,7 +301,7 @@ fn main() -> Result<()> {
                 });
             egui::Window::new("modèles au sol")
                 .fixed_pos(egui::pos2(40.0, 445.0))
-                .frame(skin::panel())
+                .frame(crate::ui::skin::panel())
                 .title_bar(false)
                 .resizable(false)
                 .show(ui.ctx(), |ui| {

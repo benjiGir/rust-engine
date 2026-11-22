@@ -1,18 +1,21 @@
 //! Vues à la première personne des vraies matrices de la main, sans fenêtre ni sauvegarde.
+#[path = "../src/render"]
+mod render {
+    #[allow(dead_code)]
+    pub mod hand_model;
+    #[allow(dead_code)]
+    pub mod item_models;
+}
+#[path = "../src/ui"]
+mod ui {
+    #[allow(dead_code)]
+    pub mod skin;
+}
 #[path = "../src/assets.rs"]
 #[allow(dead_code)]
 mod assets;
 #[allow(dead_code)]
 mod common;
-#[path = "../src/hand_model.rs"]
-#[allow(dead_code)]
-mod hand;
-#[path = "../src/item_models.rs"]
-#[allow(dead_code)]
-mod item_models;
-#[path = "../src/skin.rs"]
-#[allow(dead_code)]
-mod skin;
 use anyhow::{Context as _, Result};
 use engine_render::{
     HandInstance,
@@ -236,7 +239,7 @@ fn main() -> Result<()> {
     let items = ItemRegistry::load_mods(&blocks, &root.join("assets"), &mods)?;
     let textures = assets::load_textures(&blocks);
     let ctx = egui::Context::default();
-    skin::apply(&ctx);
+    crate::ui::skin::apply(&ctx);
     let keys = if args[0] == "blocks" {
         [
             ("Baguette", "magie:wand"),
@@ -285,7 +288,9 @@ fn main() -> Result<()> {
     };
     let mut images = Vec::new();
     for (label, key) in keys {
-        let mut hand = hand::Hand::new(hand::ArmColors::load(&root.join("assets")));
+        let mut hand = crate::render::hand_model::Hand::new(
+            crate::render::hand_model::ArmColors::load(&root.join("assets")),
+        );
         hand.visible = true;
         hand.set_aspect_ratio(view_w as f32 / view_h as f32);
         hand.frozen = true;
@@ -325,7 +330,7 @@ fn main() -> Result<()> {
                         "Outils en main · pose au repos"
                     },
                     egui::FontId::monospace(22.0),
-                    skin::TEXT,
+                    crate::ui::skin::TEXT,
                 );
                 for (i, (label, texture)) in images.iter().enumerate() {
                     let x = 12.0 + (i % 3) as f32 * (view_w + 8) as f32;
@@ -335,7 +340,7 @@ fn main() -> Result<()> {
                         egui::Align2::LEFT_TOP,
                         label,
                         egui::FontId::monospace(14.0),
-                        skin::TEXT,
+                        crate::ui::skin::TEXT,
                     );
                     p.image(
                         texture.id(),
@@ -352,7 +357,7 @@ fn main() -> Result<()> {
                     egui::Align2::LEFT_CENTER,
                     "Contrôle CPU · mêmes matrices et projection que le jeu · fond uni",
                     egui::FontId::monospace(12.0),
-                    skin::MUTED,
+                    crate::ui::skin::MUTED,
                 );
             },
         );

@@ -1,11 +1,13 @@
 //! Vrais modèles et articulations des créatures, skins 16/32, sans fenêtre ni sauvegarde.
+#[path = "../src/render"]
+mod render {
+    pub mod mobs;
+}
 #[path = "../src/assets.rs"]
 #[allow(dead_code)]
 mod assets;
 #[allow(dead_code)]
 mod common;
-#[path = "../src/mob_render.rs"]
-mod mob_render;
 use anyhow::{Context, Result};
 use engine_render::{
     CubeInstance,
@@ -209,7 +211,7 @@ fn main() -> Result<()> {
         .enumerate()
         .take(if sheep_colors { 1 } else { 4 })
         {
-            let mut parts: Vec<_> = mob_render::instances(
+            let mut parts: Vec<_> = crate::render::mobs::instances(
                 &c.parts,
                 1.0,
                 if i == 3 { 0.85 } else { 0.0 },

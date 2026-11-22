@@ -1,14 +1,18 @@
 //! Comparaison du pack 16/32, raccords et modèles réels, sans fenêtre ni sauvegarde.
+#[path = "../src/render"]
+mod render {
+    pub mod item_models;
+}
+#[path = "../src/ui"]
+mod ui {
+    #[allow(dead_code)]
+    pub mod skin;
+}
 #[path = "../src/assets.rs"]
 #[allow(dead_code)]
 mod assets;
 #[allow(dead_code)]
 mod common;
-#[path = "../src/item_models.rs"]
-mod item_models;
-#[path = "../src/skin.rs"]
-#[allow(dead_code)]
-mod skin;
 use anyhow::{Context, Result};
 use engine_render::egui::{self, Color32};
 use engine_voxel::{BlockRegistry, ItemRegistry};
@@ -22,7 +26,7 @@ fn main() -> Result<()> {
     let output = std::env::args().nth(1).context("sortie.png")?;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let ctx = egui::Context::default();
-    skin::apply(&ctx);
+    crate::ui::skin::apply(&ctx);
     let mut boards = Vec::new();
     for packed in [false, true] {
         let mut registry = BlockRegistry::load(&root.join("assets"), Some(&root.join("mods")))?;
@@ -66,7 +70,11 @@ fn main() -> Result<()> {
             "core:water_flask",
             "mecanique:gear",
         ] {
-            let parts = item_models::build(items.id(key).context("objet")?, &items, &registry);
+            let parts = crate::render::item_models::build(
+                items.id(key).context("objet")?,
+                &items,
+                &registry,
+            );
             let image =
                 common::model_image(&parts, &textures, glam::Vec3::new(-0.7, -0.45, -1.0), 1.0);
             models.push(ctx.load_texture(

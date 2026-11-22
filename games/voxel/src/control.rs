@@ -13,6 +13,18 @@
 //!
 //! Idée reprise d'Horizon (`docs/agent-control.md`), réécrite ici.
 
+pub mod adventure;
+pub mod bench;
+pub mod enchanting;
+pub mod ghosts;
+pub mod items;
+pub mod net;
+pub mod quests;
+pub mod screenshots;
+pub mod shapes_scene;
+pub mod shaping;
+pub mod storage;
+
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -214,20 +226,20 @@ pub enum Command {
     /// Ouvre la console (sans texte) ou y valide une ligne.
     Console(Option<String>),
     /// Les commandes du stockage : sac, gestes sur un conteneur, contenu (voir `storage_ctl.rs`).
-    Storage(crate::storage_ctl::Command),
+    Storage(crate::control::storage::Command),
     /// Les commandes des objets et des attributs (voir `item_ctl.rs`).
-    Items(crate::item_ctl::Command),
+    Items(crate::control::items::Command),
     /// Les commandes de l'aventure : butin, gemmes, paliers, élites (voir `adventure_ctl.rs`).
-    Adventure(crate::adventure_ctl::Command),
+    Adventure(crate::control::adventure::Command),
     /// Les commandes du livre de quêtes (voir `quest_ctl.rs`).
-    Quests(crate::quest_ctl::Command),
+    Quests(crate::control::quests::Command),
     /// Les commandes des formes : tailler, reconstituer, lire une case (voir `shape_ctl.rs`).
-    Shapes(crate::shape_ctl::Command),
+    Shapes(crate::control::shaping::Command),
     /// Les joueurs fantômes : ajouter, retirer, lister (voir `ghosts.rs`).
     Ghosts(voxel_sim::net::ghosts::Command),
-    Net(crate::net_ctl::Command),
+    Net(crate::control::net::Command),
     /// Les commandes de l'enchantement avancé : stats de table, livres, bibliothèque (voir `enchant_ctl.rs`).
-    Enchanting(crate::enchant_ctl::Command),
+    Enchanting(crate::control::enchanting::Command),
     /// Les textes affichés (avec leur position en points), pour viser un bouton.
     UiTexts,
     /// Un clic de souris en (x, y) points ; vrai : bouton droit.
@@ -637,23 +649,23 @@ pub fn parse(line: &str) -> Result<Command> {
         }
         "quit" => Command::Quit,
         "screen" if args.first() == Some(&"quests") => {
-            Command::Quests(crate::quest_ctl::parse(&name, &args).expect("screen quests")?)
+            Command::Quests(crate::control::quests::parse(&name, &args).expect("screen quests")?)
         }
-        other => match crate::storage_ctl::parse(other, &args) {
+        other => match crate::control::storage::parse(other, &args) {
             Some(command) => Command::Storage(command?),
-            None => match crate::item_ctl::parse(other, &args) {
+            None => match crate::control::items::parse(other, &args) {
                 Some(command) => Command::Items(command?),
-                None => match crate::adventure_ctl::parse(other, &args) {
+                None => match crate::control::adventure::parse(other, &args) {
                     Some(command) => Command::Adventure(command?),
-                    None => match crate::enchant_ctl::parse(other, &args) {
+                    None => match crate::control::enchanting::parse(other, &args) {
                         Some(command) => Command::Enchanting(command?),
-                        None => match crate::quest_ctl::parse(other, &args) {
+                        None => match crate::control::quests::parse(other, &args) {
                             Some(command) => Command::Quests(command?),
-                            None => match crate::shape_ctl::parse(other, &args) {
+                            None => match crate::control::shaping::parse(other, &args) {
                                 Some(command) => Command::Shapes(command?),
                                 None => match voxel_sim::net::ghosts::parse(other, &args) {
                                     Some(command) => Command::Ghosts(command?),
-                                    None => match crate::net_ctl::parse(other, &args) {
+                                    None => match crate::control::net::parse(other, &args) {
                                         Some(command) => Command::Net(command?),
                                         None => {
                                             bail!("commande inconnue « {other} » (voir `help`)")
@@ -1542,7 +1554,7 @@ impl VoxelGame {
                 Ok(format!("{{\"ok\":true,\"mods\":[{}]}}", rows.join(",")))
             }
             Command::Pause => {
-                self.mode = Mode::Paused(crate::menus::PausePage::Main);
+                self.mode = Mode::Paused(crate::ui::menus::PausePage::Main);
                 Ok(ok())
             }
             Command::Resume => {
@@ -1587,7 +1599,12 @@ impl VoxelGame {
                 if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
                     std::fs::create_dir_all(dir)?;
                 }
-                crate::screenshots::save_png(&path, capture.width, capture.height, &capture.rgba)?;
+                crate::control::screenshots::save_png(
+                    &path,
+                    capture.width,
+                    capture.height,
+                    &capture.rgba,
+                )?;
                 let path = std::path::absolute(&path).unwrap_or(path);
                 Ok(format!(
                     "{{\"ok\":true,\"path\":{},\"width\":{},\"height\":{}}}",

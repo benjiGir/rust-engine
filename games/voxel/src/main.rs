@@ -41,81 +41,22 @@
 //! - `VOXEL_DEMO=1` : le joueur marche, saute, casse et pose des blocs tout seul
 //!   (macOS empêche les outils de test d'envoyer des touches).
 
-mod adventure_ctl;
+mod adventure;
 mod assets;
-mod attributes_ui;
 mod audio;
-mod backpacks_window;
-mod bench;
-mod cart_play_window;
-mod chest_lids;
-mod chest_preview;
-mod client_entities;
-mod client_side;
-mod client_world;
-mod console;
-mod container_view_window;
+mod client;
 mod control;
-mod culling;
-mod death;
-mod dimensions_window;
-mod enchant_ctl;
-mod enchant_ui;
-mod entity_render;
-mod far_terrain;
-mod forge_ui;
-mod ghosts_window;
-mod guide_ui;
-mod hand;
-mod hand_model;
-mod intents_window;
-mod interact;
-mod item_ctl;
+mod enchanting;
 mod key_codes;
-mod mob_render;
-#[cfg(test)]
-mod mob_render_tests;
-mod net_client;
-mod net_ctl;
-mod predicted_window;
-mod sky_view_window;
-mod stream_upload;
-mod texture_packs;
-mod ui_inspect;
-mod weather_render;
-pub use launch::{Launch, Request};
-mod conduit_fx;
-mod conduit_render;
-mod item_art;
-mod item_models;
-mod menus;
-mod mod_menu_window;
-mod play_input;
-mod player_api;
-mod player_view_window;
-mod quest_ctl;
-mod quest_ui;
-mod recipe_browser;
-mod screen_actions_window;
-mod screenshots;
-mod shader_packs;
-mod shape_ctl;
-mod shaped_play_window;
-mod shapes_scene;
-mod shaping_ui;
-mod ships_window;
-mod skin;
-mod storage_ctl;
-mod storage_ui;
-mod tiers_ui;
+mod modding;
+mod quests;
+mod render;
+mod shaping;
+mod storage;
 mod ui;
-mod ui_info;
-mod ui_input;
-mod ui_layout;
-mod ui_options;
-mod ui_target;
-mod ui_widgets;
-mod water_fx;
+mod vehicles;
+mod world;
+pub use launch::{Launch, Request};
 
 use crate::key_codes::KeyCodes;
 use std::collections::HashMap;
@@ -130,9 +71,9 @@ pub(crate) use voxel_sim::{
 };
 
 use voxel_sim::{
-    components, launch, mobs, modding, net::bot_swarm, net::dedicated, net::predicted, net::wire,
-    player, player::inventory, player::players, server, server::hot_reload, server::stats,
-    settings, shared, world::soundscape, world::weather,
+    components, launch, mobs, net::bot_swarm, net::dedicated, net::predicted, net::wire, player,
+    player::inventory, player::players, server, server::hot_reload, server::stats, settings,
+    shared, world::soundscape, world::weather,
 };
 
 use anyhow::Result;
@@ -147,7 +88,7 @@ use engine_render::{Aabb, Camera, ColorVertex, Fog, MeshId, RenderStats, Rendere
 use engine_voxel::{CHUNK_SIZE, ChunkMesh, MeshVertex, raycast};
 use glam::{IVec3, Vec2, Vec3};
 
-use client_side::ClientSide;
+use crate::client::ClientSide;
 use components::{Collider, Transform};
 use mobs::MobRegistry;
 use player::{FLY_SPEED, FLY_SPRINT_FACTOR, MoveMode, SPRINT_SPEED, WALK_SPEED};
@@ -189,9 +130,9 @@ struct VoxelGame {
 /// Où en est le jeu : le menu principal (un monde de fond), le jeu, ou la pause.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
-    Title(menus::TitlePage),
+    Title(crate::ui::menus::TitlePage),
     Playing,
-    Paused(menus::PausePage),
+    Paused(crate::ui::menus::PausePage),
     /// L'écran de mort, avec sa cause.
     Dead(String),
 }
@@ -204,7 +145,7 @@ impl VoxelGame {
         mut renderer: Renderer,
         launch: Launch,
         settings: settings::Settings,
-        joined: Option<net_client::Joined>,
+        joined: Option<crate::client::join::Joined>,
     ) -> Result<Self> {
         let mut launch = launch;
         let mut joined = joined;
@@ -236,7 +177,7 @@ impl VoxelGame {
         let tour = std::env::var("VOXEL_SCREENSHOTS")
             .ok()
             .filter(|_| automatic)
-            .map(|dir| screenshots::Tour::new(dir.into()));
+            .map(|dir| crate::control::screenshots::Tour::new(dir.into()));
 
         // `VOXEL_SERVER_THREAD=1` : le monde tourne dans son propre thread (un serveur intégré, voir
         // `voxel_sim::net::dedicated::spawn_integrated`), et la fenêtre le rejoint comme un invité, sur la
@@ -249,7 +190,7 @@ impl VoxelGame {
             && joined.is_none()
             && let Some(world) = launch.world.clone()
         {
-            let (name, uuid) = net_client::identity(&settings);
+            let (name, uuid) = crate::client::join::identity(&settings);
             let mut started =
                 voxel_sim::net::dedicated::spawn_integrated(world, &settings, &name, uuid)?;
             // Déjà accueilli par un lien en mémoire : la fenêtre suit le chemin d'un invité.
@@ -279,8 +220,8 @@ impl VoxelGame {
             let joined = match joined {
                 Some(joined) => joined,
                 None => {
-                    let (name, uuid) = net_client::identity(&settings);
-                    net_client::join(address, &server, &name, uuid)?
+                    let (name, uuid) = crate::client::join::identity(&settings);
+                    crate::client::join::join(address, &server, &name, uuid)?
                 }
             };
             if joined.seed != seed {
@@ -346,11 +287,15 @@ impl VoxelGame {
             end: view_distance * 0.95,
         });
         let far = (far_chunks > 0).then(|| {
-            let far = far_terrain::FarTerrain::new(&server.world.borrow(), near_radius, far_chunks);
+            let far = crate::render::far_terrain::FarTerrain::new(
+                &server.world.borrow(),
+                near_radius,
+                far_chunks,
+            );
             log::info!("terrain lointain : de {near_radius} à {far_chunks} chunks");
             far
         });
-        let mut view = client_world::ClientWorld::new(&server.world.borrow());
+        let mut view = crate::client::world::ClientWorld::new(&server.world.borrow());
         // `VOXEL_PIPELINE=1` : les délais d'un chunk reçu → maillage → envoi (la réplique).
         view.replica_mut()
             .set_pipeline_timing(std::env::var("VOXEL_PIPELINE").is_ok_and(|v| v == "1"));
@@ -383,11 +328,12 @@ impl VoxelGame {
                 ..audio::AudioSettings::from_env()
             },
         );
-        let mut hand = hand::Hand::new(hand::ArmColors::load(&assets));
+        let mut hand =
+            crate::render::hand::Hand::new(crate::render::hand::ArmColors::load(&assets));
         hand.visible &= settings.show_arm && !launch.title;
         Ok(Self {
             mode: if launch.title {
-                Mode::Title(menus::TitlePage::Main)
+                Mode::Title(crate::ui::menus::TitlePage::Main)
             } else {
                 Mode::Playing
             },
@@ -416,22 +362,22 @@ impl VoxelGame {
                 water_fx: Default::default(),
                 conduit_fx: Default::default(),
                 far,
-                grid_meshes: ships_window::GridMeshes::default(),
+                grid_meshes: crate::vehicles::ships::GridMeshes::default(),
                 soundscape: soundscape::Soundscape::new(seed),
-                enchant_ui: enchant_ui::EnchantUi::default(),
+                enchant_ui: crate::enchanting::ui::EnchantUi::default(),
                 music_until: None,
                 base_fog: (view_distance * 0.6, view_distance * 0.95),
                 audio,
-                chest_lids: chest_lids::ChestLids::default(),
+                chest_lids: crate::render::chest_lids::ChestLids::default(),
                 step_distance: 0.0,
                 was_in_liquid: false,
                 quit_at: env_parse::<u64>("VOXEL_QUIT_AFTER")
                     .map(|s| Instant::now() + std::time::Duration::from_secs(s)),
                 frame_stats: FrameStats::new(),
-                uploads: stream_upload::Uploads::new(),
+                uploads: crate::client::stream_upload::Uploads::new(),
                 last_render: RenderStats::default(),
-                culling: culling::CaveCulling::from_env(),
-                bench: bench::Bench::from_env(),
+                culling: crate::client::culling::CaveCulling::from_env(),
+                bench: crate::control::bench::Bench::from_env(),
                 outbox: Vec::new(),
                 frame_dt: 0.0,
                 eating_sent: false,
@@ -531,7 +477,7 @@ impl VoxelGame {
         let automatic =
             self.client.tour.is_some() || self.client.bench.is_some() || self.client.demo.is_some();
         if *event == WindowEvent::Focused(false) && self.mode == Mode::Playing && !automatic {
-            self.mode = Mode::Paused(menus::PausePage::Main);
+            self.mode = Mode::Paused(crate::ui::menus::PausePage::Main);
             self.client.mouse_captured = false;
             ctx.set_cursor_captured(false);
         }
@@ -559,16 +505,16 @@ impl VoxelGame {
         let interactive = self.mode == Mode::Playing;
         match &self.mode {
             Mode::Playing if escape && !self.client.ui.inventory_open => {
-                self.mode = Mode::Paused(menus::PausePage::Main);
+                self.mode = Mode::Paused(crate::ui::menus::PausePage::Main);
                 escape = false;
             }
-            Mode::Paused(menus::PausePage::Main) if escape => {
+            Mode::Paused(crate::ui::menus::PausePage::Main) if escape => {
                 self.mode = Mode::Playing;
                 escape = false;
             }
             Mode::Paused(_) if escape => {
                 self.leave_mod_options();
-                self.mode = Mode::Paused(menus::PausePage::Main);
+                self.mode = Mode::Paused(crate::ui::menus::PausePage::Main);
                 escape = false;
             }
             _ => {}
@@ -726,9 +672,9 @@ impl VoxelGame {
         self.client.view.entities.begin_frame(alpha);
         let mobs = self.server.ecs.resource::<Arc<MobRegistry>>().clone();
         let mut mob_boxes = Vec::new();
-        entity_render::draw(
+        crate::render::entities::draw(
             &self.client.view.entities,
-            &entity_render::DrawEnv {
+            &crate::render::entities::DrawEnv {
                 mobs: &mobs,
                 items: &self.client.content.items,
                 blocks: &self.client.registry,
@@ -738,7 +684,7 @@ impl VoxelGame {
             },
             &mut mob_boxes,
         );
-        weather_render::instances(&self.client.weather, &mut mob_boxes);
+        crate::render::weather::instances(&self.client.weather, &mut mob_boxes);
         self.client
             .water_fx
             .instances(self.client.camera.position, &mut mob_boxes);
@@ -783,7 +729,7 @@ impl VoxelGame {
             .server
             .day
             .has_daylight_cycle()
-            .then(|| weather_render::sky(&self.client.weather));
+            .then(|| crate::render::weather::sky(&self.client.weather));
         let fog_scale = self.client.weather.fog_scale();
         self.client.renderer.fog = Some(Fog {
             start: self.client.base_fog.0 * fog_scale,
@@ -903,13 +849,13 @@ impl App {
         // un refus laisse au menu, avec la raison.
         let mut joined = None;
         if let Some(address) = &launch.join {
-            let (name, uuid) = net_client::identity(&settings);
-            match net_client::join(address, &game.server, &name, uuid) {
+            let (name, uuid) = crate::client::join::identity(&settings);
+            match crate::client::join::join(address, &game.server, &name, uuid) {
                 Ok(welcome) => joined = Some(welcome),
                 Err(err) => {
                     log::warn!("{err:#}");
                     let mut game = game;
-                    game.mode = Mode::Title(menus::TitlePage::Join {
+                    game.mode = Mode::Title(crate::ui::menus::TitlePage::Join {
                         address: address.clone(),
                         error: Some(format!("{err:#}")),
                     });
@@ -942,7 +888,7 @@ impl Game for App {
             _ => {}
         }
         if let Some(pack) = settings.shader_pack.as_deref()
-            && let Err(error) = shader_packs::apply(
+            && let Err(error) = crate::render::shader_packs::apply(
                 &mut renderer,
                 &voxel_sim::paths::get().shader_pack_dirs(),
                 Some(pack),
@@ -1034,7 +980,7 @@ impl VoxelGame {
             self.server.mods.reload_scripts();
         }
         if changes.shader {
-            let result = shader_packs::reload(
+            let result = crate::render::shader_packs::reload(
                 &mut self.client.renderer,
                 &voxel_sim::paths::get().shader_pack_dirs(),
                 self.settings.shader_pack.as_deref(),
@@ -1052,7 +998,7 @@ impl VoxelGame {
                 &self.server.mod_dirs,
             ) {
                 hot_reload::RegistryReload::Applied(mut fresh) => {
-                    texture_packs::configure(
+                    crate::render::texture_packs::configure(
                         &mut fresh,
                         self.settings.texture_pack,
                         &voxel_sim::paths::get().texture_pack_dirs(),
@@ -1098,7 +1044,7 @@ impl VoxelGame {
             self.client.conduit_fx.clear_models();
             self.client
                 .hand
-                .reload_assets(hand::ArmColors::load(&assets_dir()));
+                .reload_assets(crate::render::hand::ArmColors::load(&assets_dir()));
             log::info!(
                 "{} textures rechargées",
                 self.client.registry.textures().len()
@@ -1219,7 +1165,7 @@ impl VoxelGame {
                 fluids.processed,
                 fluids.active,
                 fluids.changed,
-                modding::ms(fluids.duration)
+                voxel_sim::modding::ms(fluids.duration)
             );
             let tick = self.server.mods.last_tick;
             log::info!(
@@ -1227,7 +1173,7 @@ impl VoxelGame {
                 self.server.mods.machines.scheduler().tick(),
                 tick.scheduled,
                 tick.neighbor_updates,
-                modding::ms(tick.duration),
+                voxel_sim::modding::ms(tick.duration),
                 self.server.mods.machines.scheduler().pending(),
                 self.server.mods.scripts_loaded(),
                 self.server
@@ -1478,8 +1424,8 @@ mod tests {
 
     #[test]
     fn game_finds_core_and_mod_blocks() {
-        let order = modding::resolve_order(&assets_dir());
-        let registry = load_registry(&modding::mod_dirs(&order)).unwrap();
+        let order = voxel_sim::modding::resolve_order(&assets_dir());
+        let registry = load_registry(&voxel_sim::modding::mod_dirs(&order)).unwrap();
         let hotbar: Vec<&str> = registry
             .placeable()
             .map(|id| registry.def(id).key.as_str())

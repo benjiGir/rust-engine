@@ -1,19 +1,22 @@
 //! Contrôle animé des vrais transferts et du rendu des conduits, sans fenêtre ni sauvegarde.
+#[path = "../src/render"]
+mod render {
+    #[allow(dead_code)]
+    pub mod conduit_fx;
+    pub mod item_models;
+}
+#[path = "../src/ui"]
+mod ui {
+    #[allow(dead_code)]
+    pub mod skin;
+}
 #[path = "../src/assets.rs"]
 #[allow(dead_code)]
 mod assets;
 #[allow(dead_code)]
 mod common;
-#[path = "../src/conduit_fx.rs"]
-#[allow(dead_code)]
-mod conduit_fx;
 #[path = "../../../crates/engine_voxel/tests/support/transit.rs"]
 mod fixture;
-#[path = "../src/item_models.rs"]
-mod item_models;
-#[path = "../src/skin.rs"]
-#[allow(dead_code)]
-mod skin;
 
 use anyhow::{Context, Result};
 use engine_render::{
@@ -125,7 +128,7 @@ fn image_scene(parts: &[CubeInstance], textures: &[Vec<u8>]) -> RgbaImage {
 
 fn background() -> RgbaImage {
     let ctx = egui::Context::default();
-    skin::apply(&ctx);
+    crate::ui::skin::apply(&ctx);
     let mut atlas: HashMap<TextureId, egui::ColorImage> = HashMap::new();
     let mut shapes = Vec::new();
     for _ in 0..3 {
@@ -144,7 +147,7 @@ fn background() -> RgbaImage {
                     egui::Align2::LEFT_TOP,
                     "Contenu des conduits · transferts réels",
                     egui::FontId::monospace(21.0),
-                    skin::TEXT,
+                    crate::ui::skin::TEXT,
                 );
                 for (i, label) in [
                     "EAU · flux liquide",
@@ -159,7 +162,7 @@ fn background() -> RgbaImage {
                         egui::Align2::CENTER_CENTER,
                         label,
                         egui::FontId::monospace(15.0),
-                        skin::TEXT,
+                        crate::ui::skin::TEXT,
                     );
                 }
                 p.text(
@@ -213,7 +216,7 @@ fn main() -> Result<()> {
         })
         .collect::<Result<_>>()?;
     let base = background();
-    let mut fx = conduit_fx::ConduitFx::default();
+    let mut fx = crate::render::conduit_fx::ConduitFx::default();
     for frame in 0..16 {
         fx.advance(0.1);
         rig.tick();

@@ -99,7 +99,7 @@ reste interne.
 | Lot | Contenu | Vérification |
 |---|---|---|
 | **R1, la simulation (réalisé)** | les 112 fichiers de `voxel_sim` dans leurs dossiers, renommés ; les chemins mis à jour dans `voxel_sim` et dans `voxel` ; la liste des réexportations de `main.rs` remplacée | fmt, clippy, les 1 199 tests, `check-arch` ; le jeu et `voxel-server` démarrent |
-| **R2, le jeu** | les 74 fichiers de `voxel` dans leurs dossiers, renommés | idem, et un coup d'œil en jeu (menus, écrans, autre joueur) |
+| **R2, le jeu (réalisé)** | les 74 fichiers de `voxel` dans leurs dossiers, renommés | idem, et un coup d'œil en jeu (menus, écrans, autre joueur) |
 | **R3, le moteur** | les 55 fichiers d'`engine_voxel` dans leurs dossiers, interface publique inchangée | idem, et `cargo xtask build-mods` |
 | **R4, la règle et la doc** | `check-arch` refuse plus de 20 fichiers `.rs` par dossier ; `docs/architecture.md` et les docs qui citent des chemins mis à jour | `check-arch` passe, et échoue sur un dossier de 21 fichiers |
 
@@ -118,6 +118,14 @@ gardent leurs anciens chemins : ils racontent l'histoire.
   plan : `players.rs` garde son nom (`player::players`), `player::table` aurait été obscur. Les
   `include_str!` des fichiers descendus d'un niveau ont pris un `../` de plus. Vérifié : fmt, clippy, les
   1 199 tests, `check-arch`, le jeu et `voxel-server` démarrent.
+- **R2** : les 74 fichiers du jeu sont rangés en 12 dossiers (`client/`, `render/`, `ui/`, `control/` et
+  les huit domaines miroirs) ; la racine garde `main.rs`, `assets.rs`, `audio.rs` et `key_codes.rs`, le
+  plus gros dossier (`render/`) en a 15. Les fichiers qui importaient tout `main.rs` par `use super::*`
+  écrivent `use crate::*` ; `main.rs` n'importe plus le `modding` de la simulation (le jeu a le sien) et
+  l'appelle `voxel_sim::modding`. Les exemples qui recompilent des fichiers du jeu par `#[path]` les
+  rangent dans des modules en ligne (`#[path = "../src/render"] mod render { pub mod item_models; }`), à
+  l'image du jeu. Vérifié : fmt, clippy (exemples compris), les 1 199 tests, `check-arch`, et en jeu
+  l'inventaire, la fiche des attributs et le livre de quêtes.
 
 ## Choix à valider
 

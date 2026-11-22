@@ -5,13 +5,25 @@
 //! l'interface depuis zéro (« un bouton ici, un texte là »), et egui s'occupe de
 //! l'état (survol, clics). Pas d'objets « bouton » à créer et à garder à jour.
 
+pub mod chest_preview;
+pub mod console;
+pub mod info;
+pub mod input;
+pub mod inspect;
+pub mod layout;
+pub mod menus;
+pub mod options;
+pub mod recipe_browser;
+pub mod skin;
+pub mod target;
+pub mod widgets;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 #[allow(unused_imports)]
 pub(crate) use voxel_sim::server::screens::Screen;
 use voxel_sim::server::ui::*;
 
-use crate::skin;
 use engine_core::winit::window::Window;
 use engine_ecs::{Entity, World};
 use engine_inspect::Inspect;
@@ -54,26 +66,26 @@ pub struct GameUi {
     pub mod_events: Vec<(i32, i32, i32)>,
     /// Vrai pendant un clic droit : un script peut alors ouvrir son menu.
     /// Les jauges que les mods affichent (voir `player_api.rs`).
-    pub mod_hud: crate::player_api::HudBars,
+    pub mod_hud: crate::modding::player_api::HudBars,
     /// La console : saisie, lignes et commandes validées.
-    pub console: crate::console::ConsoleState,
+    pub console: crate::ui::console::ConsoleState,
     /// La page d'options d'un mod, ouverte depuis la pause : (mod, menu).
     pub options_menu: Option<(String, engine_mods::ModMenu)>,
     pub options_events: Vec<(i32, i32, i32)>,
     /// Tab est tenu : la liste des joueurs s'affiche.
     pub show_players: bool,
     /// Les clics et touches simulés par `ctl`.
-    pub input: crate::ui_input::UiInput,
+    pub input: crate::ui::input::UiInput,
     /// L'explorateur de recettes (voir `recipe_browser.rs`).
-    pub browser: crate::recipe_browser::BrowserState,
+    pub browser: crate::ui::recipe_browser::BrowserState,
     /// La recherche de l'écran du contrôleur de stockage.
     pub storage_search: String,
     /// La fiche des attributs (voir `attributes_ui.rs`).
-    pub attributes: crate::attributes_ui::AttributesPanel,
+    pub attributes: crate::adventure::attributes::AttributesPanel,
     /// La page ouverte du guide (voir `guide_ui.rs`).
-    pub guide: crate::guide_ui::GuideState,
+    pub guide: crate::quests::guide_ui::GuideState,
     /// Le livre de quêtes : chapitre, fiche, plan (voir `quest_ui.rs`).
-    pub quests: crate::quest_ui::QuestScreen,
+    pub quests: crate::quests::ui::QuestScreen,
 }
 
 /// Une pile qu'on s'apprête à diviser, et combien d'objets prendre.
@@ -165,7 +177,7 @@ impl GameUi {
     /// Les textures des blocs ont changé (rechargement) : on refera les icônes.
     pub fn clear_icons(&mut self) {
         self.icons.clear();
-        crate::texture_packs::clear_previews(&self.ctx);
+        crate::render::texture_packs::clear_previews(&self.ctx);
     }
 
     /// L'icône d'un objet : la texture de côté de son bloc, ou son image à lui
@@ -205,8 +217,8 @@ impl GameUi {
                 };
                 let pixels = match (&def.icon, piece) {
                     (_, Some((kind, material))) => {
-                        size = crate::item_art::ICON_SIZE;
-                        crate::item_art::piece_icon(blocks, material, kind, textures)
+                        size = crate::render::item_art::ICON_SIZE;
+                        crate::render::item_art::piece_icon(blocks, material, kind, textures)
                     }
                     (Icon::Block(block), None) => {
                         let id = *block;
@@ -215,8 +227,8 @@ impl GameUi {
                             block.shape,
                             engine_voxel::Shape::Cube | engine_voxel::Shape::Model
                         ) {
-                            size = crate::item_art::ICON_SIZE;
-                            crate::item_art::block_icon(blocks, id, textures)
+                            size = crate::render::item_art::ICON_SIZE;
+                            crate::render::item_art::block_icon(blocks, id, textures)
                         } else {
                             let layer = block.face_textures[1] as usize;
                             match layer.checked_sub(1).and_then(|i| textures.get(i)) {
@@ -314,8 +326,8 @@ impl VoxelGame {
     ) -> Option<Press> {
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(
-                crate::ui_layout::slot_size(ui.ctx()),
-                crate::ui_layout::slot_size(ui.ctx()),
+                crate::ui::layout::slot_size(ui.ctx()),
+                crate::ui::layout::slot_size(ui.ctx()),
             ),
             egui::Sense::click(),
         );
@@ -364,7 +376,7 @@ impl VoxelGame {
                 self.client.ui.browser.hovered = Some(stack.item);
             }
             let def = self.client.content.items.get(stack.item);
-            let mut card = crate::ui_info::item(def, stack.count, stack.damage);
+            let mut card = crate::ui::info::item(def, stack.count, stack.damage);
             if let Some(name) =
                 voxel_sim::shaping::materials::piece_name(&self.client.registry, def, stack.damage)
             {
@@ -373,9 +385,9 @@ impl VoxelGame {
             card.lines.extend(
                 voxel_sim::storage::backpacks::card_lines(&def.key, stack.damage)
                     .into_iter()
-                    .map(|(text, tone)| (text, crate::skin::tone(tone))),
+                    .map(|(text, tone)| (text, crate::ui::skin::tone(tone))),
             );
-            crate::ui_info::hover(response, &card);
+            crate::ui::info::hover(response, &card);
         }
         press
     }
@@ -401,7 +413,9 @@ impl VoxelGame {
             });
         // Le liseré : la couleur de la rareté, sinon celle de l'enchantement.
         let border = voxel_sim::adventure::affixes::rarity_of(stack.damage)
-            .map(|r| crate::forge_ui::rarity_color(&voxel_sim::adventure::data::current(), r))
+            .map(|r| {
+                crate::adventure::forge_ui::rarity_color(&voxel_sim::adventure::data::current(), r)
+            })
             .or_else(|| voxel_sim::enchanting::is_enchanted(stack.damage).then_some(skin::MAGIC));
         skin::stack(painter, rect, icon, stack.count, durability, border);
     }
@@ -485,7 +499,7 @@ impl VoxelGame {
         }
         let name = self.client.content.items.get(stack.item).name.clone();
         let mut action = None;
-        crate::ui_layout::window(ctx, "Diviser la pile", 360.0)
+        crate::ui::layout::window(ctx, "Diviser la pile", 360.0)
             .order(egui::Order::Foreground)
             .resizable(false)
             .collapsible(false)
@@ -631,7 +645,7 @@ impl VoxelGame {
                     let food_squares = (self.server.hunger_rules.max_food / 2.0)
                         .ceil()
                         .clamp(1.0, 20.0) as usize;
-                    let hotbar_width = HOTBAR as f32 * crate::ui_layout::slot_size(ctx)
+                    let hotbar_width = HOTBAR as f32 * crate::ui::layout::slot_size(ctx)
                         + (HOTBAR - 1) as f32 * 2.0;
                     let step = ((hotbar_width - 24.0) / (squares + food_squares) as f32).min(16.0);
                     let gap = hotbar_width - (squares + food_squares) as f32 * step;
@@ -718,7 +732,9 @@ impl VoxelGame {
                         let color = sheet
                             .as_ref()
                             .and_then(voxel_sim::adventure::affixes::display_rarity)
-                            .map_or(skin::TEXT, |r| crate::forge_ui::rarity_color(&data, r));
+                            .map_or(skin::TEXT, |r| {
+                                crate::adventure::forge_ui::rarity_color(&data, r)
+                            });
                         let item = self.client.content.items.get(held.item);
                         let name = sheet
                             .and_then(|s| s.name)
@@ -738,7 +754,7 @@ impl VoxelGame {
 
     /// La réserve (3 rangées) et la barre d'objets du joueur.
     fn player_slots(&mut self, ui: &mut egui::Ui) {
-        crate::ui_layout::player_inventory(ui, |ui, index| {
+        crate::ui::layout::player_inventory(ui, |ui, index| {
             self.slot_widget(
                 ui,
                 Slot::Main(index),
@@ -757,7 +773,7 @@ impl VoxelGame {
             .as_inventory()
             .craft_grid(size);
         let recipe = self.client.content.recipes.find(&grid, size).cloned();
-        crate::ui_layout::crafting(ui, size, |ui, index| {
+        crate::ui::layout::crafting(ui, size, |ui, index| {
             if let Some(index) = index {
                 self.slot_widget(ui, Slot::Craft(index / size * 3 + index % size), false);
             } else {
@@ -855,13 +871,13 @@ impl VoxelGame {
                 .map_or_else(|| "Machine".to_string(), |m| m.menu.title.clone()),
         };
         let mut open = true;
-        let window = crate::ui_layout::inventory_window(ctx, &title, egui::Id::unique((
+        let window = crate::ui::layout::inventory_window(ctx, &title, egui::Id::unique((
             "inventory_screen",
             std::mem::discriminant(&self.client.ui.screen),
         )))
             .show(ctx, |ui| {
-                crate::ui_layout::inventory_body(ui);
-                if crate::ui_layout::inventory_header(ui, &title) { open = false; }
+                crate::ui::layout::inventory_body(ui);
+                if crate::ui::layout::inventory_header(ui, &title) { open = false; }
                 ui.add_space(6.0);
                 match self.client.ui.screen {
                     Screen::Inventory => self.inventory_panel(ui),
@@ -870,7 +886,7 @@ impl VoxelGame {
                             ui.horizontal_top(|ui| {
                                 ui.vertical(|ui| {
                                     ui.set_width(
-                                        4.0 * crate::ui_layout::slot_size(ui.ctx()) + 50.0,
+                                        4.0 * crate::ui::layout::slot_size(ui.ctx()) + 50.0,
                                     );
                                     self.craft_grid(ui, 3);
                                 });
@@ -913,11 +929,11 @@ impl VoxelGame {
                     });
                 }
             });
-        // Le cadre de l'inventaire, centré (voir `ui_layout::inventory_window`) : l'explorateur
+        // Le cadre de l'inventaire, centré (voir `crate::ui::layout::inventory_window`) : l'explorateur
         // de recettes se place de part et d'autre.
         let frame = window.as_ref().map(|w| {
-            let safe = crate::ui_layout::safe_rect(ctx);
-            let half = crate::ui_layout::inventory_width(ctx) * 0.5;
+            let safe = crate::ui::layout::safe_rect(ctx);
+            let half = crate::ui::layout::inventory_width(ctx) * 0.5;
             egui::Rect::from_x_y_ranges(
                 (safe.center().x - half)..=(safe.center().x + half),
                 w.response.rect.y_range(),
@@ -942,7 +958,7 @@ impl VoxelGame {
         ) {
             let rect = egui::Rect::from_center_size(
                 pointer,
-                egui::Vec2::splat(crate::ui_layout::slot_size(ctx)),
+                egui::Vec2::splat(crate::ui::layout::slot_size(ctx)),
             );
             let painter = ctx.layer_painter(egui::LayerId::new(
                 egui::Order::Tooltip,
@@ -975,7 +991,7 @@ impl VoxelGame {
     }
 
     fn inventory_panel(&mut self, ui: &mut egui::Ui) {
-        use crate::ui_layout::{InventorySection, inventory_sections};
+        use crate::ui::layout::{InventorySection, inventory_sections};
         inventory_sections(ui, |ui, section| match section {
             InventorySection::Armor => self.armor_panel(ui),
             InventorySection::Craft => {
@@ -994,14 +1010,14 @@ impl VoxelGame {
             return;
         };
         let mut events = Vec::new();
-        crate::ui_widgets::draw_widgets(
+        crate::ui::widgets::draw_widgets(
             ui,
             &mut state.menu.widgets,
             &mut events,
             &mut |ui, first, count, columns| {
-                let columns = columns.min(crate::ui_layout::slot_columns(ui)).max(1);
+                let columns = columns.min(crate::ui::layout::slot_columns(ui)).max(1);
                 // Un clic de case réveille la machine côté serveur (`SlotClick`).
-                crate::ui_layout::slots(ui, count, columns, |ui, index| {
+                crate::ui::layout::slots(ui, count, columns, |ui, index| {
                     self.container_slot(ui, first + index);
                 });
             },
@@ -1048,7 +1064,7 @@ impl VoxelGame {
         };
         if kind == voxel_sim::vehicles::carts::CartKind::Locomotive {
             ui.label("Combustible : charbon, bois...");
-            crate::ui_layout::slots(ui, 1, 1, |ui, index| {
+            crate::ui::layout::slots(ui, 1, 1, |ui, index| {
                 self.cart_slot(ui, index);
             });
         } else {
@@ -1088,7 +1104,7 @@ impl VoxelGame {
             return;
         }
         let selected = self.client.ui.trade_selected.min(trades.len() - 1);
-        let slot = crate::ui_layout::slot_size(ui.ctx()).max(30.0);
+        let slot = crate::ui::layout::slot_size(ui.ctx()).max(30.0);
         let row_height = slot + 8.0;
         let list_width = slot * 4.6;
         let mut chosen = selected;
@@ -1286,7 +1302,7 @@ impl VoxelGame {
         // Les jauges et les cases viennent de la vue du conteneur ouvert (`container_view.rs`) ; le
         // serveur réveille le four quand une case change.
         let [burn, cook] = self.shown_container().map_or([0.0; 2], |c| c.furnace);
-        crate::ui_layout::furnace(ui, burn, cook, |ui, index| {
+        crate::ui::layout::furnace(ui, burn, cook, |ui, index| {
             self.container_slot(ui, index);
         });
     }
@@ -1294,7 +1310,7 @@ impl VoxelGame {
     /// L'alambic : la fiole d'eau, l'ingrédient, l'avancement et la potion obtenue.
     fn brewing_panel(&mut self, ui: &mut egui::Ui) {
         let progress = self.shown_container().map_or(0.0, |c| c.brewing);
-        crate::ui_layout::brewing(ui, progress, |ui, index| {
+        crate::ui::layout::brewing(ui, progress, |ui, index| {
             self.container_slot(ui, index);
         });
         ui.label("Pomme : soin. Spores : régénération. Carotte : vitesse. Poussière d'ombre : force. Cinabre : résistance au feu.");
@@ -1311,7 +1327,7 @@ impl VoxelGame {
             .map(|hit| self.view_world().light(hit.block_pos + hit.normal));
         let render = self.client.last_render;
         let debug = self.client.debug.clone();
-        crate::ui_layout::window(ctx, "Inspecteur (F3)", 520.0)
+        crate::ui::layout::window(ctx, "Inspecteur (F3)", 520.0)
             .hscroll(true)
             .show(ctx, |ui| {
                 egui::Grid::new("stats").num_columns(2).show(ui, |ui| {
@@ -1406,7 +1422,7 @@ fn inspect_component<T: Inspect + 'static>(
     name: &str,
 ) {
     if let Some(mut component) = world.get_mut::<T>(entity) {
-        component.inspect(&mut crate::ui_inspect::EguiInspector(ui), name);
+        component.inspect(&mut crate::ui::inspect::EguiInspector(ui), name);
     }
 }
 
