@@ -55,69 +55,6 @@ fn the_toggle_disables_the_breaker_and_refreshes_the_menu() {
 }
 
 #[test]
-fn new_chunks_get_a_surface_ruby() {
-    use engine_mods::ModEvent;
-    let mut h = Harness::for_mod("example").unwrap();
-    // Un minerai de rubis dans chaque chunk neuf qui a une surface (réglage forcé à 1 sur 1).
-    h.settings
-        .borrow_mut()
-        .set("example", "surface_ruby_chance", "1");
-    let ruby = h.block_id("core:ruby_ore");
-    // On compte ce que le script ajoute (un monde v3 a aussi ses filons de rubis).
-    let count = |h: &Harness| {
-        let streamer = h.streamer.borrow();
-        let mut n = 0;
-        for x in -32..64 {
-            for z in -32..64 {
-                for y in 0..128 {
-                    n += usize::from(streamer.world().block(IVec3::new(x, y, z)) == ruby);
-                }
-            }
-        }
-        n
-    };
-    let before = count(&h);
-    for cx in -1..=1 {
-        for cz in -1..=1 {
-            for cy in 0..3 {
-                h.event(&ModEvent::ChunkGenerated {
-                    chunk: IVec3::new(cx, cy, cz),
-                })
-                .unwrap();
-                h.next_tick();
-            }
-        }
-    }
-    let placed = count(&h) - before;
-    assert!(placed >= 3, "{placed} rubis de surface ajoutés");
-    // Désactivé par le réglage : rien n'est posé.
-    let mut off = Harness::for_mod("example").unwrap();
-    off.settings
-        .borrow_mut()
-        .set("example", "surface_ruby_chance", "0");
-    let count_chunk = |h: &Harness| {
-        let streamer = h.streamer.borrow();
-        let mut n = 0;
-        for x in 0..32 {
-            for y in 0..96 {
-                for z in 0..32 {
-                    n += usize::from(streamer.world().block(IVec3::new(x, y, z)) == ruby);
-                }
-            }
-        }
-        n
-    };
-    let before = count_chunk(&off);
-    for cy in 0..3 {
-        off.event(&ModEvent::ChunkGenerated {
-            chunk: IVec3::new(0, cy, 0),
-        })
-        .unwrap();
-    }
-    assert_eq!(count_chunk(&off), before);
-}
-
-#[test]
 fn the_ruby_command_gives_rubies() {
     use engine_voxel::MachineAction;
     let mut h = Harness::for_mod("example").unwrap();

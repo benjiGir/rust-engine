@@ -198,17 +198,17 @@ fn the_generator_places_workshops_with_their_machines_and_loot() {
     };
     assert!(inventory.slots.iter().flatten().count() >= 2);
     assert!(chest.y > 0);
-    // Les filons de rubis ajoutés par le mod d'exemple (des minerais du jeu, aussi en v1) sont dans
-    // le générateur (un filon par défaut ne suffit pas à le prouver : on regarde la liste des
-    // minerais).
+    // Le minerai de rubis n'a qu'une définition, celle du jeu : des filons dans la roche des pays
+    // chauds, comme les autres minerais (aucun mod n'en ajoute partout).
     let ruby = h.block_id("core:ruby_ore");
-    assert!(
-        generator
-            .biomes()
-            .ores()
-            .iter()
-            .any(|o| o.block == ruby && !o.v3_only)
-    );
+    let rubies: Vec<_> = generator
+        .biomes()
+        .ores()
+        .iter()
+        .filter(|o| o.block == ruby)
+        .collect();
+    assert_eq!(rubies.len(), 1);
+    assert!(rubies[0].v3_only && rubies[0].biomes.is_some());
 }
 
 #[test]

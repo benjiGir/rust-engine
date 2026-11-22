@@ -11,8 +11,8 @@
 //!
 //!   Ses données (sauvegardées avec le monde) : `[dx, dy, dz, armé]`.
 //! - **Les rubis** (ceux du jeu, `core:ruby`) : casser de la pierre donne parfois (1 fois sur 8)
-//!   un rubis en plus ; la commande `rubis` en donne ; un chunk neuf reçoit parfois un minerai de
-//!   rubis posé sur le sol.
+//!   un rubis en plus ; la commande `rubis` en donne. Le minerai de rubis, lui, est celui du jeu,
+//!   en filons comme les autres minerais (`assets/core/ores.ron`).
 
 use mod_sdk::mobs::MobView;
 use mod_sdk::ui::{Menu, UiEvent};
@@ -30,34 +30,6 @@ fn break_period() -> u32 {
     mod_sdk::setting_i32("break_period", DEFAULT_BREAK_PERIOD).clamp(5, 200) as u32
 }
 
-/// Un chunk neuf reçoit un minerai de rubis en surface 1 fois sur N (0 : jamais).
-fn surface_ruby_chance() -> u32 {
-    mod_sdk::setting_i32("surface_ruby_chance", 24).clamp(0, 1000) as u32
-}
-
-/// Décore un chunk neuf : un minerai de rubis posé sur le sol, à un endroit tiré au hasard. On descend
-/// le long d'une colonne jusqu'à trouver de l'air au-dessus d'un bloc plein. Écrire dans le
-/// chunk annoncé seulement : les blocs hors des chunks chargés ne se posent pas.
-fn decorate(chunk: Pos, ruby: Block) {
-    let chance = surface_ruby_chance();
-    if chance == 0 || !mod_sdk::random().is_multiple_of(chance) {
-        return;
-    }
-    let origin = chunk.chunk_origin();
-    let (dx, dz) = (
-        (mod_sdk::random() % mod_sdk::CHUNK_SIZE as u32) as i32,
-        (mod_sdk::random() % mod_sdk::CHUNK_SIZE as u32) as i32,
-    );
-    for dy in (0..mod_sdk::CHUNK_SIZE - 1).rev() {
-        let here = Pos::new(origin.x + dx, origin.y + dy, origin.z + dz);
-        let above = Pos::new(here.x, here.y + 1, here.z);
-        if mod_sdk::get_block(here) != Block::AIR && mod_sdk::get_block(above) == Block::AIR {
-            mod_sdk::set_block(above, ruby);
-            return;
-        }
-    }
-}
-
 /// Un rubis tombe 1 fois sur N.
 fn ruby_chance() -> u32 {
     mod_sdk::setting_i32("ruby_chance", DEFAULT_RUBY_CHANCE).clamp(1, 64) as u32
@@ -66,9 +38,8 @@ fn ruby_chance() -> u32 {
 #[derive(Default)]
 struct Example {
     stone: Block,
-    /// Le rubis du jeu (un objet) et son minerai (un bloc).
+    /// Le rubis du jeu (un objet).
     ruby: Item,
-    ruby_ore: Block,
     breaker: Block,
     /// Le type de créature du gardien (`brain: true` : ce script le dirige).
     guard: Option<u32>,
@@ -254,12 +225,10 @@ impl Mod for Example {
         let find = |key: &str| mod_sdk::block_id(key).unwrap_or_default();
         self.stone = find("core:stone");
         self.ruby = mod_sdk::item_id("core:ruby").unwrap_or_default();
-        self.ruby_ore = find("core:ruby_ore");
         self.breaker = find("example:breaker");
         self.guard = mod_sdk::mob_kind("example:guard");
         mod_sdk::subscribe(EventKind::BlockBroken);
         mod_sdk::subscribe(EventKind::BlockPlaced);
-        mod_sdk::subscribe(EventKind::ChunkGenerated);
         mod_sdk::register_command(
             "rubis",
             "[nombre] : se donner des rubis (1 par défaut, 64 au plus)",
@@ -269,7 +238,6 @@ impl Mod for Example {
 
     fn event(&mut self, event: Event) {
         match event {
-            Event::ChunkGenerated { chunk } => decorate(chunk, self.ruby_ore),
             Event::BlockBroken { block, .. } if block == self.stone => {
                 if mod_sdk::random().is_multiple_of(ruby_chance()) {
                     mod_sdk::give_stack(self.ruby, 1);

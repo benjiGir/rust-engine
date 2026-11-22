@@ -902,8 +902,8 @@ le moteur, en tâche de fond, à partir de la graine du monde : le même monde a
 structures et filons, et rien ne ralentit l'image.
 
 **1. Des minerais** — `ores.ron` du mod (même format que `assets/core/ores.ron` : bloc, altitude,
-taille d'un filon, nombre par chunk, biomes). Le mod d'exemple y ajoute des filons du minerai de rubis du jeu
-(`core:ruby_ore`) : un mod peut placer les blocs des autres.
+taille d'un filon, nombre par chunk, biomes). Un filon ne remplace que la roche (`replace`), et un mod
+peut y placer les blocs des autres.
 
 **2. Des biomes** — `biomes.ron` du mod (même format que `assets/core/biomes.ron`).
 Dans chaque famille (`kind`), le biome retenu est celui dont le point (`climate`, `variety`) est le
@@ -952,7 +952,6 @@ pour la première fois (jamais pour un chunk relu d'une sauvegarde), le script p
 minimal, 32 blocs de côté) ; le script lit et écrit dans ce chunk avec `get_block` et `set_block`
 (hors des chunks chargés, ils échouent). Le jeu confie au plus 8 chunks par tick, et seulement quand
 tous les scripts abonnés ont du budget : un chunk n'est pas perdu parce qu'un mod est occupé.
-Le mod d'exemple y pose un minerai de rubis sur le sol de certains chunks (réglage `surface_ruby_chance`).
 Limites : un chunk déchargé avant que son événement soit livré n'est pas décoré, et un chunk entièrement
 vide (de l'air) ne déclenche rien.
 

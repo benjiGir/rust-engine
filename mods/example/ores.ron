@@ -1,6 +1,0 @@
-// Les minerais du mod : posés par le générateur du monde après le terrain (voir
-// assets/core/ores.ron pour la signification des champs). Un mod peut ajouter des filons d'un bloc
-// du jeu : ici, du minerai de rubis (`core:ruby_ore`) aussi dans les mondes v1, où le jeu n'en met pas.
-[
-    (block: "core:ruby_ore", height: (2, 50), size: 4, per_chunk: 3.0),
-]
