@@ -21,6 +21,8 @@ struct Camera {
     water_rings: array<vec4<f32>, 8>,
     cloud_weather: vec4<u32>,
     shadow_projection_next: mat4x4<f32>,
+    // xy : direction du vent (unitaire, dans le plan horizontal), z : sa force (0 à 1).
+    wind: vec4<f32>,
 };
 
 @group(0) @binding(0)
@@ -72,6 +74,7 @@ const FLAG_DOOR_OPEN: u32 = 1u << 26u;
 const FLAG_CHEST_LID: u32 = 1u << 27u;
 const FLAG_TORCH_FLAME: u32 = 1u << 28u;
 const FLAG_TORCH_WOOD: u32 = 1u << 29u;
+const FLAG_PLANT: u32 = 1u << 30u;     // le haut d'une plante : il plie plus qu'une feuille
 const TEXTURE_MASK: u32 = 65535u;
 
 struct VertexOut {
@@ -165,11 +168,8 @@ fn project_vertex(vertex: VertexIn, projection: mat4x4<f32>, foliage_wind: bool)
     // monde et du temps. Deux sommets au même endroit bougent pareil : les feuilles
     // voisines restent jointes. Un sommet trop éclairé par le ciel (dehors) bouge plus.
     if foliage_wind && (vertex.texture & FLAG_SWAY) != 0u {
-        let t = camera.sun_color.w;
-        let p = world;
-        let amount = 0.05 * (0.4 + 0.6 * vertex.light.x);
-        position.x += sin(t * 1.7 + p.x * 0.6 + p.z * 0.35) * amount;
-        position.z += cos(t * 1.3 + p.z * 0.55 + p.x * 0.25) * amount;
+        let plant = (vertex.texture & FLAG_PLANT) != 0u;
+        position += wind_offset(world, camera.sun_color.w, plant) * (0.4 + 0.6 * vertex.light.x);
     }
     out.clip_position = projection * vec4<f32>(position, 1.0);
     out.color = vertex.color;
@@ -184,6 +184,27 @@ fn project_vertex(vertex: VertexIn, projection: mat4x4<f32>, foliage_wind: bool)
     out.flags = vertex.texture & ~TEXTURE_MASK;
     out.side_tint = vertex.position.w;
     return out;
+}
+
+// Le déplacement que le vent donne à un sommet qui se balance. Il ne dépend que de sa position dans
+// le monde et du temps : deux sommets au même endroit bougent pareil, les feuilles voisines restent
+// jointes. Le vent couche tout dans sa direction ; des rafales le traversent en bandes qui avancent
+// avec lui (un champ se couche par vagues), et un frémissement s'y ajoute, plus vif quand il souffle
+// fort. Le haut d'une plante plie bien plus qu'une feuille, et s'abaisse un peu en se couchant.
+fn wind_offset(p: vec3<f32>, t: f32, plant: bool) -> vec3<f32> {
+    let dir = camera.wind.xy;
+    let strength = camera.wind.z;
+    let side = vec2<f32>(-dir.y, dir.x);
+    let along = dot(p.xz, dir);
+    let across = dot(p.xz, side);
+    let wave = sin(along * 0.11 - t * (1.1 + 1.8 * strength) + sin(across * 0.07 + t * 0.21) * 1.6);
+    let gust = smoothstep(-0.3, 1.0, wave);
+    let flutter = sin(t * (1.7 + 2.6 * strength) + p.x * 0.6 + p.z * 0.35 + p.y * 0.4);
+    let sway = cos(t * (1.3 + 2.0 * strength) + p.z * 0.55 + p.x * 0.25);
+    let lean = strength * (0.3 + 0.7 * gust) * select(0.1, 0.3, plant);
+    let shake = (0.25 + strength) * select(0.035, 0.065, plant);
+    let flat = dir * (lean + flutter * shake) + side * sway * shake * 0.6;
+    return vec3<f32>(flat.x, select(0.0, -lean * 0.3, plant), flat.y);
 }
 
 @vertex

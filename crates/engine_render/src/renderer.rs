@@ -268,6 +268,26 @@ pub struct RenderStats {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MeshId(u64);
 
+/// Le vent qui agite le feuillage et couche les plantes (le shader des chunks en fait des rafales qui
+/// traversent le paysage).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Wind {
+    /// D'où il pousse, dans le plan horizontal : un angle (0 vers +x, π/2 vers +z).
+    pub direction: f32,
+    /// De 0 (calme plat) à 1 (tempête).
+    pub strength: f32,
+}
+
+impl Default for Wind {
+    /// Une petite brise.
+    fn default() -> Self {
+        Self {
+            direction: 0.0,
+            strength: 0.25,
+        }
+    }
+}
+
 /// Un brouillard linéaire : invisible avant `start`, couleur du ciel après `end`.
 /// Il cache la limite du monde chargé.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -333,6 +353,8 @@ struct CameraUniform {
     water_rings: [[f32; 4]; 8],
     cloud_weather: [u32; 4],
     shadow_projection_next: [[f32; 4]; 4],
+    /// Direction du vent (xy, un vecteur unitaire dans le plan horizontal) et sa force (z).
+    wind: [f32; 4],
 }
 
 pub struct Renderer {
@@ -398,6 +420,8 @@ pub struct Renderer {
     sky_pass: SkyPass,
     /// Le temps en secondes, pour animer le vent dans les feuilles et les herbes.
     pub time: f32,
+    /// Le vent du moment (voir [`Wind`]).
+    pub wind: Wind,
     translucent_cubes: wgpu::RenderPipeline,
     opaque_instances: u32,
     hand_pipeline: wgpu::RenderPipeline,
@@ -684,6 +708,7 @@ impl Renderer {
             sky: None,
             sky_pass,
             time: 0.0,
+            wind: Wind::default(),
             translucent_cubes,
             opaque_instances: 0,
             hand_pipeline,
@@ -1186,6 +1211,12 @@ impl Renderer {
                 moon,
                 crate::sun_shadows::DEPTH_SPAN,
                 shadow_blend,
+            ],
+            wind: [
+                self.wind.direction.cos(),
+                self.wind.direction.sin(),
+                self.wind.strength.clamp(0.0, 1.0),
+                0.0,
             ],
         };
         let frustum = Frustum::from_view_proj(view_proj);

@@ -140,6 +140,8 @@ pub const FLAG_SWAY: u32 = 1 << 17;
 /// Les pixels transparents de la texture sont remplis d'un vert sombre : une feuille au
 /// cœur du feuillage, dessinée opaque (culling des feuilles).
 pub const FLAG_FILLED: u32 = 1 << 18;
+/// Le haut d'une plante (herbe, fleur, culture) : il plie au vent bien plus qu'une feuille.
+pub const FLAG_PLANT: u32 = 1 << 30;
 /// Rotation d'une boîte autour du centre de son bloc (métadonnées dans les w inutilisés).
 pub const FLAG_ROTATE: u32 = 1 << 19;
 /// Flammes dans la bouche du four, seulement pendant la combustion.
@@ -913,6 +915,11 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                 }
                 // Les sommets du haut se balancent, ceux du bas restent plantés.
                 let sway_top = flags & FLAG_SWAY;
+                let sway_top = if sway_top != 0 {
+                    sway_top | FLAG_PLANT
+                } else {
+                    0
+                };
                 if def.shape == Shape::Model {
                     let mut flags = block_flags(def);
                     if crate::blocks::door::is_door(def) {

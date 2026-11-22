@@ -58,6 +58,17 @@ struct Drop {
     ground: f32,
 }
 
+/// Le vent que voit la fenêtre : il couche les herbes et agite les feuilles (voir le shader des
+/// chunks), et poussera les feuilles qui tombent.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Wind {
+    /// D'où il pousse : un angle dans le plan horizontal (0 vers +x, π/2 vers +z).
+    pub direction: f32,
+    /// De 0 (calme plat) à 1 (tempête) : une brise par beau temps, fort sous la pluie, très fort sous
+    /// l'orage.
+    pub strength: f32,
+}
+
 pub struct Weather {
     pub sky: Sky,
     /// De 0 (ciel dégagé) à 1 (orage) : suit `sky` en douceur.
@@ -158,6 +169,21 @@ impl Weather {
     /// Le temps écoulé, pour la dérive des nuages et le vent.
     pub fn clock(&self) -> f32 {
         self.time
+    }
+
+    /// Le vent du moment. Sa direction, propre au monde, tourne lentement de part et d'autre de sa
+    /// direction dominante ; sa force suit les nuages (elle monte et descend avec eux, sans à-coup)
+    /// et respire un peu par beau temps.
+    pub fn wind(&self) -> Wind {
+        let t = self.time;
+        let prevailing = (self.seed % 6283) as f32 / 1000.0;
+        let direction = prevailing + 0.55 * (t / 173.0).sin() + 0.25 * (t / 47.0).sin();
+        let breeze = 0.22 + 0.08 * (t / 29.0).sin();
+        let strength = breeze + (1.0 - breeze) * self.overcast.clamp(0.0, 1.0);
+        Wind {
+            direction,
+            strength: strength.clamp(0.0, 1.0),
+        }
     }
 
     /// La graine de la répartition des nuages.
@@ -337,6 +363,21 @@ mod tests {
 
     fn empty_world() -> World {
         World::with_registry(std::sync::Arc::new(crate::test_registry()))
+    }
+
+    #[test]
+    fn the_wind_rises_with_the_clouds_and_turns_slowly() {
+        let mut weather = Weather::new(7);
+        let calm = weather.wind();
+        assert!((0.1..0.35).contains(&calm.strength), "{calm:?}");
+        weather.overcast = 1.0;
+        let storm = weather.wind();
+        assert!(storm.strength > 0.95, "{storm:?}");
+        // Une seconde plus tard, la direction a à peine bougé : pas de saute de vent.
+        weather.time += 1.0;
+        assert!((weather.wind().direction - storm.direction).abs() < 0.02);
+        // Deux mondes n'ont pas le même vent dominant.
+        assert_ne!(Weather::new(8).wind().direction, calm.direction);
     }
 
     #[test]

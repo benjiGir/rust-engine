@@ -673,6 +673,11 @@ impl VoxelGame {
         self.client.camera.position = self.client.body.eye(alpha);
         // Le vent dans les feuilles suit le temps réel depuis le lancement.
         self.client.renderer.time = self.started.elapsed().as_secs_f32();
+        let wind = self.client.weather.wind();
+        self.client.renderer.wind = engine_render::Wind {
+            direction: wind.direction,
+            strength: wind.strength,
+        };
         // Les entités viennent de la réplique du client : créatures, autres joueurs, projectiles,
         // wagons et objets au sol (voir `render/entities.rs`).
         self.client.view.entities.begin_frame(alpha);
