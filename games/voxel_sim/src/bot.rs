@@ -55,6 +55,11 @@ pub struct Bot {
     pub inventory: InventoryView,
     pub container: Option<ContainerView>,
     pub chat: Vec<String>,
+    /// Les autres joueurs vus : leur pose et leur apparence (objet tenu, gestes).
+    pub players: std::collections::HashMap<
+        crate::entities::NetId,
+        (crate::entities::Pose, crate::entities::Look),
+    >,
     /// Les octets reçus (les trames décompressées).
     pub received_bytes: usize,
     pub chunks_received: usize,
@@ -82,6 +87,7 @@ impl Bot {
             inventory: InventoryView::default(),
             container: None,
             chat: Vec::new(),
+            players: std::collections::HashMap::new(),
             received_bytes: 0,
             chunks_received: 0,
             step: 0,
@@ -125,6 +131,29 @@ impl Bot {
                 ServerMsg::Inventory(inventory) => self.inventory = inventory,
                 ServerMsg::Container(container) => self.container = container,
                 ServerMsg::Chat(line) => self.chat.push(line),
+                ServerMsg::Spawn {
+                    id,
+                    kind: crate::entities::EntityKind::Player { .. },
+                    pose,
+                    look,
+                } => {
+                    self.players.insert(id, (pose, look));
+                }
+                ServerMsg::Moves(moves) => {
+                    for (id, pose) in moves {
+                        if let Some(seen) = self.players.get_mut(&id) {
+                            seen.0 = pose;
+                        }
+                    }
+                }
+                ServerMsg::EntityState { id, look } => {
+                    if let Some(seen) = self.players.get_mut(&id) {
+                        seen.1 = look;
+                    }
+                }
+                ServerMsg::Despawn(id) => {
+                    self.players.remove(&id);
+                }
                 _ => {}
             }
         }

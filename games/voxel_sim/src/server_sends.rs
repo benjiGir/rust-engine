@@ -84,7 +84,18 @@ impl VoxelServer {
         self.keep_ghosts_alive();
         let players = &self.players;
         let all = collect(&self.ecs, &self.mods.subgrids.borrow(), &|entity| {
-            players.by_entity(entity).map(|p| p.name.clone())
+            players.by_entity(entity).map(|p| {
+                let look = crate::entities::Look {
+                    held: p
+                        .inventory
+                        .selected_stack()
+                        .map(|stack| crate::inventory::ItemStack { count: 1, ..stack }),
+                    swings: p.swings,
+                    digging: p.dig.is_some(),
+                    ..crate::entities::Look::default()
+                };
+                (p.name.clone(), look)
+            })
         });
         let interval = crate::server_sends::entity_interval();
         let tick = self.sends.tick;

@@ -29,8 +29,9 @@ use crate::players::{PlayerId, PlayerIdentity, PlayerState, uuid_name};
 use crate::protocol::{ClientMsg, ServerMsg};
 use crate::server_side::VoxelServer;
 
-/// La version du protocole : un client d'une autre version est refusé.
-pub const PROTOCOL: u32 = 1;
+/// La version du protocole : un client d'une autre version est refusé. 2 : la portée de l'hôte dans
+/// l'accueil, l'objet tenu et les gestes des joueurs dans leur apparence.
+pub const PROTOCOL: u32 = 2;
 /// Le port par défaut (le suivant s'il est pris).
 pub const DEFAULT_PORT: u16 = 25600;
 /// Au-delà de ces octets en attente vers un joueur, ses chunks neufs attendent.
@@ -60,6 +61,9 @@ pub enum Welcome {
         fly: bool,
         /// La graine du monde (la météo de la fenêtre en tire ses nuages).
         seed: u32,
+        /// La portée de l'hôte, en chunks : il n'envoie pas de chunks au-delà, et le terrain lointain
+        /// de l'invité doit commencer là.
+        view_radius: i32,
     },
     Refused(String),
 }
@@ -307,6 +311,7 @@ impl VoxelServer {
         let fly = player::mode(&self.ecs, state.entity) == MoveMode::Fly;
         let (yaw, pitch) = (state.yaw, state.pitch);
         let seed = self.dims.base_seed;
+        let view_radius = self.world.borrow().config().view_radius;
         let accepted = Welcome::Accepted {
             player: id,
             feet,
@@ -314,6 +319,7 @@ impl VoxelServer {
             pitch,
             fly,
             seed,
+            view_radius,
         };
         if connection.send(encode(&accepted)).is_err() {
             self.leave(id, "parti pendant l'accueil");
@@ -353,7 +359,51 @@ impl VoxelServer {
             pitch,
             fly,
             seed: self.dims.base_seed,
+            view_radius: self.world.borrow().config().view_radius,
         }
+    }
+
+    /// Où faire apparaître un nouveau venu : le point de départ s'il est seul, sinon une place libre
+    /// autour (à 2, puis 3 et 4 blocs), pour que deux joueurs n'arrivent pas l'un dans l'autre.
+    fn arrival_spot(&self) -> Vec3 {
+        let spawn = self.spawn;
+        let center = spawn.as_vec3() + Vec3::new(0.5, 0.0, 0.5);
+        let others = self.players.iter().count();
+        if others == 0 {
+            return center;
+        }
+        let streamer = self.world.borrow();
+        let world = streamer.world();
+        let directions = [
+            (1, 0),
+            (-1, 0),
+            (0, 1),
+            (0, -1),
+            (1, 1),
+            (-1, -1),
+            (1, -1),
+            (-1, 1),
+        ];
+        for distance in 2..=4 {
+            for k in 0..directions.len() {
+                let (dx, dz) = directions[(others + k) % directions.len()];
+                let column = spawn + IVec3::new(dx * distance, 0, dz * distance);
+                // Le sol le plus haut, de quelques blocs au-dessus à quelques blocs en dessous.
+                if let Some(floor) = (-4..=4)
+                    .rev()
+                    .map(|dy| column + IVec3::new(0, dy - 1, 0))
+                    .find(|&floor| {
+                        world.is_solid(floor)
+                            && !world.is_solid(floor + IVec3::Y)
+                            && !world.is_solid(floor + IVec3::Y * 2)
+                            && world.block(floor + IVec3::Y).is_air()
+                    })
+                {
+                    return (floor + IVec3::Y).as_vec3() + Vec3::new(0.5, 0.0, 0.5);
+                }
+            }
+        }
+        center
     }
 
     /// Un joueur venu du réseau : son fichier de `players/` s'il est déjà venu, sinon le point de
@@ -367,7 +417,7 @@ impl VoxelServer {
                 None
             }
         });
-        let spawn = self.spawn.as_vec3() + Vec3::new(0.5, 0.0, 0.5);
+        let spawn = self.arrival_spot();
         let (eye, mode) = file.as_ref().map_or(
             (
                 spawn + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT,

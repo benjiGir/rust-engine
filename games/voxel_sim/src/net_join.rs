@@ -94,6 +94,8 @@ pub struct Joined {
     pub pitch: f32,
     pub fly: bool,
     pub seed: u32,
+    /// La portée de l'hôte, en chunks (voir `Welcome::Accepted`).
+    pub view_radius: i32,
 }
 
 /// Le nom et l'identifiant sous lesquels se présenter : ceux des réglages, ou `VOXEL_NAME` et
@@ -138,6 +140,7 @@ pub fn join_with(address: &str, name: &str, uuid: u128, content: u64) -> Result<
                 pitch,
                 fly,
                 seed,
+                view_radius,
             } => Ok(Joined {
                 link: RemoteLink {
                     transport: Transport::Net(connection),
@@ -149,6 +152,7 @@ pub fn join_with(address: &str, name: &str, uuid: u128, content: u64) -> Result<
                 pitch,
                 fly,
                 seed,
+                view_radius,
             }),
             Welcome::Refused(why) => bail!("{address} refuse : {why}"),
         },

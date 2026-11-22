@@ -31,6 +31,8 @@ const PLAYER_WALK_SPEED: f32 = 4.3;
 const PHASE_PER_BLOCK: f32 = 5.0;
 /// Le pas fixe du serveur, en secondes.
 const STEP_SECONDS: f32 = 1.0 / 60.0;
+/// La durée d'un geste du bras d'un autre joueur.
+const SWING_SECONDS: f32 = 0.3;
 /// Les boîtes d'un wagon (voir `carts::hit_cart`).
 const CART_HALF_WIDTH: f32 = 0.5;
 const CART_HEIGHT: f32 = 0.85;
@@ -52,6 +54,9 @@ pub struct EntityView {
     /// La marche d'un autre joueur, déduite de ses déplacements (le serveur n'envoie que sa pose).
     walk_phase: f32,
     walk_stride: f32,
+    /// Le dernier geste d'un autre joueur (le temps où son compte de gestes a changé, voir
+    /// [`Look::swings`]) : son bras se lève.
+    swing_started: Option<f32>,
     /// Les blocs d'une structure mobile, posée à sa dernière pose.
     grid: Option<SubGrid>,
 }
@@ -83,6 +88,28 @@ impl EntityView {
             pose.stride = self.walk_stride * (1.0 - (idle / 8.0).min(1.0));
         }
         pose
+    }
+
+    /// Le bras d'un autre joueur au temps `now` : l'angle (vers l'avant) qui s'ajoute à sa marche. Un
+    /// geste le lève puis le rabaisse ; creuser le fait aller et venir ; un objet en main le tient un
+    /// peu devant.
+    pub fn arm_raise(&self, now: f32) -> f32 {
+        let gesture = |t: f32| (t.clamp(0.0, 1.0) * std::f32::consts::PI).sin();
+        let hold = if self.look.held.is_some() { 0.3 } else { 0.0 };
+        let digging = if self.look.digging {
+            gesture((now * STEP_SECONDS / SWING_SECONDS).fract()) * 1.1
+        } else {
+            0.0
+        };
+        let swing = self.swing_started.map_or(0.0, |start| {
+            let t = (now - start) * STEP_SECONDS / SWING_SECONDS;
+            if (0.0..1.0).contains(&t) {
+                gesture(t) * 1.4
+            } else {
+                0.0
+            }
+        });
+        hold + digging.max(swing)
     }
 
     /// Les blocs d'une structure mobile, avec sa dernière pose.
@@ -180,6 +207,7 @@ impl ClientEntities {
                         to: sample,
                         walk_phase: 0.0,
                         walk_stride: 0.0,
+                        swing_started: None,
                         grid: None,
                     },
                 );
@@ -194,6 +222,9 @@ impl ClientEntities {
             }
             ServerMsg::EntityState { id, look } => {
                 if let Some(view) = self.views.get_mut(id) {
+                    if look.swings != view.look.swings {
+                        view.swing_started = Some(self.tick as f32);
+                    }
                     view.look = *look;
                 }
             }
@@ -512,6 +543,44 @@ mod tests {
         let still = entities.get(id).unwrap().pose_at(entities.now(0.5));
         assert_eq!(still.stride, 0.0);
         assert_eq!(entities.players(entities.now(0.0))[0].0, "Alice");
+    }
+
+    #[test]
+    fn another_player_raises_his_arm_at_each_gesture() {
+        let mut entities = ClientEntities::new(1);
+        let id = spawn(
+            &mut entities,
+            1,
+            EntityKind::Player {
+                name: "Alice".into(),
+            },
+            at(0.0),
+        );
+        entities.receive(&ServerMsg::Tick(10));
+        let rest = entities.get(id).unwrap().arm_raise(entities.now(0.0));
+        assert_eq!(rest, 0.0);
+        // Un geste : le bras se lève (au milieu du geste), puis retombe.
+        let look = Look {
+            swings: 1,
+            ..Look::default()
+        };
+        entities.receive(&ServerMsg::EntityState { id, look });
+        let half = SWING_SECONDS / STEP_SECONDS / 2.0;
+        let view = entities.get(id).unwrap();
+        assert!(view.arm_raise(10.0 + half) > 1.0);
+        assert_eq!(view.arm_raise(10.0 + half * 3.0), 0.0);
+        // Un objet en main : le bras reste un peu devant.
+        let look = Look {
+            swings: 1,
+            held: Some(crate::inventory::ItemStack {
+                item: engine_voxel::ItemId(1),
+                count: 1,
+                damage: 0,
+            }),
+            ..Look::default()
+        };
+        entities.receive(&ServerMsg::EntityState { id, look });
+        assert!(entities.get(id).unwrap().arm_raise(100.0) > 0.0);
     }
 
     #[test]

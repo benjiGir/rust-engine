@@ -101,6 +101,9 @@ pub struct PlayerState {
     pub carried: bool,
     /// Un joueur du serveur sans fenêtre (`ctl ghost`, voir `ghosts.rs`) : il n'est jamais sauvegardé.
     pub ghost: bool,
+    /// Le compte de ses gestes (frapper, utiliser, commencer à creuser), qui fait tourner : les autres
+    /// joueurs voient son bras se lever à chaque changement (voir `entities::Look`).
+    pub swings: u8,
 }
 
 /// Un conteneur ouvert devant un joueur : ce que `SlotClick` peut viser en dehors de son inventaire.
@@ -166,6 +169,7 @@ impl PlayerState {
             synced: None,
             carried: false,
             ghost: false,
+            swings: 0,
         }
     }
 

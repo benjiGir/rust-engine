@@ -103,7 +103,7 @@ pub fn draw(entities: &ClientEntities, env: &DrawEnv, out: &mut Vec<CubeInstance
                 draw_model(&def.parts, &Model::of(view, scale, &pose), env, out);
             }
             EntityKind::Player { .. } => {
-                draw_model(player_parts(), &Model::of(view, 1.0, &pose), env, out);
+                draw_player(view, now, &pose, env, entities.item_models(), out)
             }
             EntityKind::Projectile { color } => {
                 out.push(CubeInstance::new(
@@ -119,6 +119,72 @@ pub fn draw(entities: &ClientEntities, env: &DrawEnv, out: &mut Vec<CubeInstance
             // Les structures mobiles ont leur maillage (voir `ships.rs`).
             EntityKind::Grid { .. } => {}
         }
+    }
+}
+
+/// Le bras droit dans [`player_parts`] (+z est la droite quand +x est l'avant), et son épaule.
+const RIGHT_ARM: usize = 7;
+const SHOULDER: Vec3 = Vec3::new(0.0, 1.40, 0.37);
+/// Le centre de l'objet tenu, depuis l'épaule, le bras pendant : un peu devant la main, qui le tient
+/// par le bas. Et sa taille : presque la longueur du bras (0,7).
+const HAND: Vec3 = Vec3::new(0.24, -0.56, 0.0);
+const HELD_SIZE: f32 = 0.62;
+/// L'objet tenu est tourné d'un huitième de tour : on le reconnaît de face comme de profil.
+const HELD_TURN: f32 = std::f32::consts::FRAC_PI_4;
+
+/// Un autre joueur : son corps qui marche, son bras droit qui se lève à chaque geste, et l'objet qu'il
+/// tient au bout.
+fn draw_player(
+    view: &EntityView,
+    now: f32,
+    pose: &crate::entities::Pose,
+    env: &DrawEnv,
+    models: &RefCell<HashMap<ItemId, Vec<CubeInstance>>>,
+    out: &mut Vec<CubeInstance>,
+) {
+    let model = Model::of(view, 1.0, pose);
+    let start = out.len();
+    draw_model(player_parts(), &model, env, out);
+    let raise = view.arm_raise(now);
+    let arm = &mut out[start + RIGHT_ARM];
+    arm.swing[0] += raise;
+    let angle = arm.swing[0];
+    let light = arm.light;
+    let Some(stack) = view.look.held else {
+        return;
+    };
+    // Le bras tourne autour de l'épaule, vers l'avant (+x) pour un angle positif : la main suit.
+    let turn = |v: Vec3| {
+        let (c, s) = (angle.cos(), angle.sin());
+        Vec3::new(v.x * c - v.y * s, v.x * s + v.y * c, v.z)
+    };
+    let (c, s) = (model.yaw.cos(), model.yaw.sin());
+    let place = |local: Vec3| {
+        model.position
+            + Vec3::new(
+                local.x * c - local.z * s,
+                local.y,
+                local.x * s + local.z * c,
+            )
+    };
+    let hand = SHOULDER + turn(HAND);
+    let mut models = models.borrow_mut();
+    let parts = models
+        .entry(stack.item)
+        .or_insert_with(|| crate::item_models::build(stack.item, env.items, env.blocks));
+    for part in parts.iter() {
+        let mut instance = *part;
+        // Les boîtes de l'objet suivent la main ; elles gardent leur aplomb (un objet fait de petits
+        // cubes se lit encore bien quand le bras se lève).
+        let offset = turn(rotate_y(
+            Vec3::from_array(part.center) * HELD_SIZE,
+            HELD_TURN,
+        ));
+        instance.center = place(hand + offset).to_array();
+        instance.size = (Vec3::from_array(part.size) * HELD_SIZE).to_array();
+        instance.yaw = model.yaw + part.yaw + HELD_TURN;
+        instance.light = light;
+        out.push(instance);
     }
 }
 
@@ -366,7 +432,9 @@ pub(crate) mod support {
     pub fn boxes(ecs: &mut Ecs, alpha: f32) -> Vec<CubeInstance> {
         NetIds::assign(ecs);
         let subs = engine_voxel::SubGrids::new(Arc::new(crate::test_registry()));
-        let all = collect(ecs, &subs, &|_| Some("joueur".to_string()));
+        let all = collect(ecs, &subs, &|_| {
+            Some(("joueur".to_string(), crate::entities::Look::default()))
+        });
         let nobody = engine_ecs::Entity {
             index: u32::MAX,
             generation: 0,

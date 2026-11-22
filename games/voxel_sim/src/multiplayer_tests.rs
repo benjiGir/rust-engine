@@ -127,6 +127,40 @@ fn a_player_who_comes_back_finds_his_inventory() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn a_player_sees_where_the_other_faces_what_he_holds_and_his_gestures() {
+    let mut server = crate::server_boot::tests::headless();
+    let (mut a, mut b) = two_players(&mut server);
+    let ahead = a.feet + Vec3::X * 2.0;
+    a.wait_until(
+        WAIT,
+        || pump(&mut server),
+        |a| a.ground_below(ahead).is_some(),
+    )
+    .unwrap();
+    // A tient une pioche, se tourne, puis frappe le sol devant lui.
+    let slot = give(&mut server, a.player, "core:iron_pickaxe", 1);
+    a.send(&ClientMsg::SelectSlot(slot as u8));
+    a.send(&ClientMsg::Look {
+        yaw: 1.0,
+        pitch: -0.3,
+    });
+    a.use_on(surface_ahead(&a, 2.0));
+    let pickaxe = server.content.items.id("core:iron_pickaxe").unwrap();
+    b.wait_until(
+        WAIT,
+        || pump(&mut server),
+        |b| {
+            b.players.values().any(|(pose, look)| {
+                (pose.yaw - 1.0).abs() < 1e-3
+                    && look.held.is_some_and(|s| s.item == pickaxe)
+                    && look.swings > 0
+            })
+        },
+    )
+    .unwrap();
+}
+
 /// Deux bots, A et B, côte à côte, avec le terrain sous leurs pieds ; A au sol.
 fn two_players(server: &mut VoxelServer) -> (crate::bot::Bot, crate::bot::Bot) {
     let port = server.open_lan(0).unwrap();

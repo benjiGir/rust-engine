@@ -283,6 +283,8 @@ impl VoxelGame {
         // Un invité : la poignée de main avec l'hôte, puis la coquille refaite sur sa graine (le
         // terrain lointain en dépend) et le joueur placé où l'hôte l'accueille (voir `net_client.rs`).
         let mut remote = None;
+        // La portée de l'hôte : il n'envoie pas de chunks au-delà (voir plus bas, le terrain lointain).
+        let mut host_radius = None;
         if let Some(address) = &launch.join {
             // Déjà accueilli depuis le menu, ou (`VOXEL_JOIN`) la poignée de main maintenant.
             let joined = match joined {
@@ -312,6 +314,7 @@ impl VoxelGame {
                 player::toggle_mode(&mut server.ecs, entity);
             }
             (yaw, pitch) = (joined.yaw, joined.pitch);
+            host_radius = Some(joined.view_radius);
             wire::set_registry(server.registry.clone());
             log::info!(
                 "partie de {address} rejointe (joueur {:?})",
@@ -324,6 +327,10 @@ impl VoxelGame {
         let block_textures = assets::load_textures(&registry);
         renderer.set_block_textures(&block_textures);
         let config = server.world.borrow().config().clone();
+        // Les chunks détaillés vont jusqu'à notre portée, ou celle de l'hôte pour un invité : c'est lui
+        // qui les envoie. Le terrain lointain commence là, sinon un anneau resterait vide entre les
+        // deux.
+        let near_radius = host_radius.unwrap_or(config.view_radius);
         // Le terrain lointain (simplifié) prolonge le monde au-delà des chunks détaillés ;
         // `VOXEL_FAR=0` le coupe, pour comparer. Pas dans le décor du menu principal.
         let far_chunks = if launch.title {
@@ -333,7 +340,7 @@ impl VoxelGame {
                 .unwrap_or(settings.far_distance)
                 .clamp(0, 192)
         };
-        let far_chunks = if far_chunks > config.view_radius {
+        let far_chunks = if far_chunks > near_radius {
             far_chunks
         } else {
             0
@@ -342,17 +349,16 @@ impl VoxelGame {
         let drawn_chunks = if far_chunks > 0 {
             far_chunks
         } else {
-            config.view_radius
+            near_radius
         };
         let view_distance = (drawn_chunks * CHUNK_SIZE as i32) as f32;
         renderer.fog = Some(Fog {
             start: view_distance * 0.6,
             end: view_distance * 0.95,
         });
-        let near_radius = config.view_radius;
         let far = (far_chunks > 0).then(|| {
             let far = far_terrain::FarTerrain::new(&server.world.borrow(), near_radius, far_chunks);
-            log::info!("terrain lointain : jusqu'à {far_chunks} chunks");
+            log::info!("terrain lointain : de {near_radius} à {far_chunks} chunks");
             far
         });
         let mut view = client_world::ClientWorld::new(&server.world.borrow());

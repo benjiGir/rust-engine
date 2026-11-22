@@ -124,6 +124,13 @@ pub struct Look {
     pub size: [f32; 2],
     /// La vie (actuelle, maximale) d'une créature, au demi-point près, pour la fiche de la cible.
     pub health: [f32; 2],
+    /// L'objet qu'un joueur tient en main (une pile d'un objet : le nombre ne compte pas).
+    pub held: Option<crate::inventory::ItemStack>,
+    /// Le compte des gestes d'un joueur ([`crate::players::PlayerState::swings`]) : son bras se lève
+    /// chez les autres à chaque changement.
+    pub swings: u8,
+    /// Le joueur creuse : son bras va et vient.
+    pub digging: bool,
 }
 
 /// Les blocs d'une structure mobile, tels que le serveur les a au moment de l'envoi. Les chunks sont
@@ -230,12 +237,12 @@ pub struct Replicated {
     pub blocks: Option<(u64, GridSnapshot)>,
 }
 
-/// Décrit toutes les entités répliquées (`NetIds::assign` doit avoir tourné). `name` donne le nom d'un
-/// joueur d'après son entité.
+/// Décrit toutes les entités répliquées (`NetIds::assign` doit avoir tourné). `player` donne le nom
+/// d'un joueur et son apparence (objet tenu, gestes) d'après son entité.
 pub fn collect(
     world: &World,
     subs: &SubGrids,
-    name: &dyn Fn(Entity) -> Option<String>,
+    player: &dyn Fn(Entity) -> Option<(String, Look)>,
 ) -> Vec<Replicated> {
     let mut out = Vec::new();
     world
@@ -283,6 +290,7 @@ pub fn collect(
                         .map_or([0.0, 0.0], |h| {
                             [(h.current.max(0.0) * 2.0).round() / 2.0, h.max]
                         }),
+                    ..Look::default()
                 },
                 range: MOB_RANGE,
                 blocks: None,
@@ -350,18 +358,17 @@ pub fn collect(
             if world.has::<crate::components::Hidden>(entity) {
                 return;
             }
+            let (name, look) = player(entity).unwrap_or_default();
             out.push(Replicated {
                 id: *id,
                 entity: Some(entity),
-                kind: EntityKind::Player {
-                    name: name(entity).unwrap_or_default(),
-                },
+                kind: EntityKind::Player { name },
                 pose: Pose {
                     position: transform.position,
                     yaw: transform.yaw,
                     ..Pose::default()
                 },
-                look: Look::default(),
+                look,
                 range: PLAYER_RANGE,
                 blocks: None,
             });
@@ -590,7 +597,7 @@ mod tests {
     }
 
     fn describe(world: &World, subs: &SubGrids) -> Vec<Replicated> {
-        collect(world, subs, &|_| Some("vue".to_string()))
+        collect(world, subs, &|_| Some(("vue".to_string(), Look::default())))
     }
 
     fn step(

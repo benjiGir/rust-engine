@@ -487,10 +487,18 @@ impl crate::server_side::VoxelServer {
         }
     }
 
+    /// Un geste du joueur en cours (frapper, utiliser, commencer à creuser) : les autres voient son
+    /// bras se lever.
+    fn swing(&mut self) {
+        let me = self.players.me_mut();
+        me.swings = me.swings.wrapping_add(1);
+    }
+
     fn handle_dig(&mut self, player: PlayerId, aim: Aim, phase: DigPhase, pos: IVec3) {
         match phase {
             DigPhase::Abort => self.players.me_mut().dig = None,
             DigPhase::Start => {
+                self.swing();
                 self.with_aim(player, aim, |game| {
                     let aimed = game.aim().hit.map(|hit| hit.block_pos);
                     if aimed != Some(pos) {
@@ -603,6 +611,7 @@ impl crate::server_side::VoxelServer {
                 aim, phase, pos, ..
             } => self.handle_dig(player, aim, phase, pos),
             ClientMsg::Attack { aim, entity } => {
+                self.swing();
                 // Un numéro que le serveur ne connaît pas (ou d'une entité morte) est refusé.
                 match self.server_entity(entity) {
                     Some(claimed) => {
@@ -612,6 +621,7 @@ impl crate::server_side::VoxelServer {
                 }
             }
             ClientMsg::Use { aim, sneaking } => {
+                self.swing();
                 self.with_aim(player, aim, |game| game.handle_use(sneaking));
             }
             ClientMsg::Eat { held } => self.players.me_mut().eating = held,
@@ -662,6 +672,13 @@ impl crate::server_side::VoxelServer {
                 me.yaw = yaw;
                 me.pitch = pitch;
                 me.look = Vec3::new(cos_yaw * cos_pitch, sin_pitch, sin_yaw * cos_pitch);
+                // Le corps se tourne avec le regard : les autres joueurs le voient de face.
+                let entity = me.entity;
+                if let Some(mut transform) =
+                    self.ecs.get_mut::<crate::components::Transform>(entity)
+                {
+                    transform.yaw = yaw;
+                }
             }
             ClientMsg::Chat(text) => {
                 // Le chat va à tous les joueurs.
