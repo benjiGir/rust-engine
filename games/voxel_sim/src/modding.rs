@@ -32,15 +32,18 @@ pub fn resolve_order(assets: &Path) -> Vec<ModInfo> {
     let core = engine_mods::core_mod(&assets.join("core"));
     // Les mods du jeu (`paths::get().mods`), ou ceux qui sont à côté d'un autre jeu de base (tests).
     let paths = crate::paths::get();
-    let mods_dir = if assets == paths.game {
-        paths.mods.clone()
+    // Ceux du joueur d'abord, puis ceux de l'installation si elle est en lecture seule.
+    let mods_dirs = if assets == paths.game {
+        paths.mods_dirs()
     } else {
-        assets
-            .parent()
-            .map(|root| root.join("mods"))
-            .unwrap_or_default()
+        vec![
+            assets
+                .parent()
+                .map(|root| root.join("mods"))
+                .unwrap_or_default(),
+        ]
     };
-    let scan = engine_mods::scan(&[mods_dir]);
+    let scan = engine_mods::scan(&mods_dirs);
     for reason in &scan.skipped {
         log::warn!("mod écarté : {reason}");
     }

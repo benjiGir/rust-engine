@@ -147,6 +147,13 @@ pub fn init(program: Program) {
         paths.root.display(),
         paths.game.display()
     );
+    if let Some(install) = &paths.shipped {
+        log::info!(
+            "installation en lecture seule ({}) : le jeu écrit dans {}, et lit ses mods et packs dans les deux",
+            install.display(),
+            paths.root.display()
+        );
+    }
     match written {
         Ok(path) => log::info!("journal : {}", path.display()),
         Err(error) => log::warn!(

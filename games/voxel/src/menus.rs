@@ -402,7 +402,7 @@ impl VoxelGame {
                 Self::menu_window(ctx, "Packs de textures", |ui| {
                     action = crate::texture_packs::panel(
                         ui,
-                        &project_root(),
+                        &voxel_sim::paths::get().texture_pack_dirs(),
                         &mut selected,
                         self.settings.texture_pack,
                     );
@@ -501,7 +501,7 @@ impl VoxelGame {
 
     fn shader_selection(&self) -> crate::shader_packs::Selection {
         crate::shader_packs::Selection::open(
-            &voxel_sim::paths::get().shader_packs,
+            &voxel_sim::paths::get().shader_pack_dirs(),
             self.settings.shader_pack.as_deref(),
         )
     }
@@ -521,7 +521,7 @@ impl VoxelGame {
             Action::Back => true,
             Action::Apply => match shader_packs::apply(
                 &mut self.client.renderer,
-                &voxel_sim::paths::get().shader_packs,
+                &voxel_sim::paths::get().shader_pack_dirs(),
                 selection.selected.as_deref(),
             ) {
                 Ok(()) => {

@@ -1,6 +1,7 @@
 //! Packs graphiques du client. La sélection est une préférence locale du joueur. Les packs sont
 //! des dossiers de `shader_packs/` à la racine du jeu (`voxel_sim::paths`), à côté des packs de
-//! textures : le joueur y dépose les siens.
+//! textures : le joueur y dépose les siens. Une installation en lecture seule en a deux (celui du
+//! joueur, puis celui de l'installation) : à identifiant égal, le premier passe devant.
 
 use std::{
     borrow::Cow,
@@ -33,7 +34,7 @@ struct Manifest {
     moonlight: bool,
 }
 
-fn directory(packs: &Path, id: &str) -> Result<PathBuf> {
+fn directory(packs: &[PathBuf], id: &str) -> Result<PathBuf> {
     ensure!(
         !id.is_empty()
             && id
@@ -41,7 +42,13 @@ fn directory(packs: &Path, id: &str) -> Result<PathBuf> {
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'-' | b'_')),
         "identifiant de pack de shaders invalide : {id}"
     );
-    Ok(packs.join(id))
+    // Le premier dossier qui a ce pack ; à défaut, le chemin dans le premier, pour l'erreur.
+    let mut candidates = packs.iter().map(|dir| dir.join(id));
+    let first = packs.first().map(|dir| dir.join(id));
+    Ok(candidates
+        .find(|dir| dir.is_dir())
+        .or(first)
+        .unwrap_or_else(|| PathBuf::from(id)))
 }
 
 fn manifest(dir: &Path) -> Result<Manifest> {
@@ -77,7 +84,7 @@ struct Effects {
 }
 
 impl Effects {
-    fn load(packs: &Path, id: &str) -> Result<Self> {
+    fn load(packs: &[PathBuf], id: &str) -> Result<Self> {
         let dir = directory(packs, id)?;
         let data = manifest(&dir)?;
         let read = |name: String| -> Result<String> {
@@ -119,20 +126,20 @@ fn read_base(path: &str, builtin: &'static str) -> Result<Cow<'static, str>> {
     }
 }
 
-fn selected_effects(packs: &Path, id: Option<&str>) -> Result<Effects> {
+fn selected_effects(packs: &[PathBuf], id: Option<&str>) -> Result<Effects> {
     Ok(id
         .map(|id| Effects::load(packs, id))
         .transpose()?
         .unwrap_or_default())
 }
 
-/// Applique le pack `id` de `packs` (le dossier des packs), ou le rendu standard.
-pub fn apply(renderer: &mut Renderer, packs: &Path, id: Option<&str>) -> Result<()> {
+/// Applique le pack `id` de `packs` (les dossiers des packs), ou le rendu standard.
+pub fn apply(renderer: &mut Renderer, packs: &[PathBuf], id: Option<&str>) -> Result<()> {
     let effects = selected_effects(packs, id)?;
     renderer.reload_shaders(&ShaderSources::builtin(effects.sources())?)
 }
 
-pub fn reload(renderer: &mut Renderer, packs: &Path, id: Option<&str>) -> Result<()> {
+pub fn reload(renderer: &mut Renderer, packs: &[PathBuf], id: Option<&str>) -> Result<()> {
     let effects = selected_effects(packs, id)?;
     let terrain = read_base(
         engine_render::CHUNK_SHADER_PATH,
@@ -161,17 +168,23 @@ pub struct Selection {
 }
 
 impl Selection {
-    pub fn open(dir: &Path, active: Option<&str>) -> Self {
-        let mut packs = Vec::new();
-        if let Ok(entries) = fs::read_dir(dir) {
+    pub fn open(dirs: &[PathBuf], active: Option<&str>) -> Self {
+        let mut packs: Vec<Pack> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for dir in dirs {
+            let Ok(entries) = fs::read_dir(dir) else {
+                continue;
+            };
             for entry in entries.flatten() {
                 let Ok(id) = entry.file_name().into_string() else {
                     continue;
                 };
-                let Ok(pack) = directory(dir, &id) else {
+                let Ok(pack) = directory(std::slice::from_ref(dir), &id) else {
                     continue;
                 };
-                if !pack.is_dir() {
+                // Déjà vu dans un dossier précédent (celui du joueur) : celui-là passe devant,
+                // comme pour `apply`.
+                if !pack.is_dir() || !seen.insert(id.clone()) {
                     continue;
                 }
                 match manifest(&pack) {
@@ -259,8 +272,8 @@ mod tests {
     use super::*;
 
     /// Les packs livrés, dans le dépôt.
-    fn packs() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../shader_packs")
+    fn packs() -> Vec<PathBuf> {
+        vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("../../shader_packs")]
     }
 
     #[test]
@@ -300,34 +313,72 @@ mod tests {
             r#"(api: 1, name: "Test", terrain: Some("../test.wgsl"))"#,
         )
         .unwrap();
-        let error = Effects::load(&root, "test").err().unwrap();
+        let error = Effects::load(std::slice::from_ref(&root), "test")
+            .err()
+            .unwrap();
         assert!(error.to_string().contains("nom de fichier WGSL invalide"));
         fs::write(
             &manifest,
             r#"(api: 2, name: "Test", sky: Some("sky.wgsl"))"#,
         )
         .unwrap();
-        assert!(Effects::load(&root, "test").is_err());
+        assert!(Effects::load(std::slice::from_ref(&root), "test").is_err());
         fs::write(
             &manifest,
             r#"(api: 1, name: "Test", sky: Some("sky.wgsl"))"#,
         )
         .unwrap();
-        assert!(Effects::load(&root, "test").is_err());
+        assert!(Effects::load(std::slice::from_ref(&root), "test").is_err());
         fs::write(pack.join("sky.wgsl"), "fn voxel_sky(input: SyntaxError) {}").unwrap();
-        let bad = Effects::load(&root, "test").unwrap();
+        let bad = Effects::load(std::slice::from_ref(&root), "test").unwrap();
         assert!(
             ShaderSources::builtin(bad.sources())
                 .unwrap()
                 .validate()
                 .is_err()
         );
-        assert!(Effects::load(&root, "..").is_err());
+        assert!(Effects::load(std::slice::from_ref(&root), "..").is_err());
         fs::write(&manifest, r#"(api: 1, name: "Ombres", sun_shadows: true)"#).unwrap();
-        let shadows = Effects::load(&root, "test").unwrap();
+        let shadows = Effects::load(std::slice::from_ref(&root), "test").unwrap();
         assert!(shadows.sun_shadows);
         assert!(shadows.terrain.is_none() && shadows.sky.is_none());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_player_pack_comes_before_the_shipped_one() {
+        let base = std::env::temp_dir().join(format!("voxel-shader-layers-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let write = |dir: &str, id: &str, name: &str| {
+            let pack = base.join(dir).join(id);
+            fs::create_dir_all(&pack).unwrap();
+            fs::write(
+                pack.join("pack.ron"),
+                format!(r#"(api: 1, name: "{name}", sun_shadows: true)"#),
+            )
+            .unwrap();
+        };
+        write("joueur", "commun", "Du joueur");
+        write("livres", "commun", "Livré");
+        write("livres", "autre", "Autre");
+        let dirs = [
+            base.join("joueur"),
+            base.join("livres"),
+            base.join("absent"),
+        ];
+        let selection = Selection::open(&dirs, None);
+        let titles: Vec<&str> = selection.packs.iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(titles, ["Autre", "Du joueur"]);
+        assert_eq!(
+            directory(&dirs, "commun").unwrap(),
+            base.join("joueur/commun")
+        );
+        assert_eq!(
+            directory(&dirs, "autre").unwrap(),
+            base.join("livres/autre")
+        );
+        assert!(Effects::load(&dirs, "autre").unwrap().sun_shadows);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

@@ -64,7 +64,7 @@ impl VoxelServer {
         crate::texture_pack_config::configure(
             &mut registry,
             settings.texture_pack,
-            &project_root(),
+            &crate::paths::get().texture_pack_dirs(),
         );
         let mut mob_registry =
             MobRegistry::load(&assets, &mod_dirs, &registry).context("chargement des créatures")?;

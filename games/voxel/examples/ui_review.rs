@@ -200,7 +200,7 @@ fn main() -> Result<()> {
                     }),
                     "packs" => ui_layout::menu(ctx, "Packs de textures", 640.0, |ui| {
                         let mut selected = settings.texture_pack;
-                        texture_packs::panel(ui, &root, &mut selected, settings::TexturePack::Classic);
+                        texture_packs::panel(ui, &[root.join("texture_packs")], &mut selected, settings::TexturePack::Classic);
                     }),
                     "pause" => ui_layout::menu(ctx, "Pause", 360.0, |ui| {
                         for label in ["Reprendre", "Options", "Sauvegarder et retourner au menu"] {

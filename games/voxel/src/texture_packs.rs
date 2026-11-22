@@ -1,7 +1,7 @@
 //! Packs graphiques du menu principal : le choix n'affecte ni données ni sauvegardes.
 use crate::settings::TexturePack;
 use engine_render::egui::{self, TextureHandle};
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::PathBuf};
 const PACKS: [TexturePack; 3] = [
     TexturePack::Classic,
     TexturePack::Earth32,
@@ -9,10 +9,12 @@ const PACKS: [TexturePack; 3] = [
 ];
 
 #[allow(unused_imports)]
-pub(crate) use crate::texture_pack_config::{Manifest, available, configure, details, manifest};
-fn previews(ctx: &egui::Context, root: &Path, pack: TexturePack) -> Vec<TextureHandle> {
+pub(crate) use crate::texture_pack_config::{
+    Manifest, available, configure, details, folder, manifest,
+};
+fn previews(ctx: &egui::Context, dirs: &[PathBuf], pack: TexturePack) -> Vec<TextureHandle> {
     let id = egui::Id::unique("texture_pack_previews");
-    let key = format!("{}:{pack:?}", root.display());
+    let key = format!("{dirs:?}:{pack:?}");
     let mut cache = ctx.data_mut(|d| {
         d.get_temp::<HashMap<String, Vec<TextureHandle>>>(id)
             .unwrap_or_default()
@@ -21,8 +23,8 @@ fn previews(ctx: &egui::Context, root: &Path, pack: TexturePack) -> Vec<TextureH
         .entry(key)
         .or_insert_with(|| {
             let base = details(pack).map_or_else(
-                || root.join("assets/core"),
-                |(id, _)| root.join("texture_packs").join(id).join("assets/core"),
+                || voxel_sim::paths::get().game.join("core"),
+                |(id, _)| folder(dirs, id).join("assets/core"),
             );
             [
                 ("textures", "grass_top"),
@@ -66,7 +68,7 @@ pub enum Action {
 /// Composition commune au menu et à la capture de contrôle.
 pub fn panel(
     ui: &mut egui::Ui,
-    root: &Path,
+    dirs: &[PathBuf],
     draft: &mut TexturePack,
     active: TexturePack,
 ) -> Action {
@@ -97,7 +99,7 @@ pub fn panel(
                         ui.add_space(8.0);
                     }
                     for pack in PACKS {
-                        let enabled = available(root, pack);
+                        let enabled = available(dirs, pack);
                         let selected = *draft == pack;
                         let (title, description) = match details(pack) {
                             None => (
@@ -105,7 +107,7 @@ pub fn panel(
                                 "Les dessins d'origine, pour le rendu le plus léger.".to_owned(),
                             ),
                             Some((id, size)) => {
-                                let info = manifest(&root.join("texture_packs").join(id));
+                                let info = manifest(&folder(dirs, id));
                                 let (name, description) = info.map_or_else(
                                     || ("Matières détaillées".into(), String::new()),
                                     |p| (p.name, p.description),
@@ -142,7 +144,7 @@ pub fn panel(
                                             .size(12.0)
                                             .color(crate::skin::MUTED),
                                     );
-                                    let icons = previews(ui.ctx(), root, pack);
+                                    let icons = previews(ui.ctx(), dirs, pack);
                                     let side =
                                         ((ui.available_width() - 20.0) / 6.0).clamp(12.0, 48.0);
                                     ui.horizontal(|ui| {
@@ -176,7 +178,7 @@ pub fn panel(
                 ui.add_space(((ui.available_width() - width) * 0.5).max(0.0));
                 let half = (width - ui.spacing().item_spacing.x) * 0.5;
                 if ui
-                    .add_enabled_ui(available(root, *draft), |ui| {
+                    .add_enabled_ui(available(dirs, *draft), |ui| {
                         crate::skin::menu_button_sized(ui, "Appliquer", half)
                     })
                     .inner
@@ -198,7 +200,7 @@ mod tests {
     use engine_voxel::BlockRegistry;
     use std::path::PathBuf;
     fn root() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
     }
     #[test]
     fn a_click_selects_the_optional_pack_and_apply_returns_the_selection() {
@@ -239,7 +241,12 @@ mod tests {
                 },
                 |ui| {
                     crate::ui_layout::menu(ui.ctx(), "Packs de textures", 640.0, |ui| {
-                        let result = panel(ui, &root(), &mut draft, TexturePack::Classic);
+                        let result = panel(
+                            ui,
+                            &[root().join("texture_packs")],
+                            &mut draft,
+                            TexturePack::Classic,
+                        );
                         if result != Action::None {
                             action = result;
                         }
@@ -280,7 +287,12 @@ mod tests {
                     },
                     |ui| {
                         crate::ui_layout::menu(ui.ctx(), "Packs de textures", 640.0, |ui| {
-                            panel(ui, &root(), &mut draft, TexturePack::Classic);
+                            panel(
+                                ui,
+                                &[root().join("texture_packs")],
+                                &mut draft,
+                                TexturePack::Classic,
+                            );
                         });
                     },
                 );
@@ -311,7 +323,11 @@ mod tests {
             BlockRegistry::load(&root.join("assets"), Some(&root.join("mods"))).unwrap();
         let keys: Vec<_> = registry.iter().map(|(id, d)| (id, d.key.clone())).collect();
         let sounds = registry.asset_path("core:step_soft", "sounds", "wav");
-        configure(&mut registry, TexturePack::Earth32, &root);
+        configure(
+            &mut registry,
+            TexturePack::Earth32,
+            &[root.join("texture_packs")],
+        );
         assert_eq!(registry.texture_size(), 32);
         assert!(
             registry
@@ -330,7 +346,11 @@ mod tests {
                 .collect::<Vec<_>>(),
             keys
         );
-        configure(&mut registry, TexturePack::Classic, &root);
+        configure(
+            &mut registry,
+            TexturePack::Classic,
+            &[root.join("texture_packs")],
+        );
         assert_eq!(registry.texture_size(), 16);
         assert!(
             registry
@@ -341,7 +361,7 @@ mod tests {
         configure(
             &mut registry,
             TexturePack::Earth32,
-            &root.join("missing_pack_test"),
+            &[root.join("missing_pack_test")],
         );
         assert_eq!(registry.texture_size(), 16);
     }

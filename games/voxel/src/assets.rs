@@ -84,7 +84,11 @@ mod tests {
         use crate::settings::TexturePack;
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut registry = crate::test_registry();
-        crate::texture_packs::configure(&mut registry, TexturePack::Earth64, &root);
+        crate::texture_packs::configure(
+            &mut registry,
+            TexturePack::Earth64,
+            &[root.join("texture_packs")],
+        );
         let pack = root.join("texture_packs/earth-copper-64");
         assert_eq!(registry.texture_size(), 64);
         for (key, kind) in [("core:stone", "textures"), ("core:iron_axe", "items")] {

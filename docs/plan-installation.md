@@ -103,8 +103,8 @@ pour jouer et pour héberger.
 | Lot | Contenu | Vérification |
 |---|---|---|
 | **I1, les chemins (réalisé)** | `voxel_sim::paths`, `GamePaths` ; tous les chemins passent par lui ; le dépôt reste la racine en développement | les 1 166 tests ; le jeu se lance comme avant ; un test de la recherche de racine (exécutable, `VOXEL_DATA`, dépôt) |
-| **I2, les dossiers du joueur** | `shader_packs/` à la racine ; `screenshots/` et `logs/latest.log` ; doublons de mods signalés | un mod et un pack déposés à la main apparaissent |
-| **I3, lecture seule** | repli sur le dossier utilisateur du système quand l'installation n'est pas inscriptible | un test avec un dossier en lecture seule |
+| **I2, les dossiers du joueur (réalisé)** | `shader_packs/` à la racine ; `screenshots/` et `logs/latest.log` ; doublons de mods signalés | un mod et un pack déposés à la main apparaissent |
+| **I3, lecture seule (réalisé)** | repli sur le dossier utilisateur du système quand l'installation n'est pas inscriptible | un test avec un dossier en lecture seule |
 | **I4, l'empaquetage** | `cargo xtask package`, puis lancer le jeu et le serveur **depuis `dist/`, hors du dépôt** | le jeu démarre, un monde se crée, le serveur dédié tourne, un invité le rejoint, tout depuis `dist/` |
 
 ## Réalisé
@@ -126,6 +126,13 @@ pour jouer et pour héberger.
   le fuseau). Les mods sont lus par `engine_mods::scan` : un mod illisible est écarté avec sa raison au lieu
   de désactiver tous les mods, et deux mods de même identifiant gardent le premier dossier (prêt pour le
   dossier du joueur d'I3). `voxel-server` lit enfin `--data-dir` (oublié en I1).
+- **I3** : quand l'installation n'est pas inscriptible (on essaie d'y écrire un fichier), la racine devient le
+  dossier utilisateur du système (`Layout::UserDir`) : mondes, réglages, journal, captures et `server.ron`
+  y vont. Les mods et les packs (textures et shaders) sont lus dans les deux dossiers, celui du joueur
+  d'abord (`GamePaths::mods_dirs`, `texture_pack_dirs`, `shader_pack_dirs`) ; un doublon de l'installation
+  est écarté et signalé. `--data-dir` ne déclenche pas le repli. Vérifié avec une installation copiée en
+  lecture seule (`chmod 555`) : le jeu et `voxel-server` écrivent dans `~/Library/Application Support/Voxel`,
+  les packs livrés et ceux du joueur apparaissent dans les menus, le mod du joueur passe devant le livré.
 
 ## Choix à valider
 

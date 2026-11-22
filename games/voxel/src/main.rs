@@ -949,7 +949,7 @@ impl Game for App {
         if let Some(pack) = settings.shader_pack.as_deref()
             && let Err(error) = shader_packs::apply(
                 &mut renderer,
-                &voxel_sim::paths::get().shader_packs,
+                &voxel_sim::paths::get().shader_pack_dirs(),
                 Some(pack),
             )
         {
@@ -1041,7 +1041,7 @@ impl VoxelGame {
         if changes.shader {
             let result = shader_packs::reload(
                 &mut self.client.renderer,
-                &voxel_sim::paths::get().shader_packs,
+                &voxel_sim::paths::get().shader_pack_dirs(),
                 self.settings.shader_pack.as_deref(),
             );
             match result {
@@ -1060,7 +1060,7 @@ impl VoxelGame {
                     texture_packs::configure(
                         &mut fresh,
                         self.settings.texture_pack,
-                        &project_root(),
+                        &voxel_sim::paths::get().texture_pack_dirs(),
                     );
                     let mut creatures = self
                         .server
@@ -1356,12 +1356,10 @@ impl Demo {
 /// Démarre la surveillance des assets, des mods et des shaders (si les dossiers existent).
 fn start_hot_reload() -> Option<hot_reload::HotReload> {
     let paths = voxel_sim::paths::get();
-    let mut dirs = vec![
-        paths.game.clone(),
-        paths.mods.clone(),
-        paths.texture_packs.clone(),
-        paths.shader_packs.clone(),
-    ];
+    let mut dirs = vec![paths.game.clone()];
+    dirs.extend(paths.mods_dirs());
+    dirs.extend(paths.texture_pack_dirs());
+    dirs.extend(paths.shader_pack_dirs());
     if let Some(shaders) = std::path::Path::new(engine_render::CHUNK_SHADER_PATH).parent() {
         dirs.push(shaders.to_path_buf());
     }

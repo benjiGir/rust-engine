@@ -13,6 +13,11 @@
 //! 3. le dépôt, en développement : le parent de `assets/` (`VOXEL_ASSETS`, sinon `./assets`, sinon le
 //!    dépôt où le jeu a été compilé).
 //!
+//! **Une installation en lecture seule** (Program Files, /Applications) : la racine devient le dossier
+//! utilisateur du système (`%APPDATA%\Voxel`, `~/Library/Application Support/Voxel`,
+//! `~/.local/share/voxel`) ; les mods et les packs livrés restent lus dans l'installation
+//! ([`GamePaths::shipped`]), après ceux du joueur.
+//!
 //! `VOXEL_ASSETS`, `VOXEL_SAVES` et `VOXEL_SERVER_CONFIG` restent des surcharges ponctuelles du jeu de
 //! base, des mondes et de la configuration du serveur.
 
@@ -29,6 +34,8 @@ pub enum Layout {
     DataDir,
     /// Le dossier de l'exécutable (une installation).
     Install,
+    /// Le dossier utilisateur du système : l'installation est en lecture seule.
+    UserDir,
     /// Le dépôt (développement).
     Repository,
 }
@@ -52,6 +59,34 @@ pub struct GamePaths {
     pub settings: PathBuf,
     pub mod_settings: PathBuf,
     pub server_config: PathBuf,
+    /// L'installation, quand la racine est ailleurs parce qu'elle est en lecture seule : ses mods et
+    /// ses packs livrés sont lus après ceux de la racine.
+    pub shipped: Option<PathBuf>,
+}
+
+impl GamePaths {
+    /// `name` dans la racine, puis dans l'installation s'il y a lieu : le premier passe devant.
+    fn layered(&self, name: &str) -> Vec<PathBuf> {
+        std::iter::once(&self.root)
+            .chain(&self.shipped)
+            .map(|dir| dir.join(name))
+            .collect()
+    }
+
+    /// Les dossiers de mods, celui du joueur d'abord.
+    pub fn mods_dirs(&self) -> Vec<PathBuf> {
+        self.layered("mods")
+    }
+
+    /// Les dossiers de packs de textures, celui du joueur d'abord.
+    pub fn texture_pack_dirs(&self) -> Vec<PathBuf> {
+        self.layered("texture_packs")
+    }
+
+    /// Les dossiers de packs de shaders, celui du joueur d'abord.
+    pub fn shader_pack_dirs(&self) -> Vec<PathBuf> {
+        self.layered("shader_packs")
+    }
 }
 
 /// Ce qui oriente la recherche : rassemblé à part pour que les tests la rejouent sans toucher à
@@ -72,6 +107,8 @@ pub struct Clues {
     pub saves: Option<PathBuf>,
     /// `VOXEL_SERVER_CONFIG`.
     pub server_config: Option<PathBuf>,
+    /// Le dossier utilisateur du système, pour une installation en lecture seule.
+    pub user_dir: Option<PathBuf>,
 }
 
 impl Clues {
@@ -90,8 +127,31 @@ impl Clues {
             repository: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."),
             saves: var("VOXEL_SAVES"),
             server_config: var("VOXEL_SERVER_CONFIG"),
+            user_dir: user_dir(&var),
         }
     }
+}
+
+/// Le dossier où un programme range les données de l'utilisateur, selon le système.
+fn user_dir(var: &dyn Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    if cfg!(windows) {
+        var("APPDATA").map(|dir| dir.join("Voxel"))
+    } else if cfg!(target_os = "macos") {
+        var("HOME").map(|home| home.join("Library/Application Support/Voxel"))
+    } else {
+        var("XDG_DATA_HOME")
+            .or_else(|| var("HOME").map(|home| home.join(".local/share")))
+            .map(|dir| dir.join("voxel"))
+    }
+}
+
+/// Peut-on écrire dans ce dossier ? On essaie : les droits seuls ne disent pas tout (disque monté en
+/// lecture seule, application macOS en quarantaine...).
+fn writable(dir: &Path) -> bool {
+    let probe = dir.join(format!(".voxel-ecriture-{}", std::process::id()));
+    let ok = std::fs::write(&probe, b"").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
 }
 
 /// Le dossier d'installation qui contient l'exécutable : le premier de ses parents (quatre au plus,
@@ -129,15 +189,22 @@ pub fn locate(clues: &Clues) -> GamePaths {
     };
     let (layout, root) = match (&clues.data_dir, &install) {
         (Some(data), _) => (Layout::DataDir, data.clone()),
-        (None, Some(install)) if clues.assets.is_none() => (Layout::Install, install.clone()),
+        (None, Some(install)) if clues.assets.is_none() => match &clues.user_dir {
+            Some(user) if !writable(install) => (Layout::UserDir, user.clone()),
+            _ => (Layout::Install, install.clone()),
+        },
         _ => (
             Layout::Repository,
             game.parent()
                 .map_or_else(|| PathBuf::from("."), Path::to_path_buf),
         ),
     };
+    let shipped = (layout == Layout::UserDir)
+        .then(|| install.clone())
+        .flatten();
     GamePaths {
         layout,
+        shipped,
         mods: root.join("mods"),
         texture_packs: root.join("texture_packs"),
         shader_packs: root.join("shader_packs"),
@@ -161,7 +228,14 @@ static PATHS: OnceLock<GamePaths> = OnceLock::new();
 /// s'écrit dans `logs/`) : [`crate::logs::init`] dit ensuite où ils sont. Sans appel, [`get`] les
 /// cherche d'après l'environnement. Rend les chemins retenus (ceux d'un appel précédent s'il y en a eu).
 pub fn init(data_dir: Option<PathBuf>) -> &'static GamePaths {
-    PATHS.get_or_init(|| locate(&Clues::from_env(data_dir)))
+    PATHS.get_or_init(|| {
+        let paths = locate(&Clues::from_env(data_dir));
+        // Le dossier utilisateur n'existe pas forcément encore : le jeu y écrit dès le lancement.
+        if paths.layout == Layout::UserDir {
+            let _ = std::fs::create_dir_all(&paths.root);
+        }
+        paths
+    })
 }
 
 /// Les chemins du processus.
@@ -277,6 +351,56 @@ mod tests {
         assert_eq!(paths.root, PathBuf::from("/ailleurs"));
         assert_eq!(paths.saves, PathBuf::from("/tmp/mondes"));
         assert_eq!(paths.server_config, PathBuf::from("/tmp/serveur.ron"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_installation_writes_in_the_user_folder() {
+        use std::os::unix::fs::PermissionsExt;
+        let install = temp("readonly");
+        std::fs::create_dir_all(install.join("game/core")).unwrap();
+        let user = temp("user");
+        let clues = Clues {
+            exe: Some(install.join("voxel")),
+            user_dir: Some(user.clone()),
+            ..repo_clues(Path::new("/depot"))
+        };
+        // Inscriptible : l'installation reste la racine.
+        assert_eq!(locate(&clues).layout, Layout::Install);
+
+        std::fs::set_permissions(&install, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let paths = locate(&clues);
+        std::fs::set_permissions(&install, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // Lancé en administrateur, le dossier reste inscriptible : rien à vérifier.
+        if paths.layout == Layout::UserDir {
+            assert_eq!(paths.root, user);
+            assert_eq!(paths.game, install.join("game"));
+            assert_eq!(paths.saves, user.join("saves"));
+            assert_eq!(paths.settings, user.join("settings.ron"));
+            assert_eq!(paths.logs, user.join("logs"));
+            assert_eq!(paths.shipped, Some(install.clone()));
+            assert_eq!(paths.mods_dirs(), [user.join("mods"), install.join("mods")]);
+            assert_eq!(
+                paths.shader_pack_dirs(),
+                [user.join("shader_packs"), install.join("shader_packs")]
+            );
+        }
+        let _ = std::fs::remove_dir_all(&install);
+        let _ = std::fs::remove_dir_all(&user);
+    }
+
+    #[test]
+    fn the_user_folder_follows_the_system() {
+        let home = |name: &str| (name == "HOME").then(|| PathBuf::from("/home/ana"));
+        let dir = user_dir(&home);
+        if cfg!(target_os = "macos") {
+            assert_eq!(
+                dir,
+                Some(PathBuf::from("/home/ana/Library/Application Support/Voxel"))
+            );
+        } else if !cfg!(windows) {
+            assert_eq!(dir, Some(PathBuf::from("/home/ana/.local/share/voxel")));
+        }
     }
 
     #[test]
