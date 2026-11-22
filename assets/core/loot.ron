@@ -36,6 +36,7 @@
     "acacia_leaves": [(item: "acacia_leaves", count: (1, 1), tool: Shears), (item: "acacia_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
     "redwood_leaves": [(item: "redwood_leaves", count: (1, 1), tool: Shears), (item: "redwood_sapling", count: (1, 1), chance: 0.05, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
     "maple_leaves": [(item: "maple_leaves", count: (1, 1), tool: Shears), (item: "maple_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
+    "cherry_leaves": [(item: "cherry_leaves", count: (1, 1), tool: Shears), (item: "cherry_sapling", count: (1, 1), chance: 0.05, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
     "blossom_leaves": [(item: "blossom_leaves", count: (1, 1), tool: Shears), (item: "oak_sapling", count: (1, 1), chance: 0.05, without: Shears), (item: "apple", count: (1, 1), chance: 0.12, without: Shears)],
     "fir_leaves": [(item: "fir_leaves", count: (1, 1), tool: Shears), (item: "fir_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],
     "olive_leaves": [(item: "olive_leaves", count: (1, 1), tool: Shears), (item: "olive_sapling", count: (1, 1), chance: 0.06, without: Shears), (item: "stick", count: (1, 2), chance: 0.02, without: Shears)],

@@ -1,6 +1,7 @@
 //! Les feuilles qui tombent (lot N2 de `docs/plan-nature.md`) : des feuilles se détachent du dessous du
 //! feuillage proche du joueur, tombent en tournoyant, poussées par le vent (`Weather::wind`), se posent
-//! à plat sur le sol et s'effacent.
+//! à plat sur le sol et s'effacent. Les cerisiers et les arbres en fleurs lâchent des **pétales** (lot
+//! N4) : plus petits, plus nombreux, plus lents.
 //!
 //! Tout est décoratif et calculé par la fenêtre seule, comme les éclaboussures de l'eau : de petites
 //! boîtes plates dessinées avec les créatures, sans effet sur la simulation ni sur le réseau.
@@ -33,8 +34,9 @@ const WIND_CARRY: f32 = 3.2;
 /// Une feuille vit au plus ce temps en l'air, puis ce temps posée.
 const MAX_FLIGHT: f32 = 16.0;
 const REST_TIME: f32 = 4.0;
-/// La taille d'une feuille (longueur, épaisseur, largeur).
+/// La taille d'une feuille (longueur, épaisseur, largeur), et celle d'un pétale.
 const LEAF_SIZE: Vec3 = Vec3::new(0.2, 0.015, 0.14);
+const PETAL_SIZE: Vec3 = Vec3::new(0.12, 0.012, 0.1);
 
 /// Une essence de feuillage et ce qu'elle lâche.
 #[derive(Debug, Clone, Copy)]
@@ -43,6 +45,8 @@ struct LeafKind {
     tint: Tint,
     /// Combien elle en lâche, par rapport à un feuillage ordinaire.
     shedding: f32,
+    /// Ce sont des pétales (cerisier, arbre en fleurs).
+    petals: bool,
 }
 
 struct Leaf {
@@ -55,6 +59,8 @@ struct Leaf {
     age: f32,
     /// Posée au sol depuis ce temps.
     landed: Option<f32>,
+    /// Un pétale : plus petit, il tombe moins vite.
+    petal: bool,
 }
 
 #[derive(Default)]
@@ -75,10 +81,11 @@ fn leaf_kinds(registry: &BlockRegistry) -> HashMap<BlockId, LeafKind> {
         .iter()
         .filter(|(_, def)| def.behavior.as_deref() == Some("core:leaves"))
         .map(|(id, def)| {
-            let shedding = match def.key.as_str() {
-                "core:maple_leaves" => 2.5,
-                "core:blossom_leaves" => 3.0,
-                _ => 1.0,
+            let (shedding, petals) = match def.key.as_str() {
+                "core:maple_leaves" => (2.5, false),
+                "core:blossom_leaves" => (3.0, true),
+                "core:cherry_leaves" => (4.5, true),
+                _ => (1.0, false),
             };
             (
                 id,
@@ -86,6 +93,7 @@ fn leaf_kinds(registry: &BlockRegistry) -> HashMap<BlockId, LeafKind> {
                     color: def.color,
                     tint: def.tint,
                     shedding,
+                    petals,
                 },
             )
         })
@@ -194,7 +202,13 @@ impl LeavesFx {
             // que le bloc en moyenne : seule dans le ciel, elle reçoit la lumière de tous les côtés.
             let shade = 1.15 + 0.45 * self.random();
             let yellow = Vec3::new(0.06, 0.03, -0.02) * self.random();
-            let color = (Vec3::from_array(kind.color) * tint * shade + yellow).max(Vec3::ZERO);
+            let color = if kind.petals {
+                // Un pétale : du rose au presque blanc.
+                let pale = 0.25 * self.random();
+                Vec3::from_array(kind.color).lerp(Vec3::ONE, pale)
+            } else {
+                (Vec3::from_array(kind.color) * tint * shade + yellow).max(Vec3::ZERO)
+            };
             let position = cell.as_vec3() + Vec3::new(self.random(), -0.02, self.random());
             let phase = self.random() * std::f32::consts::TAU;
             let spin = (self.random() - 0.5) * 4.0;
@@ -206,6 +220,7 @@ impl LeavesFx {
                 spin,
                 age: 0.0,
                 landed: None,
+                petal: kind.petals,
             });
         }
     }
@@ -228,9 +243,10 @@ impl LeavesFx {
             let carry = dir * strength * WIND_CARRY * gust;
             let flutter = (time * 2.3 + leaf.phase).sin();
             let side = Vec2::new(-dir.y, dir.x) * flutter * 0.6;
+            let fall = if leaf.petal { 0.6 } else { 1.0 } * FALL_SPEED;
             let target = Vec3::new(
                 carry.x + side.x,
-                -FALL_SPEED * (0.75 + 0.25 * (time * 3.1 + leaf.phase).cos()),
+                -fall * (0.75 + 0.25 * (time * 3.1 + leaf.phase).cos()),
                 carry.y + side.y,
             );
             leaf.velocity += (target - leaf.velocity) * (dt * 2.5).min(1.0);
@@ -255,7 +271,8 @@ impl LeavesFx {
                 continue;
             }
             let (sky, block) = world.light(leaf.position.floor().as_ivec3());
-            let mut cube = CubeInstance::new(leaf.position, LEAF_SIZE, leaf.color)
+            let size = if leaf.petal { PETAL_SIZE } else { LEAF_SIZE };
+            let mut cube = CubeInstance::new(leaf.position, size, leaf.color)
                 .with_yaw(leaf.phase + leaf.spin * leaf.age);
             match leaf.landed {
                 Some(rest) => cube.opacity = (1.0 - rest / REST_TIME).clamp(0.0, 1.0),

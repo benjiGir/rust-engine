@@ -56,6 +56,9 @@ pub enum TreeKind {
     GiantSpruce,
     /// Un jeune chêne du sous-bois : un tronc court et une petite boule de feuilles.
     YoungOak,
+    /// Un cerisier : un tronc court qui se divise en deux ou trois branches en biais, chacune sous une
+    /// large couronne rose dont le bord retombe.
+    Cherry,
 }
 
 /// Ce qu'est un bloc d'arbre : il décide de ce qu'il a le droit de remplacer.
@@ -92,6 +95,8 @@ pub struct TreeBlocks {
     pub boulder: Option<(BlockId, BlockId)>,
     /// La vague 3 : les feuilles d'olivier.
     pub olive_leaves: Option<BlockId>,
+    /// Le cerisier (lot N4 de `docs/plan-nature.md`), s'il est dans le registre.
+    pub cherry: Option<Wood>,
     pub vine: BlockId,
     /// Les grands arbres de la génération v3 : les essences courantes (chêne, bouleau, épicéa, sapin,
     /// érable...) poussent plus haut et plus large, à l'échelle de son relief. Faux en v1.
@@ -126,6 +131,7 @@ impl TreeBlocks {
                 .id("core:cobblestone")
                 .zip(registry.id("core:mossy_cobblestone")),
             olive_leaves: registry.id("core:olive_leaves"),
+            cherry: wood("cherry").ok(),
             tall: false,
             vine: id("core:vine")?,
             cactus: id("core:cactus")?,
@@ -146,6 +152,10 @@ impl TreeBlocks {
             TreeKind::Acacia => self.acacia,
             TreeKind::Jungle | TreeKind::JungleBush => self.jungle,
             TreeKind::Redwood => self.redwood.unwrap_or(self.spruce),
+            TreeKind::Cherry => self.cherry.unwrap_or(Wood {
+                log: self.oak.log,
+                leaves: self.blossom_leaves.unwrap_or(self.oak.leaves),
+            }),
             TreeKind::Maple => Wood {
                 log: self.oak.log,
                 leaves: self.maple_leaves.unwrap_or(self.oak.leaves),
@@ -193,6 +203,7 @@ impl TreeBlocks {
             "core:maple_sapling" => TreeKind::Maple,
             "core:fir_sapling" => TreeKind::Fir,
             "core:olive_sapling" => TreeKind::Olive,
+            "core:cherry_sapling" => TreeKind::Cherry,
             _ => return None,
         })
     }
@@ -308,6 +319,10 @@ pub fn grow_in_grove(
             );
         }
         TreeKind::BigOak => big_oak(base, rng, tall, wood, put),
+        TreeKind::Cherry => {
+            let trunk = pick(rng, (2, 3), (3, 4));
+            cherry(base, trunk, rng, tall, wood, put)
+        }
         TreeKind::Spruce => {
             let height = pick(rng, (7, 12), (9, 15));
             spruce(base, height, rng, wood, put)
@@ -525,6 +540,79 @@ fn rough_tree(
         }
     }
     put(base + IVec3::Y * height, wood.leaves, Part::Leaves);
+}
+
+/// Le cerisier : un tronc court, puis deux ou trois branches qui montent en biais (deux pas en diagonale,
+/// puis un ou deux qui s'écartent), chacune sous une couronne en dôme large et aplatie ; une couronne
+/// plus petite coiffe le tronc. Au bord du bas des couronnes, des feuilles retombent d'un ou deux
+/// blocs : la silhouette en parasol des cerisiers.
+fn cherry(
+    base: IVec3,
+    trunk: i32,
+    rng: &mut Rng64,
+    tall: bool,
+    wood: Wood,
+    put: &mut impl FnMut(IVec3, BlockId, Part),
+) {
+    for y in 0..trunk {
+        put(base + IVec3::Y * y, wood.log, Part::Log);
+    }
+    let fork = base + IVec3::Y * (trunk - 1);
+    let directions = [
+        (1, 0),
+        (1, 1),
+        (0, 1),
+        (-1, 1),
+        (-1, 0),
+        (-1, -1),
+        (0, -1),
+        (1, -1),
+    ];
+    let first = rng.below(8) as usize;
+    let branches = rng.range(2, 3) as usize;
+    let mut crowns = Vec::new();
+    for k in 0..branches {
+        // Des branches bien écartées : réparties autour du tronc.
+        let (dx, dz) = directions[(first + k * 8 / branches + rng.below(2) as usize) % 8];
+        let mut p = fork;
+        let rise = rng.range(3, 4) + i32::from(tall);
+        for step in 1..=rise {
+            let out = if step <= 2 || rng.below(2) == 0 { 1 } else { 0 };
+            p += IVec3::new(dx * out, 1, dz * out);
+            put(p, wood.log, Part::Log);
+        }
+        crowns.push(p + IVec3::Y);
+    }
+    crowns.push(fork + IVec3::Y * 3);
+    let last = crowns.len() - 1;
+    for (i, &center) in crowns.iter().enumerate() {
+        let r = if i == last {
+            2.2
+        } else {
+            3.0 + rng.below(3) as f32 * 0.25
+        };
+        let n = r.ceil() as i32;
+        for dy in -1..=2 {
+            // Un dôme aplati : large en bas, qui se resserre vers le haut.
+            let layer = r - (dy.max(0) as f32) * 0.9 + if dy < 0 { -0.4 } else { 0.0 };
+            for dx in -n..=n {
+                for dz in -n..=n {
+                    let d = ((dx * dx + dz * dz) as f32).sqrt();
+                    if d > layer {
+                        continue;
+                    }
+                    let at = center + IVec3::new(dx, dy, dz);
+                    put(at, wood.leaves, Part::Leaves);
+                    // Au bord du bas, des feuilles retombent.
+                    if dy == -1 && d > layer - 1.0 && rng.below(3) == 0 {
+                        for k in 1..=rng.range(1, 2) {
+                            put(at - IVec3::Y * k, wood.leaves, Part::Leaves);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Le grand bouleau : un tronc haut et fin, une couronne étroite et longue sur son dernier tiers.
@@ -953,6 +1041,7 @@ mod tests {
             TreeKind::DarkOak,
             TreeKind::GiantSpruce,
             TreeKind::YoungOak,
+            TreeKind::Cherry,
         ] {
             for seed in 0..40 {
                 let mut rng = Rng64::new(seed);

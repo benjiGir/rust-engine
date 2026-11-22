@@ -57,7 +57,7 @@ cerisiers (sakura) dont les pétales tombent.
 | **N1, le vent (réalisé)** | un vent global (direction, force, rafales qui passent en vagues sur le paysage), plus fort sous la pluie et l'orage ; les feuilles ondulent plus et selon ce vent ; les plantes (herbes, fleurs, cultures, fougères) se couchent bien plus que les feuilles. Tout se calcule dans le shader, depuis la météo que le serveur envoie déjà : rien de plus sur le réseau | captures et une courte vidéo au calme et sous l'orage ; le coût en image (`cargo xtask bench`) |
 | **N2, les feuilles qui tombent (réalisé)** | des feuilles se détachent du dessous du feuillage proche du joueur et tombent en tournoyant, poussées par le vent de N1 ; leur couleur suit l'essence (et la teinte du biome) ; plus nombreuses par vent fort et en automne des érables ; un plafond de particules (quelques centaines), dessinées comme les éclaboussures de l'eau | captures en forêt, au calme et sous l'orage ; coût mesuré au bench |
 | **N3, des forêts plus denses et des arbres plus variés (réalisé)** | densité relevée des forêts (×2 à ×3 selon le biome, réglée sur des captures) ; des arbres plus grands et moins réguliers : chênes et bouleaux de tailles variées, couronnes irrégulières, grands chênes à branches, **chêne noir** à tronc 2 × 2 pour la forêt sombre, bouleaux élancés, sapins géants ; sous-bois (buissons, jeunes arbres) ; le serré monte plus haut que l'isolé | cartes de biomes et captures avant/après ; temps de génération et de maillage mesurés (le bench), pour que la densité ne coûte pas d'images |
-| **N4, les cerisiers** | bois, feuilles et planches de cerisier (textures dans les trois packs) ; un **cerisier** : tronc qui se divise, large couronne rose qui retombe ; un biome **cerisaie** (pentes tempérées, entre prairie et montagne) ; un **tapis de pétales** posable (1 à 4 par case) au sol à la place des fleurs ; les cerisiers lâchent des **pétales** (N2) plus que les autres arbres | carte des biomes (où sont les cerisaies), captures de jour et au couchant |
+| **N4, les cerisiers (réalisé)** | bois, feuilles et planches de cerisier (textures dans les trois packs) ; un **cerisier** : tronc qui se divise, large couronne rose qui retombe ; un biome **cerisaie** (pentes tempérées, entre prairie et montagne) ; un **tapis de pétales** posable (1 à 4 par case) au sol à la place des fleurs ; les cerisiers lâchent des **pétales** (N2) plus que les autres arbres | carte des biomes (où sont les cerisaies), captures de jour et au couchant |
 | **N5, les prés et les champs** | **orge** et **avoine** : graines, quatre stades, récolte, recettes (pain d'orge, porridge ; l'avoine nourrit les chevaux) ; des **champs sauvages** de blé, d'orge et d'avoine en taches dans les plaines, les prairies et la steppe (on y trouve les graines) ; **herbe haute sur deux blocs** ; **buissons à baies** (baies sucrées en taïga, myrtilles en forêt froide) qu'on récolte d'un clic droit et qui repoussent ; des **champs de fleurs** : biome de tournesols et prairies de fleurs plus fournies, quelques fleurs nouvelles | captures des prés ; un test de pousse et de récolte |
 | **N6, les races de vaches** | un mécanisme de **variantes** pour les créatures (une variante tirée à l'apparition selon le biome ; textures ou teintes et parties propres ; transmise aux petits ; envoyée au client avec l'apparence) ; trois vaches : **tempérée** (l'actuelle), **des Highlands** (froid : longs poils roux, frange, grandes cornes larges), **à bosse** façon zébu (chaud : robe claire, bosse, cornes en lyre) ; elles se croisent entre elles | captures des trois ; tests du tirage par biome et de l'élevage |
 | **N7, les alpagas** | un alpaga (cou long, toison épaisse) dans les prairies alpines, les hauts plateaux et la steppe, en petits troupeaux ; robe naturelle tirée à l'apparition (blanc, crème, fauve, brun, gris, noir) ; **on le tond** (laine de sa couleur, qui repousse en mangeant) ; il crache sur qui le frappe | captures ; tests de la tonte et de la repousse |
@@ -125,6 +125,21 @@ d'œil en jeu.
   bouleaux double, la taïga devient une mer d'épicéas où le sol se voit peu. Pas vus en jeu : la forêt
   sombre et la vieille taïga (absentes de la visite) ; la présence des chênes noirs est vérifiée par le
   test.
+- **N4** : bûche, feuilles, planches et pousse de cerisier, et **pétales roses** (un tapis posé à plat, un
+  seul niveau au lieu des 1 à 4 de Minecraft), ajoutés à la fin de `blocks.ron` (les numéros des blocs
+  existants ne bougent pas) ; recette des planches, butin des feuilles (pousse 5 %), familles `logs`,
+  `planks`, `leaves`. Textures dans les trois packs, générées par `assetgen` : 16 px, 32 px (redessinées
+  avec leurs détails, pas agrandies) et 64 px (tirées de l'essence « cherry ») ; 18 fichiers neufs, aucun
+  existant réécrit. **Cerisier**
+  (`TreeKind::Cherry`) : un tronc court qui se divise en deux ou trois branches en biais, chacune sous
+  un dôme rose large et aplati dont le bord retombe. **Cerisaie** (`core:cherry_grove`, v3 seulement) :
+  sur les collines du tempéré ni sec ni détrempé (érosion moyenne, pas les massifs : une première case
+  la mettait sur des pics enneigés), 7 cerisiers par colonne de chunks, des pétales au sol à la place des
+  fleurs. Les feuilles de cerisier lâchent des **pétales** (`leaves_fx`) : 4,5 fois plus que des
+  feuilles, plus petits, du rose au presque blanc, qui tombent moins vite. Mesuré au cœur d'une
+  cerisaie (graine 42, en −532, −452) : 308 pétales en l'air au calme (le plafond est de 320). Vérifié
+  : la cerisaie apparaît en v3 et jamais en v1 (test), le cerisier tient dans les bornes des chunks
+  (test), la vue « biome-cerisaie » de la visite et une capture sous les arbres.
 
 ## Choix à valider
 

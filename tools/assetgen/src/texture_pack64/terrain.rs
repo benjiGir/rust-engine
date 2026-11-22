@@ -289,7 +289,9 @@ pub(super) fn loose(name: &str) -> Vec<Pixel> {
     )
 }
 
-pub(super) const WOODS: [&str; 6] = ["oak", "birch", "spruce", "acacia", "jungle", "redwood"];
+pub(super) const WOODS: [&str; 7] = [
+    "oak", "birch", "spruce", "acacia", "jungle", "redwood", "cherry",
+];
 
 fn timber(u: f32, v: f32, base: [u8; 3], seed: u64) -> Surface {
     let bend = noise(u, v, 3, seed) - 0.5;
@@ -312,6 +314,7 @@ pub(super) fn plank_pixel(u: f32, v: f32, base: [u8; 3], seed: u64) -> [u8; 3] {
 pub(super) fn wood(wood: &str, surface: &str) -> Vec<Pixel> {
     let (base, bark, seed) = match wood {
         "redwood" => ([156, 91, 66], [104, 64, 53], 8759),
+        "cherry" => ([214, 156, 146], [86, 52, 56], 8761),
         "birch" => ([182, 162, 129], [174, 166, 144], 8731),
         "spruce" => ([119, 91, 63], [90, 70, 55], 8737),
         "acacia" => ([158, 100, 72], [106, 92, 81], 8741),

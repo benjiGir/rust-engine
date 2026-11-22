@@ -1194,6 +1194,28 @@ fn lily_pad() -> Image {
     image
 }
 
+/// Des pétales roses tombés : des petites taches de deux à quatre pixels, de trois roses, éparses sur un
+/// fond transparent (le bloc est posé à plat sur l'herbe).
+fn pink_petals() -> Image {
+    let mut image = Image::transparent();
+    let shades = [[0.96, 0.7, 0.8], [0.9, 0.56, 0.7], [0.99, 0.82, 0.88]];
+    for n in 0..26u64 {
+        let h = texel_hash(n as usize, 7, 4441);
+        let (x, y) = ((h % 16) as usize, ((h >> 8) % 16) as usize);
+        let color = shades[((h >> 16) % 3) as usize];
+        image.set(x, y, color);
+        // Un pétale fait parfois deux ou trois pixels, dans un sens tiré au hasard.
+        let (dx, dy) = [(1, 0), (0, 1), (1, 1)][((h >> 20) % 3) as usize];
+        if !(h >> 24).is_multiple_of(3) {
+            image.set((x + dx) % SIZE, (y + dy) % SIZE, scale(color, 0.92));
+        }
+        if (h >> 28).is_multiple_of(4) {
+            image.set((x + 2 * dx) % SIZE, (y + 2 * dy) % SIZE, scale(color, 0.85));
+        }
+    }
+    image
+}
+
 fn cactus_side() -> Image {
     nature::cactus(false)
 }
@@ -1585,6 +1607,28 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
             core.join("blossom_leaves.png"),
             leaves([0.95, 0.76, 0.84], 144),
         ),
+        // Le cerisier (lot N4 du plan nature) : écorce brun-pourpre, bois rose pâle, feuillage rose.
+        (
+            core.join("cherry_log.png"),
+            log_side([0.3, 0.17, 0.18], 146),
+        ),
+        (
+            core.join("cherry_log_top.png"),
+            log_top([0.3, 0.17, 0.18], [0.86, 0.62, 0.58]),
+        ),
+        (
+            core.join("cherry_leaves.png"),
+            leaves([0.96, 0.62, 0.76], 147),
+        ),
+        (
+            core.join("cherry_planks.png"),
+            planks([0.86, 0.6, 0.56], 148),
+        ),
+        (
+            core.join("cherry_sapling.png"),
+            sapling([0.3, 0.17, 0.18], [0.96, 0.62, 0.76]),
+        ),
+        (core.join("pink_petals.png"), pink_petals()),
         // La vague 2 : sapin aux aiguilles bleutées.
         (core.join("fir_leaves.png"), leaves([0.16, 0.34, 0.32], 145)),
         (

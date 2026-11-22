@@ -1823,4 +1823,37 @@
         sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
         hardness: 2.5, tool: Axe,
     ),
+    // ----- Les cerisiers (lot N4 de docs/plan-nature.md) : la cerisaie des mondes v3. -----
+    (
+        id: "core:cherry_log", name: "Bûche de cerisier", color: (0.30, 0.17, 0.17),
+        textures: (top: "cherry_log_top", side: "cherry_log", bottom: "cherry_log_top"),
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
+        hardness: 2.0, tool: Axe,
+    ),
+    (
+        id: "core:cherry_leaves", name: "Feuilles de cerisier", color: (0.92, 0.58, 0.72),
+        texture: "cherry_leaves", transparent: true, light_opacity: 1, cutout: true,
+        sway: true, behavior: "core:leaves",
+        sounds: (step: "step_soft", break: "break_soft", place: "place_soft"),
+        hardness: 0.2, tool: Shears,
+    ),
+    (
+        id: "core:cherry_planks", name: "Planches de cerisier", color: (0.82, 0.58, 0.55), texture: "cherry_planks",
+        sounds: (step: "step_wood", break: "break_wood", place: "place_wood"),
+        hardness: 2.0, tool: Axe,
+    ),
+    (
+        id: "core:cherry_sapling", name: "Pousse de cerisier", color: (0.80, 0.50, 0.62),
+        texture: "cherry_sapling", shape: Cross, cutout: true, solid: false, transparent: true,
+        light_opacity: 0, behavior: "core:sapling",
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    // Un tapis de pétales tombés, posé à plat sur le sol (à la place des fleurs dans la cerisaie).
+    (
+        id: "core:pink_petals", name: "Pétales roses", color: (0.93, 0.60, 0.74), texture: "pink_petals", shape: Flat,
+        cutout: true, solid: false, transparent: true, light_opacity: 0,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
 ]

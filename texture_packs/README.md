@@ -6,7 +6,7 @@ la préférence. **Classique · 16 × 16** restaure le rendu d'origine.
 
 ## Sous-bois et forge · 64 × 64
 
-**Sous-bois et forge · 64 × 64** propose 593 textures de blocs, de créatures et d’objets. Les pépites
+**Sous-bois et forge · 64 × 64** propose 599 textures de blocs, de créatures et d’objets. Les pépites
 métalliques et les éclats de cristal se détachent sur la roche fracturée. Les sols mêlent
 humus, aiguilles, brins et grains. Les nuances du bois suivent les fibres, le
 métal a des piqûres de surface et le four porte un dépôt de suie. Les ombres

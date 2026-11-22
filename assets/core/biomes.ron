@@ -420,4 +420,13 @@
         surface: "stone", subsurface: "stone", underwater: "gravel",
         grass_color: (0.5, 0.42, 0.48), foliage_color: (0.44, 0.36, 0.42), water_color: (0.3, 0.32, 0.42),
     ),
+    // ----- La cerisaie (lot N4 de docs/plan-nature.md) : des cerisiers en bosquets clairs sur les pentes
+    // tempérées, un sol couvert de pétales roses à la place des fleurs. -----
+    (
+        id: "core:cherry_grove", name: "Cerisaie", kind: Land, temperature: 0.5, v3_only: true,
+        surface: "grass", subsurface: "dirt", underwater: "gravel",
+        grass_color: (0.52, 0.68, 0.32), foliage_color: (0.42, 0.6, 0.28), water_color: (0.25, 0.45, 0.82),
+        trees: [(Cherry, 1.0)], tree_density: 7.0, groves: 0.7,
+        plants: [("pink_petals", 0.2, 0.55), ("tall_grass", 0.1, 0.4)],
+    ),
 ]

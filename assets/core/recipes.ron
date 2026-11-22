@@ -161,6 +161,7 @@
         (ingredients: ["spruce_log"], result: ("spruce_planks", 4)),
         (ingredients: ["acacia_log"], result: ("acacia_planks", 4)),
         (ingredients: ["redwood_log"], result: ("redwood_planks", 4)),
+        (ingredients: ["cherry_log"], result: ("cherry_planks", 4)),
         (ingredients: ["jungle_log"], result: ("jungle_planks", 4)),
         (ingredients: ["cobblestone", "vine"], result: ("mossy_cobblestone", 1)),
         (ingredients: ["spores", "seeds", "dirt"], result: ("fertilizer", 2)),
