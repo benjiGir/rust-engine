@@ -24,6 +24,10 @@
 // - trees : les formes d'arbres et leur poids, tree_density : arbres par colonne de chunk
 //   (32 × 32 blocs) ; formes : Oak, BigOak, Birch, Spruce, TallSpruce, Acacia, Jungle,
 //   JungleBush, Swamp, Cactus, Bush ;
+// - v3_trees, v3_tree_density : les arbres des mondes v3, quand ils diffèrent (des forêts plus
+//   denses, des formes de plus : TallBirch, DarkOak, GiantSpruce, YoungOak pour le sous-bois) ; au
+//   cœur d'un bosquet, les arbres v3 montent jusqu'à 3 blocs plus haut. Les mondes v1 ne changent
+//   jamais : ils gardent trees et tree_density ;
 // - groves : de 0 (arbres semés au hasard) à 1 (bosquets serrés et clairières) ; 0,6 par défaut ;
 // - ground_patches : des taches d'autres sols en surface : (bloc, part du sol couverte) ;
 // - bands : un sous-sol en strates horizontales (une liste de blocs) ;
@@ -92,6 +96,7 @@
         surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 4.0, scale: 0.9),
         grass_color: (0.36, 0.63, 0.22), foliage_color: (0.25, 0.53, 0.15), water_color: (0.25, 0.45, 0.85),
         trees: [(Oak, 0.75), (BigOak, 0.07), (Birch, 0.18)], tree_density: 10.0,
+        v3_trees: [(Oak, 0.62), (BigOak, 0.1), (Birch, 0.16), (YoungOak, 0.08), (Bush, 0.04)], v3_tree_density: 34.0,
         plants: [("tall_grass", 0.08, 0.4), ("fern", 0.02), ("brown_mushroom", 0.006), ("red_mushroom", 0.003), ("poppy", 0.004)],
     ),
     (
@@ -99,6 +104,7 @@
         surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 4.0, scale: 0.8),
         grass_color: (0.5, 0.72, 0.3), foliage_color: (0.4, 0.63, 0.22), water_color: (0.25, 0.45, 0.85),
         trees: [(Birch, 1.0)], tree_density: 10.0,
+        v3_trees: [(Birch, 0.6), (TallBirch, 0.35), (Bush, 0.05)], v3_tree_density: 30.0,
         plants: [("tall_grass", 0.1, 0.4), ("lavender", 0.01), ("daisy", 0.01)],
     ),
     (
@@ -106,6 +112,7 @@
         surface: "grass", subsurface: "dirt", underwater: "gravel", relief: (offset: 6.0, scale: 1.0),
         grass_color: (0.36, 0.54, 0.4), foliage_color: (0.22, 0.4, 0.3), water_color: (0.2, 0.35, 0.65),
         trees: [(Spruce, 1.0)], tree_density: 9.0,
+        v3_trees: [(Spruce, 1.0)], v3_tree_density: 26.0,
         plants: [("fern", 0.08, 0.5), ("tall_grass", 0.04, 0.4), ("brown_mushroom", 0.005)],
         ground_patches: [("podzol", 0.45), ("coarse_dirt", 0.08)],
     ),
@@ -120,6 +127,7 @@
         surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 6.0, scale: 1.2),
         grass_color: (0.26, 0.75, 0.08), foliage_color: (0.18, 0.65, 0.05), water_color: (0.2, 0.5, 0.7),
         trees: [(Jungle, 0.22), (JungleBush, 0.45), (Oak, 0.33)], tree_density: 14.0, groves: 0.3,
+        v3_trees: [(Jungle, 0.22), (JungleBush, 0.45), (Oak, 0.33)], v3_tree_density: 26.0,
         plants: [("tall_grass", 0.2, 0.3), ("fern", 0.1, 0.4)],
         ground_patches: [("podzol", 0.15)],
     ),
@@ -158,6 +166,7 @@
         surface: "grass", subsurface: "dirt", underwater: "sand", relief: (offset: 5.0, scale: 1.0),
         grass_color: (0.24, 0.45, 0.15), foliage_color: (0.15, 0.34, 0.1), water_color: (0.22, 0.4, 0.7),
         trees: [(BigOak, 0.4), (Oak, 0.45), (Bush, 0.15)], tree_density: 18.0, groves: 0.15,
+        v3_trees: [(DarkOak, 0.55), (BigOak, 0.2), (Oak, 0.15), (Bush, 0.1)], v3_tree_density: 40.0,
         plants: [("fern", 0.05, 0.5), ("brown_mushroom", 0.02), ("red_mushroom", 0.012)],
         ground_patches: [("podzol", 0.25), ("coarse_dirt", 0.1)],
     ),
@@ -166,6 +175,7 @@
         surface: "grass", subsurface: "dirt", underwater: "gravel", relief: (offset: 14.0, scale: 2.4),
         grass_color: (0.42, 0.66, 0.3), foliage_color: (0.32, 0.56, 0.22), water_color: (0.25, 0.45, 0.85),
         trees: [(Oak, 0.5), (Birch, 0.25), (Spruce, 0.25)], tree_density: 7.0, groves: 0.7,
+        v3_trees: [(Oak, 0.5), (Birch, 0.25), (Spruce, 0.25)], v3_tree_density: 18.0,
         plants: [("tall_grass", 0.08, 0.4), ("fern", 0.03), ("poppy", 0.004)],
         ground_patches: [("coarse_dirt", 0.12)],
     ),
@@ -174,6 +184,7 @@
         surface: "grass", subsurface: "dirt", underwater: "gravel", relief: (offset: 5.0, scale: 1.0),
         grass_color: (0.42, 0.62, 0.34), foliage_color: (0.33, 0.53, 0.27), water_color: (0.22, 0.4, 0.75),
         trees: [(Spruce, 0.45), (Birch, 0.3), (Oak, 0.25)], tree_density: 9.0,
+        v3_trees: [(Spruce, 0.42), (Birch, 0.28), (Oak, 0.25), (YoungOak, 0.05)], v3_tree_density: 24.0,
         plants: [("fern", 0.06, 0.5), ("tall_grass", 0.05, 0.4), ("brown_mushroom", 0.004), ("lavender", 0.004)],
         ground_patches: [("podzol", 0.3)],
     ),
@@ -182,6 +193,7 @@
         surface: "podzol", subsurface: "dirt", underwater: "gravel", relief: (offset: 7.0, scale: 1.1),
         grass_color: (0.34, 0.5, 0.36), foliage_color: (0.2, 0.36, 0.27), water_color: (0.2, 0.35, 0.65),
         trees: [(TallSpruce, 0.55), (Spruce, 0.45)], tree_density: 10.0, groves: 0.4,
+        v3_trees: [(GiantSpruce, 0.3), (TallSpruce, 0.4), (Spruce, 0.3)], v3_tree_density: 22.0,
         plants: [("fern", 0.14, 0.4), ("brown_mushroom", 0.012), ("red_mushroom", 0.004)],
         ground_patches: [("grass", 0.3), ("coarse_dirt", 0.12)],
     ),
@@ -190,6 +202,7 @@
         surface: "grass", subsurface: "dirt", underwater: "gravel", relief: (offset: 6.0, scale: 1.0),
         grass_color: (0.45, 0.6, 0.48), foliage_color: (0.33, 0.48, 0.36), water_color: (0.2, 0.3, 0.6),
         trees: [(Spruce, 0.85), (TallSpruce, 0.15)], tree_density: 6.0,
+        v3_trees: [(Spruce, 0.85), (TallSpruce, 0.15)], v3_tree_density: 15.0,
         plants: [("fern", 0.04, 0.5)],
         ground_patches: [("podzol", 0.3)],
     ),
@@ -245,6 +258,7 @@
         surface: "grass", subsurface: "dirt", underwater: "gravel", rock_above: 125,
         grass_color: (0.4, 0.58, 0.38), foliage_color: (0.3, 0.48, 0.32), water_color: (0.2, 0.38, 0.72),
         trees: [(Spruce, 0.75), (TallSpruce, 0.25)], tree_density: 6.0,
+        v3_trees: [(Spruce, 0.75), (TallSpruce, 0.25)], v3_tree_density: 13.0,
         plants: [("fern", 0.06, 0.5)],
         ground_patches: [("podzol", 0.35), ("gravel", 0.06)],
     ),
@@ -266,6 +280,7 @@
         surface: "grass", subsurface: "dirt", underwater: "gravel",
         grass_color: (0.38, 0.56, 0.3), foliage_color: (0.24, 0.42, 0.22), water_color: (0.22, 0.42, 0.72),
         trees: [(Redwood, 0.65), (Spruce, 0.35)], tree_density: 6.0, groves: 0.5,
+        v3_trees: [(Redwood, 0.65), (Spruce, 0.35)], v3_tree_density: 8.0,
         plants: [("fern", 0.12, 0.5), ("tall_grass", 0.04, 0.4), ("brown_mushroom", 0.004)],
         ground_patches: [("podzol", 0.4), ("coarse_dirt", 0.08)],
     ),
@@ -304,6 +319,7 @@
         surface: "grass", subsurface: "dirt", underwater: "gravel",
         grass_color: (0.45, 0.58, 0.3), foliage_color: (0.36, 0.5, 0.25), water_color: (0.22, 0.4, 0.75),
         trees: [(Maple, 0.8), (Birch, 0.2)], tree_density: 8.0,
+        v3_trees: [(Maple, 0.8), (Birch, 0.2)], v3_tree_density: 22.0,
         plants: [("tall_grass", 0.08, 0.4), ("fern", 0.03), ("red_mushroom", 0.003)],
         ground_patches: [("coarse_dirt", 0.05)],
     ),
@@ -321,6 +337,7 @@
         surface: "grass", subsurface: "dirt", underwater: "gravel",
         grass_color: (0.42, 0.56, 0.48), foliage_color: (0.3, 0.44, 0.4), water_color: (0.2, 0.3, 0.6),
         trees: [(Fir, 0.85), (Spruce, 0.15)], tree_density: 6.0, groves: 0.3,
+        v3_trees: [(Fir, 0.85), (Spruce, 0.15)], v3_tree_density: 15.0,
         plants: [("fern", 0.04, 0.5)],
         ground_patches: [("podzol", 0.3)],
     ),

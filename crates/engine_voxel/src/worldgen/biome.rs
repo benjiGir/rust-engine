@@ -85,6 +85,11 @@ struct BiomeEntry {
     trees: Vec<(TreeKind, f32)>,
     #[serde(default)]
     tree_density: f32,
+    /// Les arbres des mondes v3, s'ils diffèrent (les mondes v1 ne changent jamais).
+    #[serde(default)]
+    v3_trees: Option<Vec<(TreeKind, f32)>>,
+    #[serde(default)]
+    v3_tree_density: Option<f32>,
     #[serde(default = "default_groves")]
     groves: f32,
     #[serde(default)]
@@ -160,6 +165,10 @@ pub struct BiomeDef {
     pub trees: Vec<(TreeKind, f32)>,
     /// Le nombre moyen d'arbres par colonne de chunk (32 × 32 blocs).
     pub tree_density: f32,
+    /// Les formes et la densité des mondes v3 (les mêmes qu'en v1 si le biome ne les précise pas) :
+    /// voir [`BiomeDef::trees_for`].
+    pub v3_trees: Vec<(TreeKind, f32)>,
+    pub v3_tree_density: f32,
     /// De 0 (arbres répartis au hasard) à 1 (bosquets serrés et clairières).
     pub groves: f32,
     /// Les plantes posées sur le sol.
@@ -173,6 +182,18 @@ pub struct BiomeDef {
     /// Un biome souterrain (vague 4 du lot 5) : choisi en trois dimensions dans les grottes profondes,
     /// jamais pour une colonne de surface.
     pub underground: bool,
+}
+
+impl BiomeDef {
+    /// Les formes d'arbres et la densité d'une génération : celles des mondes v3 en v3 (des forêts
+    /// plus denses et plus variées), celles d'origine en v1, qui ne change jamais.
+    pub fn trees_for(&self, v3: bool) -> (&[(TreeKind, f32)], f32) {
+        if v3 {
+            (&self.v3_trees, self.v3_tree_density)
+        } else {
+            (&self.trees, self.tree_density)
+        }
+    }
 }
 
 /// Un type de filon.
@@ -347,6 +368,8 @@ impl BiomeRegistry {
                         })
                     })
                     .collect::<Result<Vec<_>>>()?,
+                v3_trees: e.v3_trees.unwrap_or_else(|| e.trees.clone()),
+                v3_tree_density: e.v3_tree_density.unwrap_or(e.tree_density),
                 trees: e.trees,
                 tree_density: e.tree_density,
                 groves: e.groves.clamp(0.0, 1.0),

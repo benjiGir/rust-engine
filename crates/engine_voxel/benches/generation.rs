@@ -123,5 +123,36 @@ fn bench_generation(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_generation);
+/// Les forêts des mondes v3 (plus denses, voir `docs/plan-nature.md`) : un chunk de surface de
+/// forêt, de forêt de bouleaux et de forêt sombre, leur génération et leur maillage.
+fn bench_v3_forests(c: &mut Criterion) {
+    let generator = TerrainGenerator::new(42)
+        .with_version(GenerationVersion::V3)
+        .unwrap();
+    let mut group = c.benchmark_group("forêts v3");
+    for biome in ["core:forest", "core:birch_forest", "core:dark_forest"] {
+        let id = generator.biomes().id(biome).unwrap();
+        let Some((x, z)) =
+            generator.find_column(0, 0, 32, 40_000, |c| c.biome == id && c.height > SEA_LEVEL)
+        else {
+            continue;
+        };
+        let column = generator.column(x, z);
+        let pos = World::split(IVec3::new(x, column.height + 4, z)).0;
+        group.bench_function(format!("génération {biome}"), |b| {
+            b.iter(|| generator.generate(black_box(pos)))
+        });
+        let world = generator.generate_area(IVec3::new(pos.x - 1, pos.y, pos.z - 1), 3, 3);
+        group.bench_function(format!("maillage {biome}"), |b| {
+            b.iter(|| mesh_greedy(black_box(&world), pos))
+        });
+        eprintln!(
+            "v3 {biome} : {} triangles dans le chunk {pos}",
+            mesh_greedy(&world, pos).triangle_count()
+        );
+    }
+    group.finish();
+}
+
+criterion_group!(benches, bench_generation, bench_v3_forests);
 criterion_main!(benches);

@@ -40,8 +40,10 @@ use crate::{FREEZING, LAVA_LEVEL};
 
 /// Emplacements tirés par colonne de chunks ; un emplacement devient un arbre avec la
 /// probabilité `densité × bosquet / CANDIDATES` (le facteur de bosquet monte à 2,2) : la
-/// densité d'un biome, multipliée par son facteur de bosquet maximal, reste donc sous 24.
+/// densité d'un biome, multipliée par son facteur de bosquet maximal, reste donc sous ce nombre.
+/// 24 en v1 (figée : ses mondes ne changent jamais), 64 en v3 (des forêts plus denses).
 const CANDIDATES: u32 = 24;
+const CANDIDATES_V3: u32 = 64;
 /// Le facteur de bosquet maximal (au cœur d'un bosquet).
 const MAX_GROVE: f32 = 1.0 / 0.45;
 /// Les arbres s'arrêtent à cette distance (en blocs) du centre d'un village.
@@ -54,6 +56,9 @@ pub struct TreeSite {
     /// Le bas du tronc (le bloc au-dessus du sol).
     pub base: IVec3,
     pub seed: u64,
+    /// Ce qu'il gagne en hauteur parce qu'il pousse serré, au cœur d'un bosquet (0 à
+    /// `trees::MAX_BOOST`).
+    pub boost: i32,
 }
 
 /// Un nombre entre 0 et 1 pour une colonne (x, z) et un sel.
@@ -91,16 +96,17 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 /// L'écart minimal entre deux troncs, selon la forme : les grands arbres se gênent plus.
 fn spacing(kind: TreeKind) -> i32 {
     match kind {
-        TreeKind::Cactus | TreeKind::Bush | TreeKind::JungleBush => 2,
+        TreeKind::Cactus | TreeKind::Bush | TreeKind::JungleBush | TreeKind::YoungOak => 2,
         TreeKind::Oak
         | TreeKind::Birch
+        | TreeKind::TallBirch
         | TreeKind::Spruce
         | TreeKind::TallSpruce
         | TreeKind::Fir
         | TreeKind::Boulder => 3,
         TreeKind::Fruit | TreeKind::Cypress | TreeKind::Olive => 4,
-        TreeKind::Swamp | TreeKind::Acacia | TreeKind::Maple => 5,
-        TreeKind::BigOak | TreeKind::Jungle | TreeKind::Redwood => 6,
+        TreeKind::Swamp | TreeKind::Acacia | TreeKind::Maple | TreeKind::DarkOak => 5,
+        TreeKind::BigOak | TreeKind::Jungle | TreeKind::Redwood | TreeKind::GiantSpruce => 6,
     }
 }
 
@@ -156,6 +162,8 @@ impl TerrainGenerator {
         let mut rng = Rng64::new(hash3(self.seed, cx, 0, cz, 500));
         let size = CHUNK_SIZE as u32;
         let mut sites: Vec<TreeSite> = Vec::new();
+        let v3 = self.v3.is_some();
+        let candidates = if v3 { CANDIDATES_V3 } else { CANDIDATES };
         // Pas d'arbres dans un village : on les cherche une fois pour la colonne de chunks.
         let villages = self.village_clearings(cx, cz);
         // La plus forte chance d'arbre, tous biomes confondus : un tirage au-dessus est rejeté
@@ -163,11 +171,11 @@ impl TerrainGenerator {
         let best = self
             .biomes
             .iter()
-            .filter(|(_, b)| !b.trees.is_empty())
-            .map(|(_, b)| b.tree_density * (1.0 - b.groves + b.groves * MAX_GROVE))
+            .filter(|(_, b)| !b.trees_for(v3).0.is_empty())
+            .map(|(_, b)| b.trees_for(v3).1 * (1.0 - b.groves + b.groves * MAX_GROVE))
             .fold(0.0, f32::max)
-            / CANDIDATES as f32;
-        for _ in 0..CANDIDATES {
+            / candidates as f32;
+        for _ in 0..candidates {
             // Tous les tirages d'abord, quoi qu'il arrive : la suite reste la même pour
             // chaque emplacement, que les précédents soient retenus ou non.
             let x = cx * CHUNK_SIZE as i32 + rng.below(size) as i32;
@@ -186,27 +194,27 @@ impl TerrainGenerator {
             }
             let column = self.column(x, z);
             let biome = self.biomes.get(column.biome);
-            if biome.trees.is_empty() {
+            let (trees, density) = biome.trees_for(v3);
+            if trees.is_empty() {
                 continue;
             }
             let grove = grove_factor(self.seed, x, z, biome.groves);
-            if accept >= biome.tree_density * grove / CANDIDATES as f32 {
+            if accept >= density * grove / candidates as f32 {
                 continue;
             }
             if column.height < SEA_LEVEL {
                 continue;
             }
             // La forme, tirée selon les poids du biome.
-            let total: f32 = biome.trees.iter().map(|(_, w)| w).sum();
+            let total: f32 = trees.iter().map(|(_, w)| w).sum();
             let mut target = pick * total;
-            let kind = biome
-                .trees
+            let kind = trees
                 .iter()
                 .find(|(_, w)| {
                     target -= w;
                     target < 0.0
                 })
-                .map_or(biome.trees[0].0, |(k, _)| *k);
+                .map_or(trees[0].0, |(k, _)| *k);
             // Pas trop près d'un arbre déjà planté dans cette colonne de chunks.
             let crowded = sites.iter().any(|s| {
                 let gap = spacing(kind).max(spacing(s.kind));
@@ -230,10 +238,18 @@ impl TerrainGenerator {
                 _ => self.plant_blocks.is_soil(ground) || ground == self.blocks.snow,
             };
             if ok {
+                // Au cœur d'un bosquet, les arbres montent plus haut ; isolés, ils restent bas
+                // (en v3 seulement : les arbres des mondes v1 ne changent pas).
+                let boost = if v3 {
+                    ((grove - 1.2) * 2.5).clamp(0.0, trees::MAX_BOOST as f32) as i32
+                } else {
+                    0
+                };
                 sites.push(TreeSite {
                     kind,
                     base: IVec3::new(x, column.height + 1, z),
                     seed,
+                    boost,
                 });
             }
         }
@@ -262,9 +278,10 @@ impl TerrainGenerator {
                         continue;
                     }
                     let mut rng = Rng64::new(site.seed);
-                    trees::grow(
+                    trees::grow_in_grove(
                         site.kind,
                         site.base,
+                        site.boost,
                         &mut rng,
                         blocks,
                         &mut |p, block, part| {

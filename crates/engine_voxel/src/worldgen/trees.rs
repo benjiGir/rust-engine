@@ -48,6 +48,14 @@ pub enum TreeKind {
     Boulder,
     /// Un olivier : tronc court et tordu, deux ou trois branches, couronnes plates argentées.
     Olive,
+    /// Un grand bouleau des vieilles forêts : tronc haut et fin, couronne étroite.
+    TallBirch,
+    /// Un chêne noir : tronc de 2 × 2, couronne large et plate qui ferme le ciel des forêts sombres.
+    DarkOak,
+    /// Un épicéa géant des vieilles taïgas : tronc de 2 × 2, très haut.
+    GiantSpruce,
+    /// Un jeune chêne du sous-bois : un tronc court et une petite boule de feuilles.
+    YoungOak,
 }
 
 /// Ce qu'est un bloc d'arbre : il décide de ce qu'il a le droit de remplacer.
@@ -127,9 +135,14 @@ impl TreeBlocks {
     /// L'essence d'une forme d'arbre.
     pub fn wood(&self, kind: TreeKind) -> Wood {
         match kind {
-            TreeKind::Oak | TreeKind::BigOak | TreeKind::Swamp | TreeKind::Bush => self.oak,
-            TreeKind::Birch => self.birch,
-            TreeKind::Spruce | TreeKind::TallSpruce => self.spruce,
+            TreeKind::Oak
+            | TreeKind::BigOak
+            | TreeKind::Swamp
+            | TreeKind::Bush
+            | TreeKind::DarkOak
+            | TreeKind::YoungOak => self.oak,
+            TreeKind::Birch | TreeKind::TallBirch => self.birch,
+            TreeKind::Spruce | TreeKind::TallSpruce | TreeKind::GiantSpruce => self.spruce,
             TreeKind::Acacia => self.acacia,
             TreeKind::Jungle | TreeKind::JungleBush => self.jungle,
             TreeKind::Redwood => self.redwood.unwrap_or(self.spruce),
@@ -221,6 +234,9 @@ impl Rng64 {
 /// au-delà du chunk voisin (32 blocs), condition pour la génération par chunk.
 pub const MAX_RADIUS: i32 = 8;
 
+/// Le gain de hauteur au plus d'un arbre serré (voir [`grow_in_grove`]).
+pub const MAX_BOOST: i32 = 3;
+
 /// Énumère les blocs d'un arbre de forme `kind`, dont le tronc part de `base`.
 pub fn grow(
     kind: TreeKind,
@@ -229,19 +245,68 @@ pub fn grow(
     blocks: &TreeBlocks,
     put: &mut impl FnMut(IVec3, BlockId, Part),
 ) {
+    grow_in_grove(kind, base, 0, rng, blocks, put);
+}
+
+/// Comme [`grow`], pour un arbre serré dans un bosquet : il monte de `boost` blocs de plus (au plus
+/// [`MAX_BOOST`]), comme les arbres d'une forêt qui cherchent la lumière.
+pub fn grow_in_grove(
+    kind: TreeKind,
+    base: IVec3,
+    boost: i32,
+    rng: &mut Rng64,
+    blocks: &TreeBlocks,
+    put: &mut impl FnMut(IVec3, BlockId, Part),
+) {
     let wood = blocks.wood(kind);
     let tall = blocks.tall;
-    // La hauteur d'une essence : `(bas, haut)` en v1, `(bas2, haut2)` pour les grands arbres v3.
+    let boost = boost.clamp(0, MAX_BOOST);
+    // La hauteur d'une essence : `(bas, haut)` en v1, `(bas2, haut2)` pour les grands arbres v3,
+    // plus le gain d'un arbre serré.
     let pick = |rng: &mut Rng64, small: (i32, i32), large: (i32, i32)| {
         let (low, high) = if tall { large } else { small };
-        rng.range(low, high)
+        rng.range(low, high) + boost
     };
     match kind {
-        TreeKind::Oak => {
+        // En v1, le chêne et le bouleau gardent exactement leur forme d'origine (ses mondes ne
+        // changent jamais) ; en v3, des couronnes irrégulières.
+        TreeKind::Oak if !tall => {
             let height = pick(rng, (4, 6), (5, 8));
             round_tree(base, height, if height >= 7 { 3 } else { 2 }, wood, put)
         }
-        TreeKind::Birch => round_tree(base, pick(rng, (5, 7), (6, 9)), 2, wood, put),
+        TreeKind::Oak => {
+            let height = pick(rng, (4, 6), (5, 9));
+            oak(base, height, rng, wood, put)
+        }
+        TreeKind::Birch if !tall => round_tree(base, pick(rng, (5, 7), (6, 9)), 2, wood, put),
+        TreeKind::Birch => {
+            let height = pick(rng, (5, 7), (6, 9));
+            rough_tree(base, height, 2, rng, wood, put)
+        }
+        TreeKind::TallBirch => {
+            let height = pick(rng, (8, 11), (10, 14));
+            tall_birch(base, height, rng, wood, put)
+        }
+        TreeKind::DarkOak => {
+            let height = pick(rng, (5, 7), (6, 9));
+            dark_oak(base, height, rng, wood, put)
+        }
+        TreeKind::GiantSpruce => {
+            let height = pick(rng, (17, 22), (21, 26));
+            giant_spruce(base, height, rng, wood, put)
+        }
+        TreeKind::YoungOak => {
+            let height = rng.range(2, 3);
+            for y in 0..height {
+                put(base + IVec3::Y * y, wood.log, Part::Log);
+            }
+            blob(
+                base + IVec3::Y * height,
+                1.5 + rng.below(3) as f32 * 0.2,
+                wood.leaves,
+                put,
+            );
+        }
         TreeKind::BigOak => big_oak(base, rng, tall, wood, put),
         TreeKind::Spruce => {
             let height = pick(rng, (7, 12), (9, 15));
@@ -369,6 +434,199 @@ fn round_tree(
         }
     }
     put(base + IVec3::Y * height, wood.leaves, Part::Leaves);
+}
+
+/// Le chêne : la moitié du temps une couronne en couches aux bords irréguliers, l'autre moitié une
+/// couronne en grappes (une grosse boule au sommet, deux ou trois plus petites au bout de courtes
+/// branches) : deux chênes voisins ne se ressemblent plus.
+fn oak(
+    base: IVec3,
+    height: i32,
+    rng: &mut Rng64,
+    wood: Wood,
+    put: &mut impl FnMut(IVec3, BlockId, Part),
+) {
+    if height < 6 || rng.below(2) == 0 {
+        return rough_tree(
+            base,
+            height,
+            if height >= 7 { 3 } else { 2 },
+            rng,
+            wood,
+            put,
+        );
+    }
+    for y in 0..height {
+        put(base + IVec3::Y * y, wood.log, Part::Log);
+    }
+    let top = base + IVec3::Y * height;
+    blob(top, 2.4 + rng.below(4) as f32 * 0.2, wood.leaves, put);
+    let directions = [
+        (1, 0),
+        (-1, 0),
+        (0, 1),
+        (0, -1),
+        (1, 1),
+        (-1, -1),
+        (1, -1),
+        (-1, 1),
+    ];
+    let first = rng.below(8) as usize;
+    for k in 0..rng.range(2, 3) as usize {
+        let (dx, dz) = directions[(first + k * 3) % 8];
+        let from = rng.range(height / 2 + 1, height - 1);
+        let length = rng.range(1, 2);
+        let mut p = base + IVec3::Y * from;
+        for step in 1..=length {
+            p = base + IVec3::new(dx * step, from + step, dz * step);
+            put(p, wood.log, Part::Log);
+        }
+        blob(p, 1.7 + rng.below(3) as f32 * 0.25, wood.leaves, put);
+    }
+}
+
+/// La couronne en couches de [`round_tree`], aux bords irréguliers : des feuilles manquent au bord
+/// des couches basses, d'autres dépassent ; deux arbres de même forme n'ont plus la même silhouette.
+fn rough_tree(
+    base: IVec3,
+    height: i32,
+    radius: i32,
+    rng: &mut Rng64,
+    wood: Wood,
+    put: &mut impl FnMut(IVec3, BlockId, Part),
+) {
+    for y in 0..height {
+        put(base + IVec3::Y * y, wood.log, Part::Log);
+    }
+    for layer in 0..4 {
+        let y = height - 3 + layer;
+        let r = if layer < 2 { radius } else { radius - 1 };
+        for dx in -r - 1..=r + 1 {
+            for dz in -r - 1..=r + 1 {
+                let edge = dx.abs().max(dz.abs());
+                let corner = dx.abs() == r && dz.abs() == r;
+                let keep = if edge > r {
+                    // Une feuille qui dépasse, au milieu des côtés des couches basses.
+                    layer < 2 && dx.abs().min(dz.abs()) <= r / 2 && rng.below(5) == 0
+                } else if edge == r {
+                    // Le bord : les coins manquent souvent, les côtés parfois.
+                    if corner {
+                        layer < 3 && rng.below(3) == 0
+                    } else {
+                        rng.below(6) != 0
+                    }
+                } else {
+                    true
+                };
+                if keep {
+                    put(base + IVec3::new(dx, y, dz), wood.leaves, Part::Leaves);
+                }
+            }
+        }
+    }
+    put(base + IVec3::Y * height, wood.leaves, Part::Leaves);
+}
+
+/// Le grand bouleau : un tronc haut et fin, une couronne étroite et longue sur son dernier tiers.
+fn tall_birch(
+    base: IVec3,
+    height: i32,
+    rng: &mut Rng64,
+    wood: Wood,
+    put: &mut impl FnMut(IVec3, BlockId, Part),
+) {
+    for y in 0..height {
+        put(base + IVec3::Y * y, wood.log, Part::Log);
+    }
+    let bottom = height - 5;
+    for y in bottom..=height + 1 {
+        // Étroite en bas et en haut, plus large au milieu.
+        let r: i32 = if y <= bottom || y >= height { 1 } else { 2 };
+        for dx in -r..=r {
+            for dz in -r..=r {
+                let corner = dx.abs() == r && dz.abs() == r;
+                if (corner && (r == 1 || rng.below(3) != 0)) || (dx, dz) == (0, 0) && y < height {
+                    continue;
+                }
+                put(base + IVec3::new(dx, y, dz), wood.leaves, Part::Leaves);
+            }
+        }
+    }
+}
+
+/// Le chêne noir : un tronc de 2 × 2, quelques racines ou branches basses, et une couronne large et
+/// plate (trois couches) qui touche celle des voisins.
+fn dark_oak(
+    base: IVec3,
+    height: i32,
+    rng: &mut Rng64,
+    wood: Wood,
+    put: &mut impl FnMut(IVec3, BlockId, Part),
+) {
+    for y in 0..height {
+        for (dx, dz) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            put(base + IVec3::new(dx, y, dz), wood.log, Part::Log);
+        }
+    }
+    // Des racines au pied, et une ou deux branches qui partent sous la couronne.
+    for (dx, dz) in [(-1, 0), (2, 1), (1, -1), (0, 2)] {
+        if rng.below(3) == 0 {
+            put(base + IVec3::new(dx, 0, dz), wood.log, Part::Log);
+        }
+    }
+    let crown = base + IVec3::Y * height;
+    for _ in 0..rng.range(1, 2) {
+        let (dx, dz) = [(2, 0), (-1, 1), (1, 2), (0, -1)][rng.below(4) as usize];
+        put(crown + IVec3::new(dx, -2, dz), wood.log, Part::Log);
+        put(crown + IVec3::new(dx, -1, dz), wood.log, Part::Log);
+    }
+    for (layer, r) in [(-1, 4.2f32), (0, 4.6), (1, 3.4), (2, 1.8)] {
+        let n = r.ceil() as i32;
+        for dx in -n..=n + 1 {
+            for dz in -n..=n + 1 {
+                let (cx, cz) = (dx as f32 - 0.5, dz as f32 - 0.5);
+                let d = cx * cx + cz * cz;
+                // Un bord irrégulier : la dernière couronne de feuilles manque par endroits.
+                if d <= r * r && (d < (r - 1.0) * (r - 1.0) || rng.below(4) != 0) {
+                    put(crown + IVec3::new(dx, layer, dz), wood.leaves, Part::Leaves);
+                }
+            }
+        }
+    }
+}
+
+/// L'épicéa géant : un tronc de 2 × 2, nu sur son premier tiers, puis un cône de couches alternées
+/// qui s'élargit vers le bas (rayon 5 au plus), et une flèche.
+fn giant_spruce(
+    base: IVec3,
+    height: i32,
+    rng: &mut Rng64,
+    wood: Wood,
+    put: &mut impl FnMut(IVec3, BlockId, Part),
+) {
+    for y in 0..height {
+        for (dx, dz) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            put(base + IVec3::new(dx, y, dz), wood.log, Part::Log);
+        }
+    }
+    for k in 0..2 {
+        put(base + IVec3::Y * (height + k), wood.leaves, Part::Leaves);
+    }
+    let lowest = height / 3 + rng.range(0, 2);
+    for y in lowest..height {
+        let from_top = (height - y) as f32;
+        let r = (1.0 + from_top * 0.3).min(5.0) - if y % 2 == 0 { 0.0 } else { 1.1 };
+        let r = r.max(1.0);
+        let n = r.ceil() as i32;
+        for dx in -n..=n + 1 {
+            for dz in -n..=n + 1 {
+                let (cx, cz) = (dx as f32 - 0.5, dz as f32 - 0.5);
+                if cx * cx + cz * cz <= r * r {
+                    put(base + IVec3::new(dx, y, dz), wood.leaves, Part::Leaves);
+                }
+            }
+        }
+    }
 }
 
 /// Une boule de feuilles de rayon `r` centrée sur `center`.
@@ -689,6 +947,12 @@ mod tests {
             TreeKind::Cypress,
             TreeKind::Fir,
             TreeKind::Olive,
+            TreeKind::Oak,
+            TreeKind::Birch,
+            TreeKind::TallBirch,
+            TreeKind::DarkOak,
+            TreeKind::GiantSpruce,
+            TreeKind::YoungOak,
         ] {
             for seed in 0..40 {
                 let mut rng = Rng64::new(seed);

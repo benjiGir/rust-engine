@@ -86,7 +86,14 @@ fn crown(kind: TreeKind) -> Option<(f32, f32, [f32; 3])> {
         TreeKind::Cypress => (2.4, 14.0, [0.16, 0.30, 0.12]),
         TreeKind::Fir => (1.8, 15.0, [0.07, 0.18, 0.16]),
         TreeKind::Olive => (3.0, 5.0, [0.30, 0.36, 0.26]),
-        TreeKind::Cactus | TreeKind::Bush | TreeKind::JungleBush | TreeKind::Boulder => {
+        TreeKind::TallBirch => (1.8, 11.0, [0.33, 0.48, 0.19]),
+        TreeKind::DarkOak => (4.5, 8.0, [0.11, 0.24, 0.08]),
+        TreeKind::GiantSpruce => (3.5, 22.0, [0.06, 0.19, 0.11]),
+        TreeKind::Cactus
+        | TreeKind::Bush
+        | TreeKind::JungleBush
+        | TreeKind::Boulder
+        | TreeKind::YoungOak => {
             return None;
         }
     })
@@ -120,7 +127,10 @@ pub(crate) fn props_for_tile(
                     let (radius, height) = if generator.version() == crate::GenerationVersion::V3
                         && !matches!(
                             site.kind,
-                            TreeKind::Jungle | TreeKind::Redwood | TreeKind::Olive
+                            TreeKind::Jungle
+                                | TreeKind::Redwood
+                                | TreeKind::Olive
+                                | TreeKind::GiantSpruce
                         ) {
                         (radius * 1.15, height * 1.25)
                     } else {
@@ -130,7 +140,10 @@ pub(crate) fn props_for_tile(
                     if !inside(x, z) || edited(site.base.x, site.base.z, site.base.y - 1) {
                         continue;
                     }
-                    let spruce = matches!(site.kind, TreeKind::Spruce | TreeKind::TallSpruce);
+                    let spruce = matches!(
+                        site.kind,
+                        TreeKind::Spruce | TreeKind::TallSpruce | TreeKind::GiantSpruce
+                    );
                     props.push(Prop::Pyramid {
                         x,
                         z,

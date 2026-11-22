@@ -355,9 +355,10 @@ fn trees_are_complete_across_chunk_borders() {
         let near_border = [local.x, local.z].iter().any(|&v| !(4..28).contains(&v));
         let mut rng = crate::worldgen::trees::Rng64::new(site.seed);
         let mut logs = Vec::new();
-        crate::worldgen::trees::grow(
+        crate::worldgen::trees::grow_in_grove(
             site.kind,
             site.base,
+            site.boost,
             &mut rng,
             &blocks,
             &mut |p, b, part| {
@@ -379,6 +380,70 @@ fn trees_are_complete_across_chunk_borders() {
     assert!(
         border_trees > 0,
         "aucun arbre près du bord dans cette forêt"
+    );
+}
+
+/// Les forêts des mondes v3 sont bien plus denses que celles de la v1 (qui ne change pas), ont leurs
+/// formes propres (chênes noirs dans la forêt sombre) et leurs arbres serrés montent plus haut.
+#[test]
+fn v3_forests_are_denser_and_their_crowded_trees_taller() {
+    use crate::GenerationVersion;
+    let v1 = TerrainGenerator::new(42);
+    let v3 = TerrainGenerator::new(42)
+        .with_version(GenerationVersion::V3)
+        .unwrap();
+    // Autour d'une colonne du biome (les deux générations ne placent pas leurs biomes au même
+    // endroit) : les arbres de 6 × 6 colonnes de chunks dont le pied est dans le biome, et le
+    // nombre de colonnes de blocs du biome (une sur quatre de chaque côté), pour une densité.
+    let survey = |g: &TerrainGenerator, key: &str| {
+        let biome = g.biomes().id(key).unwrap();
+        let Some((x, z)) = g.find_column(0, 0, 32, 40_000, |c| c.biome == biome) else {
+            return (Vec::new(), 1.0);
+        };
+        let (hx, hz) = (x.div_euclid(32), z.div_euclid(32));
+        let mut sites = Vec::new();
+        let mut columns = 0;
+        for cx in hx - 3..hx + 3 {
+            for cz in hz - 3..hz + 3 {
+                for site in g.tree_sites(cx, cz).iter() {
+                    if g.column(site.base.x, site.base.z).biome == biome {
+                        sites.push(*site);
+                    }
+                }
+                for bx in (0..32).step_by(4) {
+                    for bz in (0..32).step_by(4) {
+                        let c = g.column(cx * 32 + bx, cz * 32 + bz);
+                        columns += usize::from(c.biome == biome);
+                    }
+                }
+            }
+        }
+        // Une colonne examinée sur 16 : la densité par colonne de chunk (1 024 colonnes de blocs).
+        let chunk_columns = (columns.max(1) * 16) as f32 / 1024.0;
+        (sites, chunk_columns)
+    };
+    let (old, old_area) = survey(&v1, "core:forest");
+    let (new, new_area) = survey(&v3, "core:forest");
+    let old_density = old.len() as f32 / old_area;
+    let new_density = new.len() as f32 / new_area;
+    eprintln!(
+        "forêt : v1 {} arbres ({old_density:.1} par colonne de chunk), v3 {} ({new_density:.1})",
+        old.len(),
+        new.len()
+    );
+    assert!(
+        new_density > 1.8 * old_density,
+        "forêt v3 : {new_density} arbres par colonne, v1 : {old_density}"
+    );
+    assert!(old.iter().all(|s| s.boost == 0));
+    assert!(
+        new.iter().any(|s| s.boost > 0),
+        "aucun arbre serré plus haut"
+    );
+    let (dark, _) = survey(&v3, "core:dark_forest");
+    assert!(
+        dark.iter()
+            .any(|s| s.kind == crate::worldgen::trees::TreeKind::DarkOak)
     );
 }
 

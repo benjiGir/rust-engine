@@ -56,7 +56,7 @@ cerisiers (sakura) dont les pétales tombent.
 |---|---|---|
 | **N1, le vent (réalisé)** | un vent global (direction, force, rafales qui passent en vagues sur le paysage), plus fort sous la pluie et l'orage ; les feuilles ondulent plus et selon ce vent ; les plantes (herbes, fleurs, cultures, fougères) se couchent bien plus que les feuilles. Tout se calcule dans le shader, depuis la météo que le serveur envoie déjà : rien de plus sur le réseau | captures et une courte vidéo au calme et sous l'orage ; le coût en image (`cargo xtask bench`) |
 | **N2, les feuilles qui tombent (réalisé)** | des feuilles se détachent du dessous du feuillage proche du joueur et tombent en tournoyant, poussées par le vent de N1 ; leur couleur suit l'essence (et la teinte du biome) ; plus nombreuses par vent fort et en automne des érables ; un plafond de particules (quelques centaines), dessinées comme les éclaboussures de l'eau | captures en forêt, au calme et sous l'orage ; coût mesuré au bench |
-| **N3, des forêts plus denses et des arbres plus variés** | densité relevée des forêts (×2 à ×3 selon le biome, réglée sur des captures) ; des arbres plus grands et moins réguliers : chênes et bouleaux de tailles variées, couronnes irrégulières, grands chênes à branches, **chêne noir** à tronc 2 × 2 pour la forêt sombre, bouleaux élancés, sapins géants ; sous-bois (buissons, jeunes arbres) ; le serré monte plus haut que l'isolé | cartes de biomes et captures avant/après ; temps de génération et de maillage mesurés (le bench), pour que la densité ne coûte pas d'images |
+| **N3, des forêts plus denses et des arbres plus variés (réalisé)** | densité relevée des forêts (×2 à ×3 selon le biome, réglée sur des captures) ; des arbres plus grands et moins réguliers : chênes et bouleaux de tailles variées, couronnes irrégulières, grands chênes à branches, **chêne noir** à tronc 2 × 2 pour la forêt sombre, bouleaux élancés, sapins géants ; sous-bois (buissons, jeunes arbres) ; le serré monte plus haut que l'isolé | cartes de biomes et captures avant/après ; temps de génération et de maillage mesurés (le bench), pour que la densité ne coûte pas d'images |
 | **N4, les cerisiers** | bois, feuilles et planches de cerisier (textures dans les trois packs) ; un **cerisier** : tronc qui se divise, large couronne rose qui retombe ; un biome **cerisaie** (pentes tempérées, entre prairie et montagne) ; un **tapis de pétales** posable (1 à 4 par case) au sol à la place des fleurs ; les cerisiers lâchent des **pétales** (N2) plus que les autres arbres | carte des biomes (où sont les cerisaies), captures de jour et au couchant |
 | **N5, les prés et les champs** | **orge** et **avoine** : graines, quatre stades, récolte, recettes (pain d'orge, porridge ; l'avoine nourrit les chevaux) ; des **champs sauvages** de blé, d'orge et d'avoine en taches dans les plaines, les prairies et la steppe (on y trouve les graines) ; **herbe haute sur deux blocs** ; **buissons à baies** (baies sucrées en taïga, myrtilles en forêt froide) qu'on récolte d'un clic droit et qui repoussent ; des **champs de fleurs** : biome de tournesols et prairies de fleurs plus fournies, quelques fleurs nouvelles | captures des prés ; un test de pousse et de récolte |
 | **N6, les races de vaches** | un mécanisme de **variantes** pour les créatures (une variante tirée à l'apparition selon le biome ; textures ou teintes et parties propres ; transmise aux petits ; envoyée au client avec l'apparence) ; trois vaches : **tempérée** (l'actuelle), **des Highlands** (froid : longs poils roux, frange, grandes cornes larges), **à bosse** façon zébu (chaud : robe claire, bosse, cornes en lyre) ; elles se croisent entre elles | captures des trois ; tests du tirage par biome et de l'élevage |
@@ -105,6 +105,26 @@ d'œil en jeu.
   320 feuilles, de petites boîtes plates dessinées avec les créatures. L'état de `ctl` donne leur nombre
   (`render.falling_leaves`). Mesuré à la lisière d'une jungle clairsemée (graine 3) : 13 feuilles en l'air
   au calme, 36 sous l'orage. Deux tests (chute, dérive, pose, plus de feuilles au vent, plafond).
+- **N3** : **en génération v3 seulement** (les mondes neufs) : la génération v1 est figée par ses
+  empreintes (`crates/engine_voxel/tests/generation_reference.rs`) et ses mondes ne changent jamais. Les
+  biomes ont des valeurs propres à la v3 (`v3_trees`, `v3_tree_density` dans `biomes.ron`,
+  `BiomeDef::trees_for`) ; la v3 tire 64 emplacements par colonne de chunks au lieu de 24. Densités v3 :
+  forêt 34 (10 en v1), bouleaux 30, taïga 26, forêt sombre 40, forêt mixte 24, vieille taïga 22, jungle
+  26, bois d'érables 22... Une partie des tirages tombe (troncs trop proches, eau, sol) : mesuré sur la
+  graine 42, une forêt v3 a 18,7 arbres par colonne de chunks contre 9,6 en v1 (× 1,95, vérifié par un
+  test). Nouvelles formes (`TreeKind`) : **chêne** v3 aux couronnes irrégulières, une fois sur deux en
+  grappes au bout de courtes branches ; **bouleau** v3 irrégulier ; **grand bouleau** (10 à 14 blocs) ;
+  **chêne noir** à tronc 2 × 2, racines, couronne plate et large ; **épicéa géant** 2 × 2 (21 à 26 blocs) ;
+  **jeune chêne** pour le sous-bois. Au cœur d'un bosquet (facteur de bosquet au-dessus de 1,2), un arbre
+  v3 gagne jusqu'à 3 blocs de hauteur. Le terrain lointain connaît les nouvelles formes. Les chênes noirs
+  utilisent le bois et les feuilles du chêne (teintées par la forêt sombre) : pas de textures neuves.
+  Coût mesuré (`cargo bench -p engine_voxel --bench generation -- "forêts v3"`, avant/après sur la même
+  machine) : génération d'un chunk de forêt + 3 %, de forêt sombre + 8 % ; maillage + 24 % (forêt) et
+  + 31 % (bouleaux) ; triangles d'un chunk de forêt 9 402 → 12 996, de bouleaux 4 002 → 8 296. Captures
+  de la visite (`VOXEL_SHOTS=biome-`, mêmes vues) : la canopée de la forêt se ferme, la forêt de
+  bouleaux double, la taïga devient une mer d'épicéas où le sol se voit peu. Pas vus en jeu : la forêt
+  sombre et la vieille taïga (absentes de la visite) ; la présence des chênes noirs est vérifiée par le
+  test.
 
 ## Choix à valider
 
