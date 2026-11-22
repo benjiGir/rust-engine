@@ -215,10 +215,24 @@ fn size(dir: &Path) -> u64 {
 fn zip_dir(dist: &Path, name: &str, zip: &Path) -> Result<()> {
     let mut command = if cfg!(target_os = "macos") {
         let mut c = Command::new("ditto");
-        c.args(["-c", "-k", "--keepParent"]).arg(name).arg(zip);
+        c.args([
+            "-c",
+            "-k",
+            "--norsrc",
+            "--noextattr",
+            "--noacl",
+            "--keepParent",
+        ])
+        .arg(name)
+        .arg(zip);
         c
     } else if cfg!(windows) {
-        let mut c = Command::new("tar");
+        // Le `tar` de Windows (bsdtar, qui sait faire un .zip), pas le GNU tar qu'apporte Git.
+        let tar = std::env::var_os("SystemRoot")
+            .map(|root| PathBuf::from(root).join("System32").join("tar.exe"))
+            .filter(|tar| tar.is_file())
+            .unwrap_or_else(|| PathBuf::from("tar"));
+        let mut c = Command::new(tar);
         c.args(["-a", "-c", "-f"]).arg(zip).arg(name);
         c
     } else {

@@ -1,5 +1,8 @@
 name: Build macOS manuel
 
+# Le dossier du jeu à distribuer, fabriqué par `cargo xtask package` (voir docs/plan-installation.md) :
+# voxel, voxel-server, game/, mods/, texture_packs/, shader_packs/ et LISEZMOI.txt, zippés.
+
 on:
   workflow_dispatch:
     inputs:
@@ -26,7 +29,6 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: '0'
-      CARGO_TARGET_DIR: target
       RUST_TARGET: ${{ inputs.architecture == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
 
     steps:
@@ -37,51 +39,35 @@ jobs:
 
       - name: Installer Rust
         run: |
-          # Les fichiers rust-toolchain du depot gardent la priorite sur stable.
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          # rust-toolchain.toml choisit la version ; on ajoute la cible du Mac et celle des mods.
           rustup show
-          rustup target add "$RUST_TARGET"
+          rustup target add "$RUST_TARGET" wasm32-unknown-unknown
           rustc --version
           cargo --version
 
-      - name: Compiler le jeu en release
-        run: cargo build --locked --release --package voxel --bin voxel --target "$RUST_TARGET"
+      - name: Fabriquer le dossier du jeu
+        run: cargo xtask package --target "$RUST_TARGET"
 
-      - name: Preparer le jeu et ses ressources
+      - name: Noter le commit
         run: |
           set -euo pipefail
-          bundle="voxel-macos-$RUST_TARGET"
-          package_dir="dist/$bundle"
-          mkdir -p "$package_dir"
-          cp "target/$RUST_TARGET/release/voxel" "$package_dir/voxel"
-          cp -R assets "$package_dir/assets"
-
-          # Les textures et les WASM versions sont embarques tels quels.
-          for resource in mods texture_packs; do
-            if [[ -d "$resource" ]]; then
-              cp -R "$resource" "$package_dir/$resource"
-            fi
+          for dir in dist/Voxel-*/; do
+            printf 'Commit : %s\nCible : %s\n' "$GITHUB_SHA" "$RUST_TARGET" > "$dir/build-info.txt"
           done
-
-          cat > "$package_dir/Lancer.command" <<'LAUNCHER'
-          #!/bin/bash
-          set -euo pipefail
-          cd "$(dirname "$0")"
-          exec ./voxel "$@"
-          LAUNCHER
-          chmod +x "$package_dir/voxel" "$package_dir/Lancer.command"
-          printf 'Commit : %s\nCible : %s\n' "$GITHUB_SHA" "$RUST_TARGET" > "$package_dir/build-info.txt"
-          file "$package_dir/voxel"
-
-          # Le tar conserve les droits executables lors du telechargement.
-          tar -czf "dist/$bundle.tar.gz" -C dist "$bundle"
+          # L'archive est refaite pour inclure build-info.txt (ditto garde les droits d'exécution).
+          for dir in dist/Voxel-*/; do
+            name="$(basename "$dir")"
+            rm -f "dist/$name.zip"
+            (cd dist && ditto -c -k --norsrc --noextattr --noacl --keepParent "$name" "$name.zip")
+          done
+          ls -l dist
 
       - name: Publier l'archive telechargeable
         uses: actions/upload-artifact@v7
         with:
           name: voxel-macos-${{ inputs.architecture }}
-          path: dist/voxel-macos-${{ env.RUST_TARGET }}.tar.gz
+          path: dist/Voxel-*.zip
           if-no-files-found: error
           retention-days: 30
+          # Déjà compressée : l'archive du téléchargement la contient telle quelle.
           compression-level: 0

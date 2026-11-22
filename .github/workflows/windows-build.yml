@@ -1,27 +1,44 @@
 name: Build Windows
 
+# Le dossier du jeu à distribuer, fabriqué par `cargo xtask package` (voir docs/plan-installation.md) :
+# voxel.exe, voxel-server.exe, game/, mods/, texture_packs/, shader_packs/ et LISEZMOI.txt, zippés.
+
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
+  RUST_TARGET: x86_64-pc-windows-msvc
 
 jobs:
   windows:
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p voxel
-      - name: Assembler le dossier du jeu
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Installer Rust
         shell: bash
         run: |
-          mkdir dist
-          cp target/release/voxel.exe dist/
-          cp -r assets mods texture_packs dist/
-          find dist/mods -name script -type d -prune -exec rm -rf {} +
-      - uses: actions/upload-artifact@v4
+          # rust-toolchain.toml choisit la version ; on s'assure des cibles du jeu et des mods.
+          rustup show
+          rustup target add "$RUST_TARGET" wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Fabriquer le dossier du jeu
+        run: cargo xtask package --target ${{ env.RUST_TARGET }}
+
+      - name: Publier l'archive telechargeable
+        uses: actions/upload-artifact@v7
         with:
           name: voxel-windows
-          path: dist
+          path: dist/Voxel-*.zip
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
