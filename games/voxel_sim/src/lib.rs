@@ -67,6 +67,7 @@ pub mod navigation;
 pub mod net_host;
 pub mod net_join;
 pub mod paired_play;
+pub mod paths;
 pub mod persistence;
 pub mod player;
 pub mod player_api_server;

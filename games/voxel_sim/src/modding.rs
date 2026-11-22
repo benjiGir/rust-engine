@@ -30,10 +30,16 @@ const STEPS_PER_MACHINE_TICK: u32 = 3;
 /// mieux vaut un jeu sans mods qu'un jeu qui ne démarre pas.
 pub fn resolve_order(assets: &Path) -> Vec<ModInfo> {
     let core = engine_mods::core_mod(&assets.join("core"));
-    let mods_dir = assets
-        .parent()
-        .map(|root| root.join("mods"))
-        .unwrap_or_default();
+    // Les mods du jeu (`paths::get().mods`), ou ceux qui sont à côté d'un autre jeu de base (tests).
+    let paths = crate::paths::get();
+    let mods_dir = if assets == paths.game {
+        paths.mods.clone()
+    } else {
+        assets
+            .parent()
+            .map(|root| root.join("mods"))
+            .unwrap_or_default()
+    };
     let result = engine_mods::discover(&mods_dir)
         .and_then(|mods| engine_mods::load_order(core.clone(), mods));
     match result {

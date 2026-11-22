@@ -984,7 +984,7 @@ impl Game for App {
             if ready {
                 let request = match step {
                     0 => Request::Play(Launch {
-                        world: Some(persistence::saves_root(&project_root()).join("menu-demo")),
+                        world: Some(voxel_sim::paths::get().saves.join("menu-demo")),
                         seed: Some(7),
                         title: false,
                         difficulty: None,
@@ -1349,12 +1349,12 @@ impl Demo {
 
 /// Démarre la surveillance des assets, des mods et des shaders (si les dossiers existent).
 fn start_hot_reload() -> Option<hot_reload::HotReload> {
-    let assets = assets_dir();
-    let mut dirs = vec![assets.clone()];
-    if let Some(root) = assets.parent() {
-        dirs.push(root.join("mods"));
-        dirs.push(root.join("texture_packs"));
-    }
+    let paths = voxel_sim::paths::get();
+    let mut dirs = vec![
+        paths.game.clone(),
+        paths.mods.clone(),
+        paths.texture_packs.clone(),
+    ];
     if let Some(shaders) = std::path::Path::new(engine_render::CHUNK_SHADER_PATH).parent() {
         dirs.push(shaders.to_path_buf());
     }
@@ -1390,12 +1390,15 @@ fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn,voxel=info"))
         .init();
 
+    // Les dossiers du jeu (voir `voxel_sim::paths`) : `--data-dir` d'abord, avant tout chemin.
+    let args: Vec<String> = std::env::args().collect();
+    voxel_sim::paths::init(voxel_sim::paths::data_dir_arg(&args));
+
     // `voxel --server` : le serveur dédié, sans fenêtre (voir `dedicated.rs`).
     if std::env::args().any(|a| a == "--server") {
         return dedicated::run();
     }
     // `voxel --bots N adresse [idle|walk|explore]` : des bots sans fenêtre (voir `bot_swarm.rs`).
-    let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--bots") {
         return bot_swarm::run(&args);
     }

@@ -6,7 +6,7 @@ use crate::events::{BlockBroken, BlockPlaced, EntityDied, PlayerDamaged};
 use anyhow::{Context as _, Result};
 use engine_ecs::{EventReader, Events};
 use engine_voxel::BlockRegistry;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub const DEFAULT_SEED: u32 = 42;
 
@@ -15,9 +15,7 @@ pub const FLY_ALTITUDE: f32 = 30.0;
 
 /// La racine du projet (le dossier qui contient `assets/` et `saves/`).
 pub fn project_root() -> PathBuf {
-    assets_dir()
-        .parent()
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+    crate::paths::get().root.clone()
 }
 
 /// Les curseurs du jeu sur ses propres événements.
@@ -69,15 +67,7 @@ pub fn test_registry() -> BlockRegistry {
 
 /// `VOXEL_ASSETS`, sinon `./assets`, sinon le dossier du dépôt (connu à la compilation).
 pub fn assets_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("VOXEL_ASSETS") {
-        return dir.into();
-    }
-    let local = PathBuf::from("assets");
-    if local.is_dir() {
-        return local;
-    }
-    // `env!` lit une variable au moment de la compilation : ici, le dossier de cette crate.
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets")
+    crate::paths::get().game.clone()
 }
 
 /// Lit une variable d'environnement et la convertit (`u32`, `i32`...).

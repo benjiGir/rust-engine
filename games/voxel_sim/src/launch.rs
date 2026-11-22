@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::{assets_dir, env_parse, persistence};
+use crate::{env_parse, persistence};
 
 /// Comment lancer un monde : depuis quel dossier, avec quelle graine.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -41,7 +41,7 @@ impl Launch {
         }
         Some(Self {
             // Les modes automatiques n'écrivent pas dans le monde du joueur, sauf demande explicite.
-            world: named.then(|| persistence::world_dir(&assets_dir())),
+            world: named.then(|| persistence::world_dir(&crate::paths::get().saves)),
             seed: env_parse("VOXEL_SEED"),
             title: false,
             difficulty: None,

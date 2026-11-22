@@ -1,5 +1,6 @@
 //! Le serveur dédié, sans fenêtre : `cargo run -p voxel_sim --bin voxel-server`. Il lit `server.ron`
-//! (voir `voxel_sim::dedicated`) et ne lie aucune bibliothèque d'affichage.
+//! (voir `voxel_sim::dedicated`) et ne lie aucune bibliothèque d'affichage. `--data-dir <dossier>` :
+//! ses mondes, ses mods et `server.ron` sont là (voir `voxel_sim::paths`).
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(

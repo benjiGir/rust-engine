@@ -32,11 +32,11 @@ fn saves_root_from(variable: Option<std::ffi::OsString>, project_root: &Path) ->
     }
 }
 
-/// Le dossier d'un monde : `<racine des sauvegardes>/<nom>`. Le nom vient de `VOXEL_WORLD`
-/// (« world » par défaut), la racine de [`saves_root`].
-pub fn world_dir(assets: &Path) -> PathBuf {
+/// Le dossier d'un monde : `<saves>/<nom>`. Le nom vient de `VOXEL_WORLD` (« world » par défaut),
+/// `saves` de `paths::get().saves`.
+pub fn world_dir(saves: &Path) -> PathBuf {
     let name = std::env::var("VOXEL_WORLD").unwrap_or_else(|_| "world".into());
-    saves_root(assets.parent().unwrap_or(Path::new("."))).join(name)
+    saves.join(name)
 }
 
 /// Ouvre le monde et lit `world.ron` s'il existe.
@@ -388,10 +388,10 @@ mod tests {
     }
 
     #[test]
-    fn world_dir_is_next_to_assets() {
-        // Sans `VOXEL_WORLD` ni `VOXEL_SAVES` dans l'environnement du test, les valeurs par défaut.
-        if std::env::var("VOXEL_WORLD").is_err() && std::env::var("VOXEL_SAVES").is_err() {
-            let dir = world_dir(Path::new("/jeu/assets"));
+    fn world_dir_is_in_the_saves() {
+        // Sans `VOXEL_WORLD` dans l'environnement du test, le nom par défaut.
+        if std::env::var("VOXEL_WORLD").is_err() {
+            let dir = world_dir(Path::new("/jeu/saves"));
             assert_eq!(dir, PathBuf::from("/jeu/saves/world"));
         }
     }

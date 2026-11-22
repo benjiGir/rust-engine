@@ -66,9 +66,9 @@ impl Default for ServerConfig {
 
 impl ServerConfig {
     /// `server.ron` à la racine du projet, ou le fichier que nomme `VOXEL_SERVER_CONFIG`.
-    pub fn path(root: &Path) -> PathBuf {
-        std::env::var_os("VOXEL_SERVER_CONFIG")
-            .map_or_else(|| root.join("server.ron"), PathBuf::from)
+    /// `server.ron` (voir `paths.rs` : la racine du jeu, `--data-dir`, ou `VOXEL_SERVER_CONFIG`).
+    pub fn path(_root: &Path) -> PathBuf {
+        crate::paths::get().server_config.clone()
     }
 
     /// Lit `server.ron`, ou l'écrit avec les valeurs par défaut s'il n'existe pas.
@@ -258,7 +258,7 @@ pub fn run() -> Result<()> {
     settings.player_uuid = crate::players::uuid_name(0);
     settings.render_distance = config.view_distance.clamp(2, 32);
     let launch = Launch {
-        world: Some(crate::persistence::saves_root(&root).join(&config.world)),
+        world: Some(crate::paths::get().saves.join(&config.world)),
         seed: config.seed,
         title: false,
         difficulty: None,
