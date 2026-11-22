@@ -5,9 +5,8 @@ puis **Appliquer**. Le décor du menu montre immédiatement l'effet et le jeu
 mémorise le choix. **Standard** restaure le rendu intégré. La préférence est
 locale au joueur et se combine avec son pack de textures.
 
-**Crépuscule**, livré avec le jeu, combine les ombres portées du relief, une
-brume plus dense dans les vallées, les rayons dans les ouvertures du feuillage
-et l'éclairage directionnel de nuit.
+**Crépuscule**, livré avec le jeu, combine les ombres portées du relief, les
+rayons dans les ouvertures du feuillage et l'éclairage directionnel de nuit.
 
 ## Créer un pack
 
@@ -59,13 +58,17 @@ fn voxel_terrain(input: TerrainEffect) -> vec4<f32> {
 
 ### Ombres du soleil
 
-`sun_shadows: true` active une carte de profondeur locale de 2048 × 2048.
+`sun_shadows: true` active deux cartes de profondeur locales de 2048 × 2048.
+Le moteur mélange les ombres de deux angles fixes voisins au fil de la rotation
+du soleil. Le terrain et les rayons lumineux utilisent le même mélange.
 Le terrain et les feuilles projettent une ombre directionnelle suivant la
 position du soleil, même quand ils se trouvent hors du champ de la caméra.
-Le terrain reçoit les ombres avant la teinte du pack. La pénombre s'élargit
-avec la distance entre l'obstacle et la surface, tout en gardant un bord
-plus net au contact. Le soleil s'éteint progressivement près de l'horizon
-et la carte se fond
+Le terrain reçoit les ombres avant la teinte du pack. Le filtre de profondeur
+adoucit davantage les bords quand le soleil est bas. Chaque texel est comparé
+à la profondeur de la face à cet endroit, ce qui garde les ombres au contact
+des blocs. Le feuillage bouge au vent à l'écran. La carte d'ombres utilise
+sa silhouette au repos pour éviter le scintillement des petits trous.
+Le soleil s'éteint progressivement près de l'horizon et la carte se fond
 dans l'éclairage du terrain lointain. Le mode Standard désactive la passe.
 
 ### Ciel

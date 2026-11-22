@@ -13,6 +13,18 @@
 //!
 //! Cette crate ne connaît pas wgpu : le jeu passe les sommets au renderer.
 
+/// Dimensions communes à la flamme posée et à la flamme des objets.
+pub mod torch {
+    use crate::BlockBox;
+    use glam::Vec3;
+
+    pub const KEY: &str = "core:torch";
+    pub const FLAME: BlockBox = BlockBox {
+        min: Vec3::new(4.0 / 16.0, 9.0 / 16.0, 4.0 / 16.0),
+        max: Vec3::new(12.0 / 16.0, 1.0, 12.0 / 16.0),
+    };
+}
+
 pub mod bed;
 mod biome;
 mod block;

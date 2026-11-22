@@ -62,7 +62,8 @@ pub struct MeshVertex {
     pub position: [u16; 4],
     /// Normale, de -127 à 127 par axe ; w : vitesse de rotation × 8 (rad/s).
     pub normal: [i8; 4],
-    /// Couleur du bloc et opacité (alpha), de 0 à 255.
+    /// Couleur du bloc et opacité (alpha), de 0 à 255. Pour une flamme de torche,
+    /// les trois premiers octets contiennent les UV du panneau et la phase.
     pub color: [u8; 4],
     /// Lumière du ciel, lumière des blocs et occlusion ambiante, de 0 à 255 ; w :
     /// axe de rotation (0 : X, 1 : Y, 2 : Z) ou profondeur normalisée de l'eau.
@@ -156,6 +157,10 @@ pub const FLAG_MODEL_UV: u32 = 1 << 25;
 pub const FLAG_DOOR_OPEN: u32 = 1 << 26;
 /// Pièce mobile du couvercle d'un coffre.
 pub const FLAG_CHEST_LID: u32 = 1 << 27;
+/// Panneau émissif de la flamme, ignoré dans la carte d'ombres.
+const FLAG_TORCH_FLAME: u32 = 1 << 28;
+/// Bois de la torche, dont les fissures orange restent visibles dans le noir.
+const FLAG_TORCH_WOOD: u32 = 1 << 29;
 /// Les bits de la couche de texture dans [`MeshVertex::texture`].
 pub const TEXTURE_MASK: u32 = 0xFFFF;
 
@@ -921,6 +926,10 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                     } else if def.has_end_textures() || def.lid.is_some() {
                         flags |= FLAG_MODEL_UV | (u32::from(def.facing_turns()) << FLAG_TURN_SHIFT);
                     }
+                    if def.key == crate::torch::KEY {
+                        flags |= FLAG_TORCH_WOOD;
+                        torch_flame(mesh, base);
+                    }
                     model_boxes(hood, mesh, def, p, base, color, flags);
                     continue;
                 }
@@ -1193,6 +1202,37 @@ fn model_boxes(
     }
 }
 
+fn torch_flame(mesh: &mut ChunkMesh, base: Vec3) {
+    let b = crate::torch::FLAME;
+    let center = (b.min + b.max) * 0.5;
+    let cell = base.as_ivec3();
+    let phase = (cell.x.wrapping_mul(31) ^ cell.y.wrapping_mul(43) ^ cell.z.wrapping_mul(73))
+        .rem_euclid(256) as f32
+        / 255.0;
+    let bottom = Vec3::new(center.x, b.min.y, center.z);
+    let height = Vec3::Y * (b.max.y - b.min.y);
+    for (axis, normal) in [(Vec3::X, [0.0, 0.0, 1.0]), (Vec3::Z, [1.0, 0.0, 0.0])] {
+        let half_width = axis * (b.max.x - b.min.x) * 0.5;
+        let start = mesh.vertices.len() as u32;
+        for (offset, u, v) in [
+            (-half_width, 0.0, 1.0),
+            (half_width, 1.0, 1.0),
+            (half_width + height, 1.0, 0.0),
+            (-half_width + height, 0.0, 0.0),
+        ] {
+            mesh.push_vertex(
+                base + bottom + offset,
+                normal,
+                [u, v, phase, 1.0],
+                [1.0; 3],
+                FLAG_TORCH_FLAME,
+            );
+        }
+        mesh.indices
+            .extend([0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2].map(|i| start + i));
+    }
+}
+
 fn chest_walls(body: BlockBox) -> [BlockBox; 5] {
     let (a, b) = (body.min, body.max);
     let t = ((b - a).min_element() * 0.25).min(1.0 / 16.0);
@@ -1449,6 +1489,36 @@ mod tests {
             assert!(min.x < -1.1 && max.x > 0.1);
             assert!(min.z < -1.1 && max.z > 0.1);
             assert_eq!(std::mem::size_of::<MeshVertex>(), 24);
+        }
+    }
+
+    #[test]
+    fn torch_mesh_has_wood_and_two_flame_panels_in_every_mesher() {
+        let mut world = World::new();
+        let pos = IVec3::new(2, SIZE - 1, 4);
+        world.set_block(pos, id(crate::torch::KEY));
+        for mesher in [mesh_greedy, mesh_culled, mesh_binary] {
+            let mesh = mesher(&world, IVec3::ZERO);
+            let flame: Vec<_> = mesh
+                .vertices
+                .iter()
+                .filter(|v| v.texture & FLAG_TORCH_FLAME != 0)
+                .collect();
+            assert_eq!(flame.len(), 8);
+            for (i, vertex) in flame.into_iter().enumerate() {
+                let local = vertex.local_position() - pos.as_vec3();
+                assert!(local.cmpge(crate::torch::FLAME.min).all());
+                assert!(local.cmple(crate::torch::FLAME.max).all());
+                assert_eq!(
+                    vertex.color[..2],
+                    [[0, 255], [255, 255], [255, 0], [0, 0]][i % 4]
+                );
+            }
+            assert!(
+                mesh.vertices
+                    .iter()
+                    .any(|v| { v.texture & FLAG_TORCH_WOOD != 0 && v.texture & TEXTURE_MASK != 0 })
+            );
         }
     }
 

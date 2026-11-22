@@ -1,5 +1,6 @@
 //! Carte de profondeur locale du soleil. La projection suit la caméra avec un
-//! pas d'un texel pour limiter le scintillement quand le joueur se déplace.
+//! pas d'un texel. Deux directions fixes encadrent celle de l'astre : le
+//! terrain interpole leur visibilité pendant que l'astre tourne.
 
 use glam::{Mat4, Vec3, Vec4};
 
@@ -8,10 +9,12 @@ use crate::{Camera, Sun};
 pub(crate) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const RESOLUTION: u32 = 2048;
 const RADIUS: f32 = 76.0;
+const ANGLE_STEPS: i32 = 4800;
+const ANGLE_STEP: f32 = std::f32::consts::TAU / ANGLE_STEPS as f32;
 pub(crate) const DEPTH_SPAN: f32 = 384.0;
 
 struct Target {
-    view: wgpu::TextureView,
+    layers: [wgpu::TextureView; 2],
     binding: wgpu::BindGroup,
 }
 
@@ -24,7 +27,8 @@ pub(crate) struct SunShadows {
 
 #[derive(Clone, Copy)]
 pub(crate) struct ShadowFrame {
-    pub projection: Mat4,
+    pub projections: [Mat4; 2],
+    pub blend: f32,
     pub strength: f32,
     pub moon: bool,
 }
@@ -39,7 +43,7 @@ impl SunShadows {
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
                         multisampled: false,
                     },
                     count: None,
@@ -88,8 +92,8 @@ impl SunShadows {
             .flatten()
     }
 
-    pub fn view(&self) -> &wgpu::TextureView {
-        &self.target.view
+    pub fn view(&self, index: usize) -> &wgpu::TextureView {
+        &self.target.layers[index]
     }
 
     pub fn binding(&self) -> &wgpu::BindGroup {
@@ -109,7 +113,7 @@ impl Target {
             size: wgpu::Extent3d {
                 width: size,
                 height: size,
-                depth_or_array_layers: 1,
+                depth_or_array_layers: 2,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -118,7 +122,18 @@ impl Target {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        let view = texture.create_view(&Default::default());
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        let layers = std::array::from_fn(|index| {
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                base_array_layer: index as u32,
+                array_layer_count: Some(1),
+                ..Default::default()
+            })
+        });
         let binding = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("carte des ombres du soleil"),
             layout,
@@ -133,7 +148,7 @@ impl Target {
                 },
             ],
         });
-        Self { view, binding }
+        Self { layers, binding }
     }
 }
 
@@ -154,25 +169,45 @@ fn shadow_frame(camera: &Camera, sun: Sun, moonlight: bool, overcast: f32) -> Op
     if strength <= 0.0 {
         return None;
     }
-    let right = Vec3::Z.cross(direction).normalize();
-    let up = direction.cross(right);
     let center = camera.position + camera.forward_flat() * 16.0;
+    let (directions, blend) = shadow_directions(direction);
+    Some(ShadowFrame {
+        projections: directions.map(|direction| shadow_projection(center, direction)),
+        blend,
+        strength,
+        moon,
+    })
+}
+
+fn shadow_directions(direction: Vec3) -> ([Vec3; 2], f32) {
+    // Sur l'orbite du jeu, l'astre tourne dans le plan XY à Z constant.
+    // Les extrémités de deux intervalles voisins partagent exactement le même angle.
+    let phase = direction.y.atan2(direction.x) / ANGLE_STEP;
+    let lower = phase.floor();
+    let blend = phase - lower;
+    let radius = (1.0 - direction.z * direction.z).max(0.0).sqrt();
+    let endpoint = |index: i32| {
+        let angle = index.rem_euclid(ANGLE_STEPS) as f32 * ANGLE_STEP;
+        let (sin, cos) = angle.sin_cos();
+        Vec3::new(radius * cos, radius * sin, direction.z)
+    };
+    ([endpoint(lower as i32), endpoint(lower as i32 + 1)], blend)
+}
+
+fn shadow_projection(center: Vec3, direction: Vec3) -> Mat4 {
+    let right = Vec3::Z.cross(direction).normalize();
+    let up = direction.cross(right).normalize();
     let texel = 2.0 * RADIUS / RESOLUTION as f32;
     let align = |axis: Vec3| (center.dot(axis) / texel).round() * texel;
     // Les points vers le soleil ont la profondeur la plus petite. Cette
     // matrice produit directement les coordonnées clip [−1,1] × [−1,1] × [0,1].
-    let projection = Mat4::from_cols(
+    Mat4::from_cols(
         (right / RADIUS).extend(-align(right) / RADIUS),
         (up / RADIUS).extend(-align(up) / RADIUS),
         (-direction / DEPTH_SPAN).extend(0.5 + center.dot(direction) / DEPTH_SPAN),
         Vec4::W,
     )
-    .transpose();
-    Some(ShadowFrame {
-        projection,
-        strength,
-        moon,
-    })
+    .transpose()
 }
 
 pub(crate) fn depth_pipeline(
@@ -211,7 +246,9 @@ pub(crate) fn depth_pipeline(
             stencil: Default::default(),
             bias: wgpu::DepthBiasState {
                 constant: 1,
-                slope_scale: 1.0,
+                // La profondeur du receveur est corrigée texel par texel dans
+                // le shader. Un biais de pente ouvrirait des fuites au contact.
+                slope_scale: 0.0,
                 clamp: 0.0,
             },
         }),
@@ -224,6 +261,26 @@ pub(crate) fn depth_pipeline(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consecutive_solar_intervals_share_the_same_shadow_angle() {
+        let z = 0.33;
+        let direction_at = |phase: f32| {
+            let (sin, cos) = (phase * ANGLE_STEP).sin_cos();
+            Vec3::new(cos, sin, 0.0) * (1.0_f32 - z * z).sqrt() + Vec3::Z * z
+        };
+        for boundary in [-1200.0, 0.0, 1200.0, 2400.0] {
+            let (before, blend_before) = shadow_directions(direction_at(boundary - 0.01));
+            let (after, blend_after) = shadow_directions(direction_at(boundary + 0.01));
+            assert_eq!(before[1], after[0]);
+            assert!(blend_before > 0.98 && blend_after < 0.02);
+            let center = Vec3::new(137.0, 73.0, -81.0);
+            assert_eq!(
+                shadow_projection(center, before[1]),
+                shadow_projection(center, after[0]),
+            );
+        }
+    }
 
     #[test]
     fn shadow_depth_points_toward_the_sun_and_stays_valid_at_noon() {
@@ -243,12 +300,12 @@ mod tests {
             )
             .unwrap();
             let center = camera.position + camera.forward_flat() * 16.0;
-            let midpoint = frame.projection.project_point3(center);
+            let midpoint = frame.projections[0].project_point3(center);
             assert!(midpoint.truncate().length() < 0.002);
             assert!((midpoint.z - 0.5).abs() < 1e-4);
-            let closer = frame.projection.project_point3(center + 15.0 * direction);
+            let closer = frame.projections[0].project_point3(center + 15.0 * direction);
             assert!(closer.z < midpoint.z);
-            assert!(closer.truncate().distance(midpoint.truncate()) < 1e-4);
+            assert!(closer.truncate().distance(midpoint.truncate()) < 3e-4);
         }
         let night = Sun {
             direction: Vec3::NEG_Y,
@@ -257,9 +314,8 @@ mod tests {
         assert!(shadow_frame(&camera, night, false, 0.0).is_none());
         let lunar = shadow_frame(&camera, night, true, 0.0).unwrap();
         assert!(lunar.moon);
-        let eye = lunar.projection.project_point3(camera.position).z;
-        let above = lunar
-            .projection
+        let eye = lunar.projections[0].project_point3(camera.position).z;
+        let above = lunar.projections[0]
             .project_point3(camera.position + Vec3::Y * 10.0)
             .z;
         assert!(above < eye);

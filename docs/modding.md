@@ -315,6 +315,10 @@ de lumière aux blocs voisins. L'allumage et l'extinction invalident le maillage
 (ou de la structure mobile), sans remplacer le bloc ni perdre son inventaire. La
 combustion sauvegardée détermine le même affichage après rechargement du monde.
 
+La torche de base porte une flamme animée et des braises sur deux panneaux au-dessus
+de sa tête carbonisée. Les fissures incandescentes du bois et la flamme s'animent
+aussi en main et sur les objets tombés au sol.
+
 ## Les blocs actifs (« machines »)
 
 Un bloc devient une machine quand il déclare un comportement :

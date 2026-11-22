@@ -105,14 +105,22 @@ fn brightness(level: f32) -> f32 {
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // Échantillonnage inconditionnel : dérivées bien définies sur les limites de face.
     let texel = textureSample(block_textures, block_sampler, in.uv, in.texture);
-    if in.cutout != 0u && texel.a < 0.5 { discard; }
+    if in.cutout != 0u && in.cutout != SURFACE_TORCH_FLAME && texel.a < 0.5 { discard; }
     let sun_direction = normalize(camera.sun.xyz);
     let facing = max(dot(normalize(in.normal), sun_direction), 0.0) * step(0.0, sun_direction.y);
     let sky = brightness(in.light.x) * camera.sun.w * (0.6 + 0.4 * facing) * camera.sun_color.rgb;
     let torch = brightness(in.light.y) * vec3<f32>(1.0, 0.82, 0.6);
     // Les faces du bas un peu plus sombres : les boîtes ont du relief même dans l'ombre.
     let shade = 0.8 + 0.2 * max(in.normal.y, 0.0);
-    let lit = in.color * texel.rgb * (max(sky, torch) + 0.03) * shade;
+    var lit = in.color * texel.rgb * (max(sky, torch) + 0.03) * shade;
+    if in.cutout == SURFACE_TORCH_FLAME {
+        let flame = torch_flame(in.uv, camera.sun_color.w, 0.0);
+        if flame.a < 0.5 { discard; }
+        lit = flame.rgb;
+    }
+    if in.cutout == SURFACE_TORCH_WOOD {
+        lit += torch_embers(in.color * texel.rgb, camera.sun_color.w, 0.0);
+    }
     let offset = in.world_position.xz - camera.position_fog_start.xz;
     let fog = smoothstep(camera.position_fog_start.w, camera.fog_color_end.w, length(offset));
     return vec4<f32>(mix(lit, camera.fog_color_end.rgb, fog), texel.a * in.opacity);

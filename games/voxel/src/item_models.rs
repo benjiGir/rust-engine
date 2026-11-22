@@ -37,7 +37,8 @@ fn block_parts(
     } else {
         &block.boxes
     };
-    boxes
+    let is_torch = block.key == engine_voxel::torch::KEY;
+    let mut parts: Vec<_> = boxes
         .iter()
         .enumerate()
         .map(|(i, b)| {
@@ -53,7 +54,7 @@ fn block_parts(
                     alpha,
                 );
             }
-            CubeInstance::new(
+            let part = CubeInstance::new(
                 center,
                 size,
                 if block.face_textures == [0; 3] {
@@ -63,9 +64,26 @@ fn block_parts(
                 },
             )
             .with_surface(block.face_textures, b.min, b.max, block.cutout, block.alpha)
-            .with_ends(block.face_texture(2, false), block.face_texture(2, true))
+            .with_ends(block.face_texture(2, false), block.face_texture(2, true));
+            if is_torch {
+                part.with_torch_wood()
+            } else {
+                part
+            }
         })
-        .collect()
+        .collect();
+    if is_torch {
+        let flame = engine_voxel::torch::FLAME;
+        let center = offset + (flame.min + flame.max) * 0.5 - Vec3::splat(0.5);
+        let size = flame.max - flame.min;
+        for size in [
+            Vec3::new(size.x, size.y, 0.002),
+            Vec3::new(0.002, size.y, size.z),
+        ] {
+            parts.push(CubeInstance::new(center, size, Vec3::ONE).with_flame());
+        }
+    }
+    parts
 }
 
 fn sprite(key: &str, folder: &str, blocks: &BlockRegistry) -> Vec<CubeInstance> {

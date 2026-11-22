@@ -89,6 +89,12 @@ fn generate_at(root: &Path, folder: PathBuf) -> Result<Vec<PathBuf>> {
         folder,
         paths: Vec::new(),
     };
+    pack.write(
+        "core",
+        "textures",
+        "torch",
+        &crate::textures::torch_wood(SIDE),
+    )?;
     let rock = terrain::rock("stone");
     pack.write("core", "textures", "stone", &rock)?;
     for ore in ore_veins::ORES {

@@ -525,6 +525,40 @@ fn glass() -> Image {
     image
 }
 
+/// Bois fendu dans la longueur, avec une tête brûlée et des braises dans les fissures.
+pub(crate) fn torch_wood(side: usize) -> Vec<[u8; 4]> {
+    (0..side * side)
+        .map(|i| {
+            let (x, y) = (i % side, i / side);
+            let (u, v) = (x as f32 / side as f32, y as f32 / side as f32);
+            let line = 0.53 + (v * 6.0 + 0.8).sin() * 0.062;
+            let split = (u - line).abs() < 0.035;
+            let grain = (u * 63.0 + (v * 9.0).sin() * 1.45).sin();
+            let grit = (texel_hash(x, y, 17257) & 15) as f32 / 15.0;
+            let mut rgb = if v < 0.48 {
+                let ash = 0.84 + 0.18 * grit + grain * 0.08;
+                if split && (texel_hash(x / 2, y, 17261) & 3) != 0 {
+                    [214.0, 91.0, 31.0]
+                } else {
+                    [51.0 * ash, 37.0 * ash, 31.0 * ash]
+                }
+            } else {
+                let tone =
+                    0.95 + 0.16 * grain + 0.14 * grit - 0.28 * (if split { 1.0 } else { 0.0 });
+                [133.0 * tone, 83.0 * tone, 44.0 * tone]
+            };
+            // Le haut de la poignée est noirci par la chaleur.
+            let soot = if (0.48..0.62).contains(&v) {
+                0.64 + (v - 0.48) * (0.36 / 0.14)
+            } else {
+                1.0
+            };
+            rgb = rgb.map(|channel| channel * soot);
+            [rgb[0] as u8, rgb[1] as u8, rgb[2] as u8, 255]
+        })
+        .collect()
+}
+
 /// La torche : un bois sombre avec un cœur lumineux.
 fn torch() -> Image {
     nature::torch()

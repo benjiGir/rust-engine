@@ -117,6 +117,12 @@ fn harmonize(
     }
 }
 fn refine(source: &[Pixel], name: &str, item: bool) -> Vec<Pixel> {
+    if !item && name == "torch" {
+        return crate::textures::torch_wood(SIDE)
+            .into_iter()
+            .map(crate::textures::finish_pixel)
+            .collect();
+    }
     if !item && let Some(pixels) = crate::machine_faces::draw(name, SIDE) {
         // La même palette sur tout le meuble conserve la couleur des jonctions.
         let mut pixels: Vec<_> = pixels

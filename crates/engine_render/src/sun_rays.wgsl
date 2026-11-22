@@ -1,14 +1,15 @@
 // La demi-résolution conserve la distance de la géométrie dans le canal alpha.
 struct Rays {
     inverse_view_projection: mat4x4<f32>,
-    shadow_projection: mat4x4<f32>,
+    shadow_projections: array<mat4x4<f32>, 2>,
     eye: vec4<f32>,
     sun: vec4<f32>,
+    shadow_blend: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> rays: Rays;
 @group(0) @binding(1) var scene_depth: texture_depth_2d;
-@group(1) @binding(0) var sun_depth: texture_depth_2d;
+@group(1) @binding(0) var sun_depth: texture_depth_2d_array;
 @group(1) @binding(1) var sun_compare: sampler_comparison;
 @group(2) @binding(0) var half_light: texture_2d<f32>;
 
@@ -32,19 +33,23 @@ fn view_ray(uv: vec2<f32>) -> vec3<f32> {
     return world.xyz / max(world.w, 0.00001) - rays.eye.xyz;
 }
 
-fn solar_visibility(point: vec3<f32>) -> f32 {
-    let p = (rays.shadow_projection * vec4(point, 1.0)).xyz;
+fn shadow_visibility(point: vec3<f32>, layer: i32) -> f32 {
+    let p = (rays.shadow_projections[layer] * vec4(point, 1.0)).xyz;
     let edge = max(abs(p.x), abs(p.y));
     if edge >= 0.995 || p.z <= 0.0 || p.z >= 1.0 {
         return 0.0;
     }
     let uv = vec2(0.5 + 0.5 * p.x, 0.5 - 0.5 * p.y);
-    return textureSampleCompareLevel(sun_depth, sun_compare, uv, p.z - 0.00013)
+    return textureSampleCompareLevel(sun_depth, sun_compare, uv, layer, p.z - 0.00013)
         * (1.0 - smoothstep(0.83, 0.995, edge));
 }
 
+fn solar_visibility(point: vec3<f32>) -> f32 {
+    return mix(shadow_visibility(point, 0), shadow_visibility(point, 1), rays.shadow_blend.x);
+}
+
 const MAX_RANGE: f32 = 86.0;
-const STEPS: u32 = 14u;
+const STEPS: u32 = 24u;
 
 @fragment
 fn fs_volume(in: Screen) -> @location(0) vec4<f32> {
@@ -53,14 +58,16 @@ fn fs_volume(in: Screen) -> @location(0) vec4<f32> {
     let direction = ray / max(length(ray), 0.001);
     let night = rays.sun.w;
     let toward = max(dot(direction, rays.sun.xyz), 0.0);
-    let phase = 0.27 + 0.85 * pow(toward, 3.0) + 1.80 * pow(toward, 12.0);
-    let jitter = fract(dot(floor(in.position.xy), vec2(0.75487767, 0.56984029)));
+    let phase = 0.10 + 0.70 * pow(toward, 3.0) + 1.80 * pow(toward, 12.0);
     var light = 0.0;
     for (var step = 0u; step < STEPS; step++) {
         let a = f32(step) / f32(STEPS);
         let b = f32(step + 1u) / f32(STEPS);
-        let span = (b * b - a * a) * distance;
-        let along = a * a * distance + span * mix(0.19, 0.81, jitter);
+        // Les strates gardent leur position lorsque le fond du rayon change.
+        let start = a * a * MAX_RANGE;
+        if start >= distance { break; }
+        let span = min(b * b * MAX_RANGE, distance) - start;
+        let along = start + span * 0.5;
         let point = rays.eye.xyz + direction * along;
         let mist = 0.0022 + 0.0040 * exp(-max(point.y - 66.0, 0.0) * 0.050);
         let transmit = exp(-along * 0.010);
@@ -80,7 +87,7 @@ fn fs_compose(in: Screen) -> @location(0) vec4<f32> {
     let grid = in.uv * vec2<f32>(size) - 0.5;
     let top_left = vec2<i32>(floor(grid));
     let frac = fract(grid);
-    let tolerance = 0.56 + distance * 0.035;
+    let tolerance = 0.35 + distance * 0.014;
     var color = vec3(0.0);
     var norm = 0.0;
     for (var y = 0; y < 2; y++) {
@@ -88,10 +95,14 @@ fn fs_compose(in: Screen) -> @location(0) vec4<f32> {
             let q = clamp(top_left + vec2(x, y), vec2(0), size - 1);
             let sample = textureLoad(half_light, q, 0);
             let bilinear = select(1.0 - frac.x, frac.x, x != 0) * select(1.0 - frac.y, frac.y, y != 0);
-            let weight = bilinear * exp(-abs(sample.a - distance) / tolerance);
+            let delta = sample.a - distance;
+            // Un rayon calculé derrière la silhouette contient de la lumière
+            // que le rayon du premier plan n'a jamais traversée.
+            let behind = 1.0 - smoothstep(tolerance * 0.65, tolerance * 2.0, delta);
+            let weight = bilinear * exp(-abs(delta) / tolerance) * behind;
             color += sample.rgb * weight;
             norm += weight;
         }
     }
-    return vec4(color / max(norm, 0.048), 0.0);
+    return vec4(color / max(norm, 0.18), 0.0);
 }

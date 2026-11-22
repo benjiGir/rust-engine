@@ -25,6 +25,7 @@ struct Particle {
     position: Vec3,
     velocity: Vec3,
     age: f32,
+    surface: f32,
 }
 
 struct Ring {
@@ -49,13 +50,35 @@ pub struct WaterFx {
     drops: Vec<Particle>,
     bubbles: Vec<Particle>,
     rings: Vec<Ring>,
+    item_positions: std::collections::HashMap<crate::entities::NetId, Vec3>,
     /// De 0 (dehors) à 1 (la caméra est sous la surface), lissé.
     underwater: f32,
     /// L'altitude de la surface au-dessus de la caméra.
     surface: f32,
     wake_timer: f32,
+    diving: bool,
     bubble_timer: f32,
     seed: u32,
+}
+
+fn water_at(world: &World, cell: glam::IVec3) -> bool {
+    let def = world.registry().def(world.block(cell));
+    def.liquid && def.alpha < 1.0 && def.light_emission == 0
+}
+
+fn submerged_surface(world: &World, eye: Vec3) -> Option<f32> {
+    let mut cell = eye.floor().as_ivec3();
+    if !water_at(world, cell) {
+        return None;
+    }
+    while water_at(world, cell + glam::IVec3::Y) {
+        cell.y += 1;
+    }
+    let level = world.fluid_amount(cell).map_or(1., |amount| {
+        f32::from(amount) / engine_voxel::FLUID_FULL as f32
+    });
+    let surface = cell.y as f32 + 0.875 * level.min(1.);
+    (eye.y < surface).then_some(surface)
 }
 
 impl WaterFx {
@@ -82,42 +105,26 @@ impl WaterFx {
             swimming,
         } = player;
         // La caméra est-elle sous la surface ?
-        let registry = world.registry();
-        let in_water = registry.def(world.block(eye.floor().as_ivec3())).liquid;
-        let surface = PlayerBody::surface_at(world, eye);
-        let submerged = in_water && surface.is_some_and(|s| eye.y < s);
+        let surface = submerged_surface(world, eye);
+        let submerged = surface.is_some();
         let target = if submerged { 1.0 } else { 0.0 };
         self.underwater += (target - self.underwater) * (dt * 10.0).min(1.0);
-        if let Some(s) = surface.filter(|_| submerged) {
+        if let Some(s) = surface {
             self.surface = s;
         }
 
         // Plonger : une gerbe de gouttes et deux rides qui s'élargissent.
         if splash > MIN_SPLASH
+            && !self.diving
             && let Some(top) = PlayerBody::surface_at(world, feet)
         {
             let center = Vec3::new(feet.x, top, feet.z);
-            let count = (splash * 2.5).clamp(8.0, 36.0) as usize;
-            for _ in 0..count {
-                let angle = self.random() * std::f32::consts::TAU;
-                let out = 0.3 + self.random() * 2.4;
-                let up = 2.0 + self.random() * (1.5 + splash * 0.35).min(6.0);
-                self.drops.push(Particle {
-                    position: center + Vec3::new(angle.cos() * 0.7, 0.05, angle.sin() * 0.7),
-                    velocity: Vec3::new(angle.cos() * out, up, angle.sin() * out),
-                    age: 0.0,
-                });
-            }
-            let strength = (splash / 12.0).clamp(0.4, 1.0);
-            for delay in [0.0, 0.18] {
-                self.rings.push(Ring {
-                    center,
-                    age: 0.0,
-                    delay,
-                    strength,
-                });
+            if water_at(world, (center - Vec3::Y * 0.01).floor().as_ivec3()) {
+                self.impact(center, splash, 0.55);
             }
         }
+
+        self.diving = splash > MIN_SPLASH;
 
         // Nager à la surface laisse un sillage de petites rides.
         self.wake_timer -= dt;
@@ -142,6 +149,7 @@ impl WaterFx {
             self.bubbles.push(Particle {
                 position: eye + offset,
                 velocity: Vec3::new(0.0, rise, 0.0),
+                surface: self.surface,
                 age: 0.0,
             });
         }
@@ -152,18 +160,16 @@ impl WaterFx {
             d.velocity.y -= DROP_GRAVITY * dt;
             d.position += d.velocity * dt;
         }
-        let water_top = PlayerBody::surface_at(world, feet).unwrap_or(f32::MIN);
         self.drops
-            .retain(|d| d.age < 1.6 && (d.age < 0.1 || d.position.y > water_top));
+            .retain(|d| d.age < 1.6 && (d.age < 0.1 || d.position.y > d.surface));
         for b in &mut self.bubbles {
             b.age += dt;
             b.position += b.velocity * dt;
             // Une bulle dérive un peu de côté, comme dans un courant.
             b.position.x += (b.age * 3.0 + b.position.y).sin() * 0.15 * dt;
         }
-        let surface_limit = self.surface;
         self.bubbles
-            .retain(|b| b.age < 6.0 && b.position.y < surface_limit - 0.05);
+            .retain(|b| b.age < 6.0 && b.position.y < b.surface - 0.03);
         for r in &mut self.rings {
             if r.delay > 0.0 {
                 r.delay -= dt;
@@ -172,6 +178,95 @@ impl WaterFx {
             }
         }
         self.rings.retain(|r| r.age < RING_LIFE);
+    }
+
+    fn impact(&mut self, center: Vec3, splash: f32, radius: f32) {
+        let count = (splash * 2.5).clamp(3.0, 36.0) as usize;
+        for _ in 0..count {
+            let angle = self.random() * std::f32::consts::TAU;
+            let out = 0.3 + self.random() * 2.4;
+            let up = 2.0 + self.random() * (1.5 + splash * 0.35).min(6.0);
+            self.drops.push(Particle {
+                position: center + Vec3::new(angle.cos() * radius, 0.05, angle.sin() * radius),
+                velocity: Vec3::new(angle.cos() * out, up, angle.sin() * out),
+                surface: center.y,
+                age: 0.0,
+            });
+        }
+        for _ in 0..count / 2 {
+            let depth = 0.1 + self.random() * (splash * 0.10).min(1.4);
+            let x = (self.random() - 0.5) * radius * 2.;
+            let z = (self.random() - 0.5) * radius * 2.;
+            let rise = 0.45 + self.random() * 0.8;
+            self.bubbles.push(Particle {
+                position: center + Vec3::new(x, -depth, z),
+                velocity: Vec3::new(x * 0.3, rise, z * 0.3),
+                age: 0.,
+                surface: center.y,
+            });
+        }
+        let strength = (splash / 12.0).clamp(0.2, 1.0);
+        for delay in [0.0, 0.18] {
+            self.rings.push(Ring {
+                center,
+                age: 0.0,
+                delay,
+                strength,
+            });
+        }
+    }
+
+    fn item_impacts(
+        &mut self,
+        entities: &crate::client_entities::ClientEntities,
+        world: &World,
+        eye: Vec3,
+        dt: f32,
+    ) {
+        self.item_positions
+            .retain(|id, _| entities.get(*id).is_some());
+        for (id, item) in entities.iter() {
+            if !matches!(item.kind, crate::entities::EntityKind::Item { .. }) {
+                continue;
+            }
+            let position = item.pose_at(entities.now(1.0)).position;
+            let Some(old) = self.item_positions.insert(id, position) else {
+                continue;
+            };
+            if old.y <= position.y || eye.distance_squared(position) > 32. * 32. {
+                continue;
+            }
+            if let Some(top) = PlayerBody::surface_at(world, position)
+                && old.y >= top
+                && position.y < top
+                && water_at(
+                    world,
+                    Vec3::new(position.x, top - 0.01, position.z)
+                        .floor()
+                        .as_ivec3(),
+                )
+            {
+                self.impact(
+                    Vec3::new(position.x, top, position.z),
+                    ((old.y - position.y) / dt.max(0.001) * 0.55).clamp(1.5, 6.),
+                    0.12,
+                );
+            }
+        }
+    }
+
+    fn surface_rings(&self) -> [[f32; 4]; 8] {
+        let mut rings = [[0.; 4]; 8];
+        for (entry, r) in rings
+            .iter_mut()
+            .zip(self.rings.iter().rev().filter(|r| r.delay <= 0.))
+        {
+            *entry = r
+                .center
+                .extend(0.10 + r.age / RING_LIFE * (0.8 + r.strength))
+                .to_array();
+        }
+        rings
     }
 
     /// Les boîtes à dessiner.
@@ -191,30 +286,6 @@ impl WaterFx {
             cube.opacity = 0.55;
             out.push(cube);
         }
-        for r in &self.rings {
-            if r.delay > 0.0 {
-                continue;
-            }
-            let t = r.age / RING_LIFE;
-            let radius = 0.25 + t * 1.6 * (0.6 + 0.4 * r.strength);
-            let fade = (1.0 - t) * r.strength;
-            // Un cercle de petits morceaux posés à la surface.
-            let pieces = (radius * 26.0).clamp(14.0, 52.0) as usize;
-            for i in 0..pieces {
-                let angle = i as f32 / pieces as f32 * std::f32::consts::TAU;
-                let position =
-                    r.center + Vec3::new(angle.cos() * radius, 0.03, angle.sin() * radius);
-                let mut cube = CubeInstance::new(
-                    position,
-                    Vec3::new(0.05, 0.01, 0.05),
-                    Vec3::new(0.9, 0.96, 1.0),
-                );
-                cube.opacity = (fade * 0.6).clamp(0.0, 0.6);
-                if cube.opacity > 0.02 {
-                    out.push(cube);
-                }
-            }
-        }
     }
 }
 
@@ -224,6 +295,12 @@ impl VoxelGame {
         let body = self.client.body.body;
         let (splash, swimming) = (body.splash, body.in_liquid);
         let speed = Vec2::new(body.velocity.x, body.velocity.z).length();
+        self.client.water_fx.item_impacts(
+            &self.client.view.entities,
+            self.client.view.world(),
+            body.eye(),
+            dt,
+        );
         self.client.water_fx.update(
             dt,
             self.client.view.world(),
@@ -235,5 +312,22 @@ impl VoxelGame {
                 swimming,
             },
         );
+        self.client.renderer.water_rings = self.client.water_fx.surface_rings();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn immersion_reaches_the_top_of_a_deep_column() {
+        let mut world = World::new();
+        let water = world.registry().id("core:water").unwrap();
+        for y in 0..12 {
+            world.set_block(glam::IVec3::new(0, y, 0), water);
+        }
+        assert_eq!(submerged_surface(&world, Vec3::splat(0.5)), Some(11.875));
+        assert_eq!(submerged_surface(&world, Vec3::new(0.5, 11.9, 0.5)), None);
     }
 }

@@ -60,10 +60,8 @@ impl<'a> ShaderSources<'a> {
 
     /// Contrôle la syntaxe et les types WGSL sur le CPU.
     pub fn validate(&self) -> Result<()> {
-        for (name, source) in [
-            ("terrain", self.terrain.as_ref()),
-            ("ciel", self.sky.as_ref()),
-        ] {
+        let terrain = crate::renderer::terrain_with_flame(&self.terrain);
+        for (name, source) in [("terrain", terrain.as_str()), ("ciel", self.sky.as_ref())] {
             let module = wgpu::naga::front::wgsl::parse_str(source)
                 .map_err(|error| anyhow::anyhow!("{name} :\n{}", error.emit_to_string(source)))?;
             wgpu::naga::valid::Validator::new(

@@ -24,6 +24,9 @@ use crate::mesh::{self, ColorVertex, Vertex};
 use crate::sky::{Sky, SkyPass};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+// Modes partagés avec torch_flame.wgsl, après les surfaces opaques et découpées.
+const SURFACE_TORCH_FLAME: u32 = 2;
+const SURFACE_TORCH_WOOD: u32 = 3;
 /// Côté par défaut des textures de blocs. Un pack peut utiliser 32 ou 64 pixels.
 pub const TEXTURE_SIZE: u32 = 16;
 
@@ -39,6 +42,20 @@ pub fn texture_side(pixels: &[u8]) -> Option<u32> {
 /// Le shader des chunks, intégré au binaire. Son chemin sur le disque permet au jeu
 /// de le surveiller et de le recharger à chaud pendant le développement.
 pub const CHUNK_SHADER_SOURCE: &str = include_str!("chunk_shader.wgsl");
+pub(crate) const CUBE_SHADER_SOURCE: &str = concat!(
+    include_str!("shader.wgsl"),
+    "\n",
+    include_str!("torch_flame.wgsl")
+);
+pub(crate) const HAND_SHADER_SOURCE: &str = concat!(
+    include_str!("hand.wgsl"),
+    "\n",
+    include_str!("torch_flame.wgsl")
+);
+
+pub(crate) fn terrain_with_flame(source: &str) -> String {
+    format!("{source}\n{}", include_str!("torch_flame.wgsl"))
+}
 pub const CHUNK_SHADER_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/chunk_shader.wgsl");
 
 /// Une boîte à dessiner (les entités sont faites de boîtes colorées) : son centre,
@@ -90,6 +107,23 @@ impl CubeInstance {
     /// centre (voir [`CubeInstance::swing`]).
     pub fn with_swing(mut self, angle: f32, pivot: f32) -> Self {
         self.swing = [angle, pivot];
+        self
+    }
+
+    /// Panneau taillé par le shader de flamme. Le modèle utilise les UV de 0 à 1.
+    pub fn with_flame(mut self) -> Self {
+        self.cutout = SURFACE_TORCH_FLAME;
+        // Les deux grandes faces gardent leurs UV. Les chants exposent l'axe mince
+        // dans leurs UV et sont écartés par le masque de flamme.
+        let thin = if self.size[0] < self.size[2] { 0 } else { 2 };
+        self.uv_min[thin] = -1.0;
+        self.uv_max[thin] = -1.0;
+        self
+    }
+
+    /// Fissures incandescentes du bois brûlé d'une torche.
+    pub fn with_torch_wood(mut self) -> Self {
+        self.cutout = SURFACE_TORCH_WOOD;
         self
     }
 
@@ -296,6 +330,9 @@ struct CameraUniform {
     chest_lids: [[f32; 4]; 4],
     shadow_projection: [[f32; 4]; 4],
     shadow_strength: [f32; 4],
+    water_rings: [[f32; 4]; 8],
+    cloud_weather: [u32; 4],
+    shadow_projection_next: [[f32; 4]; 4],
 }
 
 pub struct Renderer {
@@ -311,6 +348,8 @@ pub struct Renderer {
     index_count: u32,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    shadow_next_buffer: wgpu::Buffer,
+    shadow_next_bind_group: wgpu::BindGroup,
     instance_buffer: wgpu::Buffer,
     instance_capacity: usize,
     instance_count: u32,
@@ -347,6 +386,8 @@ pub struct Renderer {
     /// De 0 (la caméra est dehors) à 1 (sous la surface de l'eau) : active la brume bleue, la
     /// perte des rouges et les reflets mouvants sous l'eau.
     pub underwater: f32,
+    /// Centre monde et rayon des ondes de surface proches.
+    pub water_rings: [[f32; 4]; 8],
     /// L'altitude de la surface au-dessus de la caméra, quand elle est sous l'eau.
     pub water_surface: f32,
     /// Position du bloc (xyz) et angle d'ouverture (w) des couvercles animés.
@@ -438,22 +479,27 @@ impl Renderer {
         let depth_view = create_depth_view(&device, &config);
         let sky_pass = SkyPass::new(&device, format, DEPTH_FORMAT);
 
-        // Caméra : un petit tampon « uniform » lu par le vertex shader.
-        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("camera"),
-            size: size_of::<CameraUniform>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
         let camera_layout = camera_bind_layout(&device);
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("camera"),
-            layout: &camera_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
-        });
+        let camera_binding = |label| {
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: size_of::<CameraUniform>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let binding = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(label),
+                layout: &camera_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                }],
+            });
+            (buffer, binding)
+        };
+        let (camera_buffer, camera_bind_group) = camera_binding("camera");
+        let (shadow_next_buffer, shadow_next_bind_group) =
+            camera_binding("angle suivant des ombres");
 
         // Pipeline des cubes instanciés. Tampon 0 : un sommet du cube.
         // Tampon 1 : une instance, avancée une fois par cube.
@@ -478,7 +524,10 @@ impl Renderer {
         // et un échantillonneur, liés au groupe 1 des shaders de chunks.
         let texture_layout = block_texture_layout(&device);
         let texture_bind_group = create_texture_bind_group(&device, &queue, &texture_layout, &[]);
-        let cube_shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+        let cube_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("cube"),
+            source: wgpu::ShaderSource::Wgsl(CUBE_SHADER_SOURCE.into()),
+        });
         let cube_groups = [Some(&camera_layout), Some(&texture_layout)];
         let pipeline = create_pipeline(
             &device,
@@ -563,7 +612,10 @@ impl Renderer {
                 ],
             }),
         ];
-        let hand_shader = device.create_shader_module(wgpu::include_wgsl!("hand.wgsl"));
+        let hand_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("hand"),
+            source: wgpu::ShaderSource::Wgsl(HAND_SHADER_SOURCE.into()),
+        });
         let hand_groups = [Some(&camera_layout), Some(&texture_layout)];
         let hand_pipeline = create_pipeline(
             &device,
@@ -598,6 +650,8 @@ impl Renderer {
             index_count: indices.len() as u32,
             camera_buffer,
             camera_bind_group,
+            shadow_next_buffer,
+            shadow_next_bind_group,
             instance_buffer,
             instance_capacity,
             instance_count: 0,
@@ -623,6 +677,7 @@ impl Renderer {
             gpu_timer,
             fog: None,
             underwater: 0.0,
+            water_rings: [[0.; 4]; 8],
             water_surface: 0.0,
             chest_lids: [[0.0; 4]; 4],
             sun: Sun::default(),
@@ -1016,6 +1071,7 @@ impl Renderer {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         projection: glam::Mat4,
+        layer: usize,
         timing: Option<wgpu::RenderPassTimestampWrites<'_>>,
         stats: &mut RenderStats,
     ) {
@@ -1034,7 +1090,7 @@ impl Renderer {
             label: Some("ombres solaires"),
             color_attachments: &[],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: self.sun_shadows.view(),
+                view: self.sun_shadows.view(layer),
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
                     store: wgpu::StoreOp::Store,
@@ -1045,7 +1101,12 @@ impl Renderer {
             ..Default::default()
         });
         pass.set_pipeline(&self.chunk_pipelines.shadow);
-        pass.set_bind_group(0, &self.camera_bind_group, &[]);
+        let camera = if layer == 0 {
+            &self.camera_bind_group
+        } else {
+            &self.shadow_next_bind_group
+        };
+        pass.set_bind_group(0, camera, &[]);
         pass.set_bind_group(1, &self.texture_bind_group, &[]);
         let mut chunks = ChunkDraws::new(&self.arena, &self.origins);
         chunks.begin(&mut pass);
@@ -1099,6 +1160,8 @@ impl Renderer {
         let moon = shadow
             .filter(|frame| frame.moon)
             .map_or(0.0, |frame| frame.strength);
+        let projections = shadow.map_or([glam::Mat4::IDENTITY; 2], |frame| frame.projections);
+        let shadow_blend = shadow.map_or(0.0, |frame| frame.blend);
         let uniform = CameraUniform {
             view_proj: view_proj.to_cols_array_2d(),
             camera_fog_start: camera.position.extend(fog.start).to_array(),
@@ -1112,10 +1175,18 @@ impl Renderer {
                 if self.sky.is_some() { 1.0 } else { 0.0 },
             ],
             chest_lids: self.chest_lids,
-            shadow_projection: shadow
-                .map_or(glam::Mat4::IDENTITY, |frame| frame.projection)
-                .to_cols_array_2d(),
-            shadow_strength: [shadow_strength, moon, crate::sun_shadows::DEPTH_SPAN, 0.0],
+            shadow_projection: projections[0].to_cols_array_2d(),
+            shadow_projection_next: projections[1].to_cols_array_2d(),
+            water_rings: self.water_rings,
+            cloud_weather: self
+                .sky
+                .map_or([0; 4], |sky| [sky.seed, sky.time.to_bits(), 0, 0]),
+            shadow_strength: [
+                shadow_strength,
+                moon,
+                crate::sun_shadows::DEPTH_SPAN,
+                shadow_blend,
+            ],
         };
         let frustum = Frustum::from_view_proj(view_proj);
         if let Some(timer) = &mut self.gpu_timer {
@@ -1164,7 +1235,7 @@ impl Renderer {
                     self.hand_light[0],
                     self.hand_light[1],
                     self.sun.daylight,
-                    0.0,
+                    self.time,
                 ],
                 sun_color: self.sun.color.extend(1.0).to_array(),
             };
@@ -1195,7 +1266,15 @@ impl Renderer {
             })
         };
         if let Some(shadow) = shadow {
-            self.encode_sun_shadow(&mut encoder, shadow.projection, begin_timing(), &mut stats);
+            let next = CameraUniform {
+                shadow_projection: uniform.shadow_projection_next,
+                ..uniform
+            };
+            self.queue
+                .write_buffer(&self.shadow_next_buffer, 0, bytemuck::bytes_of(&next));
+            for (layer, projection) in shadow.projections.into_iter().enumerate() {
+                self.encode_sun_shadow(&mut encoder, projection, layer, begin_timing(), &mut stats);
+            }
         }
         if draw_sky.is_some() {
             self.sky_pass
@@ -1358,7 +1437,8 @@ impl Renderer {
                     surface: view,
                     shadows: self.sun_shadows.binding(),
                     view_projection: view_proj,
-                    shadow_projection: shadow.projection,
+                    shadow_projections: shadow.projections,
+                    shadow_blend: shadow.blend,
                     eye: camera.position,
                     direction: self.sun.direction.normalize_or_zero()
                         * if shadow.moon { -1.0 } else { 1.0 },
@@ -1776,7 +1856,7 @@ fn create_chunk_pipelines(
     ];
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("chunk shader"),
-        source: wgpu::ShaderSource::Wgsl(source.into()),
+        source: wgpu::ShaderSource::Wgsl(terrain_with_flame(source).into()),
     });
     let caster_groups = [Some(camera_layout), Some(texture_layout)];
     let groups = [
@@ -1908,17 +1988,44 @@ fn create_texture_bind_group(
 fn downsample(pixels: &[u8], size: u32) -> Vec<u8> {
     let half = (size / 2).max(1);
     let mut out = vec![0u8; (half * half * 4) as usize];
+    // L'atlas est sRGB. Les texels transparents ne doivent pas noircir le feuillage.
+    static LINEAR: std::sync::LazyLock<[f32; 256]> = std::sync::LazyLock::new(|| {
+        std::array::from_fn(|i| {
+            let v = i as f32 / 255.;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        })
+    });
     for y in 0..half {
         for x in 0..half {
-            for c in 0..4 {
-                let mut sum = 0u32;
-                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                    let sx = (x * 2 + dx).min(size - 1);
-                    let sy = (y * 2 + dy).min(size - 1);
-                    sum += pixels[((sx + sy * size) * 4 + c) as usize] as u32;
+            let mut rgb = [0.; 3];
+            let mut alpha = 0u32;
+            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                let i =
+                    (((2 * y + dy).min(size - 1) * size + (2 * x + dx).min(size - 1)) * 4) as usize;
+                let weight = pixels[i + 3];
+                alpha += u32::from(weight);
+                for c in 0..3 {
+                    rgb[c] += LINEAR[pixels[i + c] as usize] * f32::from(weight);
                 }
-                out[((x + y * half) * 4 + c) as usize] = (sum / 4) as u8;
             }
+            let i = ((x + y * half) * 4) as usize;
+            if alpha > 0 {
+                for c in 0..3 {
+                    let mean = rgb[c] / alpha as f32;
+                    let hi = LINEAR.partition_point(|&v| v < mean).min(255);
+                    let lo = hi.saturating_sub(1);
+                    out[i + c] = if mean - LINEAR[lo] < LINEAR[hi] - mean {
+                        lo
+                    } else {
+                        hi
+                    } as u8;
+                }
+            }
+            out[i + 3] = ((alpha + 2) / 4) as u8;
         }
     }
     out
@@ -1983,6 +2090,15 @@ fn create_pipeline(
 #[cfg(test)]
 mod texture_pack_tests {
     use super::*;
+
+    #[test]
+    fn mipmaps_preserve_leaf_color_and_linear_light() {
+        let green = [36, 146, 80, 255];
+        let masked = [green, [0; 4], [0; 4], [0; 4]].concat();
+        assert_eq!(downsample(&masked, 2), [36, 146, 80, 64]);
+        let contrast = [[0, 0, 0, 255], [255; 4], [0, 0, 0, 255], [255; 4]].concat();
+        assert_eq!(downsample(&contrast, 2), [188, 188, 188, 255]);
+    }
 
     #[test]
     fn rgba_sizes_and_the_full_mip_chain_keep_the_64_pixel_image() {
@@ -2074,7 +2190,7 @@ mod shadow_pipeline_tests {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: shadow.view(),
+                    view: shadow.view(0),
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,

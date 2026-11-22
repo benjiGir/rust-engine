@@ -240,23 +240,7 @@ pub(super) fn cactus(top: bool) -> Image {
 }
 
 pub(super) fn torch() -> Image {
-    let wood = [0.45, 0.32, 0.22];
-    let mut image = Image::filled(wood);
-    for y in 0..16 {
-        for x in 0..16 {
-            image.set(
-                x,
-                y,
-                if (2..8).contains(&y) {
-                    [0.90, 0.62, 0.25]
-                } else if y == 8 || y == 11 {
-                    super::COPPER
-                } else {
-                    scale(wood, if x % 3 == 0 { 0.8 } else { 1.1 })
-                },
-            );
-        }
+    Image {
+        pixels: super::torch_wood(16).try_into().unwrap(),
     }
-    super::workstations::rect(&mut image, [6, 5, 10, 7], [0.98, 0.83, 0.46]);
-    image
 }

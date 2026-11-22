@@ -11,9 +11,10 @@ pub(crate) const SOURCE: &str = include_str!("sun_rays.wgsl");
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Uniform {
     inverse_view_projection: [[f32; 4]; 4],
-    shadow_projection: [[f32; 4]; 4],
+    shadow_projections: [[[f32; 4]; 4]; 2],
     eye: [f32; 4],
     light: [f32; 4],
+    shadow_blend: [f32; 4],
 }
 
 pub(crate) struct RayFrame<'a> {
@@ -22,7 +23,8 @@ pub(crate) struct RayFrame<'a> {
     pub surface: &'a wgpu::TextureView,
     pub shadows: &'a wgpu::BindGroup,
     pub view_projection: Mat4,
-    pub shadow_projection: Mat4,
+    pub shadow_projections: [Mat4; 2],
+    pub shadow_blend: f32,
     pub eye: Vec3,
     pub direction: Vec3,
     pub intensity: f32,
@@ -183,7 +185,10 @@ impl SunRays {
         let image = self.target.as_ref().expect("cible de diffusion");
         let uniform = Uniform {
             inverse_view_projection: frame.view_projection.inverse().to_cols_array_2d(),
-            shadow_projection: frame.shadow_projection.to_cols_array_2d(),
+            shadow_projections: frame
+                .shadow_projections
+                .map(|matrix| matrix.to_cols_array_2d()),
+            shadow_blend: [frame.shadow_blend, 0.0, 0.0, 0.0],
             eye: frame.eye.extend(frame.intensity).to_array(),
             light: frame.direction.extend(f32::from(frame.moon)).to_array(),
         };
@@ -323,7 +328,8 @@ mod tests {
                 surface: &surface,
                 shadows: shadow.binding(),
                 view_projection: Mat4::IDENTITY,
-                shadow_projection: Mat4::IDENTITY,
+                shadow_projections: [Mat4::IDENTITY; 2],
+                shadow_blend: 0.5,
                 eye: Vec3::ZERO,
                 direction: Vec3::Y,
                 intensity: 1.0,

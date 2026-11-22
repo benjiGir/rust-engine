@@ -650,8 +650,8 @@ mod tests {
             assert_eq!(held.len(), 3 + source.len(), "{key}");
             for (part, raw) in held[3..].iter().zip(&source) {
                 assert_eq!(
-                    (part.textures, part.uv_min, part.uv_max),
-                    (raw.textures, raw.uv_min, raw.uv_max),
+                    (part.textures, part.cutout, part.uv_min, part.uv_max),
+                    (raw.textures, raw.cutout, raw.uv_min, raw.uv_max),
                     "{key}"
                 );
             }

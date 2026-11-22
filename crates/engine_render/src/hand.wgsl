@@ -9,7 +9,7 @@ struct Hand {
     // La projection propre au bras (son propre champ de vision).
     proj: mat4x4<f32>,
     // x : lumière du ciel, y : lumière des blocs (de 0 à 1) à la position du joueur,
-    // z : intensité du jour.
+    // z : intensité du jour, w : temps pour les flammes.
     light: vec4<f32>,
     // rgb : teinte de la lumière du ciel.
     sun_color: vec4<f32>,
@@ -87,12 +87,20 @@ fn brightness(level: f32) -> f32 {
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let albedo = in.color * textureSample(block_textures, block_sampler, in.uv, in.texture);
+    if in.cutout == SURFACE_TORCH_FLAME {
+        let flame = torch_flame(in.uv, hand.light.w, 0.0);
+        if flame.a < 0.5 { discard; }
+        return flame;
+    }
     if in.cutout != 0u && albedo.a < 0.5 { discard; }
     // La lumière du lieu où se tient le joueur : le bras est sombre dans une grotte.
     let sky = brightness(hand.light.x) * hand.light.z * hand.sun_color.rgb;
     let torch = brightness(hand.light.y) * vec3<f32>(1.0, 0.82, 0.6);
     // Un relief simple : une lumière qui vient d'en haut à gauche, dans la vue.
     let facing = max(dot(in.normal, normalize(vec3<f32>(-0.4, 0.8, 0.45))), 0.0);
-    let lit = albedo.rgb * (max(sky, torch) + 0.04) * (0.55 + 0.45 * facing);
+    var lit = albedo.rgb * (max(sky, torch) + 0.04) * (0.55 + 0.45 * facing);
+    if in.cutout == SURFACE_TORCH_WOOD {
+        lit += torch_embers(albedo.rgb, hand.light.w, 0.0);
+    }
     return vec4<f32>(lit, albedo.a);
 }

@@ -42,9 +42,9 @@ mod tests {
     #[test]
     fn shaders_are_valid_wgsl() {
         for source in [
-            super::CHUNK_SHADER_SOURCE,
-            include_str!("shader.wgsl"),
-            include_str!("hand.wgsl"),
+            &crate::renderer::terrain_with_flame(super::CHUNK_SHADER_SOURCE),
+            crate::renderer::CUBE_SHADER_SOURCE,
+            crate::renderer::HAND_SHADER_SOURCE,
             include_str!("sky.wgsl"),
             crate::sun_rays::SOURCE,
         ] {

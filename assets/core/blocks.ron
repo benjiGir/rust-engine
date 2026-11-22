@@ -77,14 +77,12 @@
         sounds: (step: "step_hard", break: "break_glass", place: "place_hard"),
         hardness: 0.3,
     ),
-    // Une torche simplifiée : un cube lumineux qu'on traverse.
+    // Le bois et la tête carbonisée. La flamme est dessinée au-dessus du bois.
     (
-        id: "core:torch", name: "Torche", color: (0.4270, 0.2022, 0.0563),
+        id: "core:torch", name: "Torche", color: (0.1271, 0.0510, 0.0233),
         boxes: [
-            (from: (7, 0, 7), to: (9, 8, 9)),
-            (from: (6, 7, 6), to: (10, 9, 10)),
-            (from: (6, 9, 6), to: (10, 12, 10)),
-            (from: (7, 12, 7), to: (9, 14, 9)),
+            (from: (7, 0, 7), to: (9, 9, 9)),
+            (from: (6, 8, 6), to: (10, 10, 10)),
         ],
         solid: false, light_emission: 14, light_opacity: 0, texture: "torch",
         sounds: (break: "break_soft", place: "place_soft"),

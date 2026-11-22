@@ -8,11 +8,24 @@ use glam::Vec3;
 pub const ICON_SIZE: usize = 32;
 
 pub fn block_icon(blocks: &BlockRegistry, block: BlockId, textures: &[Vec<u8>]) -> Vec<u8> {
+    let def = blocks.def(block);
+    if def.key == engine_voxel::torch::KEY
+        && let Some(path) = blocks.asset_path(&def.key, "items", "png")
+        && let Ok(icon) = image::open(path)
+    {
+        return image::imageops::resize(
+            &icon.to_rgba8(),
+            ICON_SIZE as u32,
+            ICON_SIZE as u32,
+            image::imageops::FilterType::Nearest,
+        )
+        .into_raw();
+    }
     if let Some(parts) = engine_voxel::paired_block::display_parts(blocks, block) {
         let parts = parts.map(|(id, offset)| (blocks.def(id), offset));
         render(&parts, textures, 12.5)
     } else {
-        render(&[(blocks.def(block), Vec3::ZERO)], textures, 17.0)
+        render(&[(def, Vec3::ZERO)], textures, 17.0)
     }
 }
 

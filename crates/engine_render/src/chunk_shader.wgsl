@@ -16,8 +16,11 @@ struct Camera {
     water: vec4<f32>,
     chest_lids: array<vec4<f32>, 4>,
     shadow_projection: mat4x4<f32>,
-    // x : poids de l’ombre, y : lumière lunaire, z : profondeur de la carte en blocs.
+    // Poids de l’ombre, lumière lunaire, profondeur en blocs, mélange des deux angles.
     shadow_strength: vec4<f32>,
+    water_rings: array<vec4<f32>, 8>,
+    cloud_weather: vec4<u32>,
+    shadow_projection_next: mat4x4<f32>,
 };
 
 @group(0) @binding(0)
@@ -28,7 +31,7 @@ var<uniform> camera: Camera;
 var block_textures: texture_2d_array<f32>;
 @group(1) @binding(1)
 var block_sampler: sampler;
-@group(2) @binding(0) var sun_depth: texture_depth_2d;
+@group(2) @binding(0) var sun_depth: texture_depth_2d_array;
 @group(2) @binding(1) var sun_compare: sampler_comparison;
 
 struct VertexIn {
@@ -67,6 +70,8 @@ const TURN_SHIFT: u32 = 23u;        // 2 bits : quarts de tour de la texture (le
 const FLAG_MODEL_UV: u32 = 1u << 25u;
 const FLAG_DOOR_OPEN: u32 = 1u << 26u;
 const FLAG_CHEST_LID: u32 = 1u << 27u;
+const FLAG_TORCH_FLAME: u32 = 1u << 28u;
+const FLAG_TORCH_WOOD: u32 = 1u << 29u;
 const TEXTURE_MASK: u32 = 65535u;
 
 struct VertexOut {
@@ -97,7 +102,7 @@ fn rotate_axis(v: vec3<f32>, axis: vec3<f32>, angle: f32) -> vec3<f32> {
     return v * c + cross(axis, v) * sin(angle) + axis * dot(axis, v) * (1.0 - c);
 }
 
-fn project_vertex(vertex: VertexIn, projection: mat4x4<f32>) -> VertexOut {
+fn project_vertex(vertex: VertexIn, projection: mat4x4<f32>, foliage_wind: bool) -> VertexOut {
     var out: VertexOut;
     var local = vec3<f32>(vertex.position.xyz) / POSITION_SCALE - vec3<f32>(POSITION_BIAS);
     if vertex.uv_base.w > 1.0 {
@@ -159,7 +164,7 @@ fn project_vertex(vertex: VertexIn, projection: mat4x4<f32>) -> VertexOut {
     // Le vent : un petit déplacement horizontal qui ne dépend que de la position dans le
     // monde et du temps. Deux sommets au même endroit bougent pareil : les feuilles
     // voisines restent jointes. Un sommet trop éclairé par le ciel (dehors) bouge plus.
-    if (vertex.texture & FLAG_SWAY) != 0u {
+    if foliage_wind && (vertex.texture & FLAG_SWAY) != 0u {
         let t = camera.sun_color.w;
         let p = world;
         let amount = 0.05 * (0.4 + 0.6 * vertex.light.x);
@@ -183,12 +188,14 @@ fn project_vertex(vertex: VertexIn, projection: mat4x4<f32>) -> VertexOut {
 
 @vertex
 fn vs_main(vertex: VertexIn) -> VertexOut {
-    return project_vertex(vertex, camera.view_proj);
+    return project_vertex(vertex, camera.view_proj, true);
 }
 
 @vertex
 fn vs_sun_shadow(vertex: VertexIn) -> VertexOut {
-    return project_vertex(vertex, camera.shadow_projection);
+    // Le vent du feuillage est un détail visuel. Déplacer le masque d'ombre
+    // ferait passer ses petits trous d'un texel à l'autre à chaque rafale.
+    return project_vertex(vertex, camera.shadow_projection, false);
 }
 
 // Un niveau de lumière (0 à 1) vers une luminosité. Chaque niveau en moins divise
@@ -240,7 +247,8 @@ fn fall_streaks(along: f32, down: f32, t: f32) -> f32 {
     var total = 0.0;
     for (var layer = 0; layer < 2; layer++) {
         let scale = select(5.0, 11.0, layer == 1);
-        let column = along * scale + f32(layer) * 17.0;
+        let flutter = sin(down * 1.7 + t * 2.8 + along * 2.2) * 0.21;
+        let column = (along + flutter / scale) * scale + f32(layer) * 17.0;
         let id = floor(column);
         let f = fract(column);
         let h = fract(sin(id * 12.9898 + f32(layer) * 3.7) * 43758.5453);
@@ -251,6 +259,29 @@ fn fall_streaks(along: f32, down: f32, t: f32) -> f32 {
         total += ribbon * (0.25 + 0.75 * bright) * select(1.0, 0.6, layer == 1);
     }
     return clamp(total * 0.7, 0.0, 1.0);
+}
+
+fn cloud_hash_bits(key: u32) -> f32 {
+    var bits = key;
+    bits = (bits ^ (bits >> 16u)) * 0x7feb352du;
+    bits = (bits ^ (bits >> 15u)) * 0x846ca68bu;
+    return f32((bits ^ (bits >> 16u)) >> 8u) * (1.0 / 16777216.0);
+}
+
+fn cloud_hash(cell: vec2<i32>, salt: u32) -> f32 {
+    let p = bitcast<vec2<u32>>(cell);
+    return cloud_hash_bits((p.x * 0x8da6b343u) ^ (p.y * 0xd8163841u) ^ (salt * 0xcb1ab31fu));
+}
+
+fn cloud_noise(p: vec2<f32>, salt: u32) -> f32 {
+    let cell = vec2<i32>(floor(p));
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(cloud_hash(cell, salt), cloud_hash(cell + vec2(1, 0), salt), u.x),
+        mix(cloud_hash(cell + vec2(0, 1), salt), cloud_hash(cell + vec2(1, 1), salt), u.x),
+        u.y,
+    );
 }
 
 fn reflected_sky(ray: vec3<f32>, sun: vec3<f32>) -> vec3<f32> {
@@ -268,7 +299,7 @@ fn reflected_sky(ray: vec3<f32>, sun: vec3<f32>) -> vec3<f32> {
     return mix(haze, color, camera.water.w);
 }
 
-fn water_surface(in: VertexOut, albedo: vec4<f32>, light: vec3<f32>, sun: vec3<f32>, visibility: f32) -> vec4<f32> {
+fn water_surface(in: VertexOut, albedo: vec4<f32>, light: vec3<f32>, sun: vec3<f32>, visibility: f32, shore_slope: f32) -> vec4<f32> {
     let time = camera.sun_color.w;
     let to_eye = camera.position_fog_start.xyz - in.world_position;
     let distance = max(length(to_eye), 0.001);
@@ -286,7 +317,19 @@ fn water_surface(in: VertexOut, albedo: vec4<f32>, light: vec3<f32>, sun: vec3<f
         let swell_dir = vec2<f32>(0.29, -0.19);
         let swell = cos(dot(p, swell_dir) - time * 0.57);
         let gradient = wave_gradient(p, time, fine) + swell_dir * (0.10 * swell);
-        normal = normalize(normal - vec3<f32>(gradient.x, 0.0, gradient.y) * (1.0 - calm) * (1.0 - fall));
+        var impact = vec2<f32>(0.0);
+        for (var i = 0u; i < 8u; i++) {
+            let ring = camera.water_rings[i];
+            if ring.w == 0.0 { break; }
+            let delta = in.world_position.xz - ring.xz;
+            let r = length(delta);
+            let offset = r - ring.w;
+            if abs(offset) < 0.38 && abs(in.world_position.y - ring.y) < 0.32 {
+                let envelope = exp(-45.0 * offset * offset) * (1.0 - smoothstep(0.2, 2.0, ring.w));
+                impact += delta / max(r, 0.02) * sin(offset * 20.0) * envelope * 0.20;
+            }
+        }
+        normal = normalize(normal - vec3<f32>(gradient.x + impact.x, 0.0, gradient.y + impact.y) * (1.0 - calm) * (1.0 - fall));
     }
     normal = select(-normal, normal, dot(normal, view) >= 0.0);
     let angle = clamp(dot(view, normal), 0.0, 1.0);
@@ -297,7 +340,20 @@ fn water_surface(in: VertexOut, albedo: vec4<f32>, light: vec3<f32>, sun: vec3<f
     let sky_visible = smoothstep(0.34, 0.89, in.light.x);
     let immersed = camera.water.x;
     let inside = albedo.rgb * light * vec3<f32>(0.44, 0.91, 1.1);
-    let sky = mix(inside * 0.55, reflected_sky(reflection, sun), sky_visible);
+    // Projection sur une couche nuageuse au-dessus du monde. Les rides
+    // déplacent le reflet et les nuages se fondent dans la brume à l’horizon.
+    let cloud_plane = max(234.0 - in.world_position.y, 0.0);
+    let drift_time = bitcast<f32>(camera.cloud_weather.y);
+    let cloud_pos = in.world_position.xz + reflection.xz * cloud_plane / max(reflection.y, 0.06)
+        - drift_time * vec2<f32>(1.45, 0.36);
+    let seed = camera.cloud_weather.x;
+    let weather = cloud_noise(cloud_pos * 0.0048, seed) * 0.72
+        + cloud_noise(cloud_pos * 0.011 + 41.3, seed + 5u) * 0.28;
+    let cloud = smoothstep(0.44, 0.72, weather + camera.water.z * 0.20)
+        * smoothstep(0.05, 0.23, reflection.y) * smoothstep(0.0, 20.0, cloud_plane);
+    let environment = mix(reflected_sky(reflection, sun), camera.fog_color_end.rgb,
+        cloud * (0.32 + 0.30 * camera.water.z) * camera.water.w);
+    let sky = mix(inside * 0.55, environment, sky_visible);
     let reflected = mix(sky, inside, immersed);
     // Sous l'eau, la surface devient un miroir au-delà de l'angle critique.
     fresnel = mix(fresnel, max(fresnel, 1.0 - smoothstep(0.62, 0.70, angle)), immersed * f32(top));
@@ -340,10 +396,16 @@ fn water_surface(in: VertexOut, albedo: vec4<f32>, light: vec3<f32>, sun: vec3<f
         let along = dot(in.world_position.xz, across);
         let descent = select(in.world_position.y, -dot(in.world_position.xz, flow) * 1.3, top);
         let streak = fall_streaks(along, descent, time) * (1.0 - calm);
-        let spray = mix(albedo.rgb * light, vec3<f32>(0.67, 0.83, 0.88) * light, streak * 0.68);
-        return mix(vec4<f32>(surface_color, surface_alpha), vec4<f32>(spray, 0.22 + streak * 0.26), fall);
+        let spray = mix(albedo.rgb * light, vec3<f32>(0.67, 0.83, 0.88) * light, smoothstep(0.18, 0.84, streak) * 0.82);
+        return mix(vec4<f32>(surface_color, surface_alpha), vec4<f32>(spray, 0.19 + streak * 0.46), fall);
     }
-    return vec4<f32>(surface_color, surface_alpha);
+    // Le gradient de bathymétrie réserve le ressac aux rives en pente.
+    let bank = (1.0 - smoothstep(0.45, 1.35, depth)) * smoothstep(0.02, 0.22, shore_slope);
+    // Le front d'écume avance vers les profondeurs décroissantes.
+    let surge = sin(depth * 13.0 + time * 2.3 + sin(dot(in.world_position.xz, vec2<f32>(1.3, 0.8))));
+    let foam = bank * smoothstep(0.64, 0.98, surge) * 0.56 * (1.0 - immersed);
+    return vec4<f32>(mix(surface_color, vec3<f32>(0.70, 0.83, 0.81) * light, foam),
+        mix(surface_alpha, 0.92, foam));
 }
 
 // Entrées de l'effet de terrain V1. Couleurs RGB linéaires, distances en blocs.
@@ -387,74 +449,103 @@ fn block_uv(in: VertexOut) -> vec2<f32> {
 
 @fragment
 fn fs_sun_shadow(in: VertexOut) {
+    let uv = block_uv(in);
+    let dx = dpdx(uv);
+    let dy = dpdy(uv);
+    if (in.flags & FLAG_TORCH_FLAME) != 0u { discard; }
     if (in.flags & FLAG_CUTOUT) != 0u && (in.flags & FLAG_FILLED) == 0u {
-        let mask = textureSampleLevel(block_textures, block_sampler, block_uv(in), in.texture, 0.0);
+        // Un texel d'ombre couvre plusieurs pixels du feuillage. Intégrer une
+        // empreinte un peu plus large filtre les petites ouvertures instables.
+        let footprint = select(1.0, 1.7, (in.flags & FLAG_SWAY) != 0u);
+        let mask = textureSampleGrad(block_textures, block_sampler, uv, in.texture, dx * footprint, dy * footprint);
         if mask.a < 0.5 {
             discard;
         }
     }
 }
 
-// Un disque fixe répartit les prélèvements autour du point éclairé.
-const SHADOW_DISK = array(
-    vec2(-0.88, -0.34), vec2(-0.37, -0.86), vec2(0.38, -0.85), vec2(0.89, -0.36),
-    vec2(0.88, 0.34), vec2(0.37, 0.86), vec2(-0.38, 0.85), vec2(-0.89, 0.36),
-);
-const SHADOW_MAX_RADIUS: f32 = 3.65;
-
-fn filtered_shadow(uv: vec2<f32>, reference: f32) -> f32 {
-    let size = textureDimensions(sun_depth);
-    let texel = 1.0 / vec2<f32>(size);
-    let center = textureSampleCompareLevel(sun_depth, sun_compare, uv, reference);
-    var probes = center;
-    for (var i = 0u; i < 4u; i++) {
-        let offset = SHADOW_DISK[i * 2u] * SHADOW_MAX_RADIUS;
-        probes += textureSampleCompareLevel(sun_depth, sun_compare, uv + texel * offset, reference);
+// Noyau cubique centré sur le pixel. Les texels qui entrent ou sortent
+// du noyau ont un poids nul à la limite de son support.
+fn shadow_weight(distance: f32) -> f32 {
+    let d = abs(distance);
+    if d < 1.0 {
+        return 4.0 - 6.0 * d * d + 3.0 * d * d * d;
     }
-    // L'intérieur de l'ombre et les surfaces entièrement éclairées n'ont
-    // pas besoin de la recherche de l'obstacle ni du filtre complet.
-    if probes <= 0.001 || probes >= 4.999 {
-        return center;
-    }
-
-    var blockers = 0.0;
-    var total = 0.0;
-    let pixel_max = vec2<i32>(size) - 1;
-    for (var i = 0u; i < 5u; i++) {
-        let offset = SHADOW_DISK[(i * 2u) % 8u] * (SHADOW_MAX_RADIUS + 0.35) * f32(i != 4u);
-        let pixel = clamp(vec2<i32>(floor(uv * vec2<f32>(size) + offset)), vec2(0), pixel_max);
-        let depth = textureLoad(sun_depth, pixel, 0);
-        if depth < reference {
-            total += reference - depth;
-            blockers += 1.0;
-        }
-    }
-    // Un contact reste net. L'ombre s'ouvre quand la lumière parcourt
-    // plusieurs blocs entre l'obstacle et la surface qui la reçoit.
-    let gap = total * camera.shadow_strength.z / max(blockers, 1.0);
-    let radius = mix(1.48, SHADOW_MAX_RADIUS, smoothstep(0.45, 7.2, gap));
-    var result = center;
-    for (var i = 0u; i < 8u; i++) {
-        let offset = SHADOW_DISK[i] * radius;
-        result += textureSampleCompareLevel(sun_depth, sun_compare, uv + texel * offset, reference);
-    }
-    return result / 9.0;
+    let tail = max(2.0 - d, 0.0);
+    return tail * tail * tail;
 }
 
-// Le décalage évite l'auto-ombrage et la limite de la carte reste fondue.
+fn filtered_shadow(uv: vec2<f32>, reference: f32, slope: vec2<f32>, elevation: f32, layer: i32) -> f32 {
+    let size = vec2<i32>(textureDimensions(sun_depth));
+    let pixel = uv * vec2<f32>(size) - 0.5;
+    let depth_step = slope / vec2<f32>(size);
+    // Au soleil bas, un texel projeté couvre une bande plus longue au sol.
+    // Une bordure un peu plus douce évite que ces bandes apparaissent par à-coups.
+    let scale = 1.0 + 0.25 * (1.0 - smoothstep(0.13, 0.42, elevation));
+    let wide = scale > 1.0;
+    let width = select(4, 5, wide);
+    let start = vec2<i32>(floor(pixel + select(0.0, 0.5, wide))) - select(1, 2, wide);
+    let offset = vec2<f32>(start) - pixel;
+
+    var wx: array<f32, 5>;
+    var wy: array<f32, 5>;
+    for (var i = 0; i < width; i++) {
+        wx[i] = shadow_weight((offset.x + f32(i)) / scale);
+        wy[i] = shadow_weight((offset.y + f32(i)) / scale);
+    }
+    // Une mince bande autour du plan fait varier la comparaison en continu
+    // quand la profondeur d'une face et celle d'un texel sont presque égales.
+    let depth_feather = 0.006 / camera.shadow_strength.z;
+    var visible = 0.0;
+    var norm = 0.0;
+    for (var y = 0; y < width; y++) {
+        for (var x = 0; x < width; x++) {
+            let at = clamp(start + vec2(x, y), vec2(0), size - 1);
+            let depth = textureLoad(sun_depth, at, layer, 0);
+            let receiver = reference + dot(vec2<f32>(at) - pixel, depth_step);
+            let weight = wx[x] * wy[y];
+            visible += weight * smoothstep(-depth_feather, depth_feather, depth - receiver);
+            norm += weight;
+        }
+    }
+    return visible / norm;
+}
+
+fn shadow_visibility(world: vec3<f32>, normal: vec3<f32>, projection: mat4x4<f32>, layer: i32) -> f32 {
+    let axes = transpose(projection);
+    let toward_light = -normalize(axes[2].xyz);
+    let facing = dot(normal, toward_light);
+    // Une face rasante reçoit peu de lumière directe. Sa profondeur projetée
+    // devient mal conditionnée lorsqu'elle est parallèle aux rayons.
+    let direct = smoothstep(0.05, 0.20, facing);
+    if direct <= 0.0 {
+        return 0.0;
+    }
+    let p = (projection * vec4(world, 1.0)).xyz;
+    let edge = max(abs(p.x), abs(p.y));
+    if edge >= 0.995 || p.z <= 0.0 || p.z >= 1.0 {
+        return direct;
+    }
+    let uv = vec2(0.5 + 0.5 * p.x, 0.5 - 0.5 * p.y);
+    let coverage = 1.0 - smoothstep(0.76, 0.995, edge);
+    let slope = vec2(dot(normal, axes[0].xyz) / dot(axes[0].xyz, axes[0].xyz),
+                    -dot(normal, axes[1].xyz) / dot(axes[1].xyz, axes[1].xyz))
+        * (2.0 * length(axes[2].xyz) / facing);
+    // Petit biais numérique en profondeur. Le point reste sur la géométrie :
+    // le décaler le long de la normale détacherait l'ombre au pied des blocs.
+    let bias = 0.012 / camera.shadow_strength.z;
+    let shadow = filtered_shadow(uv, p.z - bias, slope, toward_light.y, layer);
+    return direct * mix(1.0, shadow, coverage);
+}
+
 fn solar_visibility(world: vec3<f32>, normal: vec3<f32>) -> f32 {
     let strength = camera.shadow_strength.x;
     if strength <= 0.0 {
         return 1.0;
     }
-    let p = (camera.shadow_projection * vec4(world + normal * 0.035, 1.0)).xyz;
-    let edge = max(abs(p.x), abs(p.y));
-    if edge >= 0.995 || p.z <= 0.0 || p.z >= 1.0 {
-        return 1.0;
-    }
-    let uv = vec2(0.5 + 0.5 * p.x, 0.5 - 0.5 * p.y);
-    let coverage = (1.0 - smoothstep(0.76, 0.995, edge)) * strength;
-    return mix(1.0, filtered_shadow(uv, p.z - 0.00013), coverage);
+    let a = shadow_visibility(world, normal, camera.shadow_projection, 0);
+    let b = shadow_visibility(world, normal, camera.shadow_projection_next, 1);
+    return mix(1.0, mix(a, b, camera.shadow_strength.w), strength);
 }
 
 @fragment
@@ -529,10 +620,22 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     light *= 0.45 + 0.55 * in.light.z;
     var lit = albedo.rgb * light;
     var alpha = albedo.a;
+    let shore_slope = length(vec2<f32>(
+        dpdx(in.water_depth) / max(length(dpdx(in.world_position)), 0.001),
+        dpdy(in.water_depth) / max(length(dpdy(in.world_position)), 0.001)));
     if is_water {
-        let surface = water_surface(in, albedo, light, sun_direction, visibility);
+        let surface = water_surface(in, albedo, light, sun_direction, visibility, shore_slope);
         lit = surface.rgb;
         alpha = surface.a;
+    }
+    if (in.flags & FLAG_TORCH_FLAME) != 0u {
+        let flame = torch_flame(in.color.xy, time, in.color.z * 16.0);
+        if flame.a < 0.5 { discard; }
+        lit = flame.rgb;
+    }
+    if (in.flags & FLAG_TORCH_WOOD) != 0u {
+        let phase = dot(floor(in.tex_position), vec3(0.71, 0.51, 1.17));
+        lit += torch_embers(albedo.rgb, time, phase);
     }
     if (in.flags & FLAG_FURNACE_FIRE) != 0u {
         // Même bouche 8 × 6 que furnace_front.png. Animation pixel art à 10 images/s,
@@ -558,7 +661,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         let depth = max(camera.water.y - in.world_position.y, 0.0);
         let shafts = caustics(in.world_position.xz * 0.9 + in.world_position.y * 0.35, time);
         let day = 0.25 + 0.75 * daylight;
-        lit *= 1.0 + underwater * shafts * 1.1 * exp(-depth * 0.14) * day;
+        let caustic_light = daylight * facing * visibility * smoothstep(0.35, 0.9, in.light.x);
+        lit *= 1.0 + underwater * shafts * 1.1 * exp(-depth * 0.14) * caustic_light;
         let transmit = exp(-distance * vec3<f32>(0.20, 0.075, 0.04));
         let deep = vec3<f32>(0.015, 0.11, 0.17) * day;
         lit = mix(lit, lit * transmit + deep * (vec3<f32>(1.0) - transmit), underwater);
