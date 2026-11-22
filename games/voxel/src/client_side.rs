@@ -9,12 +9,12 @@ use engine_render::{Camera, MeshId, RenderStats, Renderer};
 use engine_voxel::RayHit;
 use glam::IVec3;
 
-use crate::stats::FrameStats;
 use crate::{
     Demo, Request, audio, bench, chest_lids, client_world, conduit_fx, culling, enchant_ui,
-    far_terrain, hand, menus, protocol, screenshots, settings, soundscape, stream_upload, ui,
-    water_fx,
+    far_terrain, hand, menus, screenshots, stream_upload, ui, water_fx,
 };
+use voxel_sim::server::stats::FrameStats;
+use voxel_sim::{net::protocol, settings, world::soundscape};
 
 /// L'état de la fenêtre : ce que le serveur ne doit pas lire (lot 4 du multijoueur,
 /// `docs/plan-multijoueur.md`). Le rendu, la caméra, l'interface, le son, les effets, la réplique
@@ -87,7 +87,7 @@ pub(crate) struct ClientSide {
     /// Les définitions des blocs et le contenu (objets, recettes, guide), les mêmes qu'au serveur :
     /// chargés ensemble, rechargés ensemble. Un client du réseau les chargera de ses propres mods.
     pub(crate) registry: std::sync::Arc<engine_voxel::BlockRegistry>,
-    pub(crate) content: crate::content::Content,
+    pub(crate) content: voxel_sim::content::Content,
     /// Le bloc en cours de minage (bouton gauche maintenu) et l'avancement prédit, de 0 à 1 ; le
     /// serveur contrôle le sien (`PlayerState::dig`).
     pub(crate) mining: Option<(glam::IVec3, f32)>,
@@ -96,8 +96,8 @@ pub(crate) struct ClientSide {
     /// La barre envoyée en dernier (`ClientMsg::Steer`).
     pub(crate) steer_sent: f32,
     /// L'horloge et la météo que voit la fenêtre, copiées du serveur (voir `sky_view.rs`).
-    pub(crate) day: crate::daytime::DayCycle,
-    pub(crate) weather: crate::weather::Weather,
+    pub(crate) day: voxel_sim::world::daytime::DayCycle,
+    pub(crate) weather: voxel_sim::world::weather::Weather,
     /// Le lien avec l'hôte, pour un invité (voir `net_client.rs`) ; `None` : cette fenêtre fait
     /// tourner le monde.
     pub(crate) remote: Option<crate::net_client::RemoteLink>,
@@ -105,9 +105,9 @@ pub(crate) struct ClientSide {
     pub(crate) lan: Option<engine_net::Discovery>,
     /// Le serveur intégré qui tourne dans son thread (`VOXEL_SERVER_THREAD=1`) : le lâcher l'arrête et
     /// attend sa sauvegarde.
-    pub(crate) integrated: Option<voxel_sim::dedicated::Integrated>,
+    pub(crate) integrated: Option<voxel_sim::net::dedicated::Integrated>,
     /// Les joueurs de la partie (`ServerMsg::PlayerList`), montrés tant que Tab est tenu.
     pub(crate) online: Vec<String>,
     /// Le corps du joueur, simulé ici (voir `predicted.rs`).
-    pub(crate) body: crate::predicted::PredictedBody,
+    pub(crate) body: voxel_sim::net::predicted::PredictedBody,
 }

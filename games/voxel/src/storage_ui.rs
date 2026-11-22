@@ -25,18 +25,18 @@
 //! sorte, avec une recherche. Un clic prend une pile, Maj + clic tout, et poser la pile tenue (ou
 //! Déposer) range dans les coffres en complétant d'abord les piles.
 
-use crate::protocol::{ClientMsg, ScreenAction, TakeHow};
-#[allow(unused_imports)]
-use crate::storage_ui_server::*;
 use engine_render::egui;
 use engine_voxel::{Upgrade, controller_groups, controller_members};
 use glam::IVec3;
+use voxel_sim::net::protocol::{ClientMsg, ScreenAction, TakeHow};
+#[allow(unused_imports)]
+use voxel_sim::storage::ui::*;
 
 use crate::VoxelGame;
-use crate::backpacks;
-use crate::inventory::ItemStack;
 use crate::ui::{Press, Screen};
-use crate::ui_server::SlotRef;
+use voxel_sim::player::inventory::ItemStack;
+use voxel_sim::server::ui::SlotRef;
+use voxel_sim::storage::backpacks;
 
 impl VoxelGame {
     // ----- Lire et écrire un conteneur -----
@@ -50,7 +50,7 @@ impl VoxelGame {
         let locomotive = self
             .shown_container()
             .and_then(|c| c.cart)
-            .is_some_and(|(kind, _)| kind == crate::carts::CartKind::Locomotive);
+            .is_some_and(|(kind, _)| kind == voxel_sim::vehicles::carts::CartKind::Locomotive);
         self.client.view.me.inventory.cursor.is_none()
             && match self.client.ui.screen {
                 Screen::Chest(_) | Screen::Bag(_) | Screen::Controller(_) => true,
@@ -138,9 +138,11 @@ impl VoxelGame {
                                     };
                                     let mut on = view.disabled & (1 << n) == 0;
                                     if ui.checkbox(&mut on, up.name()).changed() {
-                                        self.send_now(crate::protocol::ClientMsg::ToggleUpgrade(
-                                            n as u8,
-                                        ));
+                                        self.send_now(
+                                            voxel_sim::net::protocol::ClientMsg::ToggleUpgrade(
+                                                n as u8,
+                                            ),
+                                        );
                                     }
                                 }
                             });
@@ -213,7 +215,7 @@ impl VoxelGame {
             }
         });
         if let Some(op) = op {
-            self.send_now(crate::protocol::ClientMsg::ContainerOp(op));
+            self.send_now(voxel_sim::net::protocol::ClientMsg::ContainerOp(op));
         }
     }
 

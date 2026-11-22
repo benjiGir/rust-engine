@@ -4,13 +4,8 @@
 mod assets;
 #[allow(dead_code)]
 mod common;
-#[path = "../../voxel_sim/src/mob_model.rs"]
-mod mob_model;
 #[path = "../src/mob_render.rs"]
 mod mob_render;
-#[path = "../../voxel_sim/src/sheep_colors.rs"]
-#[allow(dead_code)]
-mod sheep_colors;
 use anyhow::{Context, Result};
 use engine_render::{
     CubeInstance,
@@ -20,13 +15,14 @@ use engine_voxel::BlockRegistry;
 use glam::{Mat4, Vec3};
 use serde::Deserialize;
 use std::{collections::HashMap, path::Path};
+use voxel_sim::{mobs, mobs::sheep_colors};
 
 #[derive(Clone, Deserialize)]
 struct Creature {
     id: String,
     name: String,
     size: (f32, f32),
-    parts: Vec<mob_model::MobPart>,
+    parts: Vec<mobs::model::MobPart>,
 }
 
 fn render(parts: &[CubeInstance], textures: &[Vec<u8>], direction: Vec3, height: f32) -> Vec<u8> {
@@ -169,7 +165,7 @@ fn main() -> Result<()> {
             if ["core:farmer", "core:smith", "core:merchant"].contains(&c.id.as_str()) {
                 continue;
             }
-            mob_model::bind_textures(&mut c.parts, c.id.split_once(':').unwrap().0, &mut blocks);
+            mobs::model::bind_textures(&mut c.parts, c.id.split_once(':').unwrap().0, &mut blocks);
             creatures.push(c);
         }
     }

@@ -1,8 +1,8 @@
 //! Animation du bras et raccordement au joueur.
 pub use crate::hand_model::{ArmColors, Hand, HandInput};
-use crate::player::MoveMode;
 use engine_core::{Context, winit::keyboard::KeyCode};
 use glam::Vec2;
+use voxel_sim::player::MoveMode;
 
 impl crate::VoxelGame {
     /// Les animations du bras : marche, minage, changement d'objet, inertie.

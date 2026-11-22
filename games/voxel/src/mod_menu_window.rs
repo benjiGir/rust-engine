@@ -4,11 +4,11 @@
 use crate::Mode;
 use crate::VoxelGame;
 use crate::menus::PausePage;
-#[allow(unused_imports)]
-use crate::mod_menu::*;
 use engine_mods::ModMenu;
 use engine_mods::menu::{UI_CLOSED, UI_OPEN};
 use glam::IVec3;
+#[allow(unused_imports)]
+use voxel_sim::modding::menu::*;
 
 impl VoxelGame {
     /// La fenêtre range le menu que le serveur décrit (seulement s'il a changé).
@@ -37,15 +37,15 @@ impl VoxelGame {
     pub(crate) fn flush_mod_ui(&mut self) {
         let events = std::mem::take(&mut self.client.ui.mod_events);
         for (kind, id, value) in events {
-            self.send_now(crate::protocol::ClientMsg::Screen(
-                crate::protocol::ScreenAction::ModEvent { kind, id, value },
+            self.send_now(voxel_sim::net::protocol::ClientMsg::Screen(
+                voxel_sim::net::protocol::ScreenAction::ModEvent { kind, id, value },
             ));
         }
         let options = std::mem::take(&mut self.client.ui.options_events);
         if let (Some((owner, _)), false) = (self.client.ui.options_menu.clone(), options.is_empty())
         {
             for (kind, id, value) in options {
-                self.send_now(crate::protocol::ClientMsg::ModOptionsEvent {
+                self.send_now(voxel_sim::net::protocol::ClientMsg::ModOptionsEvent {
                     mod_id: owner.clone(),
                     kind,
                     id,

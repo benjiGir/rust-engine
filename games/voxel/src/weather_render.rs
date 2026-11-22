@@ -4,7 +4,7 @@
 use engine_render::CubeInstance;
 use glam::Vec3;
 
-use crate::weather::Weather;
+use voxel_sim::world::weather::Weather;
 
 /// Le ciel à dessiner : nuages, éclair, dérive.
 pub fn sky(weather: &Weather) -> engine_render::Sky {

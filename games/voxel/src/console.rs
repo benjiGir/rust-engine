@@ -8,10 +8,10 @@
 //! - **celles des mods** : un script déclare `/nom` avec `register_command` et répond dans
 //!   `Mod::command`. Si deux mods ont la même commande, `/mod:nom` désigne la bonne.
 
-#[allow(unused_imports)]
-use crate::console_server::*;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
+#[allow(unused_imports)]
+use voxel_sim::server::console::*;
 
 use engine_core::Context;
 use engine_core::winit::keyboard::KeyCode;
@@ -19,9 +19,9 @@ use engine_render::egui::{self, Color32, RichText};
 
 use crate::VoxelGame;
 use crate::control;
-use crate::intents::CommandReply;
-use crate::protocol::ClientMsg;
-use crate::screens::Screen;
+use voxel_sim::net::protocol::ClientMsg;
+use voxel_sim::server::intents::CommandReply;
+use voxel_sim::server::screens::Screen;
 
 /// Les lignes gardées, et combien de temps elles restent affichées console fermée.
 const KEPT_LINES: usize = 60;

@@ -13,15 +13,15 @@
 //!
 //! Le matériau d'une pièce est un numéro de la palette du monde (voir `shape_materials.rs`).
 
-#[allow(unused_imports)]
-pub(crate) use crate::screens::SHAPING_TABLE as TABLE;
 use engine_render::egui;
 use engine_voxel::shaped::{self, Family, PieceKind};
+#[allow(unused_imports)]
+pub(crate) use voxel_sim::server::screens::SHAPING_TABLE as TABLE;
 
 use crate::VoxelGame;
-use crate::inventory::{ItemStack, Slot};
-use crate::protocol::{ClientMsg, ScreenAction};
-use crate::shape_materials;
+use voxel_sim::net::protocol::{ClientMsg, ScreenAction};
+use voxel_sim::player::inventory::{ItemStack, Slot};
+use voxel_sim::shaping;
 
 /// Ce que contient la case d'entrée.
 enum Input {
@@ -41,8 +41,8 @@ impl VoxelGame {
             return Input::Empty;
         };
         let def = self.client.content.items.get(stack.item);
-        if let Some(kind) = shape_materials::kind_of(def) {
-            return match shape_materials::key_of(stack.damage) {
+        if let Some(kind) = shaping::materials::kind_of(def) {
+            return match shaping::materials::key_of(stack.damage) {
                 Some(material) => Input::Pieces(kind, material, stack.count),
                 None => Input::Refused(def.name.clone(), "cette pièce n'a pas de matière"),
             };
@@ -84,7 +84,7 @@ impl VoxelGame {
                     );
                 }
                 Input::Pieces(kind, material, count) => {
-                    let name = shape_materials::material_name(&self.client.registry, material);
+                    let name = shaping::materials::material_name(&self.client.registry, material);
                     ui.strong(format!("{} × {count}", kind.name()));
                     ui.label(format!("En {}.", name.to_lowercase()));
                 }
@@ -102,7 +102,7 @@ impl VoxelGame {
     /// liste défile quand la fenêtre est petite : les entrées passent à la ligne, donc 320 px de large
     /// suffisent.
     fn shape_buttons(&mut self, ui: &mut egui::Ui, material: &str) {
-        let number = shape_materials::number_of(material);
+        let number = shaping::materials::number_of(material);
         let height = (crate::ui_layout::safe_rect(ui.ctx()).height() * 0.42).clamp(120.0, 420.0);
         egui::ScrollArea::vertical()
             .id_salt("shaping_shapes")
@@ -160,7 +160,7 @@ impl VoxelGame {
             );
             return;
         }
-        let name = shape_materials::material_name(&self.client.registry, material);
+        let name = shaping::materials::material_name(&self.client.registry, material);
         let all = ui.input(|i| i.modifiers.shift);
         let wanted = if all { blocks } else { 1 };
         let clicked = ui

@@ -14,9 +14,6 @@ mod item_models;
 #[path = "../src/skin.rs"]
 #[allow(dead_code)]
 mod skin;
-#[path = "../../voxel_sim/src/tone.rs"]
-#[allow(dead_code)]
-mod tone;
 
 use anyhow::{Context, Result};
 use engine_render::{

@@ -17,9 +17,9 @@ use anyhow::{Context as _, Result, bail};
 use glam::IVec3;
 
 use crate::VoxelGame;
-use crate::players::OpenContainer;
-use crate::screens::Screen;
-use crate::storage_ui_server::Op;
+use voxel_sim::player::players::OpenContainer;
+use voxel_sim::server::screens::Screen;
+use voxel_sim::storage::ui::Op;
 
 /// Une commande du stockage, lue par `control.rs`.
 #[derive(Debug, Clone, PartialEq)]
@@ -95,7 +95,7 @@ fn slots_json(
             let _ = items;
             out.push(format!(
                 "[{i},{},{},{}]",
-                crate::json_text::json_str(&s.item),
+                voxel_sim::server::json_text::json_str(&s.item),
                 s.count,
                 s.damage
             ));
@@ -138,17 +138,17 @@ impl VoxelGame {
                     .open_target()
                     .context("aucun conteneur ouvert (coffre, wagon ou sac)")?;
                 // Le même chemin que les boutons de l'écran.
-                self.send_now(crate::protocol::ClientMsg::ContainerOp(op));
+                self.send_now(voxel_sim::net::protocol::ClientMsg::ContainerOp(op));
                 Ok("{\"ok\":true}".to_string())
             }
             Command::Drops => {
                 let mut list = Vec::new();
                 self.server.ecs
-                    .query::<(&crate::components::Transform, &crate::drops::DroppedItem)>()
+                    .query::<(&voxel_sim::components::Transform, &voxel_sim::player::drops::DroppedItem)>()
                     .for_each(|_, (t, d)| {
                         list.push(format!(
                             "{{\"item\":{},\"count\":{},\"damage\":{},\"pos\":[{:.2},{:.2},{:.2}],\"age\":{:.1}}}",
-                            crate::json_text::json_str(&self.client.content.items.get(d.stack.item).key),
+                            voxel_sim::server::json_text::json_str(&self.client.content.items.get(d.stack.item).key),
                             d.stack.count,
                             d.stack.damage,
                             t.position.x,
@@ -173,7 +173,7 @@ impl VoxelGame {
                 let layout = engine_voxel::layout_of(&self.client.registry, block);
                 Ok(format!(
                     "{{\"ok\":true,\"block\":{},\"slots\":{},\"main\":{},\"upgrades\":{},\"items\":{}}}",
-                    crate::json_text::json_str(&self.client.registry.def(block).key),
+                    voxel_sim::server::json_text::json_str(&self.client.registry.def(block).key),
                     inventory.slots.len(),
                     layout.map_or(inventory.slots.len(), |l| l.main),
                     layout.map_or(0, |l| l.upgrades),
@@ -185,7 +185,7 @@ impl VoxelGame {
                     (Some(n), _) | (None, Screen::Bag(n)) => n,
                     (None, _) => {
                         let items = self.client.content.items.clone();
-                        crate::backpacks::carried(
+                        voxel_sim::storage::backpacks::carried(
                             &self.server.players.me_mut().inventory,
                             &items,
                             &mut self.server.backpacks,

@@ -24,8 +24,8 @@ use engine_render::egui::{self, RichText};
 use engine_voxel::{Choice, ItemDef, ItemId, Recipe, RecipeCategory, RecipeIndex, RecipeLayout};
 
 use crate::VoxelGame;
-use crate::screens::Screen;
 use crate::skin;
+use voxel_sim::server::screens::Screen;
 
 /// Ce qu'on cherche sur un objet : comment le fabriquer, ou à quoi il sert.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -698,10 +698,12 @@ impl VoxelGame {
                     2
                 };
                 for _ in 0..limit {
-                    self.client.outbox.push(crate::protocol::ClientMsg::Craft {
-                        size,
-                        recipe: Some(index as u32),
-                    });
+                    self.client
+                        .outbox
+                        .push(voxel_sim::net::protocol::ClientMsg::Craft {
+                            size,
+                            recipe: Some(index as u32),
+                        });
                 }
                 self.flush_outbox();
             }

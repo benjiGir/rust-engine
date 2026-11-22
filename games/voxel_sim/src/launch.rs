@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::{env_parse, persistence};
+use crate::{env_parse, world::persistence};
 
 /// Comment lancer un monde : depuis quel dossier, avec quelle graine.
 #[derive(Debug, Clone, Default, PartialEq)]

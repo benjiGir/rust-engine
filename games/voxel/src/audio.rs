@@ -18,9 +18,9 @@
 //! Les sons passent par deux pistes (« bus ») dont on règle le volume séparément,
 //! comme sur une table de mixage : les effets (pas, blocs) et l'ambiance (vent, grillons).
 
-pub use crate::sound_ids::{SPLASH, THUNDER};
 use std::collections::HashMap;
 use std::path::PathBuf;
+pub use voxel_sim::world::sound_ids::{SPLASH, THUNDER};
 
 use anyhow::Result;
 use engine_voxel::{BlockId, BlockRegistry};
@@ -96,7 +96,7 @@ pub fn to_decibels(volume: f32) -> Decibels {
     }
 }
 
-pub use crate::sound_ids::BlockSound;
+pub use voxel_sim::world::sound_ids::BlockSound;
 
 struct SoundBank {
     takes: Vec<StaticSoundData>,
@@ -298,7 +298,7 @@ impl Audio {
     }
 
     /// Les boucles de nature ne doivent pas introduire des oiseaux dans une grotte ou un désert.
-    pub fn set_environment(&mut self, place: crate::soundscape::Place) {
+    pub fn set_environment(&mut self, place: voxel_sim::world::soundscape::Place) {
         let gain = if !place.underground && place.green {
             1.0
         } else {

@@ -32,7 +32,7 @@ pub enum TitlePage {
     },
     Options,
     TexturePacks {
-        selected: crate::settings::TexturePack,
+        selected: voxel_sim::settings::TexturePack,
     },
     ShaderPacks {
         selection: crate::shader_packs::Selection,
@@ -474,7 +474,7 @@ impl VoxelGame {
                         join = Some(if address.contains(':') {
                             address.to_string()
                         } else {
-                            format!("{address}:{}", crate::net_host::DEFAULT_PORT)
+                            format!("{address}:{}", voxel_sim::net::host::DEFAULT_PORT)
                         });
                     }
                     back = button(ui, "Retour");
@@ -558,7 +558,7 @@ impl VoxelGame {
                     && self.server.net.is_none()
                     && button(ui, "Ouvrir au réseau local")
                 {
-                    match self.server.open_lan(crate::net_host::DEFAULT_PORT) {
+                    match self.server.open_lan(voxel_sim::net::host::DEFAULT_PORT) {
                         Ok(port) => self
                             .server
                             .toast(&format!("Partie ouverte au réseau local (port {port})")),
@@ -689,7 +689,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         // Une configuration de génération réelle (celle d'un monde neuf), dont on change le numéro.
         let blocks = engine_voxel::BlockRegistry::builtin();
-        let (dims, _) = crate::dimensions::open_versioned(
+        let (dims, _) = voxel_sim::world::dimensions::open_versioned(
             &blocks,
             &[],
             None,

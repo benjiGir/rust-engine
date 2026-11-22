@@ -6,7 +6,7 @@ use engine_ecs::{Entity, Events, World};
 use engine_voxel::BlockId;
 use glam::IVec3;
 
-use crate::players::PlayerId;
+use crate::player::players::PlayerId;
 
 // Les événements qui viennent d'un joueur portent son numéro (`Option<PlayerId>`) : les quêtes,
 // l'aventure et les statistiques les comptent au bon joueur. `None` : personne (une machine, un
@@ -42,9 +42,9 @@ pub struct EntityDied {
     /// Où elle est morte (pour les mods : un butin, une explosion...).
     pub position: glam::Vec3,
     /// Une élite ou un envahisseur (voir `elites.rs`) : son butin est garanti.
-    pub elite: Option<crate::elites::Elite>,
+    pub elite: Option<crate::mobs::elites::Elite>,
     /// Conservée avant la disparition du mouton pour déterminer sa laine.
-    pub coat: Option<crate::sheep_colors::SheepCoat>,
+    pub coat: Option<crate::mobs::sheep_colors::SheepCoat>,
     /// Le joueur qui l'a tuée (`None` : chute, feu, soleil...).
     pub killer: Option<PlayerId>,
 }

@@ -4,17 +4,17 @@
 //! puis on agit avec les boutons de l'écran. Les matériaux sont pris dans l'inventaire, ce qu'on
 //! récupère y retourne (ou tombe à terre s'il est plein).
 
-#[allow(unused_imports)]
-use crate::forge_ui_server::*;
 use engine_render::egui::{self, Color32};
+#[allow(unused_imports)]
+use voxel_sim::adventure::forge_ui::*;
 
 use crate::VoxelGame;
-use crate::adventure_data::{self, AdventureData};
-use crate::affixes;
-use crate::forge_tables::{self, Purse};
-use crate::item_data::ItemData;
-use crate::protocol::{ClientMsg, ScreenAction};
 use crate::skin;
+use voxel_sim::adventure::affixes;
+use voxel_sim::adventure::data::AdventureData;
+use voxel_sim::adventure::forge_tables::{self, Purse};
+use voxel_sim::net::protocol::{ClientMsg, ScreenAction};
+use voxel_sim::player::item_data::ItemData;
 
 /// Une rareté se lit mal sur le cadre clair de l'inventaire : son nom est posé sur un fond sombre.
 pub fn rarity_text(text: impl Into<String>, color: Color32) -> egui::RichText {
@@ -44,7 +44,7 @@ impl VoxelGame {
     /// La table de récupération : l'objet tenu à la souris (d'après la vue du joueur), ce qu'il
     /// rendra, et le bouton qui envoie `ScreenAction::Salvage`.
     pub(crate) fn salvage_panel(&mut self, ui: &mut egui::Ui) {
-        let data = adventure_data::current();
+        let data = voxel_sim::adventure::data::current();
         let items = self.client.content.items.clone();
         let Some(held) = self.client.view.me.inventory.cursor else {
             ui.label("Prends à la souris un objet à affixes (clic sur sa case, dans l'inventaire), puis reviens ici.");
@@ -57,7 +57,7 @@ impl VoxelGame {
             return;
         };
         let def = items.get(held.item);
-        let name = crate::item_data::sheet(held.damage)
+        let name = voxel_sim::player::item_data::sheet(held.damage)
             .and_then(|s| s.name)
             .unwrap_or_else(|| def.name.clone());
         match affixes::rarity_of(held.damage) {
@@ -87,7 +87,7 @@ impl VoxelGame {
                 range(dust)
             ));
         }
-        let gems = crate::gems::gems_of(held.damage);
+        let gems = voxel_sim::adventure::gems::gems_of(held.damage);
         if !gems.is_empty() {
             ui.label(format!(
                 "Les {} gemme(s) serties te sont rendues.",
@@ -102,7 +102,7 @@ impl VoxelGame {
     /// La table de réforge : la rareté voulue, le coût, les trois tirages (calculés comme le serveur,
     /// d'après la graine de la vue du joueur) et le bouton qui envoie `ReforgeChoose`.
     pub(crate) fn reforge_panel(&mut self, ui: &mut egui::Ui) {
-        let data = adventure_data::current();
+        let data = voxel_sim::adventure::data::current();
         let items = self.client.content.items.clone();
         let Some(vitals) = self.client.view.me.vitals.clone() else {
             return;

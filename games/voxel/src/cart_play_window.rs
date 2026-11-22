@@ -2,11 +2,12 @@
 //! multijoueur ; la simulation reste dans `cart_play.rs`).
 
 use super::*;
-#[allow(unused_imports)]
-use crate::cart_play::*;
-use crate::carts::{Cart, CartCargo, CartConfig, CartSignals};
 use crate::key_codes::KeyCodes;
 use engine_voxel::{RailKind, rail_at};
+#[allow(unused_imports)]
+use voxel_sim::vehicles::cart_play::*;
+use voxel_sim::vehicles::carts;
+use voxel_sim::vehicles::carts::{Cart, CartCargo, CartConfig, CartSignals};
 
 impl VoxelGame {
     /// Chaque image : la vitesse maximale des options, et Maj pour descendre.
@@ -22,7 +23,7 @@ impl VoxelGame {
             .key_pressed(self.settings.keys.key(Action::Descend))
             || ctx.input.key_pressed(KeyCode::ShiftRight);
         if sneak && self.client.mouse_captured && !self.client.ui.inventory_open {
-            self.send_now(crate::protocol::ClientMsg::Dismount);
+            self.send_now(voxel_sim::net::protocol::ClientMsg::Dismount);
         }
     }
 

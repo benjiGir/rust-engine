@@ -24,9 +24,9 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result, bail};
 
 use crate::VoxelGame;
-use crate::json_text::json_str;
-use crate::quest_progress::Status;
-use crate::quests::{ItemSpec, Quests, Task};
+use voxel_sim::quests::progress::Status;
+use voxel_sim::quests::{ItemSpec, Quests, Task};
+use voxel_sim::server::json_text::json_str;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {

@@ -1,120 +1,33 @@
 //! La simulation du jeu voxel, sans fenêtre (lot 8 du plan multijoueur) : le serveur et ce qu'il
 //! fait tourner (monde, ECS, joueurs, créatures, mods, quêtes, aventure), le protocole et le réseau,
 //! les bots et le serveur dédié. Elle ne dépend d'aucune bibliothèque d'affichage (règle `HEADLESS` de
-//! check-arch) : le jeu (`games/voxel`) la réexporte et y ajoute la fenêtre.
+//! check-arch) : le jeu (`games/voxel`) l'appelle par `voxel_sim::` et y ajoute la fenêtre.
+//!
+//! Les modules sont rangés par domaine (voir `docs/plan-rangement.md`) : `server/`, `net/`, `world/`,
+//! `player/`, `mobs/`, `enchanting/`, `adventure/`, `quests/`, `storage/`, `vehicles/`, `shaping/`,
+//! `modding/` ; les mêmes noms rangent les écrans côté fenêtre.
 
 pub mod adventure;
-pub mod adventure_data;
-pub mod affixes;
-pub mod aquatic;
-pub mod attributes;
-pub mod backpack_block;
-pub mod backpacks;
-pub mod book_play;
-pub mod bot;
-pub mod bot_swarm;
-pub mod breeding;
-pub mod bucket_play;
-pub mod cart_play;
-pub mod carts;
-pub mod charm_play;
-pub mod charms;
 pub mod common;
 pub mod components;
-pub mod console_server;
-pub mod container_view;
 pub mod content;
-pub mod daytime;
-pub mod death_server;
-pub mod dedicated;
-pub mod dimensions;
-pub mod drops;
-pub mod elites;
-pub mod enchant_books;
-pub mod enchant_data;
-pub mod enchant_effects;
-pub mod enchant_library;
-pub mod enchant_table;
-pub mod enchant_ui_server;
 pub mod enchanting;
-pub mod entities;
 pub mod events;
-pub mod forge_tables;
-pub mod forge_ui_server;
-pub mod gear;
-pub mod gem_sockets;
-pub mod gems;
-pub mod ghosts;
-pub mod guide;
-pub mod guide_ui_server;
-pub mod hot_reload;
-pub mod intents;
-pub mod interact_server;
-pub mod inventory;
-pub mod item_data;
-pub mod json_text;
 pub mod launch;
-pub mod local_link;
 pub mod logs;
-pub mod mob_brains;
-pub mod mob_model;
 pub mod mobs;
-pub mod mod_menu;
 pub mod modding;
-pub mod movement;
-#[cfg(test)]
-mod multiplayer_tests;
-pub mod navigation;
-pub mod net_host;
-pub mod net_join;
-pub mod paired_play;
+pub mod net;
 pub mod paths;
-pub mod persistence;
 pub mod player;
-pub mod player_api_server;
-pub mod player_view;
-pub mod players;
-pub mod potions;
-pub mod predicted;
-pub mod projectiles;
-pub mod protocol;
-pub mod quest_play;
-pub mod quest_progress;
-pub mod quest_ui_server;
 pub mod quests;
-pub mod screen_actions;
-pub mod screens;
-pub mod server_boot;
-pub mod server_commands;
-pub mod server_sends;
-pub mod server_side;
-pub mod server_step;
+pub mod server;
 pub mod settings;
-pub mod shape_materials;
-pub mod shaped_play;
-pub mod shaping_ui_server;
+pub mod shaping;
 pub mod shared;
-pub mod sheep_colors;
-pub mod ships;
-pub mod sky_view;
-pub mod sound_ids;
-pub mod soundscape;
-pub mod spawning;
-pub mod stats;
-pub mod storage_ui_server;
-pub mod stress;
-pub mod survival;
-pub mod texture_pack_config;
-pub mod tiers;
-pub mod tiers_ui_server;
-pub mod tone;
-pub mod trading;
-pub mod transfer;
-pub mod ui_server;
-pub mod villagers;
-pub mod weather;
-pub mod wire;
-pub mod world_edit;
+pub mod storage;
+pub mod vehicles;
+pub mod world;
 
 #[cfg(any(test, feature = "testing"))]
 pub use common::test_registry;
@@ -122,12 +35,12 @@ pub use common::{
     DEFAULT_SEED, EventReaders, FLY_ALTITUDE, assets_dir, env_parse, load_registry, project_root,
 };
 pub use components::{Collider, Transform};
-pub use daytime::DayCycle;
 pub use events::BlockPlaced;
 pub use launch::{Launch, Request};
 pub use mobs::MobRegistry;
 pub use player::{FLY_SPEED, FLY_SPRINT_FACTOR, MoveMode, SPRINT_SPEED, WALK_SPEED};
-pub use server_side::VoxelServer;
+pub use server::VoxelServer;
+pub use server::stats::FrameStats;
 pub use settings::Action;
 pub use shared::StreamerExt;
-pub use stats::FrameStats;
+pub use world::daytime::DayCycle;

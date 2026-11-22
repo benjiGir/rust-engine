@@ -9,9 +9,9 @@ use super::geometry::{self, EdgeState, MapView, PlanNode};
 use super::labels::{self, Namer};
 use super::{Act, fit_text};
 use crate::VoxelGame;
-use crate::quest_progress::Status;
-use crate::quests::{Quest, Quests, Shape};
 use crate::skin;
+use voxel_sim::quests::progress::Status;
+use voxel_sim::quests::{Quest, Quests, Shape};
 
 /// Les couleurs d'une quête : (remplissage, contour, teinte de l'icône).
 fn node_colors(status: Status) -> (Color32, Color32, Color32) {
@@ -440,7 +440,7 @@ impl VoxelGame {
         let mobs = self
             .server
             .ecs
-            .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+            .resource::<std::sync::Arc<voxel_sim::mobs::MobRegistry>>()
             .clone();
         let namer = Namer {
             items: &self.server.content.items,

@@ -18,12 +18,12 @@ use anyhow::{Context as _, Result, bail};
 use glam::IVec3;
 
 use crate::VoxelGame;
-use crate::enchant_books::{self, ENCHANTED_BOOK};
-use crate::enchant_library::{self, Library};
-use crate::enchant_table::{self, Subject};
-use crate::enchanting::{self, Enchantment};
-use crate::inventory::ItemStack;
-use crate::screens::Screen;
+use voxel_sim::enchanting::books::ENCHANTED_BOOK;
+use voxel_sim::enchanting::library::Library;
+use voxel_sim::enchanting::table::Subject;
+use voxel_sim::enchanting::{self, Enchantment};
+use voxel_sim::player::inventory::ItemStack;
+use voxel_sim::server::screens::Screen;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
@@ -146,7 +146,7 @@ impl VoxelGame {
                         .with_context(|| format!("shelves : bloc inconnu « {key} »"))?
                 };
                 let mut placed = 0;
-                for (offset, middle) in enchant_table::shelf_positions()
+                for (offset, middle) in voxel_sim::enchanting::table::shelf_positions()
                     .into_iter()
                     .take(count.unwrap_or(32))
                 {
@@ -170,12 +170,12 @@ impl VoxelGame {
                     .selected_stack()
                     .context("offers : rien en main")?;
                 let def = items.get(stack.item);
-                let subject = match enchant_books::BookKind::of_key(&def.key) {
+                let subject = match voxel_sim::enchanting::books::BookKind::of_key(&def.key) {
                     Some(kind) => Subject::Book(kind),
                     None => Subject::Item(def),
                 };
-                let data = crate::adventure_data::current();
-                let Some(lots) = enchant_table::offers(
+                let data = voxel_sim::adventure::data::current();
+                let Some(lots) = voxel_sim::enchanting::table::offers(
                     &data,
                     subject,
                     &def.key,
@@ -194,8 +194,8 @@ impl VoxelGame {
                             o.points,
                             o.gems,
                             o.clues,
-                            crate::json_text::json_str(&o.preview()),
-                            crate::json_text::json_str(&o.label())
+                            voxel_sim::server::json_text::json_str(&o.preview()),
+                            voxel_sim::server::json_text::json_str(&o.label())
                         )
                     })
                     .collect();
@@ -224,14 +224,14 @@ impl VoxelGame {
                 self.server.give_or_drop(ItemStack {
                     item: book,
                     count: 1,
-                    damage: enchant_books::book_damage(&list),
+                    damage: voxel_sim::enchanting::books::book_damage(&list),
                 });
                 Ok("{\"ok\":true}".to_string())
             }
             Command::LibAdd(at, kind, level) => {
                 let max = {
                     let streamer = self.server.streamer();
-                    enchant_library::max_level_of(
+                    voxel_sim::enchanting::library::max_level_of(
                         self.client
                             .registry
                             .def(streamer.world().block(at))
@@ -266,7 +266,7 @@ impl VoxelGame {
                     .map(|(kind, points, best)| {
                         format!(
                             "{{\"enchantment\":{},\"points\":{points},\"best\":{best}}}",
-                            crate::json_text::json_str(&kind.name())
+                            voxel_sim::server::json_text::json_str(&kind.name())
                         )
                     })
                     .collect();
@@ -282,7 +282,7 @@ impl VoxelGame {
             }
             Command::Charms => {
                 let items = self.client.content.items.clone();
-                let data = crate::adventure_data::current();
+                let data = voxel_sim::adventure::data::current();
                 let rows: Vec<String> = self
                     .server
                     .players
@@ -296,9 +296,12 @@ impl VoxelGame {
                         data.charm_of(&def.key)?;
                         Some(format!(
                             "{{\"item\":{},\"active\":{},\"charge\":{:.3}}}",
-                            crate::json_text::json_str(&def.key),
-                            crate::charms::is_active(s.damage),
-                            crate::charms::charge(s.damage, def.durability.unwrap_or(1))
+                            voxel_sim::server::json_text::json_str(&def.key),
+                            voxel_sim::adventure::charms::is_active(s.damage),
+                            voxel_sim::adventure::charms::charge(
+                                s.damage,
+                                def.durability.unwrap_or(1)
+                            )
                         ))
                     })
                     .collect();

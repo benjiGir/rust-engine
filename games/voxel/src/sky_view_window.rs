@@ -2,7 +2,7 @@
 //! multijoueur ; la simulation reste dans `sky_view.rs`).
 
 #[allow(unused_imports)]
-use crate::sky_view::*;
+use voxel_sim::net::sky_view::*;
 
 impl crate::VoxelGame {
     /// La fenêtre recale sa copie du ciel.

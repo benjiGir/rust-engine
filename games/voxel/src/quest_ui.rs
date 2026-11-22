@@ -21,11 +21,11 @@ mod labels;
 mod map;
 mod sheet;
 
-use crate::protocol::{ClientMsg, QuestAct, ScreenAction};
-#[allow(unused_imports)]
-use crate::quest_ui_server::*;
 use std::collections::HashSet;
 use std::sync::Arc;
+use voxel_sim::net::protocol::{ClientMsg, QuestAct, ScreenAction};
+#[allow(unused_imports)]
+use voxel_sim::quests::ui::*;
 
 use anyhow::{Result, bail};
 use engine_render::egui::{
@@ -34,12 +34,12 @@ use engine_render::egui::{
 use engine_voxel::ItemId;
 
 use crate::VoxelGame;
-use crate::quest_progress::{Progress, Status};
-use crate::quests::Quests;
 use crate::recipe_browser::Lookup;
-use crate::screens::Screen;
 use crate::skin;
 use geometry::MapView;
+use voxel_sim::quests::Quests;
+use voxel_sim::quests::progress::{Progress, Status};
+use voxel_sim::server::screens::Screen;
 
 /// La hauteur de la barre du haut.
 const TOP_HEIGHT: f32 = 40.0;
@@ -786,7 +786,7 @@ impl VoxelGame {
             .map(|(q, at, r)| {
                 format!(
                     "{{\"id\":{},\"x\":{:.0},\"y\":{:.0},\"r\":{:.0}}}",
-                    crate::json_text::json_str(&id_of(*q)),
+                    voxel_sim::server::json_text::json_str(&id_of(*q)),
                     at.x,
                     at.y,
                     r
@@ -796,10 +796,10 @@ impl VoxelGame {
         format!(
             "{{\"ok\":true,\"open\":{},\"chapter\":{},\"selected\":{},\"zoom\":{:.2},\"center\":[{:.2},{:.2}],\"nodes\":[{}]}}",
             self.client.ui.inventory_open && self.client.ui.screen == Screen::Quests,
-            crate::json_text::json_str(&chapter),
+            voxel_sim::server::json_text::json_str(&chapter),
             state.selected.map_or_else(
                 || "null".to_string(),
-                |q| crate::json_text::json_str(&id_of(q))
+                |q| voxel_sim::server::json_text::json_str(&id_of(q))
             ),
             state.view.zoom,
             state.view.center.x,

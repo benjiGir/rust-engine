@@ -2,12 +2,12 @@
 //! multijoueur ; la simulation reste dans `intents.rs`).
 
 use super::*;
-use crate::entities::NetId;
+use voxel_sim::net::entities::NetId;
+use voxel_sim::net::protocol::{Aim, ClientMsg, ServerMsg, SlotTarget};
 #[allow(unused_imports)]
-use crate::intents::*;
-use crate::protocol::{Aim, ClientMsg, ServerMsg, SlotTarget};
-use crate::screens::Screen;
-use crate::ui_server::SlotRef;
+use voxel_sim::server::intents::*;
+use voxel_sim::server::screens::Screen;
+use voxel_sim::server::ui::SlotRef;
 
 impl VoxelGame {
     /// La visée de la fenêtre, telle qu'elle part dans un message.
@@ -119,14 +119,12 @@ impl VoxelGame {
                 ServerMsg::ModHud { mod_id, id, bar } => self.receive_mod_hud(mod_id, id, bar),
                 ServerMsg::OpenScreen(screen) => self.show_screen(screen),
                 ServerMsg::CloseScreen => self.close_screen(),
-                ServerMsg::ScreenView(Some(crate::screen_actions::ScreenView::Mod {
-                    owner,
-                    at,
-                    data,
-                })) => {
+                ServerMsg::ScreenView(Some(
+                    voxel_sim::server::screen_actions::ScreenView::Mod { owner, at, data },
+                )) => {
                     self.receive_mod_menu(owner.clone(), at, data.clone());
                     self.client.view.receive(ServerMsg::ScreenView(Some(
-                        crate::screen_actions::ScreenView::Mod { owner, at, data },
+                        voxel_sim::server::screen_actions::ScreenView::Mod { owner, at, data },
                     )));
                 }
                 ServerMsg::Died { message } => {

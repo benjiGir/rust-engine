@@ -6,6 +6,19 @@
 //! s'affiche à 120 Hz : entre deux pas de physique, on place la caméra entre l'ancienne
 //! et la nouvelle position (interpolation par `alpha`), sinon l'image saccaderait.
 
+pub mod attributes;
+pub mod bucket;
+pub mod drops;
+pub mod gear;
+pub mod inventory;
+pub mod item_data;
+pub mod movement;
+pub mod paired;
+pub mod players;
+pub mod potions;
+pub mod survival;
+pub mod tone;
+
 use engine_ecs::{Entity, World};
 use engine_voxel::{PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, PlayerBody};
 use glam::Vec3;

@@ -27,7 +27,7 @@ impl VoxelGame {
     pub(crate) fn net_command(&mut self, command: Command) -> Result<String> {
         match command {
             Command::Host(port) => {
-                let port = port.unwrap_or(crate::net_host::DEFAULT_PORT);
+                let port = port.unwrap_or(voxel_sim::net::host::DEFAULT_PORT);
                 match self.server.open_lan(port) {
                     Ok(port) => Ok(format!("{{\"ok\":true,\"port\":{port}}}")),
                     Err(err) => bail!("impossible d'écouter : {err}"),
@@ -39,11 +39,11 @@ impl VoxelGame {
                     .players
                     .iter()
                     .map(|p| {
-                        let feet = crate::player::body(&self.server.ecs, p.entity).position;
+                        let feet = voxel_sim::player::body(&self.server.ecs, p.entity).position;
                         format!(
                             "{{\"id\":{},\"name\":{},\"ghost\":{},\"pos\":[{:.2},{:.2},{:.2}]}}",
                             p.id.0,
-                            crate::json_text::json_str(&p.name),
+                            voxel_sim::server::json_text::json_str(&p.name),
                             p.ghost,
                             feet.x,
                             feet.y,

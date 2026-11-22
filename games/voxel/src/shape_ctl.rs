@@ -16,9 +16,9 @@ use engine_voxel::shaped::{Piece, PieceKind};
 use glam::IVec3;
 
 use crate::VoxelGame;
-use crate::inventory::Slot;
-use crate::json_text::json_str;
-use crate::screens::Screen;
+use voxel_sim::player::inventory::Slot;
+use voxel_sim::server::json_text::json_str;
+use voxel_sim::server::screens::Screen;
 
 /// Une commande des formes, lue par `control.rs`.
 #[derive(Debug, Clone, PartialEq)]

@@ -128,22 +128,11 @@ pub(crate) use voxel_sim::test_registry;
 pub(crate) use voxel_sim::{
     DEFAULT_SEED, EventReaders, FLY_ALTITUDE, assets_dir, env_parse, load_registry, project_root,
 };
-#[allow(unused_imports)]
-pub(crate) use voxel_sim::{
-    adventure, adventure_data, affixes, aquatic, attributes, backpack_block, backpacks, book_play,
-    bot, bot_swarm, breeding, bucket_play, cart_play, carts, charm_play, charms, common,
-    components, console_server, container_view, content, daytime, death_server, dedicated,
-    dimensions, drops, elites, enchant_books, enchant_data, enchant_effects, enchant_library,
-    enchant_table, enchant_ui_server, enchanting, entities, events, forge_tables, forge_ui_server,
-    gear, gem_sockets, gems, ghosts, guide, guide_ui_server, hot_reload, intents, interact_server,
-    inventory, item_data, json_text, launch, mob_brains, mob_model, mobs, mod_menu, modding,
-    movement, navigation, net_host, net_join, paired_play, persistence, player, player_api_server,
-    player_view, players, potions, predicted, projectiles, protocol, quest_play, quest_progress,
-    quest_ui_server, quests, screen_actions, screens, server_boot, server_commands, server_sends,
-    server_side, server_step, settings, shape_materials, shaped_play, shaping_ui_server, shared,
-    sheep_colors, ships, sky_view, sound_ids, soundscape, spawning, stats, storage_ui_server,
-    stress, survival, texture_pack_config, tiers, tiers_ui_server, tone, trading, transfer,
-    ui_server, villagers, weather, wire, world_edit,
+
+use voxel_sim::{
+    components, launch, mobs, modding, net::bot_swarm, net::dedicated, net::predicted, net::wire,
+    player, player::inventory, player::players, server, server::hot_reload, server::stats,
+    settings, shared, world::soundscape, world::weather,
 };
 
 use anyhow::Result;
@@ -162,7 +151,7 @@ use client_side::ClientSide;
 use components::{Collider, Transform};
 use mobs::MobRegistry;
 use player::{FLY_SPEED, FLY_SPRINT_FACTOR, MoveMode, SPRINT_SPEED, WALK_SPEED};
-use server_side::VoxelServer;
+use server::VoxelServer;
 use settings::Action;
 use shared::StreamerExt;
 use stats::FrameStats;
@@ -250,7 +239,7 @@ impl VoxelGame {
             .map(|dir| screenshots::Tour::new(dir.into()));
 
         // `VOXEL_SERVER_THREAD=1` : le monde tourne dans son propre thread (un serveur intégré, voir
-        // `voxel_sim::dedicated::spawn_integrated`), et la fenêtre le rejoint comme un invité, sur la
+        // `voxel_sim::net::dedicated::spawn_integrated`), et la fenêtre le rejoint comme un invité, sur la
         // boucle locale. Les outils de l'hôte (`ctl`, captures, démo) n'ont alors que la fenêtre.
         let mut integrated = None;
         let threaded = std::env::var("VOXEL_SERVER_THREAD").is_ok_and(|v| v == "1");
@@ -262,7 +251,7 @@ impl VoxelGame {
         {
             let (name, uuid) = net_client::identity(&settings);
             let mut started =
-                voxel_sim::dedicated::spawn_integrated(world, &settings, &name, uuid)?;
+                voxel_sim::net::dedicated::spawn_integrated(world, &settings, &name, uuid)?;
             // Déjà accueilli par un lien en mémoire : la fenêtre suit le chemin d'un invité.
             joined = started.joined.take();
             launch.join = Some("serveur intégré".into());
@@ -1153,7 +1142,7 @@ impl VoxelGame {
             audio.play_block(
                 &self.client.registry,
                 below_block,
-                crate::sound_ids::BlockSound::Step,
+                voxel_sim::world::sound_ids::BlockSound::Step,
             );
         }
     }

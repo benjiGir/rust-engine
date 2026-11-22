@@ -119,7 +119,7 @@ impl UiInput {
             .map(|(text, rect)| {
                 format!(
                     "{{\"text\":{},\"x\":{:.0},\"y\":{:.0},\"w\":{:.0},\"h\":{:.0}}}",
-                    crate::json_text::json_str(text),
+                    voxel_sim::server::json_text::json_str(text),
                     rect.center().x,
                     rect.center().y,
                     rect.width(),

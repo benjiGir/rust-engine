@@ -6,15 +6,15 @@
 //! envahisseurs) et la rareté du butin ; celles qui sont déjà là ne changent pas. Les règles sont dans
 //! `tiers.rs`, les données dans `tiers.ron`.
 
-#[allow(unused_imports)]
-use crate::tiers_ui_server::*;
 use engine_render::egui;
+#[allow(unused_imports)]
+use voxel_sim::adventure::tiers_ui::*;
 
 use crate::VoxelGame;
-use crate::adventure_data::{self, TierDef};
-use crate::screens::Screen;
 use crate::skin;
-use crate::tiers;
+use voxel_sim::adventure::data::TierDef;
+use voxel_sim::adventure::tiers;
+use voxel_sim::server::screens::Screen;
 
 /// Les couleurs de l'écran : le cadre de l'inventaire est clair, il lui faut du texte sombre.
 const DONE: egui::Color32 = egui::Color32::from_rgb(40, 110, 50);
@@ -53,7 +53,7 @@ impl VoxelGame {
 
     /// Le corps de l'écran : une carte par palier.
     pub(crate) fn tiers_panel(&mut self, ui: &mut egui::Ui) {
-        let data = adventure_data::current();
+        let data = voxel_sim::adventure::data::current();
         // L'aventure telle que la vue du joueur la décrit.
         let Some(progress) = self.client.view.me.vitals.as_ref().map(|v| v.tiers) else {
             return;
@@ -118,8 +118,8 @@ impl VoxelGame {
                 });
         }
         if let Some(index) = chosen {
-            self.send_now(crate::protocol::ClientMsg::Screen(
-                crate::protocol::ScreenAction::Tier(index),
+            self.send_now(voxel_sim::net::protocol::ClientMsg::Screen(
+                voxel_sim::net::protocol::ScreenAction::Tier(index),
             ));
         }
     }
@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn a_tier_is_described_with_its_effects() {
-        let data = adventure_data::AdventureData::builtin();
+        let data = voxel_sim::adventure::data::AdventureData::builtin();
         let haven = effects_line(&data.tiers[0]);
         assert!(haven.contains("vie ×1,0"), "{haven}");
         assert!(!haven.contains("Envahisseurs"));

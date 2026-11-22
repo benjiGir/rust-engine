@@ -10,7 +10,7 @@
 
 use super::*;
 use crate::key_codes::KeyCodes;
-use crate::protocol::{ClientMsg, DigPhase};
+use voxel_sim::net::protocol::{ClientMsg, DigPhase};
 
 impl VoxelGame {
     /// Direction voulue d'après les touches. Horizontale en marche ; en vol,
@@ -241,10 +241,9 @@ impl VoxelGame {
                 entity: id,
             });
             // Les retours immédiats restent ici : le bras frappe, le coup résonne (sur une créature).
-            let mob =
-                self.client.view.entities.get(id).is_some_and(|view| {
-                    matches!(view.kind, crate::entities::EntityKind::Mob { .. })
-                });
+            let mob = self.client.view.entities.get(id).is_some_and(|view| {
+                matches!(view.kind, voxel_sim::net::entities::EntityKind::Mob { .. })
+            });
             if mob {
                 self.client.hand.punch();
                 if let Some(audio) = &mut self.client.audio {

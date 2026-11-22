@@ -19,25 +19,35 @@
 //!   la poussière ; un **envahisseur** un objet d'une rareté plus haute, une gemme et de la
 //!   poussière ;
 //! - les objets viennent de la liste `loot` de `elites.ron` (filtrée par palier) ; leur rareté suit
-//!   le palier choisi ([`TierDef::rarity_boost`](crate::adventure_data::TierDef)).
+//!   le palier choisi ([`TierDef::rarity_boost`](crate::adventure::data::TierDef)).
 //!
 //! # Les coffres
 //!
 //! Les coffres des structures contiennent des objets « à tirer » (voir `affixes::resolve_pending`) ;
 //! [`VoxelGame::resolve_chest_loot`] les tire à l'ouverture du coffre.
 
+pub mod affixes;
+pub mod charm_play;
+pub mod charms;
+pub mod data;
+pub mod forge_tables;
+pub mod forge_ui;
+pub mod gem_sockets;
+pub mod gems;
+pub mod tiers;
+pub mod tiers_ui;
+
 use engine_ecs::Entity;
 use engine_voxel::{ItemRegistry, Rng64};
 use glam::{IVec3, Vec3};
 
-use crate::adventure_data::{self, AdventureData, GemDrop};
-use crate::affixes;
-use crate::elites::{self, Elite};
-use crate::inventory::ItemStack;
-use crate::item_data;
+use crate::adventure::data::{AdventureData, GemDrop};
+use crate::adventure::tiers::{Progress, TierEffects};
 use crate::mobs::MobRegistry;
+use crate::mobs::elites::{self, Elite};
 use crate::player;
-use crate::tiers::{Progress, TierEffects};
+use crate::player::inventory::ItemStack;
+use crate::player::item_data;
 
 /// L'état d'aventure d'un monde ouvert.
 #[derive(Debug, Clone, Default)]
@@ -109,7 +119,7 @@ pub fn roll_affixed(
     })
 }
 
-impl crate::server_side::VoxelServer {
+impl crate::server::VoxelServer {
     // (lot 4b) Méthodes du serveur.
     /// Fait de cette créature un envahisseur.
     pub fn promote_invader(&mut self, entity: Entity, data: &AdventureData) -> bool {
@@ -145,7 +155,7 @@ impl crate::server_side::VoxelServer {
         let height = streamer.generator().column(x, z).height;
         let floor = IVec3::new(x, height, z);
         (streamer.is_lit(engine_voxel::World::split(floor).0)
-            && crate::spawning::standable(streamer.world(), &registry, floor))
+            && crate::mobs::spawning::standable(streamer.world(), &registry, floor))
         .then(|| Vec3::new(x as f32 + 0.5, height as f32 + 1.0, z as f32 + 0.5))
     }
 
@@ -205,7 +215,7 @@ impl crate::server_side::VoxelServer {
 
     /// À chaque pas de la simulation (voir la doc du module).
     pub fn update_adventure(&mut self, dt: f32) {
-        let data = adventure_data::current();
+        let data = crate::adventure::data::current();
         self.ecs
             .insert_resource(self.players.me_mut().adventure.effects(&data));
         self.players.me_mut().adventure.scan_timer -= dt;
@@ -230,7 +240,7 @@ impl crate::server_side::VoxelServer {
 
     /// Tire les objets « à tirer » d'un coffre qu'on ouvre (voir la doc du module).
     pub fn resolve_chest_loot(&mut self, pos: IVec3) {
-        let data = adventure_data::current();
+        let data = crate::adventure::data::current();
         let items = self.content.items.clone();
         let boost = self.rarity_boost(&data);
         let mut streamer = self.streamer_mut();
@@ -274,9 +284,9 @@ impl crate::server_side::VoxelServer {
             let id = self.players.current_id();
             self.replies.push((
                 id,
-                crate::protocol::ServerMsg::Feedback(crate::player_view::Feedback::TierUnlocked(
-                    name,
-                )),
+                crate::net::protocol::ServerMsg::Feedback(
+                    crate::net::player_view::Feedback::TierUnlocked(name),
+                ),
             ));
             self.sound("core:enchant");
         }
@@ -284,7 +294,7 @@ impl crate::server_side::VoxelServer {
 
     /// Une gemme tirée selon `drop`, et peut-être de la poussière.
     fn roll_gem_stacks(&mut self, drop: GemDrop) -> Vec<ItemStack> {
-        let data = adventure_data::current();
+        let data = crate::adventure::data::current();
         let items = self.content.items.clone();
         let mut rng = Rng64::new(self.next_random());
         let mut out = Vec::new();
@@ -297,7 +307,7 @@ impl crate::server_side::VoxelServer {
             }
         }
         if rng.next_f32() < drop.dust
-            && let Some(id) = crate::forge_tables::dust_item(&items)
+            && let Some(id) = crate::adventure::forge_tables::dust_item(&items)
         {
             out.push(ItemStack::new(id, 1));
         }
@@ -306,7 +316,7 @@ impl crate::server_side::VoxelServer {
 
     /// Un objet à affixes tiré au hasard dans la liste de butin du palier choisi.
     pub fn roll_affixed_stack(&mut self, min_rarity: u8) -> Option<ItemStack> {
-        let data = adventure_data::current();
+        let data = crate::adventure::data::current();
         let items = self.content.items.clone();
         let tier = self.players.me_mut().adventure.progress.tier;
         let boost = self.rarity_boost(&data);
@@ -317,14 +327,14 @@ impl crate::server_side::VoxelServer {
     /// Une hostile vient de mourir près du joueur : la progression la compte.
     pub fn credit_kill(&mut self, boss: bool) {
         self.players.me_mut().adventure.progress.note_kill(boss);
-        let data = adventure_data::current();
+        let data = crate::adventure::data::current();
         self.unlock_tiers(&data);
     }
 
     /// Le butin d'adventure d'une créature morte : un objet à affixes (une chance pour une hostile,
     /// toujours pour une élite), des gemmes. Les objets tombent là où elle est morte.
     pub fn adventure_loot(&mut self, position: Vec3, hostile: bool, elite: Option<&Elite>) {
-        let data = adventure_data::current();
+        let data = crate::adventure::data::current();
         let at = position.floor().as_ivec3();
         let mut stacks = Vec::new();
         match elite {

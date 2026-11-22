@@ -2,20 +2,20 @@
 //! l'enclume simple et la bibliothèque. Les règles sont dans `enchant_table.rs`, `enchant_books.rs`
 //! et `enchant_library.rs` ; ici, la lecture du monde autour de la table et le dessin.
 
-#[allow(unused_imports)]
-use crate::enchant_ui_server::*;
 use std::collections::HashMap;
+#[allow(unused_imports)]
+use voxel_sim::enchanting::ui::*;
 
 use engine_render::egui;
 use engine_voxel::ItemStack as BlockStack;
 use glam::IVec3;
 
 use crate::VoxelGame;
-use crate::enchant_books::{self, ENCHANTED_BOOK};
-use crate::enchant_library::{self, Library};
-use crate::enchant_table::{self, TableStats};
-use crate::enchanting::{self, Enchantment};
-use crate::protocol::ScreenAction;
+use voxel_sim::enchanting::books::ENCHANTED_BOOK;
+use voxel_sim::enchanting::library::Library;
+use voxel_sim::enchanting::table::TableStats;
+use voxel_sim::enchanting::{self, Enchantment};
+use voxel_sim::net::protocol::ScreenAction;
 
 /// La couleur d'un nom d'enchantement sur le cadre clair de l'inventaire.
 const ENCHANT_TEXT: egui::Color32 = egui::Color32::from_rgb(98, 54, 158);
@@ -75,12 +75,12 @@ impl VoxelGame {
         if !owned.is_empty() {
             ui.label(format!("Enchantements : {}", owned.join(", ")));
         }
-        let Some(subject) = crate::enchant_ui_server::table_subject(&items, &stack) else {
+        let Some(subject) = voxel_sim::enchanting::ui::table_subject(&items, &stack) else {
             ui.label("Un livre enchanté s'applique sur un objet : voir l'aide plus bas.");
             return;
         };
-        let data = crate::adventure_data::current();
-        let Some(list) = enchant_table::offers(
+        let data = voxel_sim::adventure::data::current();
+        let Some(list) = voxel_sim::enchanting::table::offers(
             &data,
             subject,
             &def.key,
@@ -122,8 +122,8 @@ impl VoxelGame {
             }
         }
         if let Some(index) = chosen {
-            self.send_now(crate::protocol::ClientMsg::Screen(
-                crate::protocol::ScreenAction::EnchantBuy { offer: index as u8 },
+            self.send_now(voxel_sim::net::protocol::ClientMsg::Screen(
+                voxel_sim::net::protocol::ScreenAction::EnchantBuy { offer: index as u8 },
             ));
         }
     }
@@ -189,7 +189,7 @@ impl VoxelGame {
             .weak(),
         );
         let book_id = items.id(ENCHANTED_BOOK);
-        let blank = items.id(enchant_books::BOOK);
+        let blank = items.id(voxel_sim::enchanting::books::BOOK);
         // Le dépôt : le livre à la souris, ou tous ceux de l'inventaire.
         ui.horizontal_wrapped(|ui| {
             let cursor_book = inventory
@@ -272,7 +272,7 @@ impl VoxelGame {
                                 .range(1..=best.max(1))
                                 .prefix("niv. "),
                         );
-                        let cost = enchant_library::points_of_level(*pick);
+                        let cost = voxel_sim::enchanting::library::points_of_level(*pick);
                         let ready =
                             *pick <= reachable && blank.is_some_and(|b| inventory.count(b) > 0);
                         if ui
@@ -297,7 +297,7 @@ impl VoxelGame {
             });
         }
         if let Some(action) = action {
-            self.send_now(crate::protocol::ClientMsg::Screen(action));
+            self.send_now(voxel_sim::net::protocol::ClientMsg::Screen(action));
         }
     }
 
@@ -310,7 +310,7 @@ impl VoxelGame {
                 .inventory
                 .as_ref()?
                 .slots
-                .get(enchant_library::OUTPUT)?
+                .get(voxel_sim::enchanting::library::OUTPUT)?
                 .clone()
         });
         let Some(out) = out else { return false };

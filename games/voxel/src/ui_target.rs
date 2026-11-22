@@ -1,11 +1,10 @@
 //! Identification du bloc ou de la créature regardée, dans le monde et les structures.
 use crate::{
-    VoxelGame,
-    mobs::MobRegistry,
-    skin,
+    VoxelGame, skin,
     ui_info::{self, Card},
 };
 use engine_render::egui::{self};
+use voxel_sim::mobs::MobRegistry;
 
 impl VoxelGame {
     pub(crate) fn draw_target_info(&mut self, ctx: &egui::Context) -> f32 {
@@ -29,7 +28,7 @@ impl VoxelGame {
         let mob = aimed_id.and_then(|id| {
             let view = self.client.view.entities.get(id)?;
             match &view.kind {
-                crate::entities::EntityKind::Mob { kind, title } => {
+                voxel_sim::net::entities::EntityKind::Mob { kind, title } => {
                     Some((*kind, title.clone(), view.look))
                 }
                 _ => None,
@@ -57,7 +56,9 @@ impl VoxelGame {
         };
         // Un wagon à contenu : son type vient de la réplique des entités.
         let cart = aimed_id.and_then(|id| match self.client.view.entities.get(id)?.kind {
-            crate::entities::EntityKind::Cart { kind } if mob.is_none() && kind.slots() > 1 => {
+            voxel_sim::net::entities::EntityKind::Cart { kind }
+                if mob.is_none() && kind.slots() > 1 =>
+            {
                 Some(kind)
             }
             _ => None,
@@ -69,7 +70,7 @@ impl VoxelGame {
                 preview = self
                     .server
                     .ecs
-                    .get::<crate::carts::CartCargo>(cart)
+                    .get::<voxel_sim::vehicles::carts::CartCargo>(cart)
                     .map(|c| crate::chest_preview::summarize(&c.0.slots, c.0.slots.len()));
             }
             Card {

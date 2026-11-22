@@ -28,9 +28,17 @@
 //! Épines, Légèreté et Vivacité. Solidité est la seule qui agit ailleurs que par les attributs :
 //! l'objet s'use moins (une chance sur « niveau + 1 » d'être épargné).
 
+pub mod book_play;
+pub mod books;
+pub mod data;
+pub mod effects;
+pub mod library;
+pub mod table;
+pub mod ui;
+
 use engine_voxel::ItemDef;
 
-use crate::item_data::{self, ItemData};
+use crate::player::item_data::{self, ItemData};
 
 /// L'usure : les 16 bits bas.
 pub const WEAR_MASK: u32 = 0xFFFF;
@@ -74,7 +82,7 @@ impl Enchantment {
     /// La sorte de ce numéro, si les données la connaissent (un mod disparu : `None`).
     pub fn from_id(id: u32) -> Option<Self> {
         let number = u8::try_from(id).ok()?;
-        crate::adventure_data::current()
+        crate::adventure::data::current()
             .enchant_by_number(number)
             .map(|_| Self(number))
     }
@@ -82,7 +90,7 @@ impl Enchantment {
     /// Toutes les sortes connues, dans l'ordre des données.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn all() -> Vec<Self> {
-        crate::adventure_data::current()
+        crate::adventure::data::current()
             .enchantments
             .iter()
             .map(|e| Self(e.number))
@@ -91,7 +99,7 @@ impl Enchantment {
 
     /// La sorte d'après son identifiant (`core:fortune`) ou son nom court (`fortune`).
     pub fn from_key(key: &str) -> Option<Self> {
-        let data = crate::adventure_data::current();
+        let data = crate::adventure::data::current();
         let full = if key.contains(':') {
             key.to_string()
         } else {
@@ -100,8 +108,8 @@ impl Enchantment {
         data.enchant_by_id(&full).map(|e| Self(e.number))
     }
 
-    fn with_def<R>(self, f: impl FnOnce(&crate::enchant_data::EnchantDef) -> R) -> Option<R> {
-        crate::adventure_data::current()
+    fn with_def<R>(self, f: impl FnOnce(&crate::enchanting::data::EnchantDef) -> R) -> Option<R> {
+        crate::adventure::data::current()
             .enchant_by_number(self.0)
             .map(f)
     }
@@ -403,7 +411,9 @@ mod tests {
             }
         }
         // Le plus grand numéro de sac à dos reste lui aussi un objet simple.
-        assert!(!item_data::is_extended(crate::backpacks::MAX_NUMBER));
+        assert!(!item_data::is_extended(
+            crate::storage::backpacks::MAX_NUMBER
+        ));
         assert_eq!(wear(0), 0);
     }
 
@@ -500,7 +510,7 @@ mod tests {
 
     #[test]
     fn unbreaking_spares_wear_and_protection_adds_up() {
-        use crate::inventory::{Inventory, ItemStack};
+        use crate::player::inventory::{Inventory, ItemStack};
         let items = items();
         let pickaxe = items.id("core:iron_pickaxe").unwrap();
         let helmet = items.id("core:iron_helmet").unwrap();
@@ -533,7 +543,7 @@ mod tests {
 
     #[test]
     fn wear_goes_through_the_sheet_and_a_broken_tool_frees_it() {
-        use crate::inventory::{Inventory, ItemStack};
+        use crate::player::inventory::{Inventory, ItemStack};
         let items = items();
         let pickaxe = items.id("core:iron_pickaxe").unwrap();
         let durability = items.get(pickaxe).durability.unwrap();
@@ -570,7 +580,7 @@ mod tests {
 
     #[test]
     fn enchanted_items_never_stack_and_survive_saving() {
-        use crate::inventory::{Inventory, ItemStack};
+        use crate::player::inventory::{Inventory, ItemStack};
         let items = items();
         let sword = items.id("core:iron_sword").unwrap();
         let mut inventory = Inventory::default();
@@ -587,7 +597,7 @@ mod tests {
 
     #[test]
     fn old_worlds_and_old_enchanted_items_stay_valid() {
-        use crate::inventory::Inventory;
+        use crate::player::inventory::Inventory;
         let items = items();
         // Un `world.ron` d'avant les fiches : une épée enchantée Tranchant II, usure 5, dont le
         // `damage` est celui de l'ancien format (sorte 2 << 24, niveau 2 << 16, usure 5), et une
@@ -626,7 +636,7 @@ mod tests {
 
     #[test]
     fn extended_stacks_survive_chests_wagons_and_never_stack() {
-        use crate::inventory::{Click, ItemStack, click_slot};
+        use crate::player::inventory::{Click, ItemStack, click_slot};
         let items = items();
         let sword = items.id("core:iron_sword").unwrap();
         let damage = with_enchantment(
@@ -665,14 +675,14 @@ mod tests {
         click_slot(&mut slot, &mut cursor, &items, |_| true, Click::Primary);
         assert_eq!((slot, cursor), (Some(b), Some(a)));
         // La pile jetée au sol puis ramassée garde son numéro (c'est la même valeur).
-        let mut inventory = crate::inventory::Inventory::default();
+        let mut inventory = crate::player::inventory::Inventory::default();
         assert_eq!(inventory.add_stack(a, &items), 0);
         assert_eq!(inventory.slots[0].unwrap().damage, damage);
     }
 
     #[test]
     fn backpacks_and_items_stores_live_side_by_side() {
-        use crate::backpacks::BackpackStore;
+        use crate::storage::backpacks::BackpackStore;
         let dir = std::env::temp_dir().join(format!("voxel-stores-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -680,7 +690,7 @@ mod tests {
         // Un sac numéroté, et une fiche d'objet : deux fichiers distincts, relus sans se gêner.
         let mut bags = BackpackStore::default();
         let mut bag =
-            crate::inventory::ItemStack::new(items.id("core:backpack_leather").unwrap(), 1);
+            crate::player::inventory::ItemStack::new(items.id("core:backpack_leather").unwrap(), 1);
         let number = bags.number_for(&mut bag, 0).unwrap();
         bags.save(&dir).unwrap();
         let mut sheets = item_data::ItemStore::default();
@@ -696,7 +706,7 @@ mod tests {
 
     #[test]
     fn spending_levels_keeps_the_progress_towards_the_next() {
-        use crate::survival::Experience;
+        use crate::player::survival::Experience;
         let mut xp = Experience { points: 0 };
         xp.add(Experience::cost(0) + Experience::cost(1) + Experience::cost(2) + 3);
         assert_eq!(xp.level(), (3, 3));

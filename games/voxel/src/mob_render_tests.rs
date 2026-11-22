@@ -6,14 +6,14 @@ use std::sync::Arc;
 use engine_ecs::Events;
 use glam::Vec3;
 
-use crate::components::*;
-use crate::events::EntityDied;
-use crate::mobs::tests::{repo, sim};
-use crate::mobs::*;
+use voxel_sim::components::*;
+use voxel_sim::events::EntityDied;
+use voxel_sim::mobs::tests::{repo, sim};
+use voxel_sim::mobs::*;
 
 #[test]
 fn sheep_colours_tint_only_fleece_and_survive_despawning_in_the_death_event() {
-    use crate::sheep_colors::{SheepCoat, drop_key, palette};
+    use voxel_sim::mobs::sheep_colors::{SheepCoat, drop_key, palette};
     let mut world = sim();
     let registry = world.resource::<Arc<MobRegistry>>().clone();
     let kind = registry.id("core:sheep").unwrap();
@@ -72,7 +72,7 @@ fn sheep_colours_tint_only_fleece_and_survive_despawning_in_the_death_event() {
 
 #[test]
 fn every_wool_colour_has_native_icons_and_can_make_a_bed_even_when_mixed() {
-    use crate::sheep_colors::palette;
+    use voxel_sim::mobs::sheep_colors::palette;
     let blocks = crate::test_registry();
     let items = engine_voxel::ItemRegistry::builtin(&blocks).unwrap();
     let recipes = engine_voxel::Recipes::builtin(&items).unwrap();

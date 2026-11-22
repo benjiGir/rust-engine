@@ -4,7 +4,7 @@
 use super::*;
 use crate::key_codes::KeyCodes;
 #[allow(unused_imports)]
-use crate::ships::*;
+use voxel_sim::vehicles::ships::*;
 
 impl VoxelGame {
     /// La barre : gauche et droite, envoyées au serveur quand elles changent (voir `update_helm`).
@@ -14,7 +14,7 @@ impl VoxelGame {
             - f32::from(ctx.input.key_held(keys.key(Action::Left)) as u8);
         if steer != self.client.steer_sent {
             self.client.steer_sent = steer;
-            self.send_now(crate::protocol::ClientMsg::Steer(steer));
+            self.send_now(voxel_sim::net::protocol::ClientMsg::Steer(steer));
         }
     }
 }

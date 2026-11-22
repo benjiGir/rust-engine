@@ -22,8 +22,8 @@ use engine_render::CubeInstance;
 use engine_voxel::{ItemId, SubGrid, ray_aabb};
 use glam::Vec3;
 
-use crate::entities::{EntityKind, Look, NetId, Pose};
-use crate::protocol::ServerMsg;
+use voxel_sim::net::entities::{EntityKind, Look, NetId, Pose};
+use voxel_sim::net::protocol::ServerMsg;
 
 /// La vitesse de marche de référence d'un joueur (pour l'ampleur de ses pas), en blocs par seconde.
 const PLAYER_WALK_SPEED: f32 = 4.3;
@@ -345,7 +345,7 @@ pub fn lerp_angle(a: f32, b: f32, t: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::{PreviousPosition, Transform};
+    use voxel_sim::components::{PreviousPosition, Transform};
 
     /// Une créature de cette taille (largeur, hauteur) : la taille est dans l'apparence.
     fn mob(width: f32, height: f32) -> (EntityKind, Look) {
@@ -506,7 +506,7 @@ mod tests {
             &mut entities,
             3,
             EntityKind::Cart {
-                kind: crate::carts::CartKind::Minecart,
+                kind: voxel_sim::vehicles::carts::CartKind::Minecart,
             },
             at(2.0),
         );
@@ -572,7 +572,7 @@ mod tests {
         // Un objet en main : le bras reste un peu devant.
         let look = Look {
             swings: 1,
-            held: Some(crate::inventory::ItemStack {
+            held: Some(voxel_sim::player::inventory::ItemStack {
                 item: engine_voxel::ItemId(1),
                 count: 1,
                 damage: 0,
@@ -585,7 +585,7 @@ mod tests {
 
     #[test]
     fn a_ship_keeps_its_blocks_and_follows_its_pose() {
-        use crate::entities::GridSnapshot;
+        use voxel_sim::net::entities::GridSnapshot;
         let mut entities = ClientEntities::new(1);
         let grid = engine_voxel::GridId(3);
         let id = spawn(&mut entities, 9, EntityKind::Grid { id: grid }, at(10.0));

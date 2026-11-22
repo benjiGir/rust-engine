@@ -712,7 +712,7 @@ mod tests {
     fn display_options_open_the_shader_selector() {
         let ctx = egui::Context::default();
         crate::skin::apply(&ctx);
-        let mut settings = crate::settings::Settings::default();
+        let mut settings = voxel_sim::settings::Settings::default();
         let mut target = None;
         let mut opened = false;
         for frame in 0..6 {
@@ -755,7 +755,7 @@ mod tests {
     fn scrolling_a_short_options_window_reaches_the_return_button() {
         let ctx = egui::Context::default();
         crate::skin::apply(&ctx);
-        let mut s = crate::settings::Settings::default();
+        let mut s = voxel_sim::settings::Settings::default();
         let mut waiting = None;
         let mut visible = false;
         for frame in 0..40 {
@@ -804,7 +804,7 @@ mod tests {
     fn options_window_stays_inside_the_viewport_including_after_resizing() {
         let ctx = egui::Context::default();
         crate::skin::apply(&ctx);
-        let mut settings = crate::settings::Settings::default();
+        let mut settings = voxel_sim::settings::Settings::default();
         let mut waiting = None;
         for [w, h] in [
             [1280.0, 720.0],

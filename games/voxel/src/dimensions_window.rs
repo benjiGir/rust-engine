@@ -3,7 +3,7 @@
 
 use crate::VoxelGame;
 #[allow(unused_imports)]
-use crate::dimensions::*;
+use voxel_sim::world::dimensions::*;
 
 impl VoxelGame {
     /// Les noms des dimensions du monde, pour `ctl` et la console.

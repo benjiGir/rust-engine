@@ -17,9 +17,9 @@
 use anyhow::{Context as _, Result, bail};
 
 use crate::VoxelGame;
-use crate::attributes::Attribute;
-use crate::enchanting::{self, Enchantment};
-use crate::item_data;
+use voxel_sim::enchanting::{self, Enchantment};
+use voxel_sim::player::attributes::Attribute;
+use voxel_sim::player::item_data;
 
 /// Une commande des objets, lue par `control.rs`.
 #[derive(Debug, Clone, PartialEq)]
@@ -205,7 +205,7 @@ impl VoxelGame {
                         self.client.ui.attributes.open = true;
                         if !self.client.ui.inventory_open {
                             self.client.ui.inventory_open = true;
-                            self.client.ui.screen = crate::screens::Screen::Inventory;
+                            self.client.ui.screen = voxel_sim::server::screens::Screen::Inventory;
                             self.client.mouse_captured = false;
                         }
                     }
@@ -217,7 +217,7 @@ impl VoxelGame {
             }
             Command::Throw => {
                 let aim = self.body_aim();
-                self.send_now(crate::protocol::ClientMsg::Drop { aim, all: false });
+                self.send_now(voxel_sim::net::protocol::ClientMsg::Drop { aim, all: false });
                 Ok("{\"ok\":true}".to_string())
             }
         }
@@ -231,12 +231,12 @@ impl VoxelGame {
         let key = &self.client.content.items.get(stack.item).key;
         let labels: Vec<String> = enchanting::labels(stack.damage)
             .iter()
-            .map(|l| crate::json_text::json_str(l))
+            .map(|l| voxel_sim::server::json_text::json_str(l))
             .collect();
         let extended = item_data::is_extended(stack.damage);
         format!(
             "{{\"ok\":true,\"item\":{},\"damage\":{},\"extended\":{},\"number\":{},\"wear\":{},\"enchantments\":[{}],\"sheets\":{}}}",
-            crate::json_text::json_str(key),
+            voxel_sim::server::json_text::json_str(key),
             stack.damage,
             extended,
             if extended {

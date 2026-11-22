@@ -2,11 +2,11 @@
 //! multijoueur ; la simulation reste dans `shaped_play.rs`).
 
 use crate::VoxelGame;
-use crate::shape_materials;
-#[allow(unused_imports)]
-use crate::shaped_play::*;
 use crate::ui_info::Card;
 use engine_voxel::RayHit;
+use voxel_sim::shaping;
+#[allow(unused_imports)]
+use voxel_sim::shaping::play::*;
 
 impl VoxelGame {
     /// La fiche de visée d'une case de formes : ses matériaux, et la pièce visée.
@@ -17,13 +17,13 @@ impl VoxelGame {
         let names: Vec<String> = shaped
             .materials
             .iter()
-            .map(|m| shape_materials::material_name(&self.client.registry, m).to_lowercase())
+            .map(|m| shaping::materials::material_name(&self.client.registry, m).to_lowercase())
             .collect();
         card.name = format!("Case de formes : {}", names.join(", "));
         if let Some(index) = self.server.aimed_part(hit.block_pos, &shaped) {
             let part = shaped.parts[index];
             let material =
-                shape_materials::material_name(&self.client.registry, shaped.material_of(&part));
+                shaping::materials::material_name(&self.client.registry, shaped.material_of(&part));
             let (what, size) = describe_piece(&part.piece);
             card.lines.insert(
                 0,

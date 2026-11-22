@@ -1,15 +1,15 @@
 //! L'écran du Guide du voyageur : les chapitres à gauche, la page à droite, et sous le texte les
 //! objets dont un clic ouvre les recettes dans l'explorateur. Le contenu est dans `guide.rs`.
 
-#[allow(unused_imports)]
-use crate::guide_ui_server::*;
 use engine_render::egui;
+#[allow(unused_imports)]
+use voxel_sim::quests::guide_ui::*;
 
 use crate::VoxelGame;
-use crate::guide::expand_keys;
-use crate::inventory::ItemStack;
 use crate::recipe_browser::Lookup;
 use crate::ui::{Press, Screen};
+use voxel_sim::player::inventory::ItemStack;
+use voxel_sim::quests::guide::expand_keys;
 
 /// Où l'on en est dans le guide (gardé d'une ouverture à l'autre).
 #[derive(Debug, Default)]

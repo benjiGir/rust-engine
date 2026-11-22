@@ -21,6 +21,12 @@
 //! Les identifiants d'objets, de blocs, de créatures... sans espace de noms prennent celui du
 //! fichier (`stick` → `core:stick`) ; `#logs` désigne un groupe d'objets de `items.ron`.
 
+pub mod guide;
+pub mod guide_ui;
+pub mod play;
+pub mod progress;
+pub mod ui;
+
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::{Context as _, Result, bail};

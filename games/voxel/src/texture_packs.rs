@@ -1,7 +1,7 @@
 //! Packs graphiques du menu principal : le choix n'affecte ni données ni sauvegardes.
-use crate::settings::TexturePack;
 use engine_render::egui::{self, TextureHandle};
 use std::{collections::HashMap, path::PathBuf};
+use voxel_sim::settings::TexturePack;
 const PACKS: [TexturePack; 3] = [
     TexturePack::Classic,
     TexturePack::Earth32,
@@ -9,7 +9,7 @@ const PACKS: [TexturePack; 3] = [
 ];
 
 #[allow(unused_imports)]
-pub(crate) use crate::texture_pack_config::{
+pub(crate) use voxel_sim::world::texture_pack::{
     Manifest, available, configure, details, folder, manifest,
 };
 fn previews(ctx: &egui::Context, dirs: &[PathBuf], pack: TexturePack) -> Vec<TextureHandle> {

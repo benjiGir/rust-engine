@@ -3,7 +3,8 @@
 
 use super::*;
 #[allow(unused_imports)]
-use crate::interact_server::*;
+use voxel_sim::server::interact::*;
+use voxel_sim::world::soundscape;
 
 impl VoxelGame {
     /// Pose le bloc de la case choisie contre la face visée. Renvoie sa position si c'est fait.
@@ -100,7 +101,7 @@ impl VoxelGame {
         self.client.ui.browser.close();
         self.client.ui.split = None;
         // Le simulateur range la main et la grille d'artisanat (voir `intents.rs`).
-        self.send_now(crate::protocol::ClientMsg::CloseMenu);
+        self.send_now(voxel_sim::net::protocol::ClientMsg::CloseMenu);
         self.client.ui.inventory_open = false;
         self.client.ui.screen = ui::Screen::Inventory;
     }

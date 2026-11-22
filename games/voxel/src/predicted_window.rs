@@ -1,10 +1,10 @@
 //! La part fenêtre de `predicted.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
 //! multijoueur ; la simulation reste dans `predicted.rs`).
 
-#[allow(unused_imports)]
-use crate::predicted::*;
 use engine_voxel::PLAYER_EYE_HEIGHT;
 use glam::Vec3;
+#[allow(unused_imports)]
+use voxel_sim::net::predicted::*;
 
 impl crate::VoxelGame {
     /// La fenêtre place son joueur elle-même (vol automatique, démo, `ctl`) : son corps prédit, et le
@@ -13,7 +13,7 @@ impl crate::VoxelGame {
         let feet = eye - Vec3::Y * PLAYER_EYE_HEIGHT;
         self.client.body.place(feet);
         let entity = self.server.players.entity();
-        crate::player::set_eye(&self.server.ecs, entity, eye);
+        voxel_sim::player::set_eye(&self.server.ecs, entity, eye);
         self.server.players.local_mut().synced = Some(feet);
     }
 
@@ -21,7 +21,7 @@ impl crate::VoxelGame {
     pub(crate) fn toggle_fly(&mut self) {
         self.client.body.toggle_mode();
         let entity = self.server.players.entity();
-        crate::player::toggle_mode(&mut self.server.ecs, entity);
+        voxel_sim::player::toggle_mode(&mut self.server.ecs, entity);
     }
 
     /// Un pas de la physique du joueur, chez la fenêtre, puis son envoi au serveur.
@@ -31,7 +31,7 @@ impl crate::VoxelGame {
             * self
                 .server
                 .ecs
-                .get_resource::<crate::components::GravityScale>()
+                .get_resource::<voxel_sim::components::GravityScale>()
                 .map_or(1.0, |g| g.0);
         self.client
             .body

@@ -35,8 +35,8 @@ use engine_voxel::SEA_LEVEL;
 use glam::Vec3;
 
 use crate::VoxelGame;
-use crate::daytime::TimeSpeed;
-use crate::player::MoveMode;
+use voxel_sim::player::MoveMode;
+use voxel_sim::world::daytime::TimeSpeed;
 
 /// Images d'attente après le chargement, et au début de chaque mesure (préchauffage).
 const SETTLE_FRAMES: u32 = 30;

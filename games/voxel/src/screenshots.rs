@@ -22,8 +22,8 @@ use engine_voxel::{BlockId, SEA_LEVEL};
 use glam::{IVec3, Vec3};
 
 use crate::VoxelGame;
-use crate::daytime::TimeSpeed;
-use crate::player::MoveMode;
+use voxel_sim::player::MoveMode;
+use voxel_sim::world::daytime::TimeSpeed;
 
 /// Où poser les créatures de la capture.
 const MOB_SPOT: (i32, i32) = (12, -6);
@@ -383,7 +383,7 @@ impl VoxelGame {
                         | Scene::Trade
                         | Scene::ShapingTable
                 );
-                self.client.ui.screen = crate::screens::Screen::Inventory;
+                self.client.ui.screen = voxel_sim::server::screens::Screen::Inventory;
                 // Le bras n'apparaît que dans ses propres captures.
                 let arm = matches!(
                     shot.scene,
@@ -725,7 +725,7 @@ impl VoxelGame {
                 let registry = self
                     .server
                     .ecs
-                    .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+                    .resource::<std::sync::Arc<voxel_sim::mobs::MobRegistry>>()
                     .clone();
                 let (x, z) = MOB_SPOT;
                 for (i, (dx, dz)) in [(0, 0), (2, -1), (-1, 2), (3, 2), (1, 4)]
@@ -743,7 +743,7 @@ impl VoxelGame {
                     let (px, pz) = (x + dx, z + dz);
                     let y = self.ground(px, pz) as f32 + 1.0;
                     let o = self.origin().as_vec3();
-                    crate::mobs::spawn_mob(
+                    voxel_sim::mobs::spawn_mob(
                         &mut self.server.ecs,
                         kind,
                         o + Vec3::new(px as f32 + 0.5, y, pz as f32 + 0.5),
@@ -775,7 +775,7 @@ impl VoxelGame {
 
     /// Remplit l'écran de la capture : une grille d'artisanat, un four en marche, un coffre.
     fn build_screen(&mut self, scene: Scene) {
-        use crate::inventory::ItemStack;
+        use voxel_sim::player::inventory::ItemStack;
         let items = self.client.content.items.clone();
         let stack = |key: &str, count: u32| items.id(key).map(|i| ItemStack::new(i, count));
         self.server.players.me_mut().inventory.craft = [None; 9];
@@ -785,7 +785,7 @@ impl VoxelGame {
                 self.server.players.me_mut().inventory.armor[0] = stack("core:iron_helmet", 1);
                 self.server.players.me_mut().inventory.armor[1] =
                     stack("core:copper_chestplate", 1);
-                self.client.ui.screen = crate::screens::Screen::Inventory;
+                self.client.ui.screen = voxel_sim::server::screens::Screen::Inventory;
             }
             Scene::Workbench => {
                 // Une pioche en bois : trois planches en haut, deux bâtons au milieu.
@@ -800,7 +800,7 @@ impl VoxelGame {
                     12,
                     &items,
                 );
-                self.client.ui.screen = crate::screens::Screen::Workbench;
+                self.client.ui.screen = voxel_sim::server::screens::Screen::Workbench;
             }
             Scene::Furnace | Scene::Chest => {
                 let (x, z) = (3, 3);
@@ -851,9 +851,9 @@ impl VoxelGame {
                         let (actions, _) = self.server.mods.fixed_step(self.client.camera.position);
                         self.server.apply_machine_actions(actions);
                     }
-                    self.client.ui.screen = crate::screens::Screen::Furnace(pos);
+                    self.client.ui.screen = voxel_sim::server::screens::Screen::Furnace(pos);
                 } else {
-                    self.client.ui.screen = crate::screens::Screen::Chest(pos);
+                    self.client.ui.screen = voxel_sim::server::screens::Screen::Chest(pos);
                 }
             }
             Scene::Trade => {
@@ -861,7 +861,7 @@ impl VoxelGame {
                 let registry = self
                     .server
                     .ecs
-                    .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+                    .resource::<std::sync::Arc<voxel_sim::mobs::MobRegistry>>()
                     .clone();
                 let Some(kind) = registry.id("core:farmer") else {
                     return;
@@ -873,7 +873,7 @@ impl VoxelGame {
                         self.ground(x, z) as f32 + 1.0,
                         z as f32 + 0.5,
                     );
-                let Some(mob) = crate::mobs::spawn_mob(&mut self.server.ecs, kind, at) else {
+                let Some(mob) = voxel_sim::mobs::spawn_mob(&mut self.server.ecs, kind, at) else {
                     return;
                 };
                 let uses: Vec<u32> = self
@@ -886,7 +886,7 @@ impl VoxelGame {
                     .collect();
                 self.server
                     .ecs
-                    .insert(mob, crate::components::Trader { uses });
+                    .insert(mob, voxel_sim::components::Trader { uses });
                 self.server.players.me_mut().inventory.add(
                     items.id("core:gold_ingot").unwrap(),
                     3,
@@ -897,14 +897,14 @@ impl VoxelGame {
                     45,
                     &items,
                 );
-                crate::entities::NetIds::assign(&mut self.server.ecs);
+                voxel_sim::net::entities::NetIds::assign(&mut self.server.ecs);
                 if let Some(id) = self
                     .server
                     .ecs
-                    .get::<crate::entities::NetId>(mob)
+                    .get::<voxel_sim::net::entities::NetId>(mob)
                     .map(|id| *id)
                 {
-                    self.client.ui.screen = crate::screens::Screen::Trade(id);
+                    self.client.ui.screen = voxel_sim::server::screens::Screen::Trade(id);
                 }
                 self.client.ui.trade_selected = 4;
             }
@@ -1088,14 +1088,14 @@ impl VoxelGame {
             _ => None,
         };
         // La case de la barre qui contient l'objet voulu (ou une case vide).
-        let slot = (0..crate::inventory::HOTBAR)
+        let slot = (0..voxel_sim::player::inventory::HOTBAR)
             .find(|&i| self.server.players.me_mut().inventory.slots[i].map(|s| s.item) == wanted)
             .unwrap_or(0);
         if wanted.is_none() {
             self.server.players.me_mut().inventory.slots[8] = None;
         } else {
             self.server.players.me_mut().inventory.slots[slot] =
-                wanted.map(|item| crate::inventory::ItemStack::new(item, 1));
+                wanted.map(|item| voxel_sim::player::inventory::ItemStack::new(item, 1));
         }
         self.server.players.me_mut().inventory.selected = if wanted.is_none() { 8 } else { slot };
         self.client.hand.equip = 0.0;

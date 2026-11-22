@@ -9,8 +9,8 @@
 
 use crate::VoxelGame;
 #[allow(unused_imports)]
-pub(crate) use crate::net_join::*;
-use crate::protocol::{ClientMsg, ServerMsg};
+pub(crate) use voxel_sim::net::join::*;
+use voxel_sim::net::protocol::{ClientMsg, ServerMsg};
 
 impl VoxelGame {
     /// Cette fenêtre fait tourner le monde (seule, ou en hôte) ; faux pour un invité.
@@ -38,7 +38,7 @@ impl VoxelGame {
             Err(reason) => {
                 log::warn!("connexion à {} perdue : {reason}", link.address);
                 link.close();
-                self.client.request = Some(crate::launch::Request::Title);
+                self.client.request = Some(voxel_sim::launch::Request::Title);
                 Vec::new()
             }
         }

@@ -1,6 +1,18 @@
 //! Les créatures : leur description (chargée depuis des fichiers, comme les blocs) et
 //! les systèmes ECS qui les font vivre.
 
+pub mod aquatic;
+pub mod brains;
+pub mod breeding;
+pub mod elites;
+pub mod model;
+pub mod navigation;
+pub mod projectiles;
+pub mod sheep_colors;
+pub mod spawning;
+pub mod trading;
+pub mod villagers;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -12,16 +24,16 @@ use engine_voxel::{BlockRegistry, ChunkStreamer, PlayerBody, ray_aabb};
 use glam::{IVec3, Vec2, Vec3};
 use serde::Deserialize;
 
-use crate::attributes::Pierce;
+use crate::adventure::tiers::TierEffects;
 use crate::components::{
     Collider, Flying, Health, Hurt, Impulse, Mob, MobAnim, MoveIntent, PreviousPosition, Transform,
     Velocity, Wander,
 };
 use crate::events::{self, EntityDied, EntitySpawned, PlayerAttacked, Tick};
-use crate::navigation::{DangerBlocks, PathFollow, SEARCHES_PER_STEP, cell_of};
-use crate::players::PlayerId;
-use crate::survival::{Senses, SurvivalRules, Vitals};
-use crate::tiers::TierEffects;
+use crate::mobs::navigation::{DangerBlocks, PathFollow, SEARCHES_PER_STEP, cell_of};
+use crate::player::attributes::Pierce;
+use crate::player::players::PlayerId;
+use crate::player::survival::{Senses, SurvivalRules, Vitals};
 
 /// Au plus ce nombre de créatures autour du joueur.
 /// Distance d'apparition (entre les deux) et de disparition, en blocs.
@@ -31,7 +43,7 @@ const CHASE_DISTANCE: f32 = 14.0;
 
 // ----- La description des créatures -----
 
-pub use crate::mob_model::MobPart;
+pub use crate::mobs::model::MobPart;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -59,7 +71,7 @@ struct MobFileEntry {
     #[serde(default)]
     light: Option<(u8, u8)>,
     #[serde(default)]
-    when: crate::spawning::When,
+    when: crate::mobs::spawning::When,
     #[serde(default)]
     biomes: Vec<String>,
     #[serde(default)]
@@ -69,9 +81,9 @@ struct MobFileEntry {
     #[serde(default)]
     dissolves: Option<bool>,
     #[serde(default)]
-    ranged: Option<crate::projectiles::RangedDef>,
+    ranged: Option<crate::mobs::projectiles::RangedDef>,
     #[serde(default)]
-    breeds: Option<crate::breeding::BreedingDef>,
+    breeds: Option<crate::mobs::breeding::BreedingDef>,
     /// Le script de son mod la dirige (`Mod::mobs`) au lieu de l'IA du jeu.
     #[serde(default)]
     brain: bool,
@@ -116,16 +128,16 @@ pub struct MobDef {
     pub hops: bool,
     pub aquatic: bool,
     /// Où et quand elle apparaît (voir `spawning.rs`).
-    pub spawn: crate::spawning::SpawnRules,
+    pub spawn: crate::mobs::spawning::SpawnRules,
     pub parts: Vec<MobPart>,
     /// Son butin (les objets sont vérifiés à la mort : ils peuvent venir d'un mod).
     pub drops: Vec<MobDrop>,
     /// L'expérience qu'elle rapporte (min, max).
     pub xp: (u32, u32),
     /// Une attaque à distance (voir `projectiles.rs`).
-    pub ranged: Option<crate::projectiles::RangedDef>,
+    pub ranged: Option<crate::mobs::projectiles::RangedDef>,
     /// Comment elle se reproduit (voir `breeding.rs`) ; `None` : elle ne le fait pas.
-    pub breeds: Option<crate::breeding::BreedingDef>,
+    pub breeds: Option<crate::mobs::breeding::BreedingDef>,
     /// Dirigée par le script de son mod (celui de l'espace de noms de son identifiant).
     pub brain: bool,
     /// Un boss (voir `elites.rs` et `tiers.rs`).
@@ -209,7 +221,7 @@ impl MobRegistry {
                 armor_pierce: entry.armor_pierce,
                 hops: entry.hops,
                 aquatic: entry.aquatic,
-                spawn: crate::spawning::SpawnRules {
+                spawn: crate::mobs::spawning::SpawnRules {
                     on: spawn_on,
                     // Par défaut : les hostiles dans le noir, les autres au jour.
                     light: entry
@@ -237,7 +249,7 @@ impl MobRegistry {
     pub fn bind_textures(&mut self, blocks: &mut BlockRegistry) {
         for def in &mut self.defs {
             let namespace = def.key.split_once(':').unwrap().0;
-            crate::mob_model::bind_textures(&mut def.parts, namespace, blocks);
+            crate::mobs::model::bind_textures(&mut def.parts, namespace, blocks);
         }
     }
 
@@ -405,13 +417,13 @@ pub fn physics(world: &mut World) {
                 // Le joueur d'une fenêtre se simule chez elle (voir `predicted.rs`), sauf porté.
                 if world.has::<crate::components::Predicted>(entity)
                     && !world.has::<crate::components::OnGrid>(entity)
-                    && !world.has::<crate::carts::Riding>(entity)
+                    && !world.has::<crate::vehicles::carts::Riding>(entity)
                 {
                     return;
                 }
                 previous.0 = transform.position;
                 if world.has::<Flying>(entity)
-                    || crate::spawning::asleep(world, entity, transform.position, &centers)
+                    || crate::mobs::spawning::asleep(world, entity, transform.position, &centers)
                 {
                     return;
                 }
@@ -456,7 +468,7 @@ pub fn physics(world: &mut World) {
                     return;
                 }
                 if !world.has::<crate::components::Aquatic>(entity)
-                    || !crate::aquatic::step(&mut body, streamer.world(), intent.walk, dt)
+                    || !crate::mobs::aquatic::step(&mut body, streamer.world(), intent.walk, dt)
                 {
                     body.step(streamer.world(), intent.walk, intent.jump, dt);
                 }
@@ -483,7 +495,7 @@ pub fn spawn_mob_with_coat(
     world: &mut World,
     kind: u32,
     position: Vec3,
-    inherited: Option<crate::sheep_colors::SheepCoat>,
+    inherited: Option<crate::mobs::sheep_colors::SheepCoat>,
 ) -> Option<Entity> {
     let def = world.resource::<Arc<MobRegistry>>().get(kind)?.clone();
     // Un hostile naît plus robuste aux paliers hauts du monde (voir `tiers.rs`).
@@ -510,7 +522,7 @@ pub fn spawn_mob_with_coat(
     world.insert(entity, MobAnim::default());
     if def.key == "core:sheep" {
         let coat = inherited.unwrap_or_else(|| {
-            crate::sheep_colors::SheepCoat::choose(world.resource_mut::<GameRng>().next_f32())
+            crate::mobs::sheep_colors::SheepCoat::choose(world.resource_mut::<GameRng>().next_f32())
         });
         log::debug!("mouton : {} ({})", coat.data().name, coat.data().id);
         world.insert(entity, coat);
@@ -565,8 +577,8 @@ pub fn wander(world: &mut World) {
                 let target = nearest_position(&spots, position);
                 // Loin du joueur : elle ne pense pas (zone de simulation).
                 if target.is_some_and(|t| {
-                    crate::spawning::horizontal_distance(t, position)
-                        > crate::spawning::SIM_DISTANCE
+                    crate::mobs::spawning::horizontal_distance(t, position)
+                        > crate::mobs::spawning::SIM_DISTANCE
                 }) {
                     intent.walk = Vec3::ZERO;
                     intent.jump = false;
@@ -576,7 +588,7 @@ pub fn wander(world: &mut World) {
                 wander.panic = (wander.panic - dt).max(0.0);
                 wander.attack_cooldown = (wander.attack_cooldown - dt).max(0.0);
                 if def.aquatic {
-                    let direction = crate::aquatic::wander(
+                    let direction = crate::mobs::aquatic::wander(
                         streamer.world(),
                         position,
                         collider,
@@ -628,7 +640,7 @@ pub fn wander(world: &mut World) {
                     }
                     // Trop loin de chez lui : il rentre.
                     if let Some(h) = home
-                        && crate::spawning::horizontal_distance(h, position) > 10.0
+                        && crate::mobs::spawning::horizontal_distance(h, position) > 10.0
                     {
                         follow.wander_goal = Some(cell_of(h));
                     }
@@ -660,9 +672,14 @@ pub fn wander(world: &mut World) {
                 }
                 // Une créature qui tire s'arrête à portée, face au joueur.
                 if chasing && let (Some(ranged), Some(t)) = (def.ranged, target) {
-                    let eye = crate::projectiles::eye_of(position, collider);
+                    let eye = crate::mobs::projectiles::eye_of(position, collider);
                     let aim_at = t + Vec3::Y * 1.2;
-                    if crate::projectiles::holds_position(&ranged, streamer.world(), eye, aim_at) {
+                    if crate::mobs::projectiles::holds_position(
+                        &ranged,
+                        streamer.world(),
+                        eye,
+                        aim_at,
+                    ) {
                         direction = Vec3::ZERO;
                         let to = aim_at - position;
                         let wanted = to.z.atan2(to.x);
@@ -676,7 +693,7 @@ pub fn wander(world: &mut World) {
                     def.speed * 1.5
                 } else {
                     def.speed
-                } * crate::elites::speed_of(world, entity);
+                } * crate::mobs::elites::speed_of(world, entity);
                 intent.walk = direction * speed;
                 wander.direction = direction;
                 if direction != Vec3::ZERO {
@@ -712,7 +729,7 @@ pub fn environment(world: &mut World) {
     world
         .query::<(&Transform, &Collider, &mut MobVitals)>()
         .for_each(|entity, (transform, collider, vitals)| {
-            if crate::spawning::asleep(world, entity, transform.position, &centers) {
+            if crate::mobs::spawning::asleep(world, entity, transform.position, &centers) {
                 return;
             }
             let voxels = streamer.world();
@@ -728,7 +745,7 @@ pub fn environment(world: &mut World) {
                 in_liquid: collider.in_liquid,
                 in_water,
                 head_under: world.has::<crate::components::Aquatic>(entity)
-                    && !crate::aquatic::fits(
+                    && !crate::mobs::aquatic::fits(
                         voxels,
                         transform.position,
                         collider.width,
@@ -788,7 +805,7 @@ pub fn attack(world: &mut World) {
                 world,
                 PlayerAttacked {
                     player: world.get::<PlayerId>(victim.entity).map(|id| *id),
-                    amount: def.damage * crate::elites::damage_of(world, entity),
+                    amount: def.damage * crate::mobs::elites::damage_of(world, entity),
                     from: transform.position,
                     pierce: def.armor_pierce,
                 },
@@ -822,11 +839,13 @@ pub fn cleanup(world: &mut World) {
                         entity,
                         kind,
                         position: transform.position,
-                        elite: crate::elites::of(world, entity),
+                        elite: crate::mobs::elites::of(world, entity),
                         coat: world
-                            .get::<crate::sheep_colors::SheepCoat>(entity)
+                            .get::<crate::mobs::sheep_colors::SheepCoat>(entity)
                             .map(|c| *c),
-                        killer: world.get::<crate::players::LastHitBy>(entity).map(|k| k.0),
+                        killer: world
+                            .get::<crate::player::players::LastHitBy>(entity)
+                            .map(|k| k.0),
                     },
                 );
                 world.commands().despawn(entity);
@@ -1074,8 +1093,8 @@ pub mod tests {
         world.insert_resource(FixedDt(1.0 / 60.0));
         world.insert_resource(GameRng(7));
         world.insert_resource(SimClock::default());
-        world.insert_resource(crate::spawning::Sky::default());
-        world.insert_resource(crate::spawning::Difficulty(1));
+        world.insert_resource(crate::mobs::spawning::Sky::default());
+        world.insert_resource(crate::mobs::spawning::Difficulty(1));
         world.insert_resource(Arc::new(DangerBlocks::default()));
         world.insert_resource(Arc::new(SurvivalRules::default()));
         events::register(&mut world);
@@ -1178,7 +1197,7 @@ pub mod tests {
                         let (sky, block) = streamer
                             .world()
                             .light((transform.position + Vec3::Y * 0.5).floor().as_ivec3());
-                        if crate::spawning::effective_light(sky, block, 1.0) > 7 {
+                        if crate::mobs::spawning::effective_light(sky, block, 1.0) > 7 {
                             found.0 += 1;
                         } else {
                             found.1 += 1;
@@ -1193,13 +1212,13 @@ pub mod tests {
             let mut world = sim();
             let player = world.resource::<PlayerEntities>().0[0];
             world.get_mut::<Transform>(player).unwrap().position = Vec3::new(5.0, 70.0, 5.0);
-            *world.resource_mut::<crate::spawning::Sky>() = crate::spawning::Sky {
+            *world.resource_mut::<crate::mobs::spawning::Sky>() = crate::mobs::spawning::Sky {
                 daylight: if night { 0.1 } else { 1.0 },
                 night,
             };
             for _ in 0..400 {
                 world.resource_mut::<SimClock>().spawn_timer = 0.0;
-                crate::spawning::spawn(&mut world);
+                crate::mobs::spawning::spawn(&mut world);
                 world.apply_commands();
             }
             let (lit, dark, passives) = census(&world);
@@ -1229,7 +1248,7 @@ pub mod tests {
         let animal = spawn_mob(&mut world, pig, Vec3::new(6.5, 150.0, 5.5)).unwrap();
         for _ in 0..40 {
             world.resource_mut::<SimClock>().dissolve_timer = 0.0;
-            crate::spawning::dissolve(&mut world);
+            crate::mobs::spawning::dissolve(&mut world);
             world.apply_commands();
         }
         assert!(
@@ -1310,12 +1329,12 @@ pub mod tests {
         world.insert(
             mob,
             crate::components::BrainGoal {
-                cell: crate::navigation::cell_of(goal),
+                cell: crate::mobs::navigation::cell_of(goal),
                 speed: 3.0,
             },
         );
         for _ in 0..(20 * 60) {
-            crate::mob_brains::follow_goals(&mut world);
+            crate::mobs::brains::follow_goals(&mut world);
             physics(&mut world);
             if world.get::<Transform>(mob).unwrap().position.distance(goal) < 1.5 {
                 return;
@@ -1410,8 +1429,8 @@ pub mod tests {
         for _ in 0..(6 * 60) {
             wander(&mut world);
             physics(&mut world);
-            crate::projectiles::shoot(&mut world);
-            crate::projectiles::fly(&mut world);
+            crate::mobs::projectiles::shoot(&mut world);
+            crate::mobs::projectiles::fly(&mut world);
             world.apply_commands();
             hits += reader
                 .read(&world.resource::<Events<PlayerAttacked>>())
@@ -1484,7 +1503,7 @@ pub mod tests {
     #[test]
     fn peaceful_worlds_have_no_hostile_creatures() {
         let mut world = sim();
-        world.insert_resource(crate::spawning::Difficulty(0));
+        world.insert_resource(crate::mobs::spawning::Difficulty(0));
         let slime = world
             .resource::<Arc<MobRegistry>>()
             .id("example:slime")
@@ -1493,10 +1512,10 @@ pub mod tests {
         let hostile = spawn_mob(&mut world, slime, Vec3::new(8.5, 90.0, 8.5)).unwrap();
         let friendly = spawn_mob(&mut world, pig, Vec3::new(9.5, 90.0, 8.5)).unwrap();
         // La nuit comme le jour : l'hostile finit par partir (un tirage par seconde).
-        world.resource_mut::<crate::spawning::Sky>().night = true;
+        world.resource_mut::<crate::mobs::spawning::Sky>().night = true;
         for _ in 0..200 {
             world.resource_mut::<SimClock>().dissolve_timer = 0.0;
-            crate::spawning::dissolve(&mut world);
+            crate::mobs::spawning::dissolve(&mut world);
             world.apply_commands();
         }
         assert!(world.get::<Mob>(hostile).is_none(), "l'hostile a disparu");

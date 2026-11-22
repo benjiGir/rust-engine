@@ -2,9 +2,9 @@
 //! multijoueur ; la simulation reste dans `player_view.rs`).
 
 use crate::VoxelGame;
-#[allow(unused_imports)]
-use crate::player_view::*;
 use std::time::Instant;
+#[allow(unused_imports)]
+use voxel_sim::net::player_view::*;
 
 impl VoxelGame {
     /// La fenêtre applique un retour du serveur.
@@ -28,7 +28,7 @@ impl VoxelGame {
                 let key = self
                     .settings
                     .keys
-                    .name(crate::settings::Action::Tiers)
+                    .name(voxel_sim::settings::Action::Tiers)
                     .to_string();
                 let text = format!("Palier débloqué : {name} (touche {key})");
                 log::info!("{text}");

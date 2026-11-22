@@ -45,14 +45,14 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
         lines.push((
             format!(
                 "Durabilité : {} / {max}",
-                max.saturating_sub(crate::enchanting::wear(damage))
+                max.saturating_sub(voxel_sim::enchanting::wear(damage))
             ),
             skin::TEXT,
         ));
         // Un charme de potion : son état et ce qui le recharge (voir `charms.rs`).
         lines.extend(
-            crate::charms::card_lines(
-                &crate::adventure_data::current(),
+            voxel_sim::adventure::charms::card_lines(
+                &voxel_sim::adventure::data::current(),
                 &def.key,
                 damage,
                 Some(max),
@@ -62,29 +62,29 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
         );
     }
     // Tous les enchantements, un par ligne (outils, armures, livres enchantés).
-    for label in crate::enchanting::labels(damage) {
+    for label in voxel_sim::enchanting::labels(damage) {
         lines.push((label, skin::MAGIC));
     }
     // La rareté, les affixes et les gemmes de la fiche (objets à affixes, voir `affixes.rs`).
-    let sheet = crate::item_data::sheet(damage);
-    let data = crate::adventure_data::current();
+    let sheet = voxel_sim::player::item_data::sheet(damage);
+    let data = voxel_sim::adventure::data::current();
     let rarity = sheet
         .as_ref()
-        .and_then(crate::affixes::display_rarity)
+        .and_then(voxel_sim::adventure::affixes::display_rarity)
         .and_then(|r| data.rarity(r));
     let rarity_color = rarity.map(|r| Color32::from_rgb(r.color.0, r.color.1, r.color.2));
     if let (Some(rarity), Some(color)) = (rarity, rarity_color) {
         lines.insert(0, (rarity.name.clone(), color));
     }
     for affix in sheet.iter().flat_map(|s| &s.affixes) {
-        if let Some(text) = crate::affixes::describe(affix) {
+        if let Some(text) = voxel_sim::adventure::affixes::describe(affix) {
             lines.push((text, skin::GOLD));
         }
     }
     for socket in sheet.iter().flat_map(|s| &s.sockets) {
         lines.push(match socket {
             None => ("Emplacement de gemme : vide".into(), skin::MUTED),
-            Some(key) => match crate::gems::gem_label(&data, key) {
+            Some(key) => match voxel_sim::adventure::gems::gem_label(&data, key) {
                 Some((name, tone)) => (format!("Gemme : {name}"), skin::tone(tone)),
                 None => ("Gemme inconnue".into(), skin::MUTED),
             },
@@ -92,7 +92,7 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
     }
     // Une gemme dit ce qu'elle apporte selon l'objet qui la porte ; un sceau, ce qu'il fait.
     if let Some((_, _)) = data.gem_of(&def.key) {
-        for text in crate::gems::gem_effects(&data, &def.key) {
+        for text in voxel_sim::adventure::gems::gem_effects(&data, &def.key) {
             lines.push((text, skin::GOLD));
         }
         lines.push((
@@ -101,23 +101,23 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
         ));
     }
     match def.key.as_str() {
-        crate::enchant_books::ENCHANTED_BOOK => lines.push((
+        voxel_sim::enchanting::books::ENCHANTED_BOOK => lines.push((
             "Dans l'écran d'une table d'enchantement ou d'une enclume, tenu au curseur : un clic sur un objet lui apporte ces enchantements".into(),
             skin::MUTED,
         )),
-        crate::enchant_books::TOME_EXTRACTION => lines.push((
+        voxel_sim::enchanting::books::TOME_EXTRACTION => lines.push((
             "Dans l'écran d'une table d'enchantement ou d'une enclume, tenu au curseur : un clic sur un objet enchanté en retire les enchantements sur un livre vierge".into(),
             skin::MUTED,
         )),
-        key if crate::enchant_books::BookKind::of_key(key).is_some() => lines.push((
+        key if voxel_sim::enchanting::books::BookKind::of_key(key).is_some() => lines.push((
             "En main devant une table d'enchantement : devient un livre enchanté (un tome ne reçoit que les enchantements de son type)".into(),
             skin::MUTED,
         )),
-        crate::gems::SEAL_UNSOCKET => lines.push((
+        voxel_sim::adventure::gems::SEAL_UNSOCKET => lines.push((
             "Au curseur, un clic sur un objet : retire ses gemmes".into(),
             skin::MUTED,
         )),
-        crate::gems::SEAL_SOCKET => lines.push((
+        voxel_sim::adventure::gems::SEAL_SOCKET => lines.push((
             "Au curseur, un clic sur un objet : un emplacement de plus".into(),
             skin::MUTED,
         )),
@@ -320,8 +320,11 @@ mod tests {
         let blocks = engine_voxel::BlockRegistry::builtin();
         let items = engine_voxel::ItemRegistry::builtin(&blocks).unwrap();
         let def = items.get(items.id("core:iron_pickaxe").unwrap());
-        let damage =
-            crate::enchanting::with_enchantment(3, crate::enchanting::Enchantment::EFFICIENCY, 2);
+        let damage = voxel_sim::enchanting::with_enchantment(
+            3,
+            voxel_sim::enchanting::Enchantment::EFFICIENCY,
+            2,
+        );
         let card = item(def, 1, damage);
         assert!(card.lines.iter().any(|(s, _)| s
             == &format!(
@@ -422,7 +425,7 @@ mod tests {
 
     #[test]
     fn the_tooltip_lists_every_enchantment_of_an_item() {
-        use crate::enchanting::{Enchantment, with_enchantment};
+        use voxel_sim::enchanting::{Enchantment, with_enchantment};
         let blocks = engine_voxel::BlockRegistry::builtin();
         let items = engine_voxel::ItemRegistry::builtin(&blocks).unwrap();
         let def = items.get(items.id("core:iron_axe").unwrap());
@@ -464,7 +467,7 @@ mod tests {
 
     #[test]
     fn books_and_charms_have_their_own_tooltip_lines() {
-        use crate::enchanting::{Enchantment, with_enchantment};
+        use voxel_sim::enchanting::{Enchantment, with_enchantment};
         let blocks = engine_voxel::BlockRegistry::builtin();
         let items = engine_voxel::ItemRegistry::builtin(&blocks).unwrap();
         let get = |key: &str| items.get(items.id(key).unwrap());
@@ -496,7 +499,7 @@ mod tests {
         let charm = get("core:charm_strength");
         let inactive = item(charm, 1, 0);
         assert!(inactive.lines.iter().any(|(s, _)| s.starts_with("Inactif")));
-        let active = item(charm, 1, crate::charms::ACTIVE);
+        let active = item(charm, 1, voxel_sim::adventure::charms::ACTIVE);
         assert!(active.lines.iter().any(|(s, _)| s.starts_with("Actif")));
         assert!(active.lines.iter().any(|(s, _)| s == "Charge : 100 %"));
         let empty = item(charm, 1, charm.durability.unwrap());

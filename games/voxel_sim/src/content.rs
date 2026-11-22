@@ -26,7 +26,7 @@ pub struct Content {
     /// Ce que l'amélioration « compactage » sait regrouper (lu dans les recettes).
     pub compact: Arc<CompactTable>,
     /// Le Guide du voyageur (voir `guide.rs`).
-    pub guide: Arc<crate::guide::Guide>,
+    pub guide: Arc<crate::quests::guide::Guide>,
 }
 
 /// Les fichiers `name` de core puis des mods, avec leur espace de noms.
@@ -78,20 +78,20 @@ impl Content {
             recipes.len(),
             smelting.recipes().len()
         );
-        let mut guide = crate::guide::Guide::default();
+        let mut guide = crate::quests::guide::Guide::default();
         for (ns, text, origin) in sources(assets, mods, "guide.ron")? {
             guide.add_source(&ns, &text, &origin, &items)?;
         }
         let recipe_index = RecipeIndex::new(&recipes, &smelting, &brewing, &machine_recipes);
         let compact = CompactTable::from_recipes(&recipes, &items);
         // L'aventure : les fichiers de core et des mods, vérifiés contre les objets, puis installés
-        // pour les modules purs (voir `adventure_data::install`).
-        let adventure = crate::adventure_data::AdventureData::load(assets, mods)
+        // pour les modules purs (voir `crate::adventure::data::install`).
+        let adventure = crate::adventure::data::AdventureData::load(assets, mods)
             .context("chargement des données d'aventure")?;
         adventure
             .validate_items(&items)
             .context("données d'aventure")?;
-        crate::adventure_data::install(Arc::new(adventure));
+        crate::adventure::data::install(Arc::new(adventure));
         Ok(Self {
             compact: Arc::new(compact),
             recipe_index: Arc::new(recipe_index),

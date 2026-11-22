@@ -3,7 +3,7 @@
 
 use crate::VoxelGame;
 #[allow(unused_imports)]
-use crate::screen_actions::*;
+use voxel_sim::server::screen_actions::*;
 
 impl VoxelGame {
     /// La vue d'écran que la fenêtre a reçue.

@@ -3,13 +3,13 @@
 //! Elle liste les quatorze attributs avec leur valeur ; au survol d'une ligne, une bulle donne le
 //! détail (la base, puis ce que chaque source apporte : objet en main, pièces d'armure, potions).
 //! Une case à cocher ne garde que les attributs **modifiés** (différents de leur base). Les
-//! valeurs viennent de [`crate::gear::Gear`] : rien n'est recalculé ici.
+//! valeurs viennent de [`voxel_sim::player::gear::Gear`] : rien n'est recalculé ici.
 
 use engine_render::egui;
 
 use crate::VoxelGame;
-use crate::attributes::{Attribute, Attributes};
 use crate::skin;
+use voxel_sim::player::attributes::{Attribute, Attributes};
 
 /// L'état de la fiche : ouverte ou non, et son filtre.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -169,16 +169,16 @@ impl VoxelGame {
                 let sources: Vec<String> = detail(attrs, a)
                     .iter()
                     .skip(1)
-                    .map(|l| crate::json_text::json_str(l))
+                    .map(|l| voxel_sim::server::json_text::json_str(l))
                     .collect();
                 format!(
                     "{{\"id\":{},\"name\":{},\"value\":{:.4},\"base\":{:.4},\"modified\":{},\"text\":{},\"sources\":[{}]}}",
                     a.id(),
-                    crate::json_text::json_str(a.name()),
+                    voxel_sim::server::json_text::json_str(a.name()),
                     attrs.value(a),
                     attrs.base(a),
                     attrs.is_modified(a),
-                    crate::json_text::json_str(&a.format(attrs.value(a))),
+                    voxel_sim::server::json_text::json_str(&a.format(attrs.value(a))),
                     sources.join(",")
                 )
             })
@@ -195,7 +195,7 @@ impl VoxelGame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::attributes::{BaseAttributes, Modifier, Source};
+    use voxel_sim::player::attributes::{BaseAttributes, Modifier, Source};
 
     fn attrs() -> Attributes {
         Attributes::compute(
@@ -213,7 +213,10 @@ mod tests {
     #[test]
     fn the_filter_keeps_only_modified_attributes() {
         let attrs = attrs();
-        assert_eq!(rows(&attrs, false).len(), crate::attributes::COUNT);
+        assert_eq!(
+            rows(&attrs, false).len(),
+            voxel_sim::player::attributes::COUNT
+        );
         assert_eq!(
             rows(&attrs, true),
             vec![Attribute::Damage, Attribute::MiningSpeed]

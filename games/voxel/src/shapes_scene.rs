@@ -7,7 +7,7 @@ use engine_voxel::shaped::{self, Corner, Link, Piece, PieceKind, Shaped};
 use glam::{IVec3, Vec3};
 
 use crate::VoxelGame;
-use crate::inventory::ItemStack;
+use voxel_sim::player::inventory::ItemStack;
 
 /// Où construire la scène, en coordonnées de scène (autour du point d'apparition).
 const SPOT: (i32, i32) = (-20, 12);
@@ -296,7 +296,7 @@ impl VoxelGame {
             ("core:shape_slope", "core:oak_planks"),
         ] {
             if let Some(item) = items.id(kind) {
-                let number = crate::shape_materials::number_of(material);
+                let number = voxel_sim::shaping::materials::number_of(material);
                 self.server.players.me_mut().inventory.add_stack(
                     ItemStack {
                         item,
@@ -307,6 +307,6 @@ impl VoxelGame {
                 );
             }
         }
-        self.client.ui.screen = crate::screens::Screen::Shaping;
+        self.client.ui.screen = voxel_sim::server::screens::Screen::Shaping;
     }
 }

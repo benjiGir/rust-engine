@@ -5,11 +5,11 @@
 //! l'interface depuis zéro (« un bouton ici, un texte là »), et egui s'occupe de
 //! l'état (survol, clics). Pas d'objets « bouton » à créer et à garder à jour.
 
-#[allow(unused_imports)]
-pub(crate) use crate::screens::Screen;
-use crate::ui_server::*;
 use std::collections::HashMap;
 use std::sync::Arc;
+#[allow(unused_imports)]
+pub(crate) use voxel_sim::server::screens::Screen;
+use voxel_sim::server::ui::*;
 
 use crate::skin;
 use engine_core::winit::window::Window;
@@ -20,11 +20,11 @@ use engine_render::{TEXTURE_SIZE, UiFrame};
 use engine_voxel::{BlockRegistry, Icon, ItemId, ItemRegistry, Recipe};
 
 use crate::VoxelGame;
-use crate::components::{
+use voxel_sim::components::{
     Collider, Health, Hurt, Mob, MoveIntent, Player, PreviousPosition, Transform, Velocity, Wander,
 };
-use crate::inventory::{Click, HOTBAR, ItemStack, Slot};
-use crate::mobs::MobRegistry;
+use voxel_sim::mobs::MobRegistry;
+use voxel_sim::player::inventory::{Click, HOTBAR, ItemStack, Slot};
 
 pub struct GameUi {
     pub ctx: egui::Context,
@@ -49,7 +49,7 @@ pub struct GameUi {
     pub toast: Option<(String, std::time::Instant)>,
     pub target_bottom: f32,
     /// Le menu d'une machine de mod, s'il est ouvert (`Screen::Mod`).
-    pub mod_menu: Option<crate::mod_menu::ModMenuState>,
+    pub mod_menu: Option<voxel_sim::modding::menu::ModMenuState>,
     /// Les actions du joueur dans ce menu, à transmettre au script : (type, id, valeur).
     pub mod_events: Vec<(i32, i32, i32)>,
     /// Vrai pendant un clic droit : un script peut alors ouvrir son menu.
@@ -191,8 +191,8 @@ impl GameUi {
         textures: &[Vec<u8>],
     ) -> egui::TextureId {
         let ctx = self.ctx.clone();
-        let piece = crate::shape_materials::kind_of(items.get(item))
-            .zip(crate::shape_materials::key_of(damage).and_then(|key| blocks.id(&key)));
+        let piece = voxel_sim::shaping::materials::kind_of(items.get(item))
+            .zip(voxel_sim::shaping::materials::key_of(damage).and_then(|key| blocks.id(&key)));
         let variant = if piece.is_some() { damage } else { 0 };
         self.icons
             .entry((item, variant))
@@ -366,12 +366,12 @@ impl VoxelGame {
             let def = self.client.content.items.get(stack.item);
             let mut card = crate::ui_info::item(def, stack.count, stack.damage);
             if let Some(name) =
-                crate::shape_materials::piece_name(&self.client.registry, def, stack.damage)
+                voxel_sim::shaping::materials::piece_name(&self.client.registry, def, stack.damage)
             {
                 card.name = name;
             }
             card.lines.extend(
-                crate::backpacks::card_lines(&def.key, stack.damage)
+                voxel_sim::storage::backpacks::card_lines(&def.key, stack.damage)
                     .into_iter()
                     .map(|(text, tone)| (text, crate::skin::tone(tone))),
             );
@@ -396,13 +396,13 @@ impl VoxelGame {
             .get(stack.item)
             .durability
             .and_then(|max| {
-                let wear = crate::enchanting::wear(stack.damage);
+                let wear = voxel_sim::enchanting::wear(stack.damage);
                 (wear > 0).then(|| (1.0 - wear as f32 / max.max(1) as f32).clamp(0.0, 1.0))
             });
         // Le liseré : la couleur de la rareté, sinon celle de l'enchantement.
-        let border = crate::affixes::rarity_of(stack.damage)
-            .map(|r| crate::forge_ui::rarity_color(&crate::adventure_data::current(), r))
-            .or_else(|| crate::enchanting::is_enchanted(stack.damage).then_some(skin::MAGIC));
+        let border = voxel_sim::adventure::affixes::rarity_of(stack.damage)
+            .map(|r| crate::forge_ui::rarity_color(&voxel_sim::adventure::data::current(), r))
+            .or_else(|| voxel_sim::enchanting::is_enchanted(stack.damage).then_some(skin::MAGIC));
         skin::stack(painter, rect, icon, stack.count, durability, border);
     }
 
@@ -450,7 +450,7 @@ impl VoxelGame {
 
     /// Envoie un clic de case au simulateur.
     fn send_slot_click(&mut self, target: SlotRef, click: Click, shift: bool) {
-        self.send_now(crate::protocol::ClientMsg::SlotClick {
+        self.send_now(voxel_sim::net::protocol::ClientMsg::SlotClick {
             slot: self.slot_target_of(target),
             button: click.into(),
             shift,
@@ -702,26 +702,28 @@ impl VoxelGame {
                                     if self.stack_widget(ui, stack, selected)
                                         == Some(Press::Primary)
                                     {
-                                        self.send_now(crate::protocol::ClientMsg::SelectSlot(
-                                            i as u8,
-                                        ));
+                                        self.send_now(
+                                            voxel_sim::net::protocol::ClientMsg::SelectSlot(
+                                                i as u8,
+                                            ),
+                                        );
                                     }
                                 }
                             });
                         });
                     if let Some(held) = held_stack {
                         // Un objet à affixes : son nom composé, dans la couleur de sa rareté.
-                        let data = crate::adventure_data::current();
-                        let sheet = crate::item_data::sheet(held.damage);
+                        let data = voxel_sim::adventure::data::current();
+                        let sheet = voxel_sim::player::item_data::sheet(held.damage);
                         let color = sheet
                             .as_ref()
-                            .and_then(crate::affixes::display_rarity)
+                            .and_then(voxel_sim::adventure::affixes::display_rarity)
                             .map_or(skin::TEXT, |r| crate::forge_ui::rarity_color(&data, r));
                         let item = self.client.content.items.get(held.item);
                         let name = sheet
                             .and_then(|s| s.name)
                             .or_else(|| {
-                                crate::shape_materials::piece_name(
+                                voxel_sim::shaping::materials::piece_name(
                                     &self.client.registry,
                                     item,
                                     held.damage,
@@ -766,7 +768,7 @@ impl VoxelGame {
                 let clicked =
                     self.stack_widget(ui, result, recipe.is_some()) == Some(Press::Primary);
                 if clicked && recipe.is_some() {
-                    self.send_now(crate::protocol::ClientMsg::Craft {
+                    self.send_now(voxel_sim::net::protocol::ClientMsg::Craft {
                         size: size as u8,
                         recipe: None,
                     });
@@ -804,7 +806,7 @@ impl VoxelGame {
                             self.stack_widget(ui, Some(ItemStack::new(item, count)), false)
                                 == Some(Press::Primary);
                         if clicked {
-                            self.send_now(crate::protocol::ClientMsg::Craft {
+                            self.send_now(voxel_sim::net::protocol::ClientMsg::Craft {
                                 size: size as u8,
                                 recipe: Some(index),
                             });
@@ -1020,10 +1022,10 @@ impl VoxelGame {
     /// Le titre de l'écran d'un wagon (et sa réserve de combustible, pour une locomotive).
     fn cart_title(&self) -> String {
         match self.shown_container().and_then(|c| c.cart) {
-            Some((crate::carts::CartKind::Locomotive, burn)) => {
+            Some((voxel_sim::vehicles::carts::CartKind::Locomotive, burn)) => {
                 format!(
                     "{} · {:.0} s de feu",
-                    crate::carts::CartKind::Locomotive.title(),
+                    voxel_sim::vehicles::carts::CartKind::Locomotive.title(),
                     burn
                 )
             }
@@ -1044,7 +1046,7 @@ impl VoxelGame {
             self.client.ui.screen = Screen::Inventory;
             return;
         };
-        if kind == crate::carts::CartKind::Locomotive {
+        if kind == voxel_sim::vehicles::carts::CartKind::Locomotive {
             ui.label("Combustible : charbon, bois...");
             crate::ui_layout::slots(ui, 1, 1, |ui, index| {
                 self.cart_slot(ui, index);
@@ -1068,7 +1070,7 @@ impl VoxelGame {
     /// boutons d'échange.
     fn trade_panel(&mut self, ui: &mut egui::Ui) {
         // L'habitant, d'après la vue d'écran du serveur ; l'inventaire, d'après la vue du joueur.
-        let Some(crate::screen_actions::ScreenView::Trade { key, name, uses }) =
+        let Some(voxel_sim::server::screen_actions::ScreenView::Trade { key, name, uses }) =
             self.shown_screen().cloned()
         else {
             // L'habitant a disparu (tué, ou trop loin) : on ferme.
@@ -1102,7 +1104,7 @@ impl VoxelGame {
                     .show(ui, |ui| {
                         for (i, trade) in trades.iter().enumerate() {
                             let left = uses.get(i).copied().unwrap_or(0);
-                            let can = crate::trading::can_trade(&inventory, trade, left);
+                            let can = voxel_sim::mobs::trading::can_trade(&inventory, trade, left);
                             let (rect, response) = ui.allocate_exact_size(
                                 egui::vec2(list_width - 4.0, row_height),
                                 egui::Sense::click(),
@@ -1189,7 +1191,7 @@ impl VoxelGame {
                 let trade = &trades[selected];
                 let left = uses.get(selected).copied().unwrap_or(0);
                 let have = inventory.count(trade.give.0);
-                let can = crate::trading::can_trade(&inventory, trade, left);
+                let can = voxel_sim::mobs::trading::can_trade(&inventory, trade, left);
                 let big = slot * 1.3;
                 let (rect, _) =
                     ui.allocate_exact_size(egui::vec2(big * 3.6, big + 8.0), egui::Sense::hover());
@@ -1267,8 +1269,8 @@ impl VoxelGame {
         });
         self.client.ui.trade_selected = chosen;
         if let Some((i, times)) = deal {
-            self.send_now(crate::protocol::ClientMsg::Screen(
-                crate::protocol::ScreenAction::Trade {
+            self.send_now(voxel_sim::net::protocol::ClientMsg::Screen(
+                voxel_sim::net::protocol::ScreenAction::Trade {
                     offer: i as u8,
                     times,
                 },
@@ -1342,7 +1344,7 @@ impl VoxelGame {
                     ui.end_row();
                     ui.label("Créatures");
                     let mobs = self.server.ecs.resource::<Arc<MobRegistry>>().clone();
-                    let mut census: Vec<String> = crate::mobs::census(&self.server.ecs)
+                    let mut census: Vec<String> = voxel_sim::mobs::census(&self.server.ecs)
                         .into_iter()
                         .filter_map(|(kind, n)| mobs.get(kind).map(|d| format!("{} × {n}", d.name)))
                         .collect();

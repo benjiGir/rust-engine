@@ -4,7 +4,7 @@
 use engine_render::CubeInstance;
 use glam::Vec3;
 
-use crate::mob_model::{Bone, MobPart};
+use voxel_sim::mobs::model::{Bone, MobPart};
 
 /// Modèle local, +X vers l'avant. Les textures restent attachées aux boîtes animées.
 pub fn instances(
@@ -97,8 +97,8 @@ pub fn instances(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mob_model::{MobPart, bind_textures};
     use engine_voxel::BlockRegistry;
+    use voxel_sim::mobs::model::{MobPart, bind_textures};
     #[test]
     fn tail_and_caudal_fin_keep_a_common_pivot_during_the_swim() {
         let parts: Vec<MobPart> = ron::from_str(

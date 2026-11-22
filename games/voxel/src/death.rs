@@ -7,9 +7,9 @@
 //! - Le lit (clic droit) : fixe le point de réapparition, et la nuit fait dormir jusqu'au
 //!   matin, sauf si une créature hostile rôde.
 
-#[allow(unused_imports)]
-use crate::death_server::*;
 use engine_render::egui::{self, Color32, RichText};
+#[allow(unused_imports)]
+use voxel_sim::server::death::*;
 
 use crate::menus::button;
 use crate::{Request, VoxelGame};
@@ -74,7 +74,7 @@ impl VoxelGame {
             quit = button(ui, label);
         });
         if respawn {
-            self.send_now(crate::protocol::ClientMsg::Respawn);
+            self.send_now(voxel_sim::net::protocol::ClientMsg::Respawn);
         } else if quit {
             self.client.request = Some(Request::Title);
         }

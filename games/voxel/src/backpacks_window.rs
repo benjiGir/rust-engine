@@ -3,7 +3,7 @@
 
 use crate::VoxelGame;
 #[allow(unused_imports)]
-use crate::backpacks::*;
+use voxel_sim::storage::backpacks::*;
 
 impl VoxelGame {
     /// Ouvre le premier sac de l'inventaire (barre d'abord).

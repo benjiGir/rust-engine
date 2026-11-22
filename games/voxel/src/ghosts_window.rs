@@ -3,11 +3,11 @@
 
 use crate::VoxelGame;
 use crate::control::{json_str, vec3};
-#[allow(unused_imports)]
-use crate::ghosts::*;
-use crate::player::{self};
-use crate::players::PlayerId;
 use anyhow::{Result, bail};
+#[allow(unused_imports)]
+use voxel_sim::net::ghosts::*;
+use voxel_sim::player::players::PlayerId;
+use voxel_sim::player::{self};
 
 impl VoxelGame {
     /// Exécute une commande des fantômes ; renvoie la réponse JSON.

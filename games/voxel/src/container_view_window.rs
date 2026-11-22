@@ -2,9 +2,9 @@
 //! multijoueur ; la simulation reste dans `container_view.rs`).
 
 use crate::VoxelGame;
+use voxel_sim::player::inventory::ItemStack;
 #[allow(unused_imports)]
-use crate::container_view::*;
-use crate::inventory::ItemStack;
+use voxel_sim::storage::container_view::*;
 
 impl VoxelGame {
     /// La vue du conteneur ouvert que la fenêtre a reçue.

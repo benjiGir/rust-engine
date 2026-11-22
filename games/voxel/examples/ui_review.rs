@@ -1,50 +1,14 @@
 //! Contrôle CPU des fenêtres, cases, infobulles et fiches de visée de production.
-#[path = "../../voxel_sim/src/adventure_data.rs"]
-#[allow(dead_code)]
-mod adventure_data;
-#[path = "../../voxel_sim/src/affixes.rs"]
-#[allow(dead_code)]
-mod affixes;
-#[path = "../../voxel_sim/src/attributes.rs"]
-#[allow(dead_code)]
-mod attributes;
-#[path = "../../voxel_sim/src/charms.rs"]
-#[allow(dead_code)]
-mod charms;
 #[allow(dead_code)]
 mod common;
-#[path = "../../voxel_sim/src/enchant_books.rs"]
-#[allow(dead_code)]
-mod enchant_books;
-#[path = "../../voxel_sim/src/enchant_data.rs"]
-#[allow(dead_code)]
-mod enchant_data;
-#[path = "../../voxel_sim/src/enchanting.rs"]
-#[allow(dead_code)]
-mod enchanting;
-#[path = "../../voxel_sim/src/gems.rs"]
-#[allow(dead_code)]
-mod gems;
 #[path = "../src/item_art.rs"]
 mod item_art;
-#[path = "../../voxel_sim/src/item_data.rs"]
-#[allow(dead_code)]
-mod item_data;
-#[path = "../../voxel_sim/src/settings.rs"]
-#[allow(dead_code)]
-mod settings;
 #[path = "../src/skin.rs"]
 #[allow(dead_code)]
 mod skin;
-#[path = "../../voxel_sim/src/texture_pack_config.rs"]
-#[allow(dead_code)]
-mod texture_pack_config;
 #[path = "../src/texture_packs.rs"]
 #[allow(dead_code)]
 mod texture_packs;
-#[path = "../../voxel_sim/src/tone.rs"]
-#[allow(dead_code)]
-mod tone;
 #[path = "../src/ui_info.rs"]
 #[allow(dead_code)]
 mod ui_info;
@@ -59,6 +23,7 @@ use anyhow::{Context as _, Result};
 use engine_render::egui::{self, Color32, TextureId};
 use engine_voxel::{BlockRegistry, ItemRegistry};
 use std::{collections::HashMap, path::Path};
+use voxel_sim::settings;
 
 fn empty_slot(ui: &mut egui::Ui, size: f32) {
     let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());

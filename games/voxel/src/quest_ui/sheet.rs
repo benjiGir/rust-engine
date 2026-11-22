@@ -7,10 +7,10 @@ use super::Act;
 use super::labels::{self, Namer};
 use super::map::check_mark;
 use crate::VoxelGame;
-use crate::guide::expand_keys;
-use crate::quest_progress::{Progress, Status};
-use crate::quests::{Quest, Quests, Requires, Reward, Task};
 use crate::skin;
+use voxel_sim::quests::guide::expand_keys;
+use voxel_sim::quests::progress::{Progress, Status};
+use voxel_sim::quests::{Quest, Quests, Requires, Reward, Task};
 
 /// La taille des cases d'objet de la fiche.
 const CELL: f32 = 36.0;
@@ -35,7 +35,7 @@ impl VoxelGame {
         let mobs = self
             .server
             .ecs
-            .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+            .resource::<std::sync::Arc<voxel_sim::mobs::MobRegistry>>()
             .clone();
         let items = self.server.content.items.clone();
         let registry = self.server.registry.clone();

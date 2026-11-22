@@ -1,0 +1,551 @@
+//! Les messages entre ce qui lit les entrées (le client) et ce qui fait vivre le monde (le
+//! simulateur).
+//!
+//! Le client n'agit jamais sur le monde : il fabrique des **intentions** ([`ClientMsg`]) que le
+//! simulateur applique dans `VoxelGame::handle` (voir `intents.rs`), joueur par joueur. Une
+//! intention ne dit jamais un résultat : « je casse le bloc que je regarde », pas « le bloc en
+//! (3, 60, 8) est cassé ». Le simulateur refait lui-même le lancer de rayon à partir de la
+//! [`Aim`] du message et ne croit jamais la cible que le client dit viser.
+//!
+//! Ses réponses sont des [`ServerMsg`]. Tous ces types sont `Serialize`/`Deserialize` : ils
+//! sont prêts pour le réseau (postcard), même si en solo les messages restent en mémoire et sont
+//! appliqués dans la même image.
+
+use std::sync::Arc;
+
+use engine_voxel::Chunk;
+use glam::{IVec3, Vec3};
+use serde::{Deserialize, Serialize};
+
+use crate::net::entities::{EntityKind, GridSnapshot, Look, NetId, Pose};
+use crate::net::player_view::{Feedback, InventoryView, VitalsView};
+use crate::player::MoveMode;
+use crate::player::inventory::{Click, Slot};
+use crate::storage::container_view::ContainerView;
+use crate::storage::ui::Op;
+
+/// Ce que le joueur regarde : l'œil et la direction du regard, au moment de l'action.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Aim {
+    pub eye: Vec3,
+    pub forward: Vec3,
+}
+
+/// Où en est le minage d'un bloc.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DigPhase {
+    /// Le bouton est pressé sur un bloc : le simulateur commence à compter le temps.
+    Start,
+    /// Le bouton est lâché, ou la visée a changé de bloc, avant la fin.
+    Abort,
+    /// La fissure est complète côté client : le simulateur vérifie que le temps a pu s'écouler.
+    Finish,
+}
+
+/// Une case que `SlotClick` désigne : l'inventaire du joueur, ou une case du conteneur qu'il a
+/// ouvert (le simulateur refuse un conteneur que ce joueur n'a pas ouvert).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SlotTarget {
+    Player(Slot),
+    /// Une case du conteneur que le joueur a ouvert (coffre, four, alambic, wagon, sac).
+    Open(usize),
+    /// Une case d'un coffre, d'un four, d'un alambic : par le bloc qui porte l'inventaire.
+    Block {
+        pos: IVec3,
+        index: usize,
+    },
+    Cart {
+        cart: NetId,
+        index: usize,
+    },
+    Bag {
+        number: u32,
+        index: usize,
+    },
+}
+
+/// Un geste dans un écran, hors des cases.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ScreenAction {
+    /// Acheter un lot de la table d'enchantement (son rang dans la liste).
+    EnchantBuy {
+        offer: u8,
+    },
+    /// Bibliothèque : ranger le livre tenu à la souris, ou tous ceux de l'inventaire.
+    LibraryDepositCursor,
+    LibraryDepositAll,
+    /// Bibliothèque : sortir un livre de cet enchantement (son numéro) à ce niveau.
+    LibraryExtract {
+        kind: u8,
+        level: u8,
+    },
+    /// Bibliothèque : reprendre ce qu'elle a refusé.
+    LibraryTakeOutput,
+    /// Table de récupération : détruire l'objet tenu à la souris et en récupérer les matériaux.
+    Salvage,
+    /// Table de réforge : la rareté voulue, puis le tirage gardé (son rang).
+    ReforgeRarity(u8),
+    ReforgeChoose(u8),
+    /// Établi de taille : tailler le bloc de la case en pièces de cette sorte (l'identifiant de
+    /// l'objet pièce), un bloc ou toute la pile ; ou reconstituer des blocs avec les pièces.
+    Carve {
+        piece: String,
+        all: bool,
+    },
+    Rebuild {
+        all: bool,
+    },
+    /// Échange : faire l'échange `offer` de l'habitant, `times` fois au plus.
+    Trade {
+        offer: u8,
+        times: u32,
+    },
+    /// Paliers du monde : choisir ce palier (débloqué).
+    Tier(u8),
+    /// Livre de quêtes (les quêtes, tâches et récompenses par leur rang).
+    Quest(QuestAct),
+    /// Menu d'une machine de mod : une action du joueur, transmise au script.
+    ModEvent {
+        kind: i32,
+        id: i32,
+        value: i32,
+    },
+    /// Contrôleur de stockage : tout déposer, poser la pile tenue, ou prendre un objet.
+    ControllerDeposit,
+    ControllerPut,
+    ControllerTake {
+        item: String,
+        damage: u32,
+        how: TakeHow,
+    },
+}
+
+/// Combien prendre d'un objet du contrôleur de stockage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TakeHow {
+    /// Une pile (clic).
+    Stack,
+    /// La moitié d'une pile (clic droit).
+    Half,
+    /// Tout, dans l'inventaire (Maj + clic).
+    All,
+}
+
+/// Un geste du livre de quêtes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum QuestAct {
+    /// Ouvrir le livre : le serveur le charge s'il ne l'est pas, revoit les tâches, et envoie ses
+    /// définitions (`ServerMsg::QuestBook`).
+    Open,
+    /// Le chapitre où le livre se rouvrira.
+    LastChapter(String),
+    Claim(u32),
+    ClaimAll,
+    /// Cocher une tâche « à cocher ».
+    Check(u32, u32),
+    /// Remettre les objets d'une tâche « à remettre ».
+    HandIn(u32, u32),
+    /// Choisir une récompense : la quête, la récompense, l'option.
+    Choose(u32, u32, u32),
+    Pin(u32),
+}
+
+/// Le bouton pressé sur une case (Maj est à part : [`ClientMsg::SlotClick::shift`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClickButton {
+    Primary,
+    Secondary,
+    /// Prendre `n` objets (la fenêtre « Diviser la pile »).
+    Take(u32),
+}
+
+impl From<Click> for ClickButton {
+    fn from(click: Click) -> Self {
+        match click {
+            Click::Primary => Self::Primary,
+            Click::Secondary => Self::Secondary,
+            Click::Take(n) => Self::Take(n),
+        }
+    }
+}
+
+impl From<ClickButton> for Click {
+    fn from(button: ClickButton) -> Self {
+        match button {
+            ClickButton::Primary => Self::Primary,
+            ClickButton::Secondary => Self::Secondary,
+            ClickButton::Take(n) => Self::Take(n),
+        }
+    }
+}
+
+/// Ce que le client demande au simulateur.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ClientMsg {
+    /// Où le joueur est allé : le mouvement est prédit par la physique du client, le simulateur
+    /// ne fait que le contrôler (voir `movement.rs`). `step` est le numéro du pas fixe.
+    Move {
+        position: Vec3,
+        velocity: Vec3,
+        yaw: f32,
+        pitch: f32,
+        on_ground: bool,
+        in_liquid: bool,
+        /// L'intention qui a donné ce mouvement : le serveur s'en sert quand il simule le joueur porté,
+        /// et pour la fatigue de la marche, de la course et du saut.
+        walk: Vec3,
+        jump: bool,
+        /// Le terrain autour n'est pas encore arrivé chez le client : il attend sans bouger.
+        frozen: bool,
+        mode: MoveMode,
+        step: u64,
+    },
+    /// Le minage : `pos` et `face` sont ce que le client croit viser (le simulateur contrôle).
+    Dig {
+        aim: Aim,
+        phase: DigPhase,
+        pos: IVec3,
+        face: IVec3,
+    },
+    /// Un coup de poing ou d'arme sur une créature ou un wagon que le client voit : le simulateur
+    /// retrouve l'entité par son numéro (un numéro inconnu est refusé) et revérifie que c'est bien
+    /// ce qu'il voit sous le regard.
+    Attack {
+        aim: Aim,
+        entity: NetId,
+    },
+    /// Le clic droit : le simulateur enchaîne les usages (wagon, porte, lit, conteneur, machine,
+    /// habitant, houe, charme...) puis pose le bloc tenu. `sneaking` : Maj est tenu.
+    Use {
+        aim: Aim,
+        sneaking: bool,
+    },
+    /// Le bouton de repas est tenu ou lâché (envoyé seulement quand il change).
+    Eat {
+        held: bool,
+    },
+    /// La case de la barre d'objets en main.
+    SelectSlot(u8),
+    /// La barre d'une structure que le joueur pilote : -1 (gauche) à 1 (droite), envoyée quand elle
+    /// change. Le serveur l'ignore si le joueur ne tient pas de barre.
+    Steer(f32),
+    /// Descendre du wagon.
+    Dismount,
+    /// Un geste sur la page d'options d'un mod (menu pause de l'hôte).
+    ModOptionsEvent {
+        mod_id: String,
+        kind: i32,
+        id: i32,
+        value: i32,
+    },
+    /// Jeter un objet de la main (`all` : toute la pile).
+    Drop {
+        aim: Aim,
+        all: bool,
+    },
+    /// Un clic sur une case.
+    SlotClick {
+        slot: SlotTarget,
+        button: ClickButton,
+        shift: bool,
+    },
+    /// L'écran est fermé : la main et la grille d'artisanat retournent dans l'inventaire.
+    CloseMenu,
+    /// Le regard du joueur a changé (la fenêtre l'envoie quand il bouge) : le serveur le garde pour
+    /// la sauvegarde et les scripts.
+    Look {
+        yaw: f32,
+        pitch: f32,
+    },
+    /// Un bouton du conteneur ouvert : Déposer, Compléter, Tout prendre, Trier (et Maj + clic).
+    ContainerOp(Op),
+    /// Couper ou rallumer une amélioration du sac ouvert (son emplacement).
+    ToggleUpgrade(u8),
+    /// Un geste dans l'écran ouvert (table d'enchantement, bibliothèque, forge...) : le serveur
+    /// vérifie que cet écran est bien celui qu'il a ouvert à ce joueur (voir `screen_actions.rs`).
+    Screen(ScreenAction),
+    /// Fabriquer : avec la grille (`size` × `size`), ou une recette du livre (son numéro dans la
+    /// liste des recettes, la même des deux côtés).
+    Craft {
+        size: u8,
+        recipe: Option<u32>,
+    },
+    Chat(String),
+    /// Une ligne de la console (commande du jeu ou d'un mod).
+    Command(String),
+    Respawn,
+}
+
+/// Ce que le simulateur répond au client.
+///
+/// Les messages de chunks portent un `Arc<Chunk>` : en mémoire il passe sans copie, et la réplique du
+/// client tient les mêmes blocs que le serveur. Sur le réseau, il passe par `Chunk::to_wire` (voir
+/// `wire.rs`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ServerMsg {
+    /// Un mouvement refusé (ou un déplacement imposé) : le client place le joueur ici. `carried` : un
+    /// wagon ou une structure porte le joueur, le serveur le simule et le client suit (sans s'arrêter,
+    /// à `velocity`). Voir `predicted.rs`.
+    Correct {
+        position: Vec3,
+        velocity: Vec3,
+        carried: bool,
+    },
+    /// L'heure et le temps qu'il fait, quand la copie du client ne peut pas les deviner (voir
+    /// `sky_view.rs`).
+    Sky(crate::net::sky_view::SkyView),
+    /// Un coup reçu : le client fait reculer son corps prédit (un bond, une poussée qui s'amortit).
+    Push {
+        up: f32,
+        impulse: Vec3,
+    },
+    /// La structure qui porte le joueur a tourné : sa caméra tourne avec (radians).
+    Turn(f32),
+    /// Un chunk hors de portée : le client l'oublie.
+    Unload(IVec3),
+    /// Un chunk que le serveur a généré vide (de l'air) : rien à envoyer, mais il est prêt.
+    ChunkEmpty(IVec3),
+    /// Le pas fixe du serveur auquel appartiennent les messages d'entités qui suivent : le client
+    /// interpole les poses d'après ce compteur (voir `client_entities.rs`).
+    Tick(u64),
+    /// Une entité entre dans la portée du joueur (voir `entities.rs`).
+    Spawn {
+        id: NetId,
+        kind: EntityKind,
+        pose: Pose,
+        look: Look,
+    },
+    Despawn(NetId),
+    /// Les poses de ce qui a bougé, toutes les `interval` pas fixes.
+    Moves(Vec<(NetId, Pose)>),
+    /// L'apparence d'une entité a changé (blessée, petit qui grandit...).
+    EntityState {
+        id: NetId,
+        look: Look,
+    },
+    /// Les jauges du joueur (vie, faim, air, expérience, effets), quand elles changent.
+    Vitals(VitalsView),
+    /// L'inventaire du joueur, quand il change.
+    Inventory(InventoryView),
+    /// Le conteneur ouvert (coffre, four, alambic, sac, wagon), quand il change ; `None` : fermé.
+    Container(Option<ContainerView>),
+    /// Un son, un message à l'écran, le bras qui frappe (voir `player_view.rs`).
+    Feedback(Feedback),
+    /// Le joueur est mort : l'écran de mort, avec sa cause.
+    Died {
+        message: String,
+    },
+    /// Le joueur est revenu à la vie.
+    Respawned,
+    /// Le serveur ouvre un écran (conteneur, table, échange, menu de mod...).
+    OpenScreen(crate::server::screens::Screen),
+    /// Le serveur ferme l'écran ouvert (un mod ferme son menu).
+    CloseScreen,
+    /// Une ligne pour la console du joueur.
+    Chat(String),
+    /// Les joueurs de la partie (leurs noms), à chaque arrivée et départ : la liste de Tab.
+    PlayerList(Vec<String>),
+    /// La page d'options d'un mod (les octets de son menu).
+    ModOptions {
+        mod_id: String,
+        data: Vec<u8>,
+    },
+    /// Une jauge de mod au-dessus de la barre d'objets (`None` : l'enlever).
+    ModHud {
+        mod_id: String,
+        id: u32,
+        bar: Option<crate::modding::player_api::HudBar>,
+    },
+    /// La progression des quêtes du joueur, quand elle change.
+    Quests(Option<crate::quests::progress::Progress>),
+    /// Ce que l'écran ouvert montre et que seul le serveur sait, quand cela change.
+    ScreenView(Option<crate::server::screen_actions::ScreenView>),
+    /// Un chunk que le client n'avait pas, avec sa lumière et ses blocs actifs. Le serveur envoie des
+    /// colonnes entières, éclairées (voir `engine_voxel::ChunkSender`).
+    Chunk {
+        pos: IVec3,
+        #[serde(with = "crate::net::wire::chunk")]
+        chunk: Arc<Chunk>,
+    },
+    /// Les blocs d'une structure mobile (bateau, contraption), à sa première vue et quand ils changent.
+    GridBlocks {
+        id: NetId,
+        grid: GridSnapshot,
+    },
+    /// Les définitions du livre de quêtes (chapitres, quêtes, récompenses), à l'ouverture. Le contenu du
+    /// jeu : un client du réseau les chargera de ses propres mods.
+    QuestBook(#[serde(with = "crate::net::wire::shared")] Arc<crate::quests::Quests>),
+    /// Un chunk que le client a déjà et qui a changé : le chunk d'aujourd'hui, avec les positions des
+    /// blocs posés ou cassés (`edits`, remaillés dans l'image), ou `remesh` pour un changement qui
+    /// peut attendre (lumière, machine). Ni l'un ni l'autre : des données seules, sans remaillage.
+    ChunkChanged {
+        pos: IVec3,
+        #[serde(with = "crate::net::wire::chunk")]
+        chunk: Arc<Chunk>,
+        edits: Vec<IVec3>,
+        remesh: bool,
+    },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn screen_actions_survive_postcard() {
+        for action in [
+            ScreenAction::EnchantBuy { offer: 2 },
+            ScreenAction::LibraryExtract { kind: 3, level: 4 },
+            ScreenAction::Carve {
+                piece: "core:shape_slab".into(),
+                all: true,
+            },
+            ScreenAction::Trade {
+                offer: 1,
+                times: 12,
+            },
+            ScreenAction::Quest(QuestAct::Choose(1, 2, 3)),
+            ScreenAction::ModEvent {
+                kind: 1,
+                id: -4,
+                value: 9,
+            },
+            ScreenAction::ControllerTake {
+                item: "core:stone".into(),
+                damage: 0,
+                how: TakeHow::Half,
+            },
+        ] {
+            let msg = ClientMsg::Screen(action);
+            let bytes = postcard::to_allocvec(&msg).unwrap();
+            assert_eq!(postcard::from_bytes::<ClientMsg>(&bytes).unwrap(), msg);
+        }
+        let open = ServerMsg::OpenScreen(crate::server::screens::Screen::Cart(NetId(4)));
+        let bytes = postcard::to_allocvec(&open).unwrap();
+        assert!(matches!(
+            postcard::from_bytes::<ServerMsg>(&bytes).unwrap(),
+            ServerMsg::OpenScreen(crate::server::screens::Screen::Cart(NetId(4)))
+        ));
+    }
+
+    #[test]
+    fn messages_survive_postcard() {
+        let aim = Aim {
+            eye: Vec3::new(1.0, 2.0, 3.0),
+            forward: Vec3::Z,
+        };
+        let messages = vec![
+            ClientMsg::Dig {
+                aim,
+                phase: DigPhase::Finish,
+                pos: IVec3::new(4, 5, 6),
+                face: IVec3::Y,
+            },
+            ClientMsg::SlotClick {
+                slot: SlotTarget::Block {
+                    pos: IVec3::ONE,
+                    index: 4,
+                },
+                button: ClickButton::Take(5),
+                shift: false,
+            },
+            ClientMsg::Move {
+                position: Vec3::ONE,
+                velocity: Vec3::ZERO,
+                yaw: 0.5,
+                pitch: -0.2,
+                on_ground: true,
+                in_liquid: false,
+                walk: Vec3::X,
+                jump: false,
+                frozen: false,
+                mode: MoveMode::Walk,
+                step: 12,
+            },
+            ClientMsg::Command("tp 0 70 0".to_string()),
+        ];
+        for message in messages {
+            let bytes = postcard::to_stdvec(&message).unwrap();
+            let back: ClientMsg = postcard::from_bytes(&bytes).unwrap();
+            assert_eq!(back, message);
+        }
+        let reply = ServerMsg::Correct {
+            position: Vec3::new(0.0, 64.0, 0.0),
+            velocity: Vec3::Y,
+            carried: true,
+        };
+        let bytes = postcard::to_stdvec(&reply).unwrap();
+        assert_eq!(postcard::from_bytes::<ServerMsg>(&bytes).unwrap(), reply);
+        let unload = ServerMsg::Unload(IVec3::new(1, -2, 3));
+        let bytes = postcard::to_stdvec(&unload).unwrap();
+        assert_eq!(postcard::from_bytes::<ServerMsg>(&bytes).unwrap(), unload);
+        // Les messages d'entités sont prêts pour le réseau.
+        let pose = Pose {
+            position: Vec3::new(1.0, 2.0, 3.0),
+            yaw: 0.5,
+            ..Pose::default()
+        };
+        let entity_messages = vec![
+            ServerMsg::Tick(42),
+            ServerMsg::Spawn {
+                id: NetId(7),
+                kind: EntityKind::Player {
+                    name: "Alice".into(),
+                },
+                pose,
+                look: Look::default(),
+            },
+            ServerMsg::Spawn {
+                id: NetId(8),
+                kind: EntityKind::Item {
+                    stack: crate::player::inventory::ItemStack::new(engine_voxel::ItemId(3), 2),
+                },
+                pose,
+                look: Look::default(),
+            },
+            ServerMsg::Moves(vec![(NetId(7), pose)]),
+            ServerMsg::EntityState {
+                id: NetId(7),
+                look: Look {
+                    hurt: true,
+                    coat: Some(3),
+                    ..Look::default()
+                },
+            },
+            ServerMsg::Despawn(NetId(7)),
+        ];
+        for message in entity_messages {
+            let bytes = postcard::to_stdvec(&message).unwrap();
+            assert_eq!(postcard::from_bytes::<ServerMsg>(&bytes).unwrap(), message);
+        }
+    }
+
+    #[test]
+    fn chunk_messages_share_the_chunk_in_memory() {
+        let chunk = Arc::new(Chunk::new());
+        let msg = ServerMsg::Chunk {
+            pos: IVec3::ZERO,
+            chunk: chunk.clone(),
+        };
+        // Copier le message ne copie pas les 96 Kio du chunk.
+        let ServerMsg::Chunk { chunk: copy, .. } = msg.clone() else {
+            unreachable!()
+        };
+        assert!(Arc::ptr_eq(&copy, &chunk));
+        // Sur le réseau, il passe par `Chunk::to_wire` (voir `wire.rs`) : un chunk d'air tient en
+        // quelques centaines d'octets une fois la trame compressée.
+        let bytes = postcard::to_stdvec(&msg).unwrap();
+        assert!(engine_net::encode(&bytes).len() < 1024);
+    }
+}
+
+#[cfg(test)]
+mod send_check {
+    fn is_send<T: Send>() {}
+
+    #[test]
+    fn messages_can_cross_threads() {
+        is_send::<super::ServerMsg>();
+        is_send::<super::ClientMsg>();
+    }
+}

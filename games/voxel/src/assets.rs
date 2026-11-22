@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn the_64_pack_loads_native_blocks_plants_and_items() {
-        use crate::settings::TexturePack;
+        use voxel_sim::settings::TexturePack;
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut registry = crate::test_registry();
         crate::texture_packs::configure(

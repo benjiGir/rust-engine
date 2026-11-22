@@ -1,14 +1,14 @@
 //! Les quêtes épinglées, en jeu : en haut à droite (sous les potions), le titre et les tâches qui
-//! restent. Trois au plus (`quest_progress::MAX_PINNED`). La place se calcule dans `geometry.rs`.
+//! restent. Trois au plus (`voxel_sim::quests::progress::MAX_PINNED`). La place se calcule dans `geometry.rs`.
 
 use engine_render::egui::{self, Color32, RichText};
 
 use super::geometry;
 use super::labels::{self, Namer};
 use crate::VoxelGame;
-use crate::quest_progress::Status;
-use crate::quests::Quests;
 use crate::skin;
+use voxel_sim::quests::Quests;
+use voxel_sim::quests::progress::Status;
 
 /// Au-delà de ce nombre de tâches, la fin est résumée (« + 2 autres »).
 const MAX_LINES: usize = 3;
@@ -26,7 +26,7 @@ impl VoxelGame {
             .pinned
             .iter()
             .filter_map(|id| quests.index(id))
-            .take(crate::quest_progress::MAX_PINNED)
+            .take(voxel_sim::quests::progress::MAX_PINNED)
             .collect();
         if pinned.is_empty() {
             return;
@@ -47,7 +47,7 @@ impl VoxelGame {
         let mobs = self
             .server
             .ecs
-            .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+            .resource::<std::sync::Arc<voxel_sim::mobs::MobRegistry>>()
             .clone();
         let namer = Namer {
             items: &self.server.content.items,
@@ -71,7 +71,7 @@ impl VoxelGame {
 fn pin_card(
     ui: &mut egui::Ui,
     quests: &Quests,
-    progress: &crate::quest_progress::Progress,
+    progress: &voxel_sim::quests::progress::Progress,
     index: usize,
     namer: &Namer,
     width: f32,

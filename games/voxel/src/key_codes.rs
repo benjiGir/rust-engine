@@ -3,7 +3,7 @@
 
 use engine_core::winit::keyboard::KeyCode;
 
-use crate::settings::{Action, Keys};
+use voxel_sim::settings::{Action, Keys};
 
 /// La touche réelle d'une action, et son changement depuis les options.
 pub trait KeyCodes {
@@ -15,7 +15,7 @@ pub trait KeyCodes {
 impl KeyCodes for Keys {
     fn key(&self, action: Action) -> KeyCode {
         key_code(self.name_of(action))
-            .or_else(|| key_code(crate::settings::Keys::default().name_of(action)))
+            .or_else(|| key_code(voxel_sim::settings::Keys::default().name_of(action)))
             .unwrap_or(KeyCode::Escape)
     }
 

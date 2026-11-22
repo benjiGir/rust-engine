@@ -1,6 +1,6 @@
 //! Options regroupées par usage ; les contrôles s'empilent sur les fenêtres étroites.
-use crate::settings::{Action, Settings};
 use engine_render::egui::{self, RichText};
+use voxel_sim::settings::{Action, Settings};
 
 fn row(ui: &mut egui::Ui, label: &str, control: impl FnOnce(&mut egui::Ui)) {
     let width = ui.available_width();

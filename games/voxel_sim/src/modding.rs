@@ -4,6 +4,9 @@
 //! La simulation tourne à 60 pas par seconde ; les machines, comme dans Minecraft,
 //! à 20 : un tick de machines tous les 3 pas.
 
+pub mod menu;
+pub mod player_api;
+
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;

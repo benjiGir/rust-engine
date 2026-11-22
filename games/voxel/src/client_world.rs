@@ -18,10 +18,10 @@
 
 use crate::VoxelGame;
 use crate::client_entities::ClientEntities;
-use crate::entities::NetId;
-use crate::player_view::ClientPlayer;
-use crate::protocol::ServerMsg;
 use engine_voxel::{ChunkStreamer, ChunkUpdate, StreamStats, View, World};
+use voxel_sim::net::entities::NetId;
+use voxel_sim::net::player_view::ClientPlayer;
+use voxel_sim::net::protocol::ServerMsg;
 
 /// La réplique du client et les expéditeurs du serveur.
 pub struct ClientWorld {
@@ -42,7 +42,7 @@ impl ClientWorld {
         Self {
             replica: ChunkStreamer::replica_of(server),
             incoming: Vec::new(),
-            entities: ClientEntities::new(crate::server_sends::entity_interval()),
+            entities: ClientEntities::new(voxel_sim::server::sends::entity_interval()),
             me: ClientPlayer::default(),
         }
     }

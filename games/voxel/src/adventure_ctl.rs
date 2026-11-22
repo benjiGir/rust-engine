@@ -21,10 +21,10 @@ use anyhow::{Context as _, Result, bail};
 use glam::Vec3;
 
 use crate::VoxelGame;
-use crate::adventure_data;
-use crate::affixes;
-use crate::inventory::ItemStack;
-use crate::screens::Screen;
+use voxel_sim::adventure;
+use voxel_sim::adventure::affixes;
+use voxel_sim::player::inventory::ItemStack;
+use voxel_sim::server::screens::Screen;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
@@ -121,7 +121,7 @@ pub fn parse(name: &str, args: &[&str]) -> Option<Result<Command>> {
 
 impl VoxelGame {
     pub(crate) fn adventure_command(&mut self, command: Command) -> Result<String> {
-        let data = adventure_data::current();
+        let data = adventure::data::current();
         match command {
             Command::Loot(rarity, key) => {
                 let index = data
@@ -213,13 +213,13 @@ impl VoxelGame {
             Command::Elites => {
                 let mut rows = Vec::new();
                 self.server.ecs.query::<(
-                    &crate::elites::Elite,
-                    &crate::components::Health,
-                    &crate::components::Transform,
+                    &voxel_sim::mobs::elites::Elite,
+                    &voxel_sim::components::Health,
+                    &voxel_sim::components::Transform,
                 )>().for_each(|_, (elite, health, transform)| {
                     rows.push(format!(
                         "{{\"name\":{},\"invader\":{},\"health\":{:.1},\"max\":{:.1},\"damage\":{:.2},\"speed\":{:.2},\"armor\":{:.1},\"pos\":[{:.1},{:.1},{:.1}]}}",
-                        crate::json_text::json_str(&elite.name),
+                        voxel_sim::server::json_text::json_str(&elite.name),
                         elite.invader,
                         health.current,
                         health.max,
@@ -237,15 +237,21 @@ impl VoxelGame {
                 let registry = self
                     .server
                     .ecs
-                    .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+                    .resource::<std::sync::Arc<voxel_sim::mobs::MobRegistry>>()
                     .clone();
                 let mut count = 0;
                 self.server
                     .ecs
-                    .query::<(&crate::components::Mob, &mut crate::components::Health)>()
+                    .query::<(
+                        &voxel_sim::components::Mob,
+                        &mut voxel_sim::components::Health,
+                    )>()
                     .for_each(|entity, (mob, health)| {
                         let hostile = registry.get(mob.kind).is_some_and(|d| d.hostile);
-                        let elite = self.server.ecs.has::<crate::elites::Elite>(entity);
+                        let elite = self
+                            .server
+                            .ecs
+                            .has::<voxel_sim::mobs::elites::Elite>(entity);
                         if (all && hostile) || elite {
                             health.current = 0.0;
                             count += 1;
@@ -296,7 +302,8 @@ impl VoxelGame {
                 Ok("{\"ok\":true}".to_string())
             }
             Command::ClearInventory => {
-                self.server.players.me_mut().inventory.slots = [None; crate::inventory::SLOTS];
+                self.server.players.me_mut().inventory.slots =
+                    [None; voxel_sim::player::inventory::SLOTS];
                 self.server.players.me_mut().inventory.cursor = None;
                 Ok("{\"ok\":true}".to_string())
             }
@@ -305,7 +312,7 @@ impl VoxelGame {
                 let stack = self.server.players.me_mut().inventory.slots[selected]
                     .as_mut()
                     .context("sockets : rien en main")?;
-                crate::enchanting::edit_sheet(&mut stack.damage, |s| {
+                voxel_sim::enchanting::edit_sheet(&mut stack.damage, |s| {
                     s.sockets.extend(std::iter::repeat_n(None, n));
                 });
                 Ok("{\"ok\":true}".to_string())
@@ -315,11 +322,11 @@ impl VoxelGame {
 
     /// Une élite (ou un envahisseur) devant le joueur.
     fn spawn_test_elite(&mut self, kind: Option<String>, invader: bool) -> Result<String> {
-        let data = adventure_data::current();
+        let data = adventure::data::current();
         let registry = self
             .server
             .ecs
-            .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+            .resource::<std::sync::Arc<voxel_sim::mobs::MobRegistry>>()
             .clone();
         let key = kind.unwrap_or_else(|| "core:prowler".into());
         let id = registry
@@ -330,30 +337,39 @@ impl VoxelGame {
         let mut at: Vec3 = feet + self.client.camera.forward_flat() * distance;
         // Au sol : le premier bloc plein sous le point, vers le bas.
         {
-            let shared = crate::shared::StreamerExt::streamer(&self.server.ecs);
+            let shared = voxel_sim::shared::StreamerExt::streamer(&self.server.ecs);
             let streamer = shared.borrow();
             let column = streamer
                 .generator()
                 .column(at.x.floor() as i32, at.z.floor() as i32);
             at.y = column.height as f32 + 1.0;
         }
-        let entity = crate::mobs::spawn_mob(&mut self.server.ecs, id, at).context("impossible")?;
+        let entity =
+            voxel_sim::mobs::spawn_mob(&mut self.server.ecs, id, at).context("impossible")?;
         let promoted = if invader {
             self.server.promote_invader(entity, &data)
         } else {
             let tier = self.server.players.me_mut().adventure.progress.tier;
             let mut rng = engine_voxel::Rng64::new(self.server.next_random());
-            crate::elites::promote(&mut self.server.ecs, entity, &data, tier, false, &mut rng)
+            voxel_sim::mobs::elites::promote(
+                &mut self.server.ecs,
+                entity,
+                &data,
+                tier,
+                false,
+                &mut rng,
+            )
         };
         anyhow::ensure!(promoted, "{key} ne peut pas devenir élite");
         if invader && let Some(audio) = &mut self.client.audio {
             audio.play("core:cave_rumble");
             audio.play("core:enchant");
         }
-        let name = crate::elites::of(&self.server.ecs, entity).map_or_else(String::new, |e| e.name);
+        let name = voxel_sim::mobs::elites::of(&self.server.ecs, entity)
+            .map_or_else(String::new, |e| e.name);
         Ok(format!(
             "{{\"ok\":true,\"name\":{},\"pos\":[{:.1},{:.1},{:.1}]}}",
-            crate::json_text::json_str(&name),
+            voxel_sim::server::json_text::json_str(&name),
             at.x,
             at.y,
             at.z
@@ -362,7 +378,7 @@ impl VoxelGame {
 
     /// La progression et le palier, en JSON.
     pub(crate) fn adventure_json(&self) -> String {
-        let data = adventure_data::current();
+        let data = adventure::data::current();
         let p = &self.server.players.me().adventure.progress;
         let effects = self.server.players.me().adventure.effects(&data);
         format!(

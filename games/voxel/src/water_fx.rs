@@ -50,7 +50,7 @@ pub struct WaterFx {
     drops: Vec<Particle>,
     bubbles: Vec<Particle>,
     rings: Vec<Ring>,
-    item_positions: std::collections::HashMap<crate::entities::NetId, Vec3>,
+    item_positions: std::collections::HashMap<voxel_sim::net::entities::NetId, Vec3>,
     /// De 0 (dehors) à 1 (la caméra est sous la surface), lissé.
     underwater: f32,
     /// L'altitude de la surface au-dessus de la caméra.
@@ -226,7 +226,7 @@ impl WaterFx {
         self.item_positions
             .retain(|id, _| entities.get(*id).is_some());
         for (id, item) in entities.iter() {
-            if !matches!(item.kind, crate::entities::EntityKind::Item { .. }) {
+            if !matches!(item.kind, voxel_sim::net::entities::EntityKind::Item { .. }) {
                 continue;
             }
             let position = item.pose_at(entities.now(1.0)).position;

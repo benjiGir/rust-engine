@@ -13,20 +13,20 @@
 //!
 //! Idée reprise d'Horizon (`docs/agent-control.md`), réécrite ici.
 
-pub(crate) use crate::json_text::json_str;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
+pub(crate) use voxel_sim::server::json_text::json_str;
 
 use anyhow::{Context as _, Result, bail};
 use crossbeam_channel::{Receiver, Sender};
 use engine_voxel::BlockId;
 use glam::{IVec3, Vec3};
 
-use crate::intents::Outcome;
-use crate::player::{self, MoveMode, SPRINT_SPEED, WALK_SPEED};
-use crate::protocol::ClientMsg;
 use crate::{Mode, VoxelGame};
+use voxel_sim::net::protocol::ClientMsg;
+use voxel_sim::player::{self, MoveMode, SPRINT_SPEED, WALK_SPEED};
+use voxel_sim::server::intents::Outcome;
 
 /// Le port par défaut (`VOXEL_CONTROL=1`).
 pub const DEFAULT_PORT: u16 = 7878;
@@ -176,7 +176,7 @@ pub enum Command {
     /// Les structures à moins de ce nombre de blocs du joueur.
     Structures(i32),
     /// Le temps qu'il fait : `weather clear|rain|storm`.
-    Weather(crate::weather::Sky),
+    Weather(voxel_sim::world::weather::Sky),
     /// Le culling des grottes allumé ou non.
     Culling(bool),
     /// Un coup au joueur (armure et invulnérabilité comprises).
@@ -201,7 +201,7 @@ pub enum Command {
     /// Les wagons : les lister, en poser un sur le rail en x y z, monter dans un wagonnet (le plus
     /// proche, ou ce numéro), descendre, atteler deux wagons, ranger des objets dans l'un d'eux.
     Carts,
-    Cart(crate::carts::CartKind, IVec3),
+    Cart(voxel_sim::vehicles::carts::CartKind, IVec3),
     Ride(Option<u32>),
     Dismount,
     Couple(u32, u32),
@@ -224,7 +224,7 @@ pub enum Command {
     /// Les commandes des formes : tailler, reconstituer, lire une case (voir `shape_ctl.rs`).
     Shapes(crate::shape_ctl::Command),
     /// Les joueurs fantômes : ajouter, retirer, lister (voir `ghosts.rs`).
-    Ghosts(crate::ghosts::Command),
+    Ghosts(voxel_sim::net::ghosts::Command),
     Net(crate::net_ctl::Command),
     /// Les commandes de l'enchantement avancé : stats de table, livres, bibliothèque (voir `enchant_ctl.rs`).
     Enchanting(crate::enchant_ctl::Command),
@@ -438,7 +438,7 @@ pub fn parse(line: &str) -> Result<Command> {
         "carts" => Command::Carts,
         "cart" => {
             count(&[4])?;
-            let kind = crate::carts::CartKind::parse(args[0]).with_context(|| {
+            let kind = voxel_sim::vehicles::carts::CartKind::parse(args[0]).with_context(|| {
                 format!(
                     "cart : sorte inconnue « {} » (minecart, chest, hopper, locomotive)",
                     args[0]
@@ -499,9 +499,11 @@ pub fn parse(line: &str) -> Result<Command> {
         }
         "weather" => {
             count(&[1])?;
-            Command::Weather(crate::weather::Sky::parse(args[0]).ok_or_else(|| {
-                anyhow::anyhow!("temps inconnu « {} » (clear, rain ou storm)", args[0])
-            })?)
+            Command::Weather(
+                voxel_sim::world::weather::Sky::parse(args[0]).ok_or_else(|| {
+                    anyhow::anyhow!("temps inconnu « {} » (clear, rain ou storm)", args[0])
+                })?,
+            )
         }
         "eat" => Command::Eat,
         "hold" => {
@@ -649,7 +651,7 @@ pub fn parse(line: &str) -> Result<Command> {
                             Some(command) => Command::Quests(command?),
                             None => match crate::shape_ctl::parse(other, &args) {
                                 Some(command) => Command::Shapes(command?),
-                                None => match crate::ghosts::parse(other, &args) {
+                                None => match voxel_sim::net::ghosts::parse(other, &args) {
                                     Some(command) => Command::Ghosts(command?),
                                     None => match crate::net_ctl::parse(other, &args) {
                                         Some(command) => Command::Net(command?),
@@ -863,7 +865,7 @@ impl VoxelGame {
                 self.require_playing("eat")?;
                 // L'aliment en main, sinon le premier de l'inventaire.
                 let items = &self.client.content.items;
-                let is_food = |slot: &Option<crate::inventory::ItemStack>| {
+                let is_food = |slot: &Option<voxel_sim::player::inventory::ItemStack>| {
                     slot.is_some_and(|s| items.get(s.item).food.is_some())
                 };
                 let inventory = &self.server.players.me().inventory;
@@ -942,7 +944,10 @@ impl VoxelGame {
 
     /// Ce que le regard désigne pour un coup : la créature, sinon le wagon, plus près que le bloc. Comme
     /// la fenêtre, `ctl` choisit dans ce que le client voit (la réplique des entités).
-    fn claimed_target(&self, aim: crate::protocol::Aim) -> Option<crate::entities::NetId> {
+    fn claimed_target(
+        &self,
+        aim: voxel_sim::net::protocol::Aim,
+    ) -> Option<voxel_sim::net::entities::NetId> {
         let acting = self
             .server
             .resolve_aim(self.server.players.local_id(), aim)?;
@@ -1230,7 +1235,7 @@ impl VoxelGame {
                 if let Some(mut control) = self
                     .server
                     .ecs
-                    .get_resource_mut::<crate::ships::ShipControl>()
+                    .get_resource_mut::<voxel_sim::vehicles::ships::ShipControl>()
                 {
                     control.forced = (value != 0.0).then_some((engine_voxel::GridId(id), value));
                 }
@@ -1239,14 +1244,15 @@ impl VoxelGame {
             Command::Carts => Ok(self.carts_json()),
             Command::Cart(kind, pos) => {
                 let look = self.client.camera.forward();
-                let entity = crate::carts::place(&mut self.server.ecs, kind, pos, look)
-                    .with_context(|| {
-                        format!("cart : pas de rail en {} {} {}", pos.x, pos.y, pos.z)
-                    })?;
+                let entity =
+                    voxel_sim::vehicles::carts::place(&mut self.server.ecs, kind, pos, look)
+                        .with_context(|| {
+                            format!("cart : pas de rail en {} {} {}", pos.x, pos.y, pos.z)
+                        })?;
                 let id = self
                     .server
                     .ecs
-                    .get::<crate::carts::Cart>(entity)
+                    .get::<voxel_sim::vehicles::carts::Cart>(entity)
                     .map_or(0, |c| c.id);
                 Ok(format!("{{\"ok\":true,\"cart\":{id}}}"))
             }
@@ -1260,10 +1266,13 @@ impl VoxelGame {
                         let mut best: Option<(f32, engine_ecs::Entity)> = None;
                         self.server
                             .ecs
-                            .query::<(&crate::components::Transform, &crate::carts::Cart)>()
+                            .query::<(
+                                &voxel_sim::components::Transform,
+                                &voxel_sim::vehicles::carts::Cart,
+                            )>()
                             .for_each(|e, (t, c)| {
                                 let d = t.position.distance(feet);
-                                if c.kind == crate::carts::CartKind::Minecart
+                                if c.kind == voxel_sim::vehicles::carts::CartKind::Minecart
                                     && c.rider.is_none()
                                     && best.is_none_or(|(b, _)| d < b)
                                 {
@@ -1291,7 +1300,7 @@ impl VoxelGame {
                 let (Some(x), Some(y)) = (self.cart_by_id(a), self.cart_by_id(b)) else {
                     bail!("couple : wagon inconnu (voir carts)");
                 };
-                let linked = crate::carts::toggle_coupling(&self.server.ecs, x, y)
+                let linked = voxel_sim::vehicles::carts::toggle_coupling(&self.server.ecs, x, y)
                     .context("couple : il faut deux wagons différents")?;
                 Ok(format!("{{\"ok\":true,\"coupled\":{linked}}}"))
             }
@@ -1302,7 +1311,7 @@ impl VoxelGame {
                 let mut cargo = self
                     .server
                     .ecs
-                    .get_mut::<crate::carts::CartCargo>(entity)
+                    .get_mut::<voxel_sim::vehicles::carts::CartCargo>(entity)
                     .context("cartstock : ce wagon n'a pas d'inventaire")?;
                 let put = cargo.0.insert(None, &item, count, false);
                 Ok(format!("{{\"ok\":true,\"put\":{put}}}"))
@@ -1367,8 +1376,8 @@ impl VoxelGame {
             Command::Damage(amount, pierce) => {
                 let dealt = self.server.hurt_player_pierced(
                     amount,
-                    crate::survival::DamageCause::Command,
-                    crate::attributes::Pierce::flat(pierce),
+                    voxel_sim::player::survival::DamageCause::Command,
+                    voxel_sim::player::attributes::Pierce::flat(pierce),
                 );
                 Ok(format!(
                     "{{\"ok\":true,\"dealt\":{}}}",
@@ -1379,12 +1388,12 @@ impl VoxelGame {
                 let registry = self
                     .server
                     .ecs
-                    .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+                    .resource::<std::sync::Arc<voxel_sim::mobs::MobRegistry>>()
                     .clone();
                 let mut mobs: Vec<(f32, String)> = Vec::new();
                 let eye = self.client.body.eye(1.0);
                 self.server.ecs
-                    .query::<(&crate::components::Transform, &crate::components::Health, &crate::components::Mob)>()
+                    .query::<(&voxel_sim::components::Transform, &voxel_sim::components::Health, &voxel_sim::components::Mob)>()
                     .for_each(|_, (transform, health, mob)| {
                         let key = registry.get(mob.kind).map_or("?", |d| d.key.as_str());
                         let distance = transform.position.distance(eye);
@@ -1406,12 +1415,12 @@ impl VoxelGame {
                 let kind = self
                     .server
                     .ecs
-                    .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
+                    .resource::<std::sync::Arc<voxel_sim::mobs::MobRegistry>>()
                     .id(&key)
                     .with_context(|| format!("summon : créature inconnue « {key} »"))?;
                 let feet = self.client.body.body.position;
                 let at = feet + self.client.camera.forward_flat() * 3.0;
-                crate::mobs::spawn_mob(&mut self.server.ecs, kind, at)
+                voxel_sim::mobs::spawn_mob(&mut self.server.ecs, kind, at)
                     .context("summon : impossible")?;
                 Ok(format!("{{\"ok\":true,\"pos\":{}}}", vec3(at)))
             }
@@ -1833,7 +1842,7 @@ mod tests {
         assert_eq!(parse("ships").unwrap(), Command::Ships);
         assert_eq!(
             parse("weather storm").unwrap(),
-            Command::Weather(crate::weather::Sky::Storm)
+            Command::Weather(voxel_sim::world::weather::Sky::Storm)
         );
         assert!(parse("weather hail").is_err());
     }

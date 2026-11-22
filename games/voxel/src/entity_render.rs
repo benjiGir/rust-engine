@@ -14,11 +14,11 @@ use glam::{Vec2, Vec3, Vec4};
 
 use crate::VoxelGame;
 use crate::client_entities::{ClientEntities, EntityView};
-use crate::entities::{EliteLook, EntityKind};
-use crate::inventory::ItemStack;
-use crate::mob_model::{Bone, MobPart};
-use crate::mobs::MobRegistry;
-use crate::sheep_colors::SheepCoat;
+use voxel_sim::mobs::MobRegistry;
+use voxel_sim::mobs::model::{Bone, MobPart};
+use voxel_sim::mobs::sheep_colors::SheepCoat;
+use voxel_sim::net::entities::{EliteLook, EntityKind};
+use voxel_sim::player::inventory::ItemStack;
 
 /// Ce dont le dessin a besoin en dehors de la réplique : les définitions, la lumière du monde vu, et
 /// le temps.
@@ -88,7 +88,7 @@ pub fn draw(entities: &ClientEntities, env: &DrawEnv, out: &mut Vec<CubeInstance
                     continue;
                 };
                 let scale = if view.look.baby {
-                    crate::breeding::BABY_SCALE
+                    voxel_sim::mobs::breeding::BABY_SCALE
                 } else {
                     1.0
                 };
@@ -137,7 +137,7 @@ const HELD_TURN: f32 = std::f32::consts::FRAC_PI_4;
 fn draw_player(
     view: &EntityView,
     now: f32,
-    pose: &crate::entities::Pose,
+    pose: &voxel_sim::net::entities::Pose,
     env: &DrawEnv,
     models: &RefCell<HashMap<ItemId, Vec<CubeInstance>>>,
     out: &mut Vec<CubeInstance>,
@@ -204,7 +204,7 @@ struct Model {
 impl Model {
     /// Le corps d'une créature ou d'un joueur à la pose actuelle : le lacet d'une créature est celui du
     /// dernier pas (comme avant, il n'était pas interpolé).
-    fn of(view: &EntityView, scale: f32, pose: &crate::entities::Pose) -> Self {
+    fn of(view: &EntityView, scale: f32, pose: &voxel_sim::net::entities::Pose) -> Self {
         let yaw = if matches!(view.kind, EntityKind::Player { .. }) {
             pose.yaw
         } else {
@@ -252,7 +252,7 @@ fn draw_model(parts: &[MobPart], model: &Model, env: &DrawEnv, out: &mut Vec<Cub
             color *= coat.tint_part(part);
         }
         if let Some(elite) = &model.elite {
-            color = crate::elites::tinted(color, elite);
+            color = voxel_sim::mobs::elites::tinted(color, elite);
         }
         if model.hurt {
             color = color.lerp(Vec3::new(1.0, 0.1, 0.1), 0.6);
@@ -264,7 +264,7 @@ fn draw_model(parts: &[MobPart], model: &Model, env: &DrawEnv, out: &mut Vec<Cub
 }
 
 fn draw_cart(
-    kind: crate::carts::CartKind,
+    kind: voxel_sim::vehicles::carts::CartKind,
     view: &EntityView,
     now: f32,
     env: &DrawEnv,
@@ -278,7 +278,7 @@ fn draw_cart(
     let (cy, sy) = (pose.yaw.cos(), pose.yaw.sin());
     // Un wagon qui vient d'être frappé rougit un instant.
     let flash = if view.look.hurt { 0.45 } else { 0.0 };
-    for (offset, size, color) in crate::carts::parts(kind) {
+    for (offset, size, color) in voxel_sim::vehicles::carts::parts(kind) {
         let tilted = Vec3::new(
             offset.x * cp - offset.y * sp,
             offset.x * sp + offset.y * cp,
@@ -424,8 +424,8 @@ pub(crate) mod support {
     use engine_ecs::World as Ecs;
 
     use super::*;
-    use crate::entities::{EntityTracker, NetIds, Viewer, collect};
-    use crate::shared::StreamerExt;
+    use voxel_sim::net::entities::{EntityTracker, NetIds, Viewer, collect};
+    use voxel_sim::shared::StreamerExt;
 
     /// Les boîtes de toutes les entités de l'ECS, comme la fenêtre les dessinerait à la part `alpha`
     /// du pas (une fois répliquées sans perte, à 60 Hz).
@@ -433,7 +433,10 @@ pub(crate) mod support {
         NetIds::assign(ecs);
         let subs = engine_voxel::SubGrids::new(Arc::new(crate::test_registry()));
         let all = collect(ecs, &subs, &|_| {
-            Some(("joueur".to_string(), crate::entities::Look::default()))
+            Some((
+                "joueur".to_string(),
+                voxel_sim::net::entities::Look::default(),
+            ))
         });
         let nobody = engine_ecs::Entity {
             index: u32::MAX,
@@ -476,8 +479,8 @@ pub(crate) mod support {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::{Hurt, Transform};
-    use crate::mobs::{self, tests::sim};
+    use voxel_sim::components::{Hurt, Transform};
+    use voxel_sim::mobs::{self, tests::sim};
 
     #[test]
     fn dropped_items_use_their_material_and_the_model_cache_is_cleared_on_demand() {
@@ -489,7 +492,7 @@ mod tests {
             count: 3,
             damage: 7,
         };
-        crate::drops::spawn(&mut world, stack, Vec3::new(1.0, 20.0, 1.0), 42);
+        voxel_sim::player::drops::spawn(&mut world, stack, Vec3::new(1.0, 20.0, 1.0), 42);
         let models = support::boxes(&mut world, 0.5);
         assert_eq!(models.len(), 1);
         assert_eq!(
@@ -531,15 +534,15 @@ mod tests {
     fn another_player_is_drawn_as_a_body_and_not_the_local_one() {
         let mut world = sim();
         let local = world.resource::<mobs::PlayerEntities>().0[0];
-        world.insert(local, crate::players::PlayerId(0));
-        world.insert(local, crate::components::Player);
+        world.insert(local, voxel_sim::player::players::PlayerId(0));
+        world.insert(local, voxel_sim::components::Player);
         let other = world.spawn((
             Transform {
                 position: Vec3::new(3.5, 80.0, 3.5),
                 yaw: 0.0,
             },
-            crate::components::Player,
-            crate::players::PlayerId(1),
+            voxel_sim::components::Player,
+            voxel_sim::player::players::PlayerId(1),
         ));
         let _ = other;
         // Le suivi du joueur local ne le renvoie pas à lui-même (voir `entities.rs`) ; ici on dessine
@@ -557,7 +560,7 @@ mod tests {
                 position: Vec3::new(4.0, 90.0, 4.0),
                 yaw: 0.0,
             },
-            crate::projectiles::Projectile {
+            voxel_sim::mobs::projectiles::Projectile {
                 velocity: Vec3::X,
                 damage: 3.0,
                 age: 0.0,
@@ -570,10 +573,10 @@ mod tests {
         assert_eq!(arrow[0].color, color.to_array());
         assert_eq!(arrow[0].size, [PROJECTILE_SIZE; 3]);
 
-        let mut cart = crate::carts::Cart::new(
+        let mut cart = voxel_sim::vehicles::carts::Cart::new(
             1,
-            crate::carts::CartKind::Chest,
-            crate::carts::Ride::Free {
+            voxel_sim::vehicles::carts::CartKind::Chest,
+            voxel_sim::vehicles::carts::Ride::Free {
                 velocity: Vec3::ZERO,
             },
         );
@@ -587,7 +590,8 @@ mod tests {
             cart,
         ));
         let both = support::boxes(&mut world, 0.3);
-        let parts = crate::carts::parts(crate::carts::CartKind::Chest).len();
+        let parts =
+            voxel_sim::vehicles::carts::parts(voxel_sim::vehicles::carts::CartKind::Chest).len();
         assert_eq!(both.len(), 1 + parts);
         // Le wagon frappé rougit, et ses boîtes tournent avec son lacet.
         assert!(both.iter().filter(|b| b.yaw == 1.0).count() == parts);

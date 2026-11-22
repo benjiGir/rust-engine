@@ -5,8 +5,8 @@
 
 use engine_render::egui::{Pos2, Rect, Vec2, pos2, vec2};
 
-use crate::quest_progress::Status;
-use crate::quests::Shape;
+use voxel_sim::quests::Shape;
+use voxel_sim::quests::progress::Status;
 
 /// Une case de la grille, en points, au zoom 1.
 pub const CELL: f32 = 40.0;

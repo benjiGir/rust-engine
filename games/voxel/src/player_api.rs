@@ -5,9 +5,9 @@
 //! Le script lit un **instantané** du joueur (rafraîchi à chaque pas de simulation) ; ses ordres
 //! reviennent au jeu comme les autres `MachineAction`, appliqués ici.
 
-#[allow(unused_imports)]
-use crate::player_api_server::*;
 use std::collections::BTreeMap;
+#[allow(unused_imports)]
+use voxel_sim::modding::player_api::*;
 
 use crate::VoxelGame;
 

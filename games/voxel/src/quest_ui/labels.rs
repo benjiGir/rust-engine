@@ -4,9 +4,9 @@
 
 use engine_voxel::{BlockRegistry, ItemId, ItemRegistry};
 
-use crate::mobs::MobRegistry;
-use crate::quest_progress::{Progress, Status};
-use crate::quests::{ItemSpec, Quest, Reward, Task};
+use voxel_sim::mobs::MobRegistry;
+use voxel_sim::quests::progress::{Progress, Status};
+use voxel_sim::quests::{ItemSpec, Quest, Reward, Task};
 
 /// Ce qu'il faut pour nommer les choses citées par les quêtes.
 pub struct Namer<'a> {
@@ -221,11 +221,11 @@ mod tests {
     /// clé technique (`core:`) ni de texte vide, et le reste à faire d'une quête neuve est complet.
     #[test]
     fn shipped_quests_have_readable_labels() {
-        let (blocks, content, quests) = crate::quest_play::tests::shipped();
+        let (blocks, content, quests) = voxel_sim::quests::play::tests::shipped();
         let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
-        let order = crate::modding::resolve_order(&assets);
-        let mods = crate::modding::mod_dirs(&order);
-        let mobs = crate::mobs::MobRegistry::load(&assets, &mods, &blocks).unwrap();
+        let order = voxel_sim::modding::resolve_order(&assets);
+        let mods = voxel_sim::modding::mod_dirs(&order);
+        let mobs = voxel_sim::mobs::MobRegistry::load(&assets, &mods, &blocks).unwrap();
         let namer = Namer {
             items: &content.items,
             blocks: &blocks,
