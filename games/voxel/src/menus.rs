@@ -501,7 +501,7 @@ impl VoxelGame {
 
     fn shader_selection(&self) -> crate::shader_packs::Selection {
         crate::shader_packs::Selection::open(
-            &crate::assets_dir(),
+            &voxel_sim::paths::get().shader_packs,
             self.settings.shader_pack.as_deref(),
         )
     }
@@ -521,7 +521,7 @@ impl VoxelGame {
             Action::Back => true,
             Action::Apply => match shader_packs::apply(
                 &mut self.client.renderer,
-                &crate::assets_dir(),
+                &voxel_sim::paths::get().shader_packs,
                 selection.selected.as_deref(),
             ) {
                 Ok(()) => {

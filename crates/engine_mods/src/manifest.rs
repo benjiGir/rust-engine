@@ -125,6 +125,46 @@ pub fn discover(mods_dir: &Path) -> Result<Vec<ModInfo>> {
     dirs.iter().map(|d| read_manifest(d)).collect()
 }
 
+/// Ce que [`scan`] a trouvé : les mods retenus, et pourquoi d'autres ont été écartés.
+#[derive(Debug, Default)]
+pub struct Scan {
+    pub mods: Vec<ModInfo>,
+    pub skipped: Vec<String>,
+}
+
+/// Les mods de plusieurs dossiers, sans s'arrêter au premier problème : c'est ce que lit le jeu,
+/// où le joueur dépose des mods à la main. Un mod illisible est écarté (et expliqué), les autres
+/// se chargent. Deux mods de même identifiant : celui du premier dossier passe devant, l'autre est
+/// écarté (le dossier du joueur devant celui de l'installation, voir `docs/plan-installation.md`).
+pub fn scan(mods_dirs: &[PathBuf]) -> Scan {
+    let mut scan = Scan::default();
+    for mods_dir in mods_dirs {
+        let Ok(entries) = std::fs::read_dir(mods_dir) else {
+            continue;
+        };
+        let mut dirs: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.join("mod.ron").exists())
+            .collect();
+        dirs.sort();
+        for dir in dirs {
+            match read_manifest(&dir) {
+                Ok(info) => match scan.mods.iter().find(|m| m.id() == info.id()) {
+                    Some(kept) => scan.skipped.push(format!(
+                        "{} : le mod « {} » est déjà chargé depuis {}",
+                        dir.display(),
+                        info.id(),
+                        kept.dir.display()
+                    )),
+                    None => scan.mods.push(info),
+                },
+                Err(error) => scan.skipped.push(format!("{error:#}")),
+            }
+        }
+    }
+    scan
+}
+
 /// L'ordre de chargement : chaque mod après ses dépendances, `core` en premier.
 /// À dépendances égales, l'ordre alphabétique départage : le résultat ne dépend pas de
 /// l'ordre de lecture des dossiers, il est le même sur toutes les machines.
@@ -287,6 +327,35 @@ mod tests {
         assert_eq!(ids(&order), ["core", "x"]);
         let err = load_order(core(), vec![info("x", "1.0.0", &[("core", "^2")])]);
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn scan_skips_broken_mods_and_keeps_the_first_of_two_with_one_id() {
+        let root = std::env::temp_dir().join(format!("voxel-scan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let write = |dir: &str, id: &str| {
+            let dir = root.join(dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("mod.ron"),
+                format!(r#"(id: "{id}", name: "{id}", version: "1.0.0")"#),
+            )
+            .unwrap();
+        };
+        write("joueur/a", "a");
+        write("joueur/casse", "autre_nom");
+        write("livres/a", "a");
+        write("livres/b", "b");
+        let scan = scan(&[
+            root.join("joueur"),
+            root.join("livres"),
+            root.join("absent"),
+        ]);
+        assert_eq!(ids(&scan.mods), ["a", "b"]);
+        assert_eq!(scan.mods[0].dir, root.join("joueur/a"));
+        assert_eq!(scan.skipped.len(), 2, "{:?}", scan.skipped);
+        assert!(scan.skipped.iter().any(|s| s.contains("déjà chargé")));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

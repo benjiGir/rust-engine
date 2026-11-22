@@ -1360,6 +1360,6 @@ Le pack ne remplace pas les scripts, sons, recettes ou définitions de blocs.
 
 ## Packs de shaders
 
-Le menu principal charge les packs WGSL de `assets/shader_packs/`. Voir
-[la référence des packs de shaders](shader-packs.md) pour le manifeste et les
-fonctions qui personnalisent le terrain, l'eau et le ciel.
+Le menu principal charge les packs WGSL de `shader_packs/`, à la racine du jeu
+(à côté de `texture_packs/`). Voir [la référence des packs de shaders](shader-packs.md)
+pour le manifeste et les fonctions qui personnalisent le terrain, l'eau et le ciel.

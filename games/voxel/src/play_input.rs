@@ -127,6 +127,9 @@ impl VoxelGame {
             self.toggle_cave_culling();
         }
         if input.key_pressed(KeyCode::F2) {
+            self.take_screenshot(ctx);
+        }
+        if input.key_pressed(KeyCode::F7) {
             self.client.renderer.frustum_culling = !self.client.renderer.frustum_culling;
             let state = if self.client.renderer.frustum_culling {
                 "activé"
@@ -134,6 +137,34 @@ impl VoxelGame {
                 "désactivé"
             };
             log::info!("frustum culling {state}");
+        }
+    }
+
+    /// F2 : une capture de l'écran, interface comprise, dans `screenshots/` (nommée d'après la date,
+    /// en temps universel).
+    fn take_screenshot(&mut self, ctx: &Context) {
+        let size = ctx.window.inner_size();
+        let (width, height) = (size.width.max(16), size.height.max(16));
+        let dir = &voxel_sim::paths::get().screenshots;
+        let stamp = voxel_sim::logs::stamp(std::time::SystemTime::now());
+        let mut path = dir.join(format!("{stamp}.png"));
+        let mut n = 1;
+        while path.exists() {
+            path = dir.join(format!("{stamp}_{n}.png"));
+            n += 1;
+        }
+        let (ui, _) = self.build_ui(crate::ui::offscreen_input(width, height));
+        let result = self
+            .client
+            .renderer
+            .capture(&self.client.camera, width, height, Some(ui))
+            .and_then(|capture| {
+                std::fs::create_dir_all(dir)?;
+                crate::screenshots::save_png(&path, capture.width, capture.height, &capture.rgba)
+            });
+        match result {
+            Ok(()) => log::info!("capture : {}", path.display()),
+            Err(error) => log::error!("capture impossible : {error:#}"),
         }
     }
 

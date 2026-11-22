@@ -4104,7 +4104,6 @@ dependencies = [
  "engine_render",
  "engine_trace",
  "engine_voxel",
- "env_logger",
  "glam",
  "image",
  "kira",

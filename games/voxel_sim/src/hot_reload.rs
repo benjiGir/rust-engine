@@ -191,7 +191,7 @@ mod tests {
     fn file_types_decide_what_to_reload() {
         let paths = [
             PathBuf::from("crates/engine_render/src/chunk_shader.wgsl"),
-            PathBuf::from("assets/shader_packs/crepuscule/terrain.wgsl"),
+            PathBuf::from("shader_packs/crepuscule/terrain.wgsl"),
             PathBuf::from("assets/core/textures/dirt.png"),
             PathBuf::from("assets/core/notes.txt"),
         ];
@@ -206,7 +206,7 @@ mod tests {
                 scripts: false,
             }
         );
-        let pack = [PathBuf::from("assets/shader_packs/crepuscule/pack.ron")];
+        let pack = [PathBuf::from("shader_packs/crepuscule/pack.ron")];
         assert!(Changes::from_paths(&pack).shader);
         let ron = [
             PathBuf::from("mods/example/blocks.ron"),

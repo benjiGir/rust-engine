@@ -11,9 +11,11 @@
 //!   Maj : descendre (en vol). Ctrl gauche : courir.
 //! - F : basculer entre marche et vol libre. Dans l'eau, Espace fait remonter.
 //! - T : temps normal, accéléré (×40) ou figé.
-//! - F1 : maillage « culling » ou « greedy ». F2 : frustum culling.
+//! - F2 : une capture d'écran dans `screenshots/`.
+//! - F1 : maillage « culling » ou « greedy ». F7 : frustum culling.
 //! - F5 : recharger shaders, textures, sons et blocs (c'est aussi automatique quand
-//!   un fichier change dans `assets/`, `mods/` ou le dossier des shaders).
+//!   un fichier change dans `assets/`, `mods/`, `texture_packs/`, `shader_packs/` ou le dossier
+//!   des shaders).
 //! - Échap : libérer la souris (deuxième Échap : quitter).
 //!
 //! Variables d'environnement :
@@ -945,7 +947,11 @@ impl Game for App {
             _ => {}
         }
         if let Some(pack) = settings.shader_pack.as_deref()
-            && let Err(error) = shader_packs::apply(&mut renderer, &assets_dir(), Some(pack))
+            && let Err(error) = shader_packs::apply(
+                &mut renderer,
+                &voxel_sim::paths::get().shader_packs,
+                Some(pack),
+            )
         {
             log::warn!("pack de shaders {pack} : {error:#}. Rendu standard utilisé.");
             settings.shader_pack = None;
@@ -1035,7 +1041,7 @@ impl VoxelGame {
         if changes.shader {
             let result = shader_packs::reload(
                 &mut self.client.renderer,
-                &assets_dir(),
+                &voxel_sim::paths::get().shader_packs,
                 self.settings.shader_pack.as_deref(),
             );
             match result {
@@ -1354,6 +1360,7 @@ fn start_hot_reload() -> Option<hot_reload::HotReload> {
         paths.game.clone(),
         paths.mods.clone(),
         paths.texture_packs.clone(),
+        paths.shader_packs.clone(),
     ];
     if let Some(shaders) = std::path::Path::new(engine_render::CHUNK_SHADER_PATH).parent() {
         dirs.push(shaders.to_path_buf());
@@ -1386,13 +1393,11 @@ fn gpu_vertices(vertices: &[MeshVertex]) -> &[ColorVertex] {
 }
 
 fn main() -> Result<()> {
-    // Logs visibles avec `RUST_LOG=info cargo run -p voxel`.
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn,voxel=info"))
-        .init();
-
     // Les dossiers du jeu (voir `voxel_sim::paths`) : `--data-dir` d'abord, avant tout chemin.
     let args: Vec<String> = std::env::args().collect();
     voxel_sim::paths::init(voxel_sim::paths::data_dir_arg(&args));
+    // Le journal, dans la console et `logs/latest.log` ; plus détaillé avec `RUST_LOG=info`.
+    voxel_sim::logs::init(voxel_sim::logs::Program::Game);
 
     // `voxel --server` : le serveur dédié, sans fenêtre (voir `dedicated.rs`).
     if std::env::args().any(|a| a == "--server") {

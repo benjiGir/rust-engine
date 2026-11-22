@@ -12,7 +12,8 @@ pub mod settings;
 pub mod testing;
 
 pub use manifest::{
-    CORE, Dependency, ModInfo, ModManifest, core_mod, discover, load_order, read_manifest,
+    CORE, Dependency, ModInfo, ModManifest, Scan, core_mod, discover, load_order, read_manifest,
+    scan,
 };
 pub use menu::{ModMenu, Widget};
 pub use runtime::{

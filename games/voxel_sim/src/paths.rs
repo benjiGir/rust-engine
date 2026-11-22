@@ -45,6 +45,10 @@ pub struct GamePaths {
     pub texture_packs: PathBuf,
     pub shader_packs: PathBuf,
     pub saves: PathBuf,
+    /// Les captures d'écran (F2).
+    pub screenshots: PathBuf,
+    /// Le journal du dernier lancement (`latest.log`) et les précédents.
+    pub logs: PathBuf,
     pub settings: PathBuf,
     pub mod_settings: PathBuf,
     pub server_config: PathBuf,
@@ -136,8 +140,10 @@ pub fn locate(clues: &Clues) -> GamePaths {
         layout,
         mods: root.join("mods"),
         texture_packs: root.join("texture_packs"),
-        shader_packs: game.join("shader_packs"),
+        shader_packs: root.join("shader_packs"),
         saves: clues.saves.clone().unwrap_or_else(|| root.join("saves")),
+        screenshots: root.join("screenshots"),
+        logs: root.join("logs"),
         settings: root.join("settings.ron"),
         mod_settings: root.join("mod_settings.ron"),
         server_config: clues
@@ -151,19 +157,11 @@ pub fn locate(clues: &Clues) -> GamePaths {
 
 static PATHS: OnceLock<GamePaths> = OnceLock::new();
 
-/// Fixe les chemins du processus, au tout début de `main` (`--data-dir`). Sans appel, [`get`] les
+/// Fixe les chemins du processus, au tout début de `main` (`--data-dir`), avant le journal (qui
+/// s'écrit dans `logs/`) : [`crate::logs::init`] dit ensuite où ils sont. Sans appel, [`get`] les
 /// cherche d'après l'environnement. Rend les chemins retenus (ceux d'un appel précédent s'il y en a eu).
 pub fn init(data_dir: Option<PathBuf>) -> &'static GamePaths {
-    PATHS.get_or_init(|| {
-        let paths = locate(&Clues::from_env(data_dir));
-        log::info!(
-            "dossiers ({:?}) : racine {}, jeu de base {}",
-            paths.layout,
-            paths.root.display(),
-            paths.game.display()
-        );
-        paths
-    })
+    PATHS.get_or_init(|| locate(&Clues::from_env(data_dir)))
 }
 
 /// Les chemins du processus.
@@ -212,6 +210,9 @@ mod tests {
         assert_eq!(paths.saves, install.join("saves"));
         assert_eq!(paths.settings, install.join("settings.ron"));
         assert_eq!(paths.server_config, install.join("server.ron"));
+        assert_eq!(paths.shader_packs, install.join("shader_packs"));
+        assert_eq!(paths.screenshots, install.join("screenshots"));
+        assert_eq!(paths.logs, install.join("logs"));
         let _ = std::fs::remove_dir_all(&install);
     }
 
@@ -261,10 +262,7 @@ mod tests {
         assert_eq!(paths.game, PathBuf::from("/depot/assets"));
         assert_eq!(paths.root, PathBuf::from("/depot"));
         assert_eq!(paths.mods, PathBuf::from("/depot/mods"));
-        assert_eq!(
-            paths.shader_packs,
-            PathBuf::from("/depot/assets/shader_packs")
-        );
+        assert_eq!(paths.shader_packs, PathBuf::from("/depot/shader_packs"));
     }
 
     #[test]

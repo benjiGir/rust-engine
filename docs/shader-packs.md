@@ -11,8 +11,9 @@ et l'éclairage directionnel de nuit.
 
 ## Créer un pack
 
-Placer un dossier dans `assets/shader_packs/`. Son nom sert d'identifiant et
-accepte les lettres minuscules ASCII, les chiffres, `-` et `_`. Créer
+Placer un dossier dans `shader_packs/`, à la racine du jeu (à côté de
+`texture_packs/`). Son nom sert d'identifiant et accepte les lettres minuscules
+ASCII, les chiffres, `-` et `_`. Créer
 `pack.ron` à la racine de ce dossier.
 
 ```ron
@@ -86,5 +87,5 @@ lune. La lumière devient directionnelle et l'eau reflète davantage l'astre
 lorsqu'il est visible. La couverture nuageuse atténue l'effet. Les rayons
 lorsque les deux options sont activées sont plus faibles sous la lune.
 
-Voir les deux fichiers du [pack Crépuscule](../assets/shader_packs/crepuscule/)
+Voir les deux fichiers du [pack Crépuscule](../shader_packs/crepuscule/)
 pour un exemple complet.

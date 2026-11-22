@@ -1,4 +1,6 @@
-//! Packs graphiques du client. La sélection est une préférence locale du joueur.
+//! Packs graphiques du client. La sélection est une préférence locale du joueur. Les packs sont
+//! des dossiers de `shader_packs/` à la racine du jeu (`voxel_sim::paths`), à côté des packs de
+//! textures : le joueur y dépose les siens.
 
 use std::{
     borrow::Cow,
@@ -31,7 +33,7 @@ struct Manifest {
     moonlight: bool,
 }
 
-fn directory(assets: &Path, id: &str) -> Result<PathBuf> {
+fn directory(packs: &Path, id: &str) -> Result<PathBuf> {
     ensure!(
         !id.is_empty()
             && id
@@ -39,7 +41,7 @@ fn directory(assets: &Path, id: &str) -> Result<PathBuf> {
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'-' | b'_')),
         "identifiant de pack de shaders invalide : {id}"
     );
-    Ok(assets.join("shader_packs").join(id))
+    Ok(packs.join(id))
 }
 
 fn manifest(dir: &Path) -> Result<Manifest> {
@@ -75,8 +77,8 @@ struct Effects {
 }
 
 impl Effects {
-    fn load(assets: &Path, id: &str) -> Result<Self> {
-        let dir = directory(assets, id)?;
+    fn load(packs: &Path, id: &str) -> Result<Self> {
+        let dir = directory(packs, id)?;
         let data = manifest(&dir)?;
         let read = |name: String| -> Result<String> {
             let file = Path::new(&name);
@@ -117,20 +119,21 @@ fn read_base(path: &str, builtin: &'static str) -> Result<Cow<'static, str>> {
     }
 }
 
-fn selected_effects(assets: &Path, id: Option<&str>) -> Result<Effects> {
+fn selected_effects(packs: &Path, id: Option<&str>) -> Result<Effects> {
     Ok(id
-        .map(|id| Effects::load(assets, id))
+        .map(|id| Effects::load(packs, id))
         .transpose()?
         .unwrap_or_default())
 }
 
-pub fn apply(renderer: &mut Renderer, assets: &Path, id: Option<&str>) -> Result<()> {
-    let effects = selected_effects(assets, id)?;
+/// Applique le pack `id` de `packs` (le dossier des packs), ou le rendu standard.
+pub fn apply(renderer: &mut Renderer, packs: &Path, id: Option<&str>) -> Result<()> {
+    let effects = selected_effects(packs, id)?;
     renderer.reload_shaders(&ShaderSources::builtin(effects.sources())?)
 }
 
-pub fn reload(renderer: &mut Renderer, assets: &Path, id: Option<&str>) -> Result<()> {
-    let effects = selected_effects(assets, id)?;
+pub fn reload(renderer: &mut Renderer, packs: &Path, id: Option<&str>) -> Result<()> {
+    let effects = selected_effects(packs, id)?;
     let terrain = read_base(
         engine_render::CHUNK_SHADER_PATH,
         engine_render::CHUNK_SHADER_SOURCE,
@@ -158,20 +161,20 @@ pub struct Selection {
 }
 
 impl Selection {
-    pub fn open(assets: &Path, active: Option<&str>) -> Self {
+    pub fn open(dir: &Path, active: Option<&str>) -> Self {
         let mut packs = Vec::new();
-        if let Ok(entries) = fs::read_dir(assets.join("shader_packs")) {
+        if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let Ok(id) = entry.file_name().into_string() else {
                     continue;
                 };
-                let Ok(dir) = directory(assets, &id) else {
+                let Ok(pack) = directory(dir, &id) else {
                     continue;
                 };
-                if !dir.is_dir() {
+                if !pack.is_dir() {
                     continue;
                 }
-                match manifest(&dir) {
+                match manifest(&pack) {
                     Ok(data) => packs.push(Pack {
                         id,
                         title: data.name,
@@ -255,16 +258,17 @@ pub fn panel(ui: &mut egui::Ui, selection: &mut Selection, active: Option<&str>)
 mod tests {
     use super::*;
 
-    fn assets() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets")
+    /// Les packs livrés, dans le dépôt.
+    fn packs() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../shader_packs")
     }
 
     #[test]
     fn the_bundled_pack_and_each_effect_compile_as_wgsl() {
-        let assets = assets();
-        let selection = Selection::open(&assets, None);
+        let packs = packs();
+        let selection = Selection::open(&packs, None);
         assert!(selection.packs.iter().any(|pack| pack.id == "crepuscule"));
-        let entries = Effects::load(&assets, "crepuscule").unwrap();
+        let entries = Effects::load(&packs, "crepuscule").unwrap();
         let (terrain, sky) = (entries.terrain.as_deref(), entries.sky.as_deref());
         assert!(terrain.is_some() && sky.is_some());
         assert!(entries.sun_shadows && entries.sun_rays && entries.moonlight);
@@ -288,7 +292,7 @@ mod tests {
     fn manifest_paths_and_invalid_wgsl_are_reported() {
         let root =
             std::env::temp_dir().join(format!("voxel-shader-manifest-{}", std::process::id()));
-        let pack = root.join("shader_packs/test");
+        let pack = root.join("test");
         fs::create_dir_all(&pack).unwrap();
         let manifest = pack.join("pack.ron");
         fs::write(
@@ -332,7 +336,7 @@ mod tests {
             let ctx = egui::Context::default();
             crate::skin::apply(&ctx);
             let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, resolution);
-            let mut selection = Selection::open(&assets(), None);
+            let mut selection = Selection::open(&packs(), None);
             let (mut target, mut apply) = (None, None);
             let mut applied = false;
             for frame in 0..10 {

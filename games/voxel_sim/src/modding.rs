@@ -25,9 +25,9 @@ const CHUNKS_PER_TICK: usize = 8;
 /// Pas de simulation (60 Hz) par tick de machines (20 Hz).
 const STEPS_PER_MACHINE_TICK: u32 = 3;
 
-/// L'ordre de chargement des mods de `mods/`, `core` en premier. Une erreur (dépendance
-/// manquante, cycle...) est expliquée dans les logs, et le jeu démarre sans les mods :
-/// mieux vaut un jeu sans mods qu'un jeu qui ne démarre pas.
+/// L'ordre de chargement des mods de `mods/`, `core` en premier. Un mod illisible est écarté et
+/// expliqué dans les logs ; une erreur d'ensemble (dépendance manquante, cycle...) aussi, et le jeu
+/// démarre sans les mods : mieux vaut un jeu sans mods qu'un jeu qui ne démarre pas.
 pub fn resolve_order(assets: &Path) -> Vec<ModInfo> {
     let core = engine_mods::core_mod(&assets.join("core"));
     // Les mods du jeu (`paths::get().mods`), ou ceux qui sont à côté d'un autre jeu de base (tests).
@@ -40,8 +40,11 @@ pub fn resolve_order(assets: &Path) -> Vec<ModInfo> {
             .map(|root| root.join("mods"))
             .unwrap_or_default()
     };
-    let result = engine_mods::discover(&mods_dir)
-        .and_then(|mods| engine_mods::load_order(core.clone(), mods));
+    let scan = engine_mods::scan(&[mods_dir]);
+    for reason in &scan.skipped {
+        log::warn!("mod écarté : {reason}");
+    }
+    let result = engine_mods::load_order(core.clone(), scan.mods);
     match result {
         Ok(order) => {
             let names: Vec<String> = order

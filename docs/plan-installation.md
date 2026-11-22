@@ -10,7 +10,7 @@ Ce que la racine contient, et qui le lit :
 | Chemin | Contenu | Lu par | Écrit par |
 |---|---|---|---|
 | `assets/core/` | blocs, objets, textures, sons, quêtes du jeu de base | jeu, serveur | — |
-| `assets/shader_packs/` | packs de shaders (Crépuscule…) | jeu | — |
+| `shader_packs/` | packs de shaders (Crépuscule…), `assets/shader_packs/` avant I2 | jeu | — |
 | `mods/<id>/` | mods (données, `.wasm`, et le source `script/`) | jeu, serveur | `xtask build-mods` |
 | `texture_packs/<id>/` | packs de textures 32 et 64 px | jeu | assetgen |
 | `saves/<monde>/` | mondes (`VOXEL_SAVES` pour ailleurs) | jeu, serveur | jeu, serveur |
@@ -118,6 +118,14 @@ pour jouer et pour héberger.
   `mods/`, lancé d'ailleurs, trouve tout à côté de lui et y écrit ses mondes ; depuis le dépôt, rien ne change.
   Le jeu de base s'appelle encore `assets/` dans le dépôt et `game/` dans une installation ; les packs de
   shaders restent sous le jeu de base jusqu'à I2.
+- **I2** : les packs de shaders quittent `assets/shader_packs/` pour `shader_packs/` à la racine (surveillés
+  par le rechargement à chaud). F2 enregistre une capture, interface comprise, dans
+  `screenshots/<date>.png` ; le frustum culling, outil de débogage, passe sur F7. Le journal s'écrit aussi
+  dans `logs/latest.log` (`server-latest.log` pour `voxel-server`) ; le précédent est renommé d'après sa
+  date (`voxel-<date>.log`), dix sont gardés. Les dates sont en temps universel (pas de dépendance pour
+  le fuseau). Les mods sont lus par `engine_mods::scan` : un mod illisible est écarté avec sa raison au lieu
+  de désactiver tous les mods, et deux mods de même identifiant gardent le premier dossier (prêt pour le
+  dossier du joueur d'I3). `voxel-server` lit enfin `--data-dir` (oublié en I1).
 
 ## Choix à valider
 
