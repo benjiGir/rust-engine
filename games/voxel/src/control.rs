@@ -35,7 +35,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-36 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hold left|right|off | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin|select|ui|view|close ... | questpin id | screen quests [chapitre] | shape forme [n|all] | rebuild [all] | shaping | pieces x y z | ghost [nom] [x y z] | ghost remove [nom] | ghost list | host [port] | players | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hold left|right|off | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | drag x y x y... [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin|select|ui|view|close ... | questpin id | screen quests [chapitre] | shape forme [n|all] | rebuild [all] | shaping | pieces x y z | ghost [nom] [x y z] | ghost remove [nom] | ghost list | host [port] | players | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -232,6 +232,8 @@ pub enum Command {
     UiTexts,
     /// Un clic de souris en (x, y) points ; vrai : bouton droit.
     UiClick(f32, f32, bool),
+    /// Glisser par ces points (x, y), clic droit si `true`.
+    UiDrag(Vec<(f32, f32)>, bool),
     /// Un clic sur le premier texte qui contient ceci.
     UiClickText(String, bool),
     /// Du texte tapé au clavier.
@@ -526,6 +528,18 @@ pub fn parse(line: &str) -> Result<Command> {
             count(&[2, 3])?;
             Command::UiClick(number(0)?, number(1)?, args.get(2) == Some(&"right"))
         }
+        "drag" => {
+            let right = args.last() == Some(&"right");
+            let coords = &args[..args.len() - usize::from(right)];
+            if coords.len() < 4 || !coords.len().is_multiple_of(2) {
+                bail!("drag : au moins deux points x y");
+            }
+            let mut points = Vec::new();
+            for pair in coords.chunks(2) {
+                points.push((pair[0].parse()?, pair[1].parse()?));
+            }
+            Command::UiDrag(points, right)
+        }
         "clicktext" => {
             let right = args.last() == Some(&"right");
             let words = &args[..args.len() - usize::from(right)];
@@ -766,6 +780,7 @@ impl VoxelGame {
                 | Command::Stop
                 | Command::UiTexts
                 | Command::UiClick(..)
+                | Command::UiDrag(..)
                 | Command::UiClickText(..)
                 | Command::UiType(_)
                 | Command::UiKey(..)
@@ -955,6 +970,7 @@ impl VoxelGame {
                 | Command::Console(_)
                 | Command::UiTexts
                 | Command::UiClick(..)
+                | Command::UiDrag(..)
                 | Command::UiClickText(..)
                 | Command::UiType(_)
                 | Command::UiKey(..)
@@ -1419,6 +1435,19 @@ impl VoxelGame {
                     .click(engine_render::egui::pos2(x, y), button);
                 Ok(ok())
             }
+            Command::UiDrag(points, right) => {
+                let button = if right {
+                    engine_render::egui::PointerButton::Secondary
+                } else {
+                    engine_render::egui::PointerButton::Primary
+                };
+                let points: Vec<_> = points
+                    .iter()
+                    .map(|&(x, y)| engine_render::egui::pos2(x, y))
+                    .collect();
+                self.client.ui.input.drag(&points, button);
+                Ok(ok())
+            }
             Command::UiClickText(text, right) => {
                 let at = self.client.ui.input.find(&text).with_context(|| {
                     format!("clicktext : aucun texte « {text} » à l'écran (voir texts)")
@@ -1772,6 +1801,11 @@ mod tests {
             parse("click 10 20 right").unwrap(),
             Command::UiClick(10.0, 20.0, true)
         );
+        assert_eq!(
+            parse("drag 1 2 3 4 right").unwrap(),
+            Command::UiDrag(vec![(1.0, 2.0), (3.0, 4.0)], true)
+        );
+        assert!(parse("drag 1 2").is_err() && parse("drag 1 2 3").is_err());
         assert_eq!(
             parse("clicktext Ranger tout").unwrap(),
             Command::UiClickText("Ranger tout".into(), false)

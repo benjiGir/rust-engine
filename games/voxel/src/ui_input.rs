@@ -36,6 +36,34 @@ impl UiInput {
         }]);
     }
 
+    /// Un glisser : appui sur le premier point, passage par les suivants (deux images par point,
+    /// pour que chaque case survolée voie le pointeur), relâchement sur le dernier.
+    pub fn drag(&mut self, points: &[Pos2], button: PointerButton) {
+        let (Some(&first), Some(&last)) = (points.first(), points.last()) else {
+            return;
+        };
+        let modifiers = Modifiers::NONE;
+        self.frames.push_back(vec![
+            Event::PointerMoved(first),
+            Event::PointerButton {
+                pos: first,
+                button,
+                pressed: true,
+                modifiers,
+            },
+        ]);
+        for &pos in &points[1..] {
+            self.frames.push_back(vec![Event::PointerMoved(pos)]);
+            self.frames.push_back(vec![Event::PointerMoved(pos)]);
+        }
+        self.frames.push_back(vec![Event::PointerButton {
+            pos: last,
+            button,
+            pressed: false,
+            modifiers,
+        }]);
+    }
+
     /// Le pointeur reste en `pos` pendant `frames` images (pour qu'une bulle d'aide s'affiche).
     pub fn hover(&mut self, pos: Pos2, frames: usize) {
         for _ in 0..frames {

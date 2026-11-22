@@ -40,6 +40,9 @@ pub struct GameUi {
     icons: HashMap<(ItemId, u32), TextureHandle>,
     /// La fenêtre « Diviser la pile » (Maj + clic droit), si elle est ouverte.
     pub split: Option<Split>,
+    /// Les cases où le clic droit tenu a déjà posé un objet : glisser une pile sur des cases en
+    /// pose un dans chacune, une seule fois (vidé à chaque nouvel appui).
+    pub dealt: Vec<egui::Id>,
     /// L'offre choisie dans l'écran d'échange avec un habitant.
     pub trade_selected: usize,
     /// Un message en haut de l'écran (« Point de réapparition fixé ») et son heure.
@@ -112,6 +115,7 @@ impl GameUi {
             menu_open: false,
             icons: HashMap::new(),
             split: None,
+            dealt: Vec::new(),
             trade_selected: 0,
             toast: None,
             target_bottom: 12.0,
@@ -253,6 +257,19 @@ impl VoxelGame {
         let _span = engine_trace::span("interface");
         // `Context` est un `Arc` : le cloner ne copie rien, et libère `self` pour la closure.
         let ctx = self.client.ui.ctx.clone();
+        // Un nouvel appui du clic droit : une nouvelle distribution (voir `stack_widget`).
+        if raw.events.iter().any(|e| {
+            matches!(
+                e,
+                egui::Event::PointerButton {
+                    button: egui::PointerButton::Secondary,
+                    pressed: true,
+                    ..
+                }
+            )
+        }) {
+            self.client.ui.dealt.clear();
+        }
         let output = ctx.run_ui(raw, |ui| {
             // Au menu principal et à l'écran de mort, ni barre d'objets ni vie.
             if self.mode == crate::Mode::Playing && !self.client.ui.inventory_open {
@@ -308,7 +325,25 @@ impl VoxelGame {
             self.paint_stack(&painter, rect, stack);
         }
         let shift = ui.input(|i| i.modifiers.shift);
-        let press = if response.clicked() {
+        // Clic droit tenu avec une pile en main : un objet dans chaque case survolée, une fois
+        // par case (pour remplir vite une grille de fabrication). Le relâchement sur une case déjà
+        // servie ne repose rien.
+        let (dealing, over) = ui.input(|i| {
+            (
+                i.pointer.button_down(egui::PointerButton::Secondary) && !i.modifiers.shift,
+                i.pointer
+                    .interact_pos()
+                    .is_some_and(|pos| rect.contains(pos)),
+            )
+        });
+        let holding = self.client.view.me.inventory.cursor.is_some();
+        let dealt = self.client.ui.dealt.contains(&response.id);
+        let press = if dealing && over && holding && !dealt {
+            self.client.ui.dealt.push(response.id);
+            Some(Press::Secondary)
+        } else if response.secondary_clicked() && !shift && dealt {
+            None
+        } else if response.clicked() {
             Some(if shift && self.quick_enabled() {
                 Press::Quick
             } else {
@@ -872,7 +907,7 @@ impl VoxelGame {
                     self.player_slots(ui);
                     ui.add_space(6.0);
                     ui.collapsing("Aide · déplacer les objets", |ui| {
-                        ui.label("Clic : prendre ou poser. Clic droit : moitié ou un objet. Maj + clic : envoyer la pile de l'autre côté (coffre, sac). Maj + clic droit : choisir la quantité. Une gemme ou un sceau au curseur, cliqué sur un objet : sertir, retirer, ajouter un emplacement. Échap : fermer.");
+                        ui.label("Clic : prendre ou poser. Clic droit : moitié ou un objet ; tenu en glissant sur des cases, un objet dans chacune. Maj + clic : envoyer la pile de l'autre côté (coffre, sac). Maj + clic droit : choisir la quantité. Une gemme ou un sceau au curseur, cliqué sur un objet : sertir, retirer, ajouter un emplacement. Échap : fermer.");
                     });
                 }
             });
