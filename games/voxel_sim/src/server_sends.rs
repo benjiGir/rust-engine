@@ -130,6 +130,7 @@ fn update_msg(update: ChunkUpdate) -> ServerMsg {
             edits,
             remesh,
         },
+        ChunkUpdate::Empty(pos) => ServerMsg::ChunkEmpty(pos),
         ChunkUpdate::Unload(pos) => ServerMsg::Unload(pos),
     }
 }
@@ -141,4 +142,61 @@ pub fn entity_interval() -> u32 {
         .ok()
         .and_then(|v| v.parse().ok())
         .map_or(1, |n: u32| n.clamp(1, 12))
+}
+
+#[cfg(test)]
+mod empty_chunk_tests {
+    use engine_voxel::{ChunkStreamer, ChunkUpdate, World};
+
+    use crate::protocol::ServerMsg;
+    use crate::server_boot::tests::headless;
+
+    #[test]
+    fn an_air_chunk_the_server_never_stores_is_ready_on_the_client() {
+        let mut server = headless();
+        let mut replica = ChunkStreamer::replica_of(&server.world.borrow());
+        let feet = crate::player::body(&server.ecs, server.players.entity()).position;
+        let column = World::chunk_containing(feet);
+        // Le monde se charge et s'envoie jusqu'à ce que la colonne du joueur soit arrivée.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        loop {
+            server.stream_world();
+            server.send_world();
+            let updates: Vec<ChunkUpdate> = server
+                .route_replies()
+                .into_iter()
+                .filter_map(|msg| match msg {
+                    ServerMsg::Chunk { pos, chunk } => Some(ChunkUpdate::Chunk { pos, chunk }),
+                    ServerMsg::ChunkEmpty(pos) => Some(ChunkUpdate::Empty(pos)),
+                    _ => None,
+                })
+                .collect();
+            replica.apply_updates(updates);
+            if replica.is_generated(column) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "la colonne n'arrive pas"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        // Une couche de cette colonne générée vide par le serveur (de l'air, jamais stockée).
+        let shared = server.world.clone();
+        let streamer = shared.borrow();
+        let air = streamer
+            .world()
+            .vertical()
+            .map(|y| glam::IVec3::new(column.x, y, column.z))
+            .find(|&pos| streamer.is_generated(pos) && streamer.world().chunk(pos).is_none())
+            .expect("une couche d'air dans la colonne du joueur");
+        assert!(
+            replica.is_generated(air),
+            "le client sait la couche d'air prête"
+        );
+        assert!(
+            replica.world().chunk(air).is_none(),
+            "et ne stocke rien pour elle"
+        );
+    }
 }

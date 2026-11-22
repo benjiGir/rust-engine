@@ -78,6 +78,7 @@ impl ClientWorld {
                 remesh,
             }),
             ServerMsg::Unload(pos) => self.incoming.push(ChunkUpdate::Unload(pos)),
+            ServerMsg::ChunkEmpty(pos) => self.incoming.push(ChunkUpdate::Empty(pos)),
             ServerMsg::Vitals(vitals) => self.me.receive_vitals(vitals),
             ServerMsg::Inventory(inventory) => self.me.inventory = inventory,
             ServerMsg::Container(container) => self.me.container = container,

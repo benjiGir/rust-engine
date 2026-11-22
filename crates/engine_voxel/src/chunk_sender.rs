@@ -150,6 +150,10 @@ impl ChunkSender {
                 if let Some(chunk) = server.world().chunk_arc(pos) {
                     out.push(ChunkUpdate::Chunk { pos, chunk });
                     layers.push(y);
+                } else if server.is_generated(pos) {
+                    // De l'air : rien à envoyer, mais le client doit le savoir prêt.
+                    out.push(ChunkUpdate::Empty(pos));
+                    layers.push(y);
                 }
             }
             chunks += layers.len().max(1);

@@ -295,7 +295,8 @@ fn the_sender_goes_from_the_nearest_column_to_the_farthest_under_its_budget() {
         let columns: std::collections::BTreeSet<[i32; 2]> = out
             .iter()
             .map(|u| match u {
-                ChunkUpdate::Chunk { pos, .. } => [pos.x, pos.z],
+                // Un chunk, ou une couche d'air générée sans être stockée.
+                ChunkUpdate::Chunk { pos, .. } | ChunkUpdate::Empty(pos) => [pos.x, pos.z],
                 other => panic!("message inattendu : {other:?}"),
             })
             .collect();
@@ -331,7 +332,7 @@ fn the_sender_waits_for_the_light() {
         out.clear();
         sender.step(&server, chunk_of(HERE), &[], &mut out);
         for update in &out {
-            let ChunkUpdate::Chunk { pos, .. } = update else {
+            let (ChunkUpdate::Chunk { pos, .. } | ChunkUpdate::Empty(pos)) = update else {
                 panic!("message inattendu");
             };
             assert!(server.is_lit(*pos), "chunk {pos} envoyé avant sa lumière");

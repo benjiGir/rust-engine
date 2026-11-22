@@ -65,6 +65,10 @@ pub enum ChunkUpdate {
         edits: Vec<IVec3>,
         remesh: bool,
     },
+    /// Un chunk que le serveur a généré sans rien y mettre (de l'air) : il n'existe pas en mémoire,
+    /// mais le client doit le savoir prêt (sinon un joueur à côté attendrait son chargement pour
+    /// toujours).
+    Empty(IVec3),
     /// Un chunk que le client doit oublier.
     Unload(IVec3),
 }
@@ -169,12 +173,29 @@ impl ChunkStreamer {
                         self.remesh_pending.insert(pos);
                     }
                 }
+                ChunkUpdate::Empty(pos) => self.put_empty(pos),
                 ChunkUpdate::Unload(pos) => gone.push(pos),
             }
         }
         if !gone.is_empty() {
             self.drop_chunks(&gone);
         }
+    }
+
+    /// Un chunk vide reçu : prêt, sans rien à stocker ni à mailler. Un chunk qui avait des blocs (on
+    /// les a tous cassés) les perd.
+    fn put_empty(&mut self, pos: IVec3) {
+        let had = self.world.remove(pos).is_some();
+        if self.slots.contains_key(&pos) {
+            if had {
+                self.remesh_pending.insert(pos);
+            }
+            return;
+        }
+        self.slots.insert(pos, Slot::Generated(MeshState::Done));
+        let info = self.columns.entry(IVec2::new(pos.x, pos.z)).or_default();
+        info.generated += 1;
+        info.light = LightState::Done;
     }
 
     /// Place un chunk reçu. Renvoie `true` si la réplique ne l'avait pas. `relit` : sa lumière a pu

@@ -303,6 +303,8 @@ pub enum ServerMsg {
     Turn(f32),
     /// Un chunk hors de portée : le client l'oublie.
     Unload(IVec3),
+    /// Un chunk que le serveur a généré vide (de l'air) : rien à envoyer, mais il est prêt.
+    ChunkEmpty(IVec3),
     /// Le pas fixe du serveur auquel appartiennent les messages d'entités qui suivent : le client
     /// interpole les poses d'après ce compteur (voir `client_entities.rs`).
     Tick(u64),

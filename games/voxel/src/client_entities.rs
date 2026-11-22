@@ -211,6 +211,7 @@ impl ClientEntities {
             | ServerMsg::Turn(_)
             | ServerMsg::QuestBook(_)
             | ServerMsg::Unload(_)
+            | ServerMsg::ChunkEmpty(_)
             | ServerMsg::Vitals(_)
             | ServerMsg::Inventory(_)
             | ServerMsg::Container(_)
