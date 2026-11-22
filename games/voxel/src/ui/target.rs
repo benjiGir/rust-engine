@@ -15,8 +15,8 @@ impl VoxelGame {
                 |h| h.distance,
             )
         });
-        // Ce qui est visé vient de la réplique des entités : la fiche d'une créature (nom, vie, élite)
-        // aussi. Le wagon lit encore le serveur pour l'aperçu de son contenu.
+        // Ce qui est visé vient de la réplique des entités : la fiche d'une créature (nom, vie,
+        // élite) aussi. Le wagon lit encore le serveur pour l'aperçu de son contenu.
         let aimed_id = self.client.view.entities.hit(
             self.client.camera.position,
             self.client.camera.forward(),
@@ -40,7 +40,7 @@ impl VoxelGame {
             caps.map(|caps| crate::ui::info::capabilities(caps, fluids.as_deref(), main))
                 .unwrap_or_default()
         };
-        // L'aperçu du contenu d'un bloc à inventaire (voir `chest_preview.rs`).
+        // L'aperçu du contenu d'un bloc à inventaire (voir `ui/chest_preview.rs`).
         let want_preview = self.settings.chest_preview;
         let summary = |block: engine_voxel::BlockId, caps: Option<&engine_voxel::Capabilities>| {
             if !want_preview || engine_voxel::is_controller(&self.client.registry, block) {
@@ -61,8 +61,9 @@ impl VoxelGame {
             _ => None,
         });
         let mut card = if let Some(kind) = cart {
-            // L'aperçu du contenu lit encore le serveur (transitoire : le contenu d'un wagon n'est pas
-            // dans la réplique ; un message de détail sur la cible viendra avec le réseau, lot 5).
+            // L'aperçu du contenu lit encore le serveur (transitoire : le contenu d'un wagon n'est
+            // pas dans la réplique ; un message de détail sur la cible viendra avec le réseau, lot
+            // 5).
             if want_preview && let Some(cart) = aimed {
                 preview = self
                     .server

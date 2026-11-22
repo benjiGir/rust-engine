@@ -24,18 +24,20 @@
 //!
 //! # Priorités, file des maillages et envois (lot 6)
 //!
-//! - **Ordre de chargement** ([`StreamingConfig::column_order`], [`StreamingConfig::view_bias`]) : on
-//!   complète des colonnes entières, de la plus proche à la plus lointaine (la lumière et le maillage
-//!   attendent une colonne et ses huit voisines), avec un petit biais pour ce que la caméra regarde
-//!   ([`ChunkStreamer::update_view`]). Le biais est borné : aucune colonne n'est affamée, et le sol
-//!   sous les pieds n'en a jamais.
-//! - **Maillages en attente** : le plus récent de chaque chunk seulement, le plus proche de la caméra
-//!   d'abord ; les maillages d'un bloc modifié passent en tête et hors budget. Un chunk modifié
-//!   pendant qu'on le maille n'a qu'un remaillage de plus (au lieu d'une tâche par modification, dont
-//!   chaque résultat était jeté : un chunk qui changeait à chaque tick ne s'actualisait jamais).
-//! - **Envois** ([`ChunkStreamer::next_event_budgeted`]) : sous un budget d'octets et de temps commun
-//!   avec le terrain lointain (voir `transfer.rs`) ; l'ancien maillage d'un chunk reste affiché jusqu'à
-//!   ce que le nouveau soit envoyé, et une libération en attente est annulée si le chunk revient.
+//! - **Ordre de chargement** ([`StreamingConfig::column_order`], [`StreamingConfig::view_bias`]) :
+//!   on complète des colonnes entières, de la plus proche à la plus lointaine (la lumière et le
+//!   maillage attendent une colonne et ses huit voisines), avec un petit biais pour ce que la
+//!   caméra regarde ([`ChunkStreamer::update_view`]). Le biais est borné : aucune colonne n'est
+//!   affamée, et le sol sous les pieds n'en a jamais.
+//! - **Maillages en attente** : le plus récent de chaque chunk seulement, le plus proche de la
+//!   caméra d'abord ; les maillages d'un bloc modifié passent en tête et hors budget. Un chunk
+//!   modifié pendant qu'on le maille n'a qu'un remaillage de plus (au lieu d'une tâche par
+//!   modification, dont chaque résultat était jeté : un chunk qui changeait à chaque tick ne
+//!   s'actualisait jamais).
+//! - **Envois** ([`ChunkStreamer::next_event_budgeted`]) : sous un budget d'octets et de temps
+//!   commun avec le terrain lointain (voir `streaming/transfer.rs`) ; l'ancien maillage d'un chunk
+//!   reste affiché jusqu'à ce que le nouveau soit envoyé, et une libération en attente est annulée
+//!   si le chunk revient.
 //!
 //! # Pourquoi pas de `Mutex` sur le monde ?
 //!
@@ -111,21 +113,21 @@ pub struct StreamingConfig {
     /// Dessiner opaques les feuilles au cœur des arbres, et retirer les faces contre elles
     /// (moins de triangles, même image).
     pub leaf_culling: bool,
-    /// Compléter les **colonnes** de chunks de la plus proche à la plus lointaine : la lumière et le
-    /// maillage attendent une colonne entière (et ses huit voisines), donc trier chaque chunk par
-    /// distance 3D les finit dans le désordre (le haut d'une colonne proche passe après le bas
+    /// Compléter les **colonnes** de chunks de la plus proche à la plus lointaine : la lumière et
+    /// le maillage attendent une colonne entière (et ses huit voisines), donc trier chaque chunk
+    /// par distance 3D les finit dans le désordre (le haut d'une colonne proche passe après le bas
     /// d'une colonne plus loin). `false` : l'ancien tri par distance 3D (pour comparer).
     pub column_order: bool,
     /// Préférence (de 0 à 1) pour ce que la caméra regarde : la distance des colonnes derrière elle
-    /// compte jusqu'à `1 + view_bias` fois plus. Bornée : une colonne de derrière est chargée avant une
-    /// colonne de devant plus de `√(1 + view_bias)` fois plus loin, donc rien n'est affamé. Les
+    /// compte jusqu'à `1 + view_bias` fois plus. Bornée : une colonne de derrière est chargée avant
+    /// une colonne de devant plus de `√(1 + view_bias)` fois plus loin, donc rien n'est affamé. Les
     /// colonnes à moins de 3 chunks (le sol sous les pieds, les collisions) n'ont jamais de biais.
     pub view_bias: f32,
-    /// Les chunks **sombres** (aucune lumière du ciel : roche et grottes fermées) ne sont maillés qu'à
-    /// moins de ce nombre de couches sous celle du joueur ; ils le sont quand il descend. Tout ce qui
-    /// voit le ciel (surface, montagnes, entrées de grottes, fonds peu profonds) est toujours maillé.
-    /// Les blocs, eux, restent chargés en entier : la lumière d'une colonne les demande tous.
-    /// `None` : tout mailler.
+    /// Les chunks **sombres** (aucune lumière du ciel : roche et grottes fermées) ne sont maillés
+    /// qu'à moins de ce nombre de couches sous celle du joueur ; ils le sont quand il descend. Tout
+    /// ce qui voit le ciel (surface, montagnes, entrées de grottes, fonds peu profonds) est
+    /// toujours maillé. Les blocs, eux, restent chargés en entier : la lumière d'une colonne les
+    /// demande tous. `None` : tout mailler.
     pub mesh_depth: Option<i32>,
 }
 
@@ -184,8 +186,8 @@ pub struct StreamStats {
 }
 
 impl StreamStats {
-    /// Tout le travail de chargement en attente ou en cours : de quoi décider si le terrain lointain
-    /// doit se faire discret (voir `far::far_allowance`).
+    /// Tout le travail de chargement en attente ou en cours : de quoi décider si le terrain
+    /// lointain doit se faire discret (voir `far::far_allowance`).
     pub fn backlog(&self) -> usize {
         self.queued + self.in_flight + self.meshes_waiting + self.candidates
     }
@@ -283,18 +285,19 @@ pub struct ChunkStreamer {
     // Chaque tâche reçoit un clone du `Sender` ; le `Receiver` reste ici.
     sender: Sender<JobResult>,
     receiver: Receiver<JobResult>,
-    /// Les maillages d'un bloc modifié : envoyés tout de suite, hors budget (le joueur attend de voir
-    /// son coup), en tête de file.
+    /// Les maillages d'un bloc modifié : envoyés tout de suite, hors budget (le joueur attend de
+    /// voir son coup), en tête de file.
     urgent: VecDeque<StreamEvent>,
-    /// Les maillages arrivés des threads de fond, pas encore envoyés : le plus récent de chaque chunk
-    /// seulement (un remaillage rend l'ancien inutile), et le plus proche de la caméra part en premier.
+    /// Les maillages arrivés des threads de fond, pas encore envoyés : le plus récent de chaque
+    /// chunk seulement (un remaillage rend l'ancien inutile), et le plus proche de la caméra part
+    /// en premier.
     waiting: HashMap<IVec3, ChunkMesh>,
     /// Les libérations de maillages, étalées sur plusieurs images (elles sont sans urgence).
     unloads: VecDeque<IVec3>,
     unloads_pending: HashSet<IVec3>,
-    /// Chunks modifiés pendant qu'un maillage tournait : un seul remaillage de plus quand il revient,
-    /// au lieu d'une tâche par modification dont chaque résultat serait jeté (un chunk qui change à
-    /// chaque tick ne s'actualisait jamais).
+    /// Chunks modifiés pendant qu'un maillage tournait : un seul remaillage de plus quand il
+    /// revient, au lieu d'une tâche par modification dont chaque résultat serait jeté (un chunk qui
+    /// change à chaque tick ne s'actualisait jamais).
     meshing_dirty: HashSet<IVec3>,
     /// La direction horizontale de la caméra (unitaire), et celle du dernier tri de la file.
     view: Option<Vec2>,
@@ -325,7 +328,7 @@ pub struct ChunkStreamer {
     /// par lequel elle rendra son résultat.
     saving: Option<(Vec<IVec3>, Receiver<anyhow::Result<SaveReport>>)>,
     /// Les délais demande → génération → lumière → maillage → envoi, si le suivi est activé
-    /// (voir `pipeline_timing.rs`).
+    /// (voir `streaming/pipeline_timing.rs`).
     timings: Option<PipelineTimings>,
     /// Ce que ce streamer fait de son monde : tout (par défaut), le charger sans le mailler (le
     /// serveur), ou le recevoir tout fait (la réplique du client). Voir `replica.rs`.
@@ -333,7 +336,8 @@ pub struct ChunkStreamer {
     /// Serveur : les chunks changés depuis le dernier [`ChunkStreamer::take_changes`], pour les
     /// expéditeurs de chunks.
     changes: HashMap<IVec3, ChunkChange>,
-    /// Réplique : les positions des blocs modifiés reçues, dont les chunks se remaillent dans l'image.
+    /// Réplique : les positions des blocs modifiés reçues, dont les chunks se remaillent dans
+    /// l'image.
     pending_edits: Vec<IVec3>,
 }
 
@@ -718,7 +722,8 @@ impl ChunkStreamer {
         self.world.chunk_mut(chunk).block_entity_mut(x, y, z)
     }
 
-    /// Ajoute (ou retire, avec `None`) l'état actif d'un bloc. `false` si le chunk n'est pas chargé.
+    /// Ajoute (ou retire, avec `None`) l'état actif d'un bloc. `false` si le chunk n'est pas
+    /// chargé.
     pub fn set_block_entity(&mut self, pos: IVec3, entity: Option<BlockEntity>) -> bool {
         let (chunk, [x, y, z]) = World::split(pos);
         if !matches!(self.slots.get(&chunk), Some(Slot::Generated(_))) {
@@ -1008,9 +1013,9 @@ impl ChunkStreamer {
         self.update_view(player, Vec3::ZERO);
     }
 
-    /// Comme [`ChunkStreamer::update`], en disant où la caméra regarde : les colonnes devant elle sont
-    /// chargées un peu avant celles de derrière (voir [`StreamingConfig::view_bias`]). Un regard presque
-    /// vertical ne change pas la direction retenue ; `Vec3::ZERO` n'en donne aucune.
+    /// Comme [`ChunkStreamer::update`], en disant où la caméra regarde : les colonnes devant elle
+    /// sont chargées un peu avant celles de derrière (voir [`StreamingConfig::view_bias`]). Un
+    /// regard presque vertical ne change pas la direction retenue ; `Vec3::ZERO` n'en donne aucune.
     pub fn update_view(&mut self, player: Vec3, forward: Vec3) {
         self.update_views(&[View {
             position: player,
@@ -1026,10 +1031,11 @@ impl ChunkStreamer {
         self.next_event_budgeted(&mut TransferBudget::unlimited())
     }
 
-    /// Le prochain événement qui tient dans `budget` (voir `transfer.rs`), ou `None` quand l'image
-    /// est pleine. Les maillages d'un bloc modifié passent toujours (hors budget, un par action du
-    /// joueur) ; le premier maillage de l'image passe toujours, aussi gros soit-il. Le budget est
-    /// mis à jour par le jeu une fois l'envoi fait ([`TransferBudget::record_upload`]).
+    /// Le prochain événement qui tient dans `budget` (voir `streaming/transfer.rs`), ou `None`
+    /// quand l'image est pleine. Les maillages d'un bloc modifié passent toujours (hors budget, un
+    /// par action du joueur) ; le premier maillage de l'image passe toujours, aussi gros soit-il.
+    /// Le budget est mis à jour par le jeu une fois l'envoi fait
+    /// ([`TransferBudget::record_upload`]).
     pub fn next_event_budgeted(&mut self, budget: &mut TransferBudget) -> Option<StreamEvent> {
         if let Some(event) = self.urgent.pop_front() {
             return Some(event);
@@ -1049,7 +1055,8 @@ impl ChunkStreamer {
         None
     }
 
-    /// Le maillage en attente le plus prioritaire (le plus proche de la caméra, avec le biais de vue).
+    /// Le maillage en attente le plus prioritaire (le plus proche de la caméra, avec le biais de
+    /// vue).
     fn nearest_waiting(&self) -> Option<IVec3> {
         let centre = self.centre?;
         self.waiting
@@ -1061,7 +1068,8 @@ impl ChunkStreamer {
             .copied()
     }
 
-    /// Une libération en attente pour ce chunk n'a plus lieu d'être (il est revenu avec un maillage).
+    /// Une libération en attente pour ce chunk n'a plus lieu d'être (il est revenu avec un
+    /// maillage).
     fn cancel_unload(&mut self, pos: IVec3) {
         if self.unloads_pending.remove(&pos) {
             self.unloads.retain(|p| *p != pos);
@@ -1256,7 +1264,8 @@ impl ChunkStreamer {
                     }
                     for y in vertical.clone() {
                         let pos = IVec3::new(c.x + dx, y, c.z + dz);
-                        // Les disques de plusieurs vues se recouvrent : un chunk n'est demandé qu'une fois.
+                        // Les disques de plusieurs vues se recouvrent : un chunk n'est demandé
+                        // qu'une fois.
                         if !self.slots.contains_key(&pos)
                             && (centres.len() == 1 || seen.insert(pos))
                         {
@@ -1293,8 +1302,8 @@ impl ChunkStreamer {
         self.refresh_meshing(centre);
     }
 
-    /// Ce qui entre dans le rayon de vue doit être maillé : les chunks chargés pas encore maillés, et
-    /// les chunks sombres que le joueur rejoint en changeant de couche (voir `mesh_depth`).
+    /// Ce qui entre dans le rayon de vue doit être maillé : les chunks chargés pas encore maillés,
+    /// et les chunks sombres que le joueur rejoint en changeant de couche (voir `mesh_depth`).
     fn refresh_meshing(&mut self, centre: IVec3) {
         if self.centre_layer != Some(centre.y) && self.meshing {
             self.centre_layer = Some(centre.y);
@@ -1374,7 +1383,8 @@ impl ChunkStreamer {
                     }
                     apply_column_light(&mut self.world, column, light);
                     if self.role == Role::Server {
-                        // La lumière est dans le chunk : les clients qui l'ont déjà le reçoivent de nouveau.
+                        // La lumière est dans le chunk : les clients qui l'ont déjà le reçoivent de
+                        // nouveau.
                         for y in self.world.vertical() {
                             let pos = IVec3::new(column.x, y, column.y);
                             if self.world.chunk(pos).is_some() {
@@ -1651,8 +1661,8 @@ fn is_lit(columns: &HashMap<IVec2, ColumnInfo>, chunk: IVec3) -> bool {
         .is_some_and(|c| c.light == LightState::Done)
 }
 
-/// Les chunks dont le maillage change quand le bloc à `pos` change : ceux qui contiennent le bloc ou
-/// un de ses 26 voisins (faces et occlusion), le chunk modifié en premier, et ceux que l'eau, la
+/// Les chunks dont le maillage change quand le bloc à `pos` change : ceux qui contiennent le bloc
+/// ou un de ses 26 voisins (faces et occlusion), le chunk modifié en premier, et ceux que l'eau, la
 /// lumière des feuilles ou la profondeur d'eau lisent plus loin.
 fn edit_geometry(pos: IVec3) -> Vec<IVec3> {
     let chunk = World::split(pos).0;

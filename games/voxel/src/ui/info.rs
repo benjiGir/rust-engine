@@ -49,7 +49,7 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
             ),
             skin::TEXT,
         ));
-        // Un charme de potion : son état et ce qui le recharge (voir `charms.rs`).
+        // Un charme de potion : son état et ce qui le recharge (voir `adventure/charms.rs`).
         lines.extend(
             voxel_sim::adventure::charms::card_lines(
                 &voxel_sim::adventure::data::current(),
@@ -65,7 +65,8 @@ pub fn item(def: &ItemDef, count: u32, damage: u32) -> Card {
     for label in voxel_sim::enchanting::labels(damage) {
         lines.push((label, skin::MAGIC));
     }
-    // La rareté, les affixes et les gemmes de la fiche (objets à affixes, voir `affixes.rs`).
+    // La rareté, les affixes et les gemmes de la fiche (objets à affixes, voir
+    // `adventure/affixes.rs`).
     let sheet = voxel_sim::player::item_data::sheet(damage);
     let data = voxel_sim::adventure::data::current();
     let rarity = sheet

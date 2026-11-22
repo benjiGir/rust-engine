@@ -4,7 +4,7 @@
 //! On y range des **objets** ([`ItemId`]), pas des blocs : un outil, un lingot ou un bloc
 //! de pierre. Ce qui s'empile s'empile jusqu'à sa pile maximale (64, ou 1 pour un outil) ;
 //! un outil garde son usure (`damage`). Quand `damage` a son bit 31 à 1, il ne porte qu'un
-//! numéro de fiche (usure, enchantements...) : voir `item_data.rs`.
+//! numéro de fiche (usure, enchantements...) : voir `player/item_data.rs`.
 //!
 //! On le sauvegarde avec une **palette** : la liste des identifiants texte des objets
 //! présents, et pour chaque case un numéro dans cette palette. Les numéros d'objets
@@ -569,7 +569,8 @@ impl Inventory {
         }
     }
 
-    /// L'inverse de [`Inventory::to_save`]. Un objet d'un mod absent est perdu (avec un avertissement).
+    /// L'inverse de [`Inventory::to_save`]. Un objet d'un mod absent est perdu (avec un
+    /// avertissement).
     pub fn from_save(saved: &SavedInventory, items: &ItemRegistry) -> Self {
         let mut inventory = Self::default();
         let ids: Vec<Option<ItemId>> = saved
@@ -798,10 +799,12 @@ mod tests {
         // Un autre matériau ne s'y mêle pas.
         inv.add_stack(piece(2, 3), &items);
         assert_eq!(inv.slots[2], Some(piece(2, 3)));
-        // À la souris : une pile de dalles de chêne se pose sur les dalles de chêne, pas sur la pierre.
+        // À la souris : une pile de dalles de chêne se pose sur les dalles de chêne, pas sur la
+        // pierre.
         inv.cursor = Some(piece(2, 5));
         inv.click(Slot::Main(0), &items, Click::Primary);
-        // Un autre matériau ne fusionne pas : les deux piles s'échangent, comme deux objets différents.
+        // Un autre matériau ne fusionne pas : les deux piles s'échangent, comme deux objets
+        // différents.
         assert_eq!(inv.cursor, Some(piece(1, 64)));
         assert_eq!(inv.slots[0], Some(piece(2, 5)));
         inv.click(Slot::Main(0), &items, Click::Primary);

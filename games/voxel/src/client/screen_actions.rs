@@ -1,5 +1,5 @@
-//! La part fenêtre de `screen_actions.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
-//! multijoueur ; la simulation reste dans `screen_actions.rs`).
+//! La part fenêtre de `server/screen_actions.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du
+//! plan multijoueur ; la simulation reste dans `server/screen_actions.rs`).
 
 use crate::VoxelGame;
 #[allow(unused_imports)]

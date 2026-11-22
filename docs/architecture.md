@@ -57,7 +57,7 @@ référence le fluide qu'il représente dans le monde (`core:water` → `fluid: 
 
 ## Plan cible
 
-### Réseaux (phase 9c, fait : `networks.rs`, `tech.rs`) : câbles, tuyaux, arbres de transmission
+### Réseaux (phase 9c, fait : `tech/networks.rs`, `tech.rs`) : câbles, tuyaux, arbres de transmission
 
 Simuler chaque câble séparément (chacun passe son énergie au voisin) est lent et instable :
 l'énergie met N ticks à traverser N câbles, et oscille. Mekanism et Create regroupent plutôt les
@@ -108,7 +108,7 @@ Pas encore fait : les engrenages (rapports de vitesse entre deux arbres) et la r
 réseaux sur plusieurs cœurs (ils sont indépendants : c'est possible, mais un tick coûte déjà
 quelques microsecondes).
 
-### Terrain lointain (fait : `far.rs`)
+### Terrain lointain (fait : `worldgen/far.rs`)
 
 Les chunks détaillés (grottes, minerais, arbres, lumière) sont chers : 3 000 à 32 chunks de
 rayon, plus de 50 000 à 128. Très loin, on ne voit que la forme du terrain. Le **terrain
@@ -142,7 +142,7 @@ divisent les FPS par trois et ne finissent pas de charger en 90 s. Limites : pas
 villages au loin (le décor y est lissé), et le décor lointain ne montre pas les modifications du
 joueur.
 
-### Fluides dans le monde (fait : `fluid_sim.rs`)
+### Fluides dans le monde (fait : `fluids/sim.rs`)
 
 Le modèle retenu conserve le **volume** : chaque cellule a une quantité (4096 = un bloc),
 qui tombe, s'étale vers l'équilibre et remonte sous pression (vases communicants). L'eau
@@ -172,7 +172,7 @@ si quelque chose a changé. Seuls les fluides en mouvement travaillent ; un lac 
 coûte rien, comme une machine qui dort. Une pompe ou un seau convertit entre bloc de fluide
 (1000 mB) et réservoir.
 
-### Structures mobiles (phase 9d, fait : `subgrid.rs`, `ship.rs`, `games/voxel/src/ships.rs`) : contraptions et vaisseaux
+### Structures mobiles (phase 9d, fait : `motion/subgrid.rs`, `motion/ship.rs`, `games/voxel_sim/src/vehicles/ships.rs`) : contraptions et vaisseaux
 
 1. **Extraction** : quand une structure se met en mouvement (un piston de Create, un vaisseau
    qui décolle), ses blocs et leurs block entities sont **retirés du monde** et copiés dans une
@@ -225,13 +225,13 @@ Limites : une structure assemblée ne se modifie pas (on la repose d'abord) ; sa
 celle du plein ciel (pas d'ombres) ; pas de collisions entre structures ; pas de fluides dans
 une structure.
 
-### Wagonnets et rails (fait : `rails.rs`, `rail_motion.rs`, `rail_save.rs`, `games/voxel/src/carts.rs`)
+### Wagonnets et rails (fait : `motion/rails.rs`, `motion/rail_motion.rs`, `motion/rail_save.rs`, `games/voxel_sim/src/vehicles/carts.rs`)
 
 Les rails sont des **blocs actifs** (`rail: Normal | Booster | Detector | Activator | Stop` dans
 `blocks.ron`, un mod peut donc ajouter les siens) ; les wagons sont des **entités ECS** : ce qui est
 fixé dans la grille est un bloc, ce qui roule librement est une entité.
 
-- **Forme d'un rail** (`rails.rs`) : dix formes (deux droites, quatre montées, quatre virages),
+- **Forme d'un rail** (`motion/rails.rs`) : dix formes (deux droites, quatre montées, quatre virages),
   calculées depuis les rails voisins à la pose et au changement d'un voisin, comme les raccords des
   conduits, puis rangées dans `BlockEntity::data` (`data[0]` : la forme, `data[1]` : alimenté).
   Aucune variante de bloc n'est sauvegardée. Un voisin n'est relié que s'il accepte le lien (il
@@ -244,7 +244,7 @@ fixé dans la grille est un bloc, ce qui roule librement est une entité.
   inclinée. Sélection : une dalle très fine ; le joueur le traverse (`solid: false`).
 - **Signal** : l'accélérateur, l'activateur, le butoir et l'aiguillage lisent `received_power` ; le
   détecteur émet 15 tant qu'un wagon roule dessus (`Machines::set_power`, appelé par le jeu).
-- **Physique** (`rail_motion.rs`) : une abscisse et une vitesse signée le long du chemin du rail
+- **Physique** (`motion/rail_motion.rs`) : une abscisse et une vitesse signée le long du chemin du rail
   courant, en sous-pas de 0,5 bloc au plus (aucun rail sauté, même à 30 blocs par seconde) ;
   gravité dans les pentes, frottement, accélérateur alimenté (pousse) ou non (retient), butoir
   (arrêt au milieu du bloc), vitesse maximale réglable (8 par défaut, 30 au plus). Au bout de la
@@ -253,10 +253,10 @@ fixé dans la grille est un bloc, ce qui roule librement est une entité.
 - **Train** : `couple` garde deux wagons à une distance donnée (ils avancent sur leur chemin et
   partagent leur vitesse : la locomotive tire le train) ; `bump` repousse deux wagons qui se
   touchent.
-- **Jeu** (`carts.rs`, `cart_play.rs`) : quatre sortes (wagonnet, wagon coffre, wagon trémie,
+- **Jeu** (`vehicles/carts.rs`, `vehicles/cart_play.rs`) : quatre sortes (wagonnet, wagon coffre, wagon trémie,
   locomotive), passager (`Riding`, la caméra suit), créatures qui montent dans un wagonnet vide,
   attelage (objet : un clic sur un wagon puis sur un autre), inventaire en écran, dessin en boîtes
-  (`entity_render.rs`, depuis la réplique des entités du client). Le chargeur et le déchargeur (blocs avec `Inventory`,
+  (`render/entities.rs`, depuis la réplique des entités du client). Le chargeur et le déchargeur (blocs avec `Inventory`,
   branchables aux tuyaux) remplissent ou vident un wagon coffre ou trémie arrêté sur un rail
   voisin et émettent un signal quand ils ont fini.
 - **Sauvegarde** : `carts.bin` dans le dossier de la dimension, à côté de `grids.bin` (sorte,
@@ -267,7 +267,7 @@ Limites : pas de signal qui se propage de rail accélérateur en rail accéléra
 voisins), pas de détecteur qui change d'apparence, un wagon poussé par un autre peut traverser un
 butoir (les corrections d'attelage et de chocs ne tiennent pas compte du butoir).
 
-### Stockage : coffres à paliers, contrôleur, sacs à dos (fait : `storage.rs`, `games/voxel/src/{storage_ui,transfer,backpacks,chest_preview}.rs`)
+### Stockage : coffres à paliers, contrôleur, sacs à dos (fait : `tech/storage.rs`, `games/voxel_sim/src/storage/`, `games/voxel/src/storage/`, `games/voxel/src/ui/chest_preview.rs`)
 
 Plan et choix : `docs/plan-stockage.md`.
 
@@ -285,24 +285,24 @@ Plan et choix : `docs/plan-stockage.md`.
   (une pile par seconde du dessus vers le dessous, ports respectés). Les passives se rejouent chaque
   seconde par `StorageChest` (tant qu'il y en a, jamais au repos) et tout de suite après un geste de
   l'interface.
-- **Réseaux d'objets** (`networks.rs`) : un coffre à paliers n'offre que ses cases principales, avec
+- **Réseaux d'objets** (`tech/networks.rs`) : un coffre à paliers n'offre que ses cases principales, avec
   les piles de ses améliorations et son néant ; le contrôleur est un bloc à `Inventory` sans case qui
   dépose dans les coffres reliés. Une pile garde son `damage` en passant par un tuyau.
 - **Contrôleur** : `controller_members` suit les coffres qui se touchent (64 au plus, rayon 16),
   `controller_groups`/`controller_insert`/`controller_take` les voient comme un seul inventaire.
-- **Sacs à dos** (`backpacks.rs`, côté jeu) : l'objet ne contient rien, son `damage` est un numéro
+- **Sacs à dos** (`storage/backpacks.rs`, côté jeu) : l'objet ne contient rien, son `damage` est un numéro
   (1 à 65 535, les bits hauts sont ceux de l'enchantement). Le contenu est dans le
   `BackpackStore`, sauvegardé dans `backpacks.bin` à la racine du monde (postcard, `version`, `next`,
   `(numéro, palier, cases, améliorations coupées)`), à côté de `world.ron` : pas par dimension. Un sac
   neuf reçoit son numéro au premier usage ; le palier suit l'objet (une montée par recette garde le
   numéro, le magasin range le contenu à la disposition du nouveau palier à la vue suivante). Un sac
   refuse les sacs.
-- **Interface** (`storage_ui.rs`) : un seul écran pour coffres, wagons coffres et sacs (`Target`), avec
-  les gestes de `transfer.rs` (Déposer, Compléter, Tout prendre, Trier, Maj + clic : logique pure sur
+- **Interface** (`storage/ui.rs`) : un seul écran pour coffres, wagons coffres et sacs (`Target`), avec
+  les gestes de `storage/transfer.rs` (Déposer, Compléter, Tout prendre, Trier, Maj + clic : logique pure sur
   des listes de cases, avec les règles de chaque côté), la colonne des emplacements d'amélioration et
-  les filtres. `chest_preview.rs` regroupe le contenu pour l'aperçu de la fiche de visée.
+  les filtres. `ui/chest_preview.rs` regroupe le contenu pour l'aperçu de la fiche de visée.
 
-### Génération : version, empreintes et cache des colonnes (fait : `generation.rs`, `generator/column_cache.rs`, `worldmap.rs`)
+### Génération : version, empreintes et cache des colonnes (fait : `worldgen/generation.rs`, `generator/column_cache.rs`, `worldgen/worldmap.rs`)
 
 - **Version de génération** (`GenerationVersion`), distincte de la version du format de sauvegarde :
   `world.ron` écrit `generation` (version, configuration effective par dimension, empreintes des
@@ -337,7 +337,7 @@ Plan et choix : `docs/plan-stockage.md`.
   Observation : `cargo xtask map` (v3 par défaut, `--generator v1`), `--section z=N --from A --to B`
   (coupes), `cargo run --release -p engine_voxel --example recette`. Détails : `docs/plan-generation-v3.md`.
 
-### Streaming : priorités et envois régulés (fait : `streaming.rs`, `transfer.rs`, `far.rs`, `games/voxel/src/stream_upload.rs`)
+### Streaming : priorités et envois régulés (fait : `streaming.rs`, `streaming/transfer.rs`, `worldgen/far.rs`, `games/voxel/src/client/stream_upload.rs`)
 
 - Le streamer complète des colonnes entières de la plus proche à la plus lointaine, avec un biais borné pour
   la direction de la caméra (`update_view`) ; ses maillages prêts attendent dans une table (le plus récent de
@@ -368,6 +368,22 @@ Plan et choix : `docs/plan-stockage.md`.
   `GridId`.
 - Les **mods** voient le tout à travers les mêmes concepts : positions de grille, capacités
   par face, événements.
+
+## Le rangement des fichiers
+
+Les crates du jeu et le moteur sont rangés **par domaine** (voir `docs/plan-rangement.md`) :
+
+- la simulation (`games/voxel_sim/src`) et le jeu (`games/voxel/src`) ont les mêmes dossiers de domaine
+  (`adventure/`, `enchanting/`, `quests/`, `storage/`, `vehicles/`, `shaping/`, `modding/`, `world/`) :
+  les règles d'un côté, les écrans et la part fenêtre de l'autre, au même chemin ;
+- s'y ajoutent des dossiers techniques : `server/`, `net/`, `player/`, `mobs/` dans la simulation ;
+  `client/`, `render/`, `ui/`, `control/` dans le jeu ; `worldgen/`, `blocks/`, `tech/`, `motion/`,
+  `fluids/`, `streaming/`, `mesh/` dans `engine_voxel` ;
+- le fichier `x.rs` à côté du dossier `x/` porte le cœur du domaine et déclare ses sous-modules (pas de
+  `mod.rs`, pas de réexportation) ; le nom d'un fichier ne répète ni son dossier ni son côté
+  (`enchanting/table.rs`, pas `enchant_table_server.rs`) ;
+- `cargo xtask check-arch` refuse un dossier de plus de 20 fichiers `.rs` (le fichier `x.rs` compte avec
+  son dossier `x/`).
 
 ## Les performances, mesurées
 

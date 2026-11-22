@@ -3,7 +3,7 @@
 //! Cinq paliers (`tiers.ron`, d'« Havre » à « Apogée ») : plus le palier est haut, plus les
 //! créatures hostiles ont de vie et font de dégâts, plus les élites sont nombreuses, et plus les
 //! raretés hautes sortent au tirage. On choisit son palier dans un écran (touche « Paliers du
-//! monde » des options, voir `tiers_ui.rs`), parmi ceux qu'on a débloqués.
+//! monde » des options, voir `adventure/tiers_ui.rs`), parmi ceux qu'on a débloqués.
 //!
 //! # Le déblocage
 //!
@@ -21,10 +21,10 @@
 //!
 //! # Ce que le palier change
 //!
-//! [`TierEffects`] est la ressource de l'ECS que la simulation lit (`mobs.rs`, `spawning.rs`) :
-//! multiplicateurs de vie et de dégâts, chance d'élite, rythme des envahisseurs. Le jeu la tient à
-//! jour à chaque pas depuis le palier choisi. Sans cette ressource (les tests de la simulation), les
-//! créatures sont inchangées.
+//! [`TierEffects`] est la ressource de l'ECS que la simulation lit (`mobs.rs`, `mobs/spawning.rs`)
+//! : multiplicateurs de vie et de dégâts, chance d'élite, rythme des envahisseurs. Le jeu la tient
+//! à jour à chaque pas depuis le palier choisi. Sans cette ressource (les tests de la simulation),
+//! les créatures sont inchangées.
 
 use engine_voxel::AdventureSave;
 
@@ -117,7 +117,8 @@ impl Progress {
         reached as u8
     }
 
-    /// Débloque ce que la progression permet ; renvoie le nouveau palier le plus haut s'il y en a un.
+    /// Débloque ce que la progression permet ; renvoie le nouveau palier le plus haut s'il y en a
+    /// un.
     pub fn refresh_unlocked(&mut self, tiers: &[TierDef]) -> Option<u8> {
         let reached = self.reachable(tiers);
         (reached > self.unlocked).then(|| {

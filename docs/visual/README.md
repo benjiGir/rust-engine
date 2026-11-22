@@ -360,8 +360,8 @@ L'extrusion commune est affinée à un pixel, au lieu des 1,5 pixels du modèle 
 et des 1,2 pixels du rendu en main précédent. Le test de profondeur attend donc
 exactement 1/16 : il vérifie ce nouveau profil commun, avec les mêmes couleurs et
 trous de transparence. Les PNG, statistiques et règles d'utilisation sont inchangés.
-Le cache et les poses sont isolés dans `hand_model.rs`, pour vérifier les vraies
-matrices indépendamment d'une fenêtre native ; `hand.rs` raccorde les animations au joueur.
+Le cache et les poses sont isolés dans `render/hand_model.rs`, pour vérifier les vraies
+matrices indépendamment d'une fenêtre native ; `render/hand.rs` raccorde les animations au joueur.
 
 Les tests de prise et d'animation sont conservés. De nouveaux contrôles vérifient
 que les six familles d'outils et les quatre outils de Forge utilisent le modèle commun, restent devant la caméra,
@@ -455,13 +455,13 @@ Les captures de petit format comprennent
 [une machine de mod en 320 × 240](10-mod-320.png) et
 [les options en 320 × 240](10-options-320.png). Les contenus trop hauts défilent.
 
-`ui_layout.rs` partage les dimensions de grille, les colonnes, les en-têtes et les
+`ui/layout.rs` partage les dimensions de grille, les colonnes, les en-têtes et les
 compositions du four, de l'alambic et de l'artisanat entre le jeu et sa planche de
 contrôle. Le panneau réserve la largeur réelle du cadre et du défilement, au lieu
 d'un supplément arbitraire. Les grilles de machines ne calculent plus leur nombre
 de colonnes avec l'espacement extérieur de leur ligne : trois cases ne deviennent
 plus deux cases suivies d'une case isolée. Le dessin déclaratif des menus de mods
-est isolé dans `ui_widgets.rs`, sans changement de protocole ou de script. Les
+est isolé dans `ui/widgets.rs`, sans changement de protocole ou de script. Les
 statuts des jauges de machines occupent leur propre ligne au-dessus des cases.
 Les options réservent réellement la largeur de leur colonne de libellés, et leurs
 trois onglets utilisent toute la largeur disponible.
@@ -635,7 +635,7 @@ trois-quarts arrière, puis marche et regard. Les planches appliquent les vraies
 formes, pivots, rotations, UV et PNG de production avec une lumière de contrôle.
 Elles ne simulent pas l'IA ni l'éclairage du monde.
 
-`mob_model.rs` partage les articulations entre le rendu du jeu et les planches,
+`mobs/model.rs` partage les articulations entre le rendu du jeu et les planches,
 sans allocation par créature. Le balancement diagonal et le regard conservent les
 paramètres antérieurs. Les petits gardent leur échelle, les élites leur teinte et
 les dégâts leur signal rouge. Une pièce peut maintenant déclarer `texture` ; les
@@ -700,7 +700,7 @@ s'ajoute à la recette en feuilles. Le guide du voyageur décrit ces ajouts.
 `aquatic: true` sépare l'habitat des poissons de celui des animaux terrestres.
 L'apparition vérifie un volume entièrement sous l'eau, à différentes profondeurs,
 en groupes de trois à cinq, de jour comme de nuit. Leur limite de douze dans la
-zone de simulation s'ajoute aux limites existantes. `aquatic.rs` gère la nage 3D,
+zone de simulation s'ajoute aux limites existantes. `mobs/aquatic.rs` gère la nage 3D,
 les courants, le recul et l'évitement des volumes secs ou solides, par petits pas
 pour éviter les traversées. Hors de l'eau, la physique normale reprend et la
 réserve d'air s'épuise. Aucun comportement terrestre n'est transformé en nage.

@@ -1,5 +1,6 @@
 //! Les gestes des gemmes dans l'inventaire : sertir, retirer, ajouter un emplacement. Les règles
-//! (emplacements, bonus, noms) sont dans `gems.rs` ; la doc de ce module-là décrit les gestes.
+//! (emplacements, bonus, noms) sont dans `adventure/gems.rs` ; la doc de ce module-là décrit les
+//! gestes.
 
 use engine_voxel::ItemRegistry;
 
@@ -94,8 +95,8 @@ impl crate::server::VoxelServer {
         self.sound("core:enchant");
     }
 
-    /// Un clic gauche sur une case de l'inventaire avec un objet au curseur : pose une gemme, retire
-    /// les gemmes ou ajoute un emplacement. `true` si le clic est traité.
+    /// Un clic gauche sur une case de l'inventaire avec un objet au curseur : pose une gemme,
+    /// retire les gemmes ou ajoute un emplacement. `true` si le clic est traité.
     pub fn try_gem_click(&mut self, slot: Slot, click: Click) -> bool {
         if click != Click::Primary {
             return false;

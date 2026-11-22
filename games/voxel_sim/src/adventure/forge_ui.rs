@@ -1,5 +1,5 @@
-//! La part serveur de `forge_ui.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
-//! multijoueur ; la fenêtre reste dans `forge_ui.rs`).
+//! La part serveur de `adventure/forge_ui.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du
+//! plan multijoueur ; la fenêtre reste dans `adventure/forge_ui.rs`).
 
 use crate::adventure::forge_tables::{self, Purse};
 use crate::player::inventory::ItemStack;

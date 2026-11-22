@@ -188,7 +188,8 @@ pub fn spawn(world: &mut World) {
         clock.spawn_timer = SPAWN_INTERVAL;
     }
     // Chaque passage s'occupe d'un seul joueur, à tour de rôle (avec un seul, toujours le même) :
-    // les plafonds de créatures se comptent donc autour de lui. Les morts passent après les vivants.
+    // les plafonds de créatures se comptent donc autour de lui. Les morts passent après les
+    // vivants.
     let spots = mobs::player_spots(world);
     let mut candidates: Vec<&mobs::PlayerSpot> = spots.iter().filter(|s| s.alive).collect();
     if candidates.is_empty() {
@@ -330,7 +331,8 @@ pub fn spawn(world: &mut World) {
             };
             if ok {
                 let spawned = mobs::spawn_mob(world, kind, position);
-                // Une part des hostiles naît élite, selon le palier du monde (voir `elites.rs`).
+                // Une part des hostiles naît élite, selon le palier du monde (voir
+                // `mobs/elites.rs`).
                 if let Some(entity) = spawned.filter(|_| hostile) {
                     crate::mobs::elites::maybe_promote(world, entity);
                 }
@@ -386,7 +388,7 @@ pub fn dissolve(world: &mut World) {
                 gone.push(entity);
                 return;
             }
-            // Une élite ou un envahisseur reste : on est venu pour elle (voir `elites.rs`).
+            // Une élite ou un envahisseur reste : on est venu pour elle (voir `mobs/elites.rs`).
             if !def.spawn.dissolves || world.has::<crate::mobs::elites::Elite>(entity) {
                 return;
             }

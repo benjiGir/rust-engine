@@ -787,7 +787,7 @@ impl crate::server::VoxelServer {
                 let (min, max) = drop.count;
                 let span = max.saturating_sub(min) + 1;
                 let count = min + (rng.next_u64() % u64::from(span)) as u32;
-                // La chance de butin du joueur ajoute des objets (voir `attributes.rs`).
+                // La chance de butin du joueur ajoute des objets (voir `player/attributes.rs`).
                 let count = self.loot_count(count);
                 // Aspiration : le butin d'une créature tuée près du joueur va dans l'inventaire.
                 let near = position.distance(player_at) <= XP_RADIUS;

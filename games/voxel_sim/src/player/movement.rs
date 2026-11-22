@@ -3,9 +3,9 @@
 //!
 //! [`movement_check`] est une fonction pure : elle compare deux positions successives du joueur et
 //! refuse ce qu'aucun mode de déplacement ne permet (trop vite, à travers un bloc plein). Un refus
-//! devient un `ServerMsg::Correct` que le client applique (voir `intents.rs`). Ce n'est pas une
-//! anti-triche (pas de rejeu de la prédiction) : seulement le « moved too quickly » d'un serveur
-//! de réseau local.
+//! devient un `ServerMsg::Correct` que le client applique (voir `server/intents.rs`). Ce n'est pas
+//! une anti-triche (pas de rejeu de la prédiction) : seulement le « moved too quickly » d'un
+//! serveur de réseau local.
 //!
 //! En solo le contrôle ne tourne que si `VOXEL_CHECK_MOVES=1` est mis : par défaut il ne coûte rien
 //! et ne change rien.

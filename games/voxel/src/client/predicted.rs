@@ -1,5 +1,5 @@
-//! La part fenêtre de `predicted.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
-//! multijoueur ; la simulation reste dans `predicted.rs`).
+//! La part fenêtre de `net/predicted.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
+//! multijoueur ; la simulation reste dans `net/predicted.rs`).
 
 use engine_voxel::PLAYER_EYE_HEIGHT;
 use glam::Vec3;
@@ -7,8 +7,8 @@ use glam::Vec3;
 use voxel_sim::net::predicted::*;
 
 impl crate::VoxelGame {
-    /// La fenêtre place son joueur elle-même (vol automatique, démo, `ctl`) : son corps prédit, et le
-    /// serveur, d'accord sur cette place (le prochain `Move` ne sera pas pris pour périmé).
+    /// La fenêtre place son joueur elle-même (vol automatique, démo, `ctl`) : son corps prédit, et
+    /// le serveur, d'accord sur cette place (le prochain `Move` ne sera pas pris pour périmé).
     pub(crate) fn place_eye(&mut self, eye: Vec3) {
         let feet = eye - Vec3::Y * PLAYER_EYE_HEIGHT;
         self.client.body.place(feet);

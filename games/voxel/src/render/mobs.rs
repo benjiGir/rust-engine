@@ -1,5 +1,5 @@
 //! Les boîtes d'une créature à dessiner, posées et animées (les données du modèle sont dans
-//! `mob_model.rs`, côté simulation).
+//! `mobs/model.rs`, côté simulation).
 
 use engine_render::CubeInstance;
 use glam::Vec3;

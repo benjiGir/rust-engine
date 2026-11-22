@@ -67,7 +67,7 @@ struct MobFileEntry {
     drops: Vec<MobDrop>,
     #[serde(default)]
     xp: (u32, u32),
-    // L'apparition (voir `spawning.rs`) : tout est facultatif.
+    // L'apparition (voir `mobs/spawning.rs`) : tout est facultatif.
     #[serde(default)]
     light: Option<(u8, u8)>,
     #[serde(default)]
@@ -121,26 +121,26 @@ pub struct MobDef {
     pub hostile: bool,
     pub damage: f32,
     /// Ses points d'armure : ils retirent une part des dégâts des coups du joueur (voir
-    /// `attributes.rs`). 0 par défaut.
+    /// `player/attributes.rs`). 0 par défaut.
     pub armor: f32,
     /// Les points d'armure du joueur que ses coups ignorent.
     pub armor_pierce: f32,
     pub hops: bool,
     pub aquatic: bool,
-    /// Où et quand elle apparaît (voir `spawning.rs`).
+    /// Où et quand elle apparaît (voir `mobs/spawning.rs`).
     pub spawn: crate::mobs::spawning::SpawnRules,
     pub parts: Vec<MobPart>,
     /// Son butin (les objets sont vérifiés à la mort : ils peuvent venir d'un mod).
     pub drops: Vec<MobDrop>,
     /// L'expérience qu'elle rapporte (min, max).
     pub xp: (u32, u32),
-    /// Une attaque à distance (voir `projectiles.rs`).
+    /// Une attaque à distance (voir `mobs/projectiles.rs`).
     pub ranged: Option<crate::mobs::projectiles::RangedDef>,
-    /// Comment elle se reproduit (voir `breeding.rs`) ; `None` : elle ne le fait pas.
+    /// Comment elle se reproduit (voir `mobs/breeding.rs`) ; `None` : elle ne le fait pas.
     pub breeds: Option<crate::mobs::breeding::BreedingDef>,
     /// Dirigée par le script de son mod (celui de l'espace de noms de son identifiant).
     pub brain: bool,
-    /// Un boss (voir `elites.rs` et `tiers.rs`).
+    /// Un boss (voir `mobs/elites.rs` et `adventure/tiers.rs`).
     pub boss: bool,
 }
 
@@ -289,8 +289,8 @@ impl MobRegistry {
 pub struct FixedDt(pub f32);
 
 /// Les entités de tous les joueurs, dans l'ordre d'arrivée : le joueur local est le premier. Le
-/// jeu la tient à jour (voir `players.rs`). Les systèmes qui visent « le joueur » prennent le plus
-/// proche (voir [`player_spots`] et [`nearest_spot`]).
+/// jeu la tient à jour (voir `player/players.rs`). Les systèmes qui visent « le joueur » prennent
+/// le plus proche (voir [`player_spots`] et [`nearest_spot`]).
 #[derive(Debug, Clone, Default)]
 pub struct PlayerEntities(pub Vec<Entity>);
 
@@ -414,7 +414,8 @@ pub fn physics(world: &mut World) {
         )>()
         .for_each(
             |entity, (transform, previous, velocity, collider, intent)| {
-                // Le joueur d'une fenêtre se simule chez elle (voir `predicted.rs`), sauf porté.
+                // Le joueur d'une fenêtre se simule chez elle (voir `net/predicted.rs`), sauf
+                // porté.
                 if world.has::<crate::components::Predicted>(entity)
                     && !world.has::<crate::components::OnGrid>(entity)
                     && !world.has::<crate::vehicles::carts::Riding>(entity)
@@ -498,7 +499,7 @@ pub fn spawn_mob_with_coat(
     inherited: Option<crate::mobs::sheep_colors::SheepCoat>,
 ) -> Option<Entity> {
     let def = world.resource::<Arc<MobRegistry>>().get(kind)?.clone();
-    // Un hostile naît plus robuste aux paliers hauts du monde (voir `tiers.rs`).
+    // Un hostile naît plus robuste aux paliers hauts du monde (voir `adventure/tiers.rs`).
     let health = if def.hostile {
         def.health
             * world
@@ -543,7 +544,7 @@ pub fn spawn_mob_with_coat(
 }
 
 /// L'IA : chacune choisit un but (poursuivre le joueur, fuir après un coup, errer vers
-/// un point proche, ou rester là), puis suit un chemin vers lui (`navigation.rs`).
+/// un point proche, ou rester là), puis suit un chemin vers lui (`mobs/navigation.rs`).
 pub fn wander(world: &mut World) {
     let dt = world.resource::<FixedDt>().0;
     let spots = player_spots(world);
@@ -568,7 +569,7 @@ pub fn wander(world: &mut World) {
                 let Some(def) = registry.get(mob.kind) else {
                     return;
                 };
-                // Une créature à comportement est dirigée par son script (`mob_brains.rs`).
+                // Une créature à comportement est dirigée par son script (`mobs/brains.rs`).
                 if def.brain {
                     return;
                 }
@@ -800,7 +801,7 @@ pub fn attack(world: &mut World) {
                 return;
             }
             wander.attack_cooldown = 1.0;
-            // Le jeu applique le coup (armure, invulnérabilité) : voir `survival.rs`.
+            // Le jeu applique le coup (armure, invulnérabilité) : voir `player/survival.rs`.
             events::send(
                 world,
                 PlayerAttacked {
@@ -960,7 +961,8 @@ pub fn animate(world: &mut World) {
                 + dt * (speed + if def.aquatic { 0.4 } else { 0.0 }) * PHASE_PER_BLOCK)
                 % std::f32::consts::TAU;
 
-            // Le regard : près du joueur, la créature s'y intéresse un moment, puis passe à autre chose.
+            // Le regard : près du joueur, la créature s'y intéresse un moment, puis passe à autre
+            // chose.
             let to = target.map(|t| t - transform.position);
             let range = if def.hostile {
                 LOOK_RANGE_HOSTILE

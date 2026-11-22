@@ -1,7 +1,7 @@
 //! Le pas fixe du serveur (60 par seconde) : les systèmes de l'ECS, puis les machines et les mods,
 //! les fluides, la survie, les quêtes, l'aventure, et enfin ce que chaque joueur voit changer parmi
-//! les entités. La fenêtre n'y prend aucune part : elle donne l'intention de son joueur avant, et lit
-//! les réponses après.
+//! les entités. La fenêtre n'y prend aucune part : elle donne l'intention de son joueur avant, et
+//! lit les réponses après.
 
 use std::time::Instant;
 
@@ -41,7 +41,7 @@ impl VoxelServer {
         self.update_cart_blocks();
         self.update_vitals(dt);
         self.update_hunger(dt);
-        // Le minage et le repas de chaque joueur (voir `intents.rs`).
+        // Le minage et le repas de chaque joueur (voir `server/intents.rs`).
         self.tick_digs(dt);
         self.tick_eating(dt);
         self.drop_mob_loot();
@@ -50,20 +50,22 @@ impl VoxelServer {
         self.check_death();
         // Fin du pas : chaque joueur reçoit ce qui a changé parmi les entités.
         self.update_portals(dt);
-        // Les joueurs prédits que le serveur a déplacés reçoivent leur place (voir `predicted.rs`).
+        // Les joueurs prédits que le serveur a déplacés reçoivent leur place (voir
+        // `net/predicted.rs`).
         self.correct_predicted();
         self.send_entities();
     }
 }
 
 impl VoxelServer {
-    /// Le travail du serveur à chaque image, entre les pas fixes : l'heure, la météo, les habitants des villages, les systèmes de l'image, puis les événements
-    /// devenus sons et messages aux mods, et le ciel envoyé aux joueurs.
+    /// Le travail du serveur à chaque image, entre les pas fixes : l'heure, la météo, les habitants
+    /// des villages, les systèmes de l'image, puis les événements devenus sons et messages aux
+    /// mods, et le ciel envoyé aux joueurs.
     pub fn frame(&mut self, dt: f32) {
         self.day.update(dt);
         let player_position = player::body(&self.ecs, self.players.entity()).position;
         // Le temps qu'il fait ; ce qui se voit et s'entend (gouttes, éclairs, tonnerre) est chez la
-        // fenêtre (voir `sky_view.rs`).
+        // fenêtre (voir `net/sky_view.rs`).
         self.weather.update_sky(dt);
         // Les habitants des villages proches.
         {

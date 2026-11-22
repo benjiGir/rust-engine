@@ -65,7 +65,7 @@ pub struct GameUi {
     /// Les actions du joueur dans ce menu, à transmettre au script : (type, id, valeur).
     pub mod_events: Vec<(i32, i32, i32)>,
     /// Vrai pendant un clic droit : un script peut alors ouvrir son menu.
-    /// Les jauges que les mods affichent (voir `player_api.rs`).
+    /// Les jauges que les mods affichent (voir `modding/player_api.rs`).
     pub mod_hud: crate::modding::player_api::HudBars,
     /// La console : saisie, lignes et commandes validées.
     pub console: crate::ui::console::ConsoleState,
@@ -76,15 +76,15 @@ pub struct GameUi {
     pub show_players: bool,
     /// Les clics et touches simulés par `ctl`.
     pub input: crate::ui::input::UiInput,
-    /// L'explorateur de recettes (voir `recipe_browser.rs`).
+    /// L'explorateur de recettes (voir `ui/recipe_browser.rs`).
     pub browser: crate::ui::recipe_browser::BrowserState,
     /// La recherche de l'écran du contrôleur de stockage.
     pub storage_search: String,
-    /// La fiche des attributs (voir `attributes_ui.rs`).
+    /// La fiche des attributs (voir `adventure/attributes.rs`).
     pub attributes: crate::adventure::attributes::AttributesPanel,
-    /// La page ouverte du guide (voir `guide_ui.rs`).
+    /// La page ouverte du guide (voir `quests/guide_ui.rs`).
     pub guide: crate::quests::guide_ui::GuideState,
-    /// Le livre de quêtes : chapitre, fiche, plan (voir `quest_ui.rs`).
+    /// Le livre de quêtes : chapitre, fiche, plan (voir `quests/ui.rs`).
     pub quests: crate::quests::ui::QuestScreen,
 }
 
@@ -422,7 +422,7 @@ impl VoxelGame {
 
     /// Une case de l'inventaire du joueur (ou de son armure, de sa grille).
     pub(crate) fn slot_widget(&mut self, ui: &mut egui::Ui, slot: Slot, highlighted: bool) {
-        // L'inventaire tel que le serveur l'a envoyé (voir `player_view.rs`).
+        // L'inventaire tel que le serveur l'a envoyé (voir `net/player_view.rs`).
         let stack = self.client.view.me.inventory.slot(slot);
         if let Some(press) = self.stack_widget(ui, stack, highlighted) {
             self.press_slot(SlotRef::Player(slot), stack, press);
@@ -430,8 +430,8 @@ impl VoxelGame {
     }
 
     /// Un bouton pressé sur une case : un clic de case, ou l'ouverture de « Diviser la pile ».
-    /// Le clic part au simulateur (`SlotClick`, voir `intents.rs`) et s'applique tout de suite.
-    /// Renvoie `true` si la case a pu changer.
+    /// Le clic part au simulateur (`SlotClick`, voir `server/intents.rs`) et s'applique tout de
+    /// suite. Renvoie `true` si la case a pu changer.
     pub(crate) fn press_slot(
         &mut self,
         target: SlotRef,
@@ -475,7 +475,7 @@ impl VoxelGame {
     fn stack_at(&self, target: SlotRef) -> Option<ItemStack> {
         match target {
             SlotRef::Player(slot) => self.client.view.me.inventory.slot(slot),
-            // Une case du conteneur ouvert : sa vue (voir `container_view.rs`).
+            // Une case du conteneur ouvert : sa vue (voir `storage/container_view.rs`).
             SlotRef::Open(index)
             | SlotRef::Container(_, index)
             | SlotRef::Cart(_, index)
@@ -541,8 +541,8 @@ impl VoxelGame {
 
     /// La barre d'objets en bas de l'écran, la vie au-dessus, et l'avancement du minage.
     fn draw_hud(&mut self, ctx: &egui::Context) {
-        // Les jauges et l'inventaire tels que le serveur les a envoyés (voir `player_view.rs`) ;
-        // la barre de minage et de repas est la prédiction de la fenêtre.
+        // Les jauges et l'inventaire tels que le serveur les a envoyés (voir `net/player_view.rs`)
+        // ; la barre de minage et de repas est la prédiction de la fenêtre.
         let Some(vitals) = self.client.view.me.vitals.clone() else {
             return;
         };
@@ -929,8 +929,8 @@ impl VoxelGame {
                     });
                 }
             });
-        // Le cadre de l'inventaire, centré (voir `crate::ui::layout::inventory_window`) : l'explorateur
-        // de recettes se place de part et d'autre.
+        // Le cadre de l'inventaire, centré (voir `crate::ui::layout::inventory_window`) :
+        // l'explorateur de recettes se place de part et d'autre.
         let frame = window.as_ref().map(|w| {
             let safe = crate::ui::layout::safe_rect(ctx);
             let half = crate::ui::layout::inventory_width(ctx) * 0.5;
@@ -1080,10 +1080,10 @@ impl VoxelGame {
     }
 
     /// Les échanges d'un habitant : une ligne par échange, un bouton pour le faire.
-    /// L'échange avec un habitant, à la manière de Minecraft : à gauche la liste des offres, chacune
-    /// avec ses objets dessinés (prix, flèche, produit), grisée si l'on ne peut pas payer et marquée
-    /// si l'habitant n'en a plus ; à droite l'offre choisie en grandes cases, ce qui manque, et les
-    /// boutons d'échange.
+    /// L'échange avec un habitant, à la manière de Minecraft : à gauche la liste des offres,
+    /// chacune avec ses objets dessinés (prix, flèche, produit), grisée si l'on ne peut pas payer
+    /// et marquée si l'habitant n'en a plus ; à droite l'offre choisie en grandes cases, ce qui
+    /// manque, et les boutons d'échange.
     fn trade_panel(&mut self, ui: &mut egui::Ui) {
         // L'habitant, d'après la vue d'écran du serveur ; l'inventaire, d'après la vue du joueur.
         let Some(voxel_sim::server::screen_actions::ScreenView::Trade { key, name, uses }) =
@@ -1299,8 +1299,8 @@ impl VoxelGame {
     }
 
     fn furnace_panel(&mut self, ui: &mut egui::Ui) {
-        // Les jauges et les cases viennent de la vue du conteneur ouvert (`container_view.rs`) ; le
-        // serveur réveille le four quand une case change.
+        // Les jauges et les cases viennent de la vue du conteneur ouvert
+        // (`storage/container_view.rs`) ; le serveur réveille le four quand une case change.
         let [burn, cook] = self.shown_container().map_or([0.0; 2], |c| c.furnace);
         crate::ui::layout::furnace(ui, burn, cook, |ui, index| {
             self.container_slot(ui, index);

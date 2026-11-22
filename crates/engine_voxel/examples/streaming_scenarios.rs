@@ -6,17 +6,17 @@
 //!
 //! ```text
 //! cargo run --release -p engine_voxel --example streaming_scenarios -- [--radius 10] [--seed 42]
-//!     [--scenario demarrage|teleportation|vol|tout] [--far 0|48] [--vitesse 120] [--mailleur culling|greedy|binaire]
-//!     [--politique ancienne|colonnes|nouvelle|toutes]
+//!     [--scenario demarrage|teleportation|vol|tout] [--far 0|48] [--vitesse 120] [--mailleur
+//! culling|greedy|binaire] [--politique ancienne|colonnes|nouvelle|toutes]
 //! ```
 //!
-//! `ancienne` : l'ordre par distance 3D de chaque chunk, 16 maillages par image, le terrain lointain
-//! sans retenue. `colonnes` : comme `ancienne`, mais avec les colonnes complétées de la plus proche à la
-//! plus lointaine (sans biais de vue). `nouvelle` : colonnes avec biais de vue, un budget d'octets et de
-//! temps, le terrain lointain mis en veilleuse. Les
+//! `ancienne` : l'ordre par distance 3D de chaque chunk, 16 maillages par image, le terrain
+//! lointain sans retenue. `colonnes` : comme `ancienne`, mais avec les colonnes complétées de la
+//! plus proche à la plus lointaine (sans biais de vue). `nouvelle` : colonnes avec biais de vue, un
+//! budget d'octets et de temps, le terrain lointain mis en veilleuse. Les
 //! améliorations toujours actives (file des maillages du plus proche au plus lointain, remaillage
 //! coalescé, lots de tuiles) ne sont pas isolées ici : elles ont leurs tests dans `streaming.rs` et
-//! `far.rs`.
+//! `worldgen/far.rs`.
 
 use std::collections::HashSet;
 use std::time::{Duration, Instant};

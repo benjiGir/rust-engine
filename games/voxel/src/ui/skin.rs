@@ -395,7 +395,7 @@ pub fn meter(p: &egui::Painter, rect: egui::Rect, fill: f32, color: Color32, see
     }
 }
 
-/// La couleur d'un ton de la simulation (voir `tone.rs`).
+/// La couleur d'un ton de la simulation (voir `player/tone.rs`).
 pub fn tone(tone: voxel_sim::player::tone::Tone) -> Color32 {
     use voxel_sim::player::tone::Tone;
     match tone {

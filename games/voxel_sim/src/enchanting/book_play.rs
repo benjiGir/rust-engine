@@ -1,5 +1,6 @@
-//! Les gestes des livres dans le jeu : un livre enchanté ou un tome d'extraction au curseur, un clic
-//! sur un objet. Les règles (niveaux, application, extraction) sont dans `enchant_books.rs`.
+//! Les gestes des livres dans le jeu : un livre enchanté ou un tome d'extraction au curseur, un
+//! clic sur un objet. Les règles (niveaux, application, extraction) sont dans
+//! `enchanting/books.rs`.
 
 use crate::enchanting;
 use crate::enchanting::books::{

@@ -20,7 +20,7 @@ impl crate::server::VoxelServer {
     }
 
     /// Un clic sur une case d'un coffre ou d'une machine : la pile est relue puis réécrite
-    /// dans l'entité du bloc (voir `storage_ui.rs` pour les règles des coffres à paliers).
+    /// dans l'entité du bloc (voir `storage/ui.rs` pour les règles des coffres à paliers).
     fn click_container(&mut self, pos: IVec3, index: usize, click: Click) -> bool {
         self.click_storage(crate::storage::ui::Target::Block(pos), index, click)
     }
@@ -55,7 +55,8 @@ impl crate::server::VoxelServer {
         match target {
             SlotRef::Player(slot) => {
                 // Une gemme ou un sceau au curseur sur un objet : sertir, retirer, ajouter.
-                // Un livre, un tome ou une potion au curseur : voir `enchant_books.rs` et `charms.rs`.
+                // Un livre, un tome ou une potion au curseur : voir `enchanting/books.rs` et
+                // `adventure/charms.rs`.
                 if !self.try_gem_click(slot, click)
                     && !self.try_book_click(slot, click)
                     && !self.try_charm_recharge(slot, click)

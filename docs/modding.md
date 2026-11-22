@@ -1135,7 +1135,7 @@ Plan et choix : `docs/plan-apotheose.md` (phase 3). Tout se règle en données, 
   `fall_resist`, `silk_touch`, `magnet`.
 - **Livres et tomes.** `core:book` (vierge), `core:tome_weapons`, `core:tome_tools`, `core:tome_armor`, `core:tome_extraction`
   et `core:enchanted_book` sont des objets du jeu de base ; un livre enchanté est un objet à fiche (voir
-  `item_data.rs`) comme les autres.
+  `player/item_data.rs`) comme les autres.
 - **La bibliothèque** : un bloc avec `behavior: "core:enchant_library"`, `enchanting: (library_level: 10)` (le plus haut
   niveau rangé ; un niveau `n` vaut `2^(n-1)` points, et la sorte plafonne à `2^library_level` points) et
   `ports: (inputs: [0], outputs: [1])` : les réseaux d'objets y déposent des livres (case 0) et reprennent ce qu'elle
@@ -1306,7 +1306,7 @@ qui se passe, et de consommer l'objet ou non.
 **Un objet qui pose un bloc à part** : `places: "mon_bloc"` dans `items.ron`. L'objet garde son icône et
 sa pile, et pose ce bloc (déclaré avec `placeable: false`, pour qu'il n'ait pas d'objet à lui). Le jeu s'en
 sert pour les sacs à dos posés : Maj + clic droit pose le sac, l'entité du bloc retient le numéro du
-sac, et le bloc cassé rend le même sac (voir `games/voxel/src/backpack_block.rs`). Un `places` qui nomme
+sac, et le bloc cassé rend le même sac (voir `games/voxel_sim/src/storage/backpack_block.rs`). Un `places` qui nomme
 un bloc inconnu empêche le chargement.
 
 Le mod **Magie** (`mods/magie`) est bâti uniquement avec cela : un **mana** qui se régénère (1 par

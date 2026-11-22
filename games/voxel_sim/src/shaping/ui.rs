@@ -1,5 +1,5 @@
-//! La part serveur de `shaping_ui.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
-//! multijoueur ; la fenêtre reste dans `shaping_ui.rs`).
+//! La part serveur de `shaping/ui.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
+//! multijoueur ; la fenêtre reste dans `shaping/ui.rs`).
 
 use crate::player::inventory::{ItemStack, Slot};
 use crate::shaping;
@@ -7,7 +7,8 @@ use engine_voxel::shaped::{self, PieceKind};
 
 impl crate::server::VoxelServer {
     // (lot 4b) Méthodes du serveur.
-    /// Refait des blocs pleins avec les pièces de `slot` : un bloc, ou tous ceux que la pile permet.
+    /// Refait des blocs pleins avec les pièces de `slot` : un bloc, ou tous ceux que la pile
+    /// permet.
     pub fn rebuild(&mut self, slot: Slot, all: bool) -> Result<u32, String> {
         let Some(stack) = *self.players.me_mut().inventory.slot_mut(slot) else {
             return Err("rien à reconstituer".into());

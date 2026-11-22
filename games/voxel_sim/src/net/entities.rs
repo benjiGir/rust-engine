@@ -2,7 +2,7 @@
 //!
 //! Le serveur (l'ECS) possède les créatures, objets au sol, wagons, projectiles, autres joueurs et
 //! structures mobiles. Le client ne les lit jamais : il en tient une **réplique** (voir
-//! `client_entities.rs`) faite de ce que le rendu demande, que le serveur lui envoie par messages
+//! `client/entities.rs`) faite de ce que le rendu demande, que le serveur lui envoie par messages
 //! ([`ServerMsg`]) :
 //!
 //! - `Spawn` : une entité entre dans la portée du joueur, avec sa sorte ([`EntityKind`]), sa pose
@@ -12,13 +12,13 @@
 //! - `Despawn` : elle sort de la portée, ou elle meurt ;
 //! - `GridBlocks` : les blocs d'une structure mobile, quand ils changent.
 //!
-//! Chaque entité répliquée porte un [`NetId`], numéro du serveur jamais réutilisé dans une partie : le
-//! client désigne ce qu'il voit par ce numéro (un coup, un wagon ouvert) et le serveur retrouve l'entité
-//! et revalide ([`NetIds::entity`]).
+//! Chaque entité répliquée porte un [`NetId`], numéro du serveur jamais réutilisé dans une partie :
+//! le client désigne ce qu'il voit par ce numéro (un coup, un wagon ouvert) et le serveur retrouve
+//! l'entité et revalide ([`NetIds::entity`]).
 //!
 //! Un [`EntityTracker`] par joueur garde ce qu'il a reçu. Une entité est vue si elle est dans une
-//! colonne que le joueur a reçue (voir `engine_voxel::ChunkSender::has_column`) et à moins de N blocs de
-//! lui, N dépendant de la sorte.
+//! colonne que le joueur a reçue (voir `engine_voxel::ChunkSender::has_column`) et à moins de N
+//! blocs de lui, N dépendant de la sorte.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -79,9 +79,9 @@ pub enum EntityKind {
     },
 }
 
-/// Où est l'entité et comment elle bouge, à un pas du serveur. Une créature envoie sa phase de marche,
-/// l'ampleur de ses pas et le tour de sa tête ; un wagon, son lacet et son inclinaison ; une
-/// structure, son lacet.
+/// Où est l'entité et comment elle bouge, à un pas du serveur. Une créature envoie sa phase de
+/// marche, l'ampleur de ses pas et le tour de sa tête ; un wagon, son lacet et son inclinaison ;
+/// une structure, son lacet.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct Pose {
     /// Les pieds (le pivot d'une structure).
@@ -119,23 +119,24 @@ pub struct Look {
     /// La couleur de toison d'un mouton (son numéro dans la palette).
     pub coat: Option<u8>,
     pub elite: Option<EliteLook>,
-    /// La boîte de la créature (largeur, hauteur) : le client s'en sert pour la viser. Elle change quand
-    /// un petit grandit.
+    /// La boîte de la créature (largeur, hauteur) : le client s'en sert pour la viser. Elle change
+    /// quand un petit grandit.
     pub size: [f32; 2],
     /// La vie (actuelle, maximale) d'une créature, au demi-point près, pour la fiche de la cible.
     pub health: [f32; 2],
     /// L'objet qu'un joueur tient en main (une pile d'un objet : le nombre ne compte pas).
     pub held: Option<crate::player::inventory::ItemStack>,
-    /// Le compte des gestes d'un joueur ([`crate::player::players::PlayerState::swings`]) : son bras se lève
-    /// chez les autres à chaque changement.
+    /// Le compte des gestes d'un joueur ([`crate::player::players::PlayerState::swings`]) : son
+    /// bras se lève chez les autres à chaque changement.
     pub swings: u8,
     /// Le joueur creuse : son bras va et vient.
     pub digging: bool,
 }
 
-/// Les blocs d'une structure mobile, tels que le serveur les a au moment de l'envoi. Les chunks sont
-/// des `Arc` : en mémoire la copie ne coûte presque rien (le transport réseau, au lot 5, enverra les
-/// blocs avec le format des sauvegardes). Deux instantanés sont égaux s'ils sont le même.
+/// Les blocs d'une structure mobile, tels que le serveur les a au moment de l'envoi. Les chunks
+/// sont des `Arc` : en mémoire la copie ne coûte presque rien (le transport réseau, au lot 5,
+/// enverra les blocs avec le format des sauvegardes). Deux instantanés sont égaux s'ils sont le
+/// même.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GridSnapshot(#[serde(with = "crate::net::wire::grid")] pub Arc<SubGrid>);
 
@@ -161,7 +162,8 @@ impl NetIds {
         NetId(self.next)
     }
 
-    /// L'entité vivante que désigne ce numéro ; `None` pour un numéro inconnu, ou d'une entité morte.
+    /// L'entité vivante que désigne ce numéro ; `None` pour un numéro inconnu, ou d'une entité
+    /// morte.
     pub fn entity(&self, world: &World, id: NetId) -> Option<Entity> {
         let entity = *self.entities.get(&id)?;
         world.is_alive(entity).then_some(entity)
@@ -207,7 +209,8 @@ impl NetIds {
                 world.insert(entity, id);
             }
         }
-        // Les morts sortent de la table (un numéro n'est jamais redonné : seule la place est rendue).
+        // Les morts sortent de la table (un numéro n'est jamais redonné : seule la place est
+        // rendue).
         let dead: Vec<NetId> = world
             .resource::<NetIds>()
             .entities
@@ -460,8 +463,8 @@ impl EntityTracker {
         self.seen.contains_key(&id)
     }
 
-    /// Un pas fixe (`tick`) : les messages à envoyer à ce joueur d'après les entités décrites par le
-    /// serveur (`all`). Ils sont ajoutés à `out`, `Tick` d'abord.
+    /// Un pas fixe (`tick`) : les messages à envoyer à ce joueur d'après les entités décrites par
+    /// le serveur (`all`). Ils sont ajoutés à `out`, `Tick` d'abord.
     pub fn step(
         &mut self,
         tick: u64,
@@ -583,7 +586,8 @@ mod tests {
         }
     }
 
-    /// Un monde de test avec un joueur en `player_at` ; renvoie aussi la table des structures (vide).
+    /// Un monde de test avec un joueur en `player_at` ; renvoie aussi la table des structures
+    /// (vide).
     fn scene(player_at: Vec3) -> (World, Entity, SubGrids) {
         let mut world = mobs::tests::sim_at(player_at, 5);
         let player = world.resource::<mobs::PlayerEntities>().0[0];

@@ -101,7 +101,7 @@ reste interne.
 | **R1, la simulation (réalisé)** | les 112 fichiers de `voxel_sim` dans leurs dossiers, renommés ; les chemins mis à jour dans `voxel_sim` et dans `voxel` ; la liste des réexportations de `main.rs` remplacée | fmt, clippy, les 1 199 tests, `check-arch` ; le jeu et `voxel-server` démarrent |
 | **R2, le jeu (réalisé)** | les 74 fichiers de `voxel` dans leurs dossiers, renommés | idem, et un coup d'œil en jeu (menus, écrans, autre joueur) |
 | **R3, le moteur (réalisé)** | les 55 fichiers d'`engine_voxel` dans leurs dossiers, interface publique inchangée | idem, et `cargo xtask build-mods` |
-| **R4, la règle et la doc** | `check-arch` refuse plus de 20 fichiers `.rs` par dossier ; `docs/architecture.md` et les docs qui citent des chemins mis à jour | `check-arch` passe, et échoue sur un dossier de 21 fichiers |
+| **R4, la règle et la doc (réalisé)** | `check-arch` refuse plus de 20 fichiers `.rs` par dossier ; `docs/architecture.md` et les docs qui citent des chemins mis à jour | `check-arch` passe, et échoue sur un dossier de 21 fichiers |
 
 Chaque lot se fait sur un arbre propre (pas de travail en cours dans les fichiers déplacés) : un fichier
 déplacé pendant qu'on l'édite ailleurs crée un conflit. Les plans déjà réalisés (`docs/plan-*.md`)
@@ -133,8 +133,16 @@ gardent leurs anciens chemins : ils racontent l'histoire.
   `engine_voxel::worldgen::density_graph`. Un piège : `conduit_shell` est à la fois un module et une
   fonction réexportée ; l'appel `crate::conduit_shell(...)` garde son chemin. Vérifié : fmt, clippy, les
   1 199 tests, `check-arch`, les benchmarks compilent, `cargo xtask build-mods`.
+- **R4** : `check-arch` refuse un dossier de plus de 20 fichiers `.rs` ; un fichier `x.rs` à côté d'un
+  dossier `x/` compte avec ce dossier (sans quoi les racines, avec leurs fichiers parents, dépasseraient :
+  22 dans la simulation). Un test le vérifie (20 passent, 21 non). Les noms de fichiers cités par la doc
+  et les commentaires du code suivent le rangement (environ 440 mentions, d'après les renommages des
+  trois commits) ; les trois noms ambigus (`transfer.rs`, `tests.rs`, `graph.rs`) ont été réglés à la
+  main, et quatre chemins déjà faux avant le rangement (`games/voxel/src/ships.rs`...) corrigés. Les
+  commentaires que ces chemins plus longs faisaient passer au-delà de 100 caractères ont été recoupés.
+  `docs/architecture.md` décrit le rangement. Les plans déjà réalisés gardent leurs anciens chemins.
 
-## Choix à valider
+## Choix validés
 
 | Question | Proposition | Pourquoi |
 |---|---|---|

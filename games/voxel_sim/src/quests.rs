@@ -3,7 +3,7 @@
 //!
 //! Ce module ne dépend ni de l'ECS ni de l'affichage : il lit du texte RON et le confronte aux
 //! registres (objets, blocs) et à des listes de noms ([`Catalog`]). L'avancement du joueur est dans
-//! `quest_progress.rs` ; le branchement sur le jeu vivant dans `quest_play.rs`.
+//! `quests/progress.rs` ; le branchement sur le jeu vivant dans `quests/play.rs`.
 //!
 //! # Le fichier
 //!
@@ -910,7 +910,8 @@ impl Quests {
         Ok(())
     }
 
-    /// Les dépendances ne doivent pas faire de boucle (une quête qui attendrait la fin d'elle-même).
+    /// Les dépendances ne doivent pas faire de boucle (une quête qui attendrait la fin
+    /// d'elle-même).
     fn check_cycles(&self) -> Result<()> {
         // 0 : pas vue, 1 : en cours, 2 : finie.
         let mut state = vec![0u8; self.quests.len()];
@@ -1179,7 +1180,8 @@ pub mod tests {
         let itself =
             chapter(r#"(id: "core:c/a", title: "A", after: ["core:c/a"], tasks: [Check])"#);
         assert!(error_of(&itself).contains("d'elle-même"));
-        // Une dépendance vers un mod absent est ignorée ; vers un mod chargé mais inconnue : erreur.
+        // Une dépendance vers un mod absent est ignorée ; vers un mod chargé mais inconnue :
+        // erreur.
         let absent =
             chapter(r#"(id: "core:c/a", title: "A", after: ["absent:x"], tasks: [Check])"#);
         let quests = load(&absent).unwrap();

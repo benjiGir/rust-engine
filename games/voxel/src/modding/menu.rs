@@ -1,5 +1,5 @@
-//! La part fenêtre de `mod_menu.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
-//! multijoueur ; la simulation reste dans `mod_menu.rs`).
+//! La part fenêtre de `modding/menu.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
+//! multijoueur ; la simulation reste dans `modding/menu.rs`).
 
 use crate::Mode;
 use crate::VoxelGame;

@@ -76,10 +76,10 @@ transformé :
 | Quoi | Où |
 |---|---|
 | Blocs du jeu de base | `assets/core/blocks.ron`, textures dans `assets/core/textures/` (139 PNG) |
-| Icônes des objets | `assets/core/items/` (91 PNG, 16 × 16) ; icône d'un bloc = miniature isométrique 32 × 32 calculée (`games/voxel/src/item_art.rs`) |
+| Icônes des objets | `assets/core/items/` (91 PNG, 16 × 16) ; icône d'un bloc = miniature isométrique 32 × 32 calculée (`games/voxel/src/render/item_art.rs`) |
 | Générateur des textures | `tools/assetgen/src/textures.rs`, `tools/assetgen/src/textures/items.rs` |
-| Outils en main | `games/voxel/src/hand.rs` (points de prise) |
-| Thème de l'interface | `games/voxel/src/skin.rs` |
+| Outils en main | `games/voxel/src/render/hand.rs` (points de prise) |
+| Thème de l'interface | `games/voxel/src/ui/skin.rs` |
 | Blocs de mods | `mods/<mod>/blocks.ron`, `mods/<mod>/textures/`, `mods/<mod>/items/` |
 
 Mods : `example` (5 blocs), `mecanique` (7), `magie` (1), `donjons` (4), `entrepot` (4), `forge` (2).

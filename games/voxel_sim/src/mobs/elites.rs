@@ -2,8 +2,8 @@
 //!
 //! # Les élites
 //!
-//! À la naissance d'une hostile (voir `spawning.rs`), le palier du monde tire au sort si elle est
-//! une **élite** (`elite_chance` de `tiers.ron`). Une élite a une à trois **augmentations**
+//! À la naissance d'une hostile (voir `mobs/spawning.rs`), le palier du monde tire au sort si elle
+//! est une **élite** (`elite_chance` de `tiers.ron`). Une élite a une à trois **augmentations**
 //! (`elites.ron` : vie, dégâts, vitesse, armure, régénération), tirées au poids parmi celles que le
 //! palier permet. Les effets se multiplient ; le nom se compose (« Rôdeur colosse et éclair »), la
 //! créature prend la teinte des augmentations, et sa mort laisse un objet à affixes garanti.
@@ -13,8 +13,8 @@
 //!
 //! À partir du palier 2, un envahisseur surgit à intervalles réguliers (`invader` de `tiers.ron`)
 //! non loin du joueur. Il est annoncé par un **son** et un **faisceau lumineux** (une colonne de
-//! lumière qui monte au ciel et se voit de loin), a deux fois plus d'augmentations qu'une élite, plus
-//! de vie, et lâche un objet à affixes d'une rareté plus haute, une gemme et de la poussière.
+//! lumière qui monte au ciel et se voit de loin), a deux fois plus d'augmentations qu'une élite,
+//! plus de vie, et lâche un objet à affixes d'une rareté plus haute, une gemme et de la poussière.
 //!
 //! # Ce que lit la simulation
 //!

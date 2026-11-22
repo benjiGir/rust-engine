@@ -13,7 +13,7 @@
 //!
 //! Le dessin ne change rien pendant qu'il tourne : les clics deviennent des [`Act`], appliqués
 //! une fois l'image décrite (récupérer, remettre, épingler, changer de chapitre...). Les
-//! changements de progression passent par `quest_play.rs`, comme les commandes `ctl`.
+//! changements de progression passent par `quests/play.rs`, comme les commandes `ctl`.
 
 mod geometry;
 mod hud;
@@ -125,8 +125,8 @@ impl VoxelGame {
 
     /// Ouvre le livre, au chapitre demandé ou, sinon, au dernier regardé (le premier à défaut).
     pub(crate) fn open_quest_book(&mut self, chapter: Option<&str>) -> Result<()> {
-        // Le serveur charge le livre, revoit les tâches (les objets portés comptent dès l'ouverture) et
-        // envoie ses définitions.
+        // Le serveur charge le livre, revoit les tâches (les objets portés comptent dès
+        // l'ouverture) et envoie ses définitions.
         self.send_now(ClientMsg::Screen(ScreenAction::Quest(QuestAct::Open)));
         let quests = self
             .client

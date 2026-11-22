@@ -80,44 +80,44 @@ mindmap
 | Module | Rôle |
 |---|---|
 | `player.rs` | le joueur est une entité ECS comme les créatures (`Transform`, `Velocity`, `Collider`, `Health`, `Player`) |
-| `players.rs` | `PlayerState` (tout ce qui appartient à un joueur : inventaire, survie, faim, équipement, effets, aventure, quêtes, lit...) et la table `Players`, dont le joueur local est celui de la fenêtre. Les créatures visent le joueur **le plus proche** (`mobs::player_spots`) ; les événements (`BlockBroken`, `PlayerDamaged`...) portent le `PlayerId` qui les cause |
-| `entities.rs`, `client_entities.rs`, `entity_render.rs` | la réplique des entités : `NetId`, suivi par joueur (`Spawn`, `Moves`...), interpolation, dessin des créatures, objets, wagons, projectiles, structures mobiles et autres joueurs (voir `03-monde.md`) |
-| `ghosts.rs` | `ctl ghost` : des joueurs serveur sans fenêtre, pour tester les autres joueurs |
-| `inventory.rs` | 9 cases de barre, 27 de réserve, 4 d'armure, la grille d'artisanat |
-| `survival.rs` | ce qui blesse (chute, noyade, feu, lave, faim) et l'armure qui protège ; tout passe par `Vitals`, testable sans fenêtre |
-| `attributes.rs`, `gear.rs` | des **attributs** (dégâts, armure, vitesse, portée...) calculés depuis l'objet en main, l'armure et les effets |
-| `potions.rs`, `charms.rs` | effets temporaires ; charmes qui gardent un effet actif |
-| `hand_model.rs` | le bras à la première personne et l'objet tenu, en coordonnées de vue |
+| `player/players.rs` | `PlayerState` (tout ce qui appartient à un joueur : inventaire, survie, faim, équipement, effets, aventure, quêtes, lit...) et la table `Players`, dont le joueur local est celui de la fenêtre. Les créatures visent le joueur **le plus proche** (`mobs::player_spots`) ; les événements (`BlockBroken`, `PlayerDamaged`...) portent le `PlayerId` qui les cause |
+| `net/entities.rs`, `client/entities.rs`, `render/entities.rs` | la réplique des entités : `NetId`, suivi par joueur (`Spawn`, `Moves`...), interpolation, dessin des créatures, objets, wagons, projectiles, structures mobiles et autres joueurs (voir `03-monde.md`) |
+| `net/ghosts.rs` | `ctl ghost` : des joueurs serveur sans fenêtre, pour tester les autres joueurs |
+| `player/inventory.rs` | 9 cases de barre, 27 de réserve, 4 d'armure, la grille d'artisanat |
+| `player/survival.rs` | ce qui blesse (chute, noyade, feu, lave, faim) et l'armure qui protège ; tout passe par `Vitals`, testable sans fenêtre |
+| `player/attributes.rs`, `player/gear.rs` | des **attributs** (dégâts, armure, vitesse, portée...) calculés depuis l'objet en main, l'armure et les effets |
+| `player/potions.rs`, `adventure/charms.rs` | effets temporaires ; charmes qui gardent un effet actif |
+| `render/hand_model.rs` | le bras à la première personne et l'objet tenu, en coordonnées de vue |
 
 ### Le monde vivant
 
 | Module | Rôle |
 |---|---|
 | `mobs.rs` | créatures décrites dans `entities.ron`, systèmes ECS (IA, physique, attaque, mort) |
-| `spawning.rs` | où, quand et combien de créatures apparaissent (lumière, biome, heure) |
-| `navigation.rs` | suivre un chemin A\* (le moteur cherche, le jeu marche) |
-| `mob_brains.rs` | créatures dirigées par le script de leur mod (`brain: true`), par lot, 4 fois par seconde |
-| `villagers.rs`, `trading.rs` | habitants des villages et échanges décrits dans `trades.ron` |
-| `elites.rs`, `projectiles.rs` | hostiles renforcées, attaques à distance |
-| `daytime.rs`, `weather.rs` | cycle jour/nuit (0 = minuit, 0,5 = midi), pluie, neige, orage |
-| `dimensions.rs` | changer de dimension par un portail : ciel, gravité, dossier |
+| `mobs/spawning.rs` | où, quand et combien de créatures apparaissent (lumière, biome, heure) |
+| `mobs/navigation.rs` | suivre un chemin A\* (le moteur cherche, le jeu marche) |
+| `mobs/brains.rs` | créatures dirigées par le script de leur mod (`brain: true`), par lot, 4 fois par seconde |
+| `mobs/villagers.rs`, `mobs/trading.rs` | habitants des villages et échanges décrits dans `trades.ron` |
+| `mobs/elites.rs`, `mobs/projectiles.rs` | hostiles renforcées, attaques à distance |
+| `world/daytime.rs`, `world/weather.rs` | cycle jour/nuit (0 = minuit, 0,5 = midi), pluie, neige, orage |
+| `world/dimensions.rs` | changer de dimension par un portail : ciel, gravité, dossier |
 
 ### Construire et ranger
 
-`interact.rs` (leviers, houe, engrais, animaux), `storage_ui.rs` et `transfer.rs` (un seul écran pour
-coffres, wagons coffres, sacs et contrôleur ; Déposer, Compléter, Tout prendre, Trier), `backpacks.rs` (sacs
-à dos améliorables), `chest_lids.rs` (les couvercles suivent l'écran ouvert), `carts.rs` / `cart_play.rs`
-(wagons), `ships.rs` (assembler un vaisseau, le piloter), `paired_play.rs` (lits et portes).
+`client/interact.rs` (leviers, houe, engrais, animaux), `storage/ui.rs` et `transfer.rs` (un seul écran pour
+coffres, wagons coffres, sacs et contrôleur ; Déposer, Compléter, Tout prendre, Trier), `storage/backpacks.rs` (sacs
+à dos améliorables), `render/chest_lids.rs` (les couvercles suivent l'écran ouvert), `vehicles/carts.rs` / `vehicles/cart_play.rs`
+(wagons), `vehicles/ships.rs` (assembler un vaisseau, le piloter), `player/paired.rs` (lits et portes).
 
 ### Les formes (couches, pentes, microblocs)
 
-L'**établi de taille** (`shaping_ui.rs`) transforme un bloc plein en pièces (`engine_voxel::shaped::PieceKind`, vingt-trois objets `core:shape_*`, rangés en
+L'**établi de taille** (`shaping/ui.rs`) transforme un bloc plein en pièces (`engine_voxel::shaped::PieceKind`, vingt-trois objets `core:shape_*`, rangés en
 familles dans une liste qui défile : couches, pentes, escaliers, panneaux, formes raccordées). Une tranche posée
 sur une tranche l'agrandit ; un clic droit ouvre un portillon. Le matériau d'une pièce est le
-`damage` de sa pile : un numéro de la **palette du monde** (`materials.ron`, `shape_materials.rs`), attribué au
+`damage` de sa pile : un numéro de la **palette du monde** (`materials.ron`, `shaping/materials.rs`), attribué au
 premier usage et jamais réutilisé. Les piles de même pièce et même matériau s'empilent (c'est la seule exception à
-« seules les piles neuves s'empilent », voir `inventory::stackable` et `storage.rs`). `shaped_play.rs` pose une pièce
-dans la case visée (ou la voisine), la retire pièce par pièce et décrit la visée ; `shape_ctl.rs` donne les commandes
+« seules les piles neuves s'empilent », voir `inventory::stackable` et `tech/storage.rs`). `shaping/play.rs` pose une pièce
+dans la case visée (ou la voisine), la retire pièce par pièce et décrit la visée ; `control/shaping.rs` donne les commandes
 `shape`, `rebuild`, `shaping`, `pieces`. L'icône d'une pile de pièces est dessinée avec les textures de son matériau
 (`item_art::piece_icon`, en cache par pièce et matériau).
 
@@ -133,7 +133,7 @@ dans la case visée (ou la voisine), la retire pièce par pièce et décrit la v
 
 Le principe est partout le même : un module **pur** (règles et données, testé sans fenêtre ni ECS) et un
 module de **jeu** qui l'observe et l'affiche. Les objets enrichis (affixes, gemmes, enchantements, usure)
-ont une **fiche** rangée dans `items.bin` (`item_data.rs`), désignée par un numéro dans l'objet.
+ont une **fiche** rangée dans `items.bin` (`player/item_data.rs`), désignée par un numéro dans l'objet.
 
 ## L'interface
 
@@ -141,26 +141,26 @@ ont une **fiche** rangée dans `items.bin` (`item_data.rs`), désignée par un n
 
 - **egui** dessine tout (`ui.rs`) : HUD (vie, faim, barre d'objets, effets, quêtes épinglées), écrans
   (inventaire, établi, four, conteneurs, enchantement, quêtes, guide, échanges), menus, inspecteur (F3).
-- **La peau** « terre, ardoise et cuivre » (`skin.rs`) : une palette et des cadres communs.
-- **Mise en page adaptative** (`ui_layout.rs`) : fenêtres bornées à l'écran, cases et colonnes qui
+- **La peau** « terre, ardoise et cuivre » (`ui/skin.rs`) : une palette et des cadres communs.
+- **Mise en page adaptative** (`ui/layout.rs`) : fenêtres bornées à l'écran, cases et colonnes qui
   s'adaptent jusqu'à 320 pixels de large.
-- **L'explorateur de recettes** (`recipe_browser.rs`), façon JEI : une liste de tous les objets à côté de
+- **L'explorateur de recettes** (`ui/recipe_browser.rs`), façon JEI : une liste de tous les objets à côté de
   l'inventaire ; R montre les recettes d'un objet, U ses usages (toutes les sortes de recettes ramenées à
   une forme commune par `RecipeIndex`).
-- **La fiche de visée** (`ui_target.rs`) : nom et origine du bloc ou de la créature visés, aperçu du
+- **La fiche de visée** (`ui/target.rs`) : nom et origine du bloc ou de la créature visés, aperçu du
   contenu d'un coffre.
-- **Les menus des mods** (`mod_menu.rs`) : le mod **décrit** son menu, le jeu le dessine.
+- **Les menus des mods** (`modding/menu.rs`) : le mod **décrit** son menu, le jeu le dessine.
 
 ## Le son
 
 `audio.rs` (avec `kira`) : sons des blocs (pas, casse, pose selon la matière), éclaboussures, coffres,
-ambiance jour/nuit, pluie, tonnerre ; `soundscape.rs` : une musique de temps en temps et des ambiances.
+ambiance jour/nuit, pluie, tonnerre ; `world/soundscape.rs` : une musique de temps en temps et des ambiances.
 Les sons sont joués **en réaction aux événements** (`BlockBroken`, `BlockPlaced`...), sans que le code qui
 casse les blocs les connaisse.
 
 ## La persistance
 
-`persistence.rs` décide **quand** sauvegarder (toutes les 30 secondes et à la fermeture) et ajoute l'état
+`world/persistence.rs` décide **quand** sauvegarder (toutes les 30 secondes et à la fermeture) et ajoute l'état
 du jeu (heure, joueurs, inventaires) à ce que le moteur écrit (chapitre 3). Chaque joueur a son fichier
 `players/<uuid>.ron` (l'identifiant du joueur local est tiré une fois dans `settings.ron`) ; l'hôte reste
 aussi écrit dans `world.ron`, et un monde sans dossier `players/` se relit depuis `world.ron`. Les options du joueur sont dans
@@ -192,7 +192,7 @@ cargo xtask ctl "mode fly" "goto 9 71 9" "place 8 70 14 core:chest[facing=north]
 commandes propres aux quêtes, à l'aventure, à l'enchantement et au stockage (`*_ctl.rs`). C'est ce qui
 permet de vérifier une fonctionnalité en jeu, capture à l'appui, sans toucher au clavier.
 
-**La console** (Entrée ou `/`) accepte des commandes en jeu ; **le rechargement à chaud** (`hot_reload.rs`)
+**La console** (Entrée ou `/`) accepte des commandes en jeu ; **le rechargement à chaud** (`server/hot_reload.rs`)
 relit shaders, textures, sons et `blocks.ron` dès qu'ils changent sur disque (F5 pour tout).
 
 [← La simulation](06-simulation.md) · [Sommaire](README.md) · [Les mods →](08-mods.md)

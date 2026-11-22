@@ -1,6 +1,6 @@
 //! Les wagons côté joueur : poser, monter, atteler, casser, ouvrir leur inventaire, et les
 //! blocs qui les servent (rails détecteurs, chargeurs et déchargeurs). La physique et le dessin
-//! sont dans `carts.rs`.
+//! sont dans `vehicles/carts.rs`.
 //!
 //! - **Clic droit** avec un wagon en main sur un rail : le pose. Sur un wagonnet : on s'y assoit
 //!   (Maj pour descendre). Sur un wagon coffre, trémie ou une locomotive : son inventaire.
@@ -11,8 +11,8 @@
 //! - **Chargeur et déchargeur** : un wagon coffre ou trémie arrêté sur un rail voisin est rempli
 //!   depuis le chargeur, ou vidé dans le déchargeur ; le bloc émet un signal quand il a fini
 //!   (pour relancer un rail accélérateur).
-//! - **Rails détecteurs** : le système de pas fixe de `carts.rs` range les changements, que
-//!   [`VoxelGame::update_cart_blocks`] applique aux machines.
+//! - **Rails détecteurs** : le système de pas fixe de `vehicles/carts.rs` range les changements,
+//!   que [`VoxelGame::update_cart_blocks`] applique aux machines.
 
 use crate::components::Transform;
 use crate::player::MoveMode;
@@ -67,7 +67,8 @@ pub fn stuck(from: &Inventory, to: &mut Inventory) -> bool {
 impl crate::server::VoxelServer {
     // (lot 4b) Méthodes du serveur.
     /// Déplace quelques objets entre le bloc `at` et le wagon (`load` : du bloc vers le wagon),
-    /// si `work` (le wagon est arrêté). Renvoie `true` quand il n'y a plus rien à déplacer : tout est passé, ou la destination est pleine.
+    /// si `work` (le wagon est arrêté). Renvoie `true` quand il n'y a plus rien à déplacer : tout
+    /// est passé, ou la destination est pleine.
     fn transfer(&mut self, cart: Entity, at: IVec3, load: bool, work: bool) -> bool {
         let mut streamer = self.streamer_mut();
         let Some(entity) = streamer.block_entity_mut(at) else {
@@ -107,8 +108,8 @@ impl crate::server::VoxelServer {
 
     /// Les chargeurs et déchargeurs voisins d'un wagon coffre ou trémie arrêté sur un rail.
     fn run_loaders(&mut self) {
-        // Un wagon à l'arrêt est chargé ; un wagon qui roule (qui repart) garde le signal tant qu'il
-        // est sur le rail voisin, pour que l'accélérateur finisse de le pousser.
+        // Un wagon à l'arrêt est chargé ; un wagon qui roule (qui repart) garde le signal tant
+        // qu'il est sur le rail voisin, pour que l'accélérateur finisse de le pousser.
         let mut present: Vec<(Entity, IVec3, bool)> = Vec::new();
         let mut hoppers: Vec<(Entity, IVec3)> = Vec::new();
         for entity in carts::all(&self.ecs) {
@@ -162,7 +163,8 @@ impl crate::server::VoxelServer {
         self.ecs.resource_mut::<CartSignals>().loaders = finished;
     }
 
-    /// À chaque pas fixe : les signaux des rails détecteurs, puis (de temps en temps) les chargeurs.
+    /// À chaque pas fixe : les signaux des rails détecteurs, puis (de temps en temps) les
+    /// chargeurs.
     pub fn update_cart_blocks(&mut self) {
         if self.ecs.get_resource::<CartSignals>().is_none() {
             return;

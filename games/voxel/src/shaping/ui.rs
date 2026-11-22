@@ -4,14 +4,15 @@
 //! contient revient dans l'inventaire (ou tombe à terre) à la fermeture de l'écran, comme pour
 //! l'établi ordinaire, donc rien ne se perd.
 //!
-//! - **Tailler** : n'importe quel cube plein (bois, pierres, verre, laine, minerais, blocs de mods : voir
-//!   `engine_voxel::shaped::is_shapeable`) donne, au choix, des pièces des vingt-trois formes de
-//!   `PieceKind`, rangées par familles dans une liste qui défile (couches, pentes, escaliers, panneaux, formes raccordées). Un clic taille un bloc, Maj + clic toute la pile. Un
+//! - **Tailler** : n'importe quel cube plein (bois, pierres, verre, laine, minerais, blocs de mods
+//!   : voir `engine_voxel::shaped::is_shapeable`) donne, au choix, des pièces des vingt-trois
+//!   formes de `PieceKind`, rangées par familles dans une liste qui défile (couches, pentes,
+//!   escaliers, panneaux, formes raccordées). Un clic taille un bloc, Maj + clic toute la pile. Un
 //!   bloc refusé dit pourquoi.
-//! - **Reconstituer** : quand la case contient assez de pièces d'un même matériau (16 couches, 2 dalles, 8
-//!   microblocs...), un bouton les rend en bloc plein.
+//! - **Reconstituer** : quand la case contient assez de pièces d'un même matériau (16 couches, 2
+//!   dalles, 8 microblocs...), un bouton les rend en bloc plein.
 //!
-//! Le matériau d'une pièce est un numéro de la palette du monde (voir `shape_materials.rs`).
+//! Le matériau d'une pièce est un numéro de la palette du monde (voir `shaping/materials.rs`).
 
 use engine_render::egui;
 use engine_voxel::shaped::{self, Family, PieceKind};
@@ -99,8 +100,8 @@ impl VoxelGame {
     }
 
     /// Les formes, rangées par familles, dessinées avec le matériau, chacune avec son rendement. La
-    /// liste défile quand la fenêtre est petite : les entrées passent à la ligne, donc 320 px de large
-    /// suffisent.
+    /// liste défile quand la fenêtre est petite : les entrées passent à la ligne, donc 320 px de
+    /// large suffisent.
     fn shape_buttons(&mut self, ui: &mut egui::Ui, material: &str) {
         let number = shaping::materials::number_of(material);
         let height = (crate::ui::layout::safe_rect(ui.ctx()).height() * 0.42).clamp(120.0, 420.0);

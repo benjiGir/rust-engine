@@ -1,7 +1,7 @@
 //! L'équipement du joueur vu comme des attributs : ce module rassemble les sources (objet en
 //! main, armure portée, potions), garde les [`Attributes`] calculés, et les branche dans le jeu
 //! (combat, armure, minage, marche, butin, portée, expérience). Les formules sont dans
-//! `attributes.rs` (pur et testé) ; ici, le lien avec l'inventaire et le monde.
+//! `player/attributes.rs` (pur et testé) ; ici, le lien avec l'inventaire et le monde.
 //!
 //! # Quand on recalcule
 //!
@@ -19,10 +19,10 @@
 //! - **Armure portée** : les points de protection de chaque pièce, les effets de ses enchantements
 //!   « portés » (Protection, Épines, Légèreté, Vivacité...) et les affixes de sa fiche ;
 //! - **Potions** : Force (dégâts en plus), Vitesse (marche en plus). Régénération et Soin gardent
-//!   leur propre mécanique (voir `potions.rs`).
+//!   leur propre mécanique (voir `player/potions.rs`).
 //!
 //! Les gemmes serties dans les emplacements de la fiche ajoutent leurs bonus au même endroit (voir
-//! `gems.rs`) ; leur effet dépend de la catégorie de l'objet qui les porte.
+//! `adventure/gems.rs`) ; leur effet dépend de la catégorie de l'objet qui les porte.
 
 use std::hash::{Hash, Hasher};
 

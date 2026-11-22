@@ -1,7 +1,8 @@
-//! L'établi de taille et les icônes génériques des vingt-trois pièces (couche, dalle, pentes, microbloc,
-//! grain, escalier, marche, poutre, tranches, panneaux, planchette, muret, barrière, portillon, vitres). Dans le jeu, une pile de pièces est dessinée avec les textures de son matériau
-//! (voir `item_art.rs`) : ces icônes ne servent que là où aucun matériau n'est connu (les recettes, les
-//! guides).
+//! L'établi de taille et les icônes génériques des vingt-trois pièces (couche, dalle, pentes,
+//! microbloc, grain, escalier, marche, poutre, tranches, panneaux, planchette, muret, barrière,
+//! portillon, vitres). Dans le jeu, une pile de pièces est dessinée avec les textures de son
+//! matériau (voir `render/item_art.rs`) : ces icônes ne servent que là où aucun matériau n'est
+//! connu (les recettes, les guides).
 
 use std::path::{Path, PathBuf};
 
@@ -47,7 +48,8 @@ fn table(top: bool) -> Image {
     image
 }
 
-/// Un pictogramme : des rectangles de pierre sur fond transparent, clairs dessus et sombres dessous.
+/// Un pictogramme : des rectangles de pierre sur fond transparent, clairs dessus et sombres
+/// dessous.
 fn piece(kind: &str) -> Image {
     let mut image = Image::transparent();
     let light = scale(PIECE, 1.15);

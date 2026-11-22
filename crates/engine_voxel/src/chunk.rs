@@ -59,7 +59,7 @@ pub struct Chunk {
     /// de la graine).
     biomes: Vec<u8>,
     /// La quantité de fluide des cellules qui ne sont pas des « réservoirs » pleins
-    /// (voir `fluid_sim.rs`), par position ([`Chunk::index`]), en 4096e de bloc.
+    /// (voir `fluids/sim.rs`), par position ([`Chunk::index`]), en 4096e de bloc.
     /// Un bloc de fluide absent de cette table est un réservoir : plein et stable.
     fluids: HashMap<u16, u16>,
 }

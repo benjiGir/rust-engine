@@ -15,8 +15,8 @@ Fichiers :
 | `assets/core/worldgen/surface_v3.ron` | les règles de surface : quel matériau sur le sol du dessus |
 | `assets/core/biomes.ron`, `ores.ron`, `structures.ron` | les biomes (couleurs, plantes, arbres), minerais, structures |
 | `crates/engine_voxel/src/density_graph/` | le moteur de densité : bruits, description RON, graphe compilé |
-| `crates/engine_voxel/src/generator/v3.rs`, `v3_rules.rs` | la génération d'un chunk v3 |
-| `crates/engine_voxel/src/generator/{features,structures}.rs`, `trees.rs` | végétation, arbres, structures |
+| `crates/engine_voxel/src/worldgen/generator/v3.rs`, `v3_rules.rs` | la génération d'un chunk v3 |
+| `crates/engine_voxel/src/generator/{features,structures}.rs`, `worldgen/trees.rs` | végétation, arbres, structures |
 
 ## L'idée : une densité en chaque point
 
@@ -248,7 +248,7 @@ Un arbre près d'un bord déborde sur le chunk voisin, et chaque chunk se génè
    dépendent que du chunk (un tronc remplace l'air et les feuilles ; des feuilles ne remplacent que l'air).
 
 Bosquets et clairières : un bruit lent module la probabilité (forte dans les bosquets, faible ailleurs, même
-moyenne), avec un écart minimal entre arbres. Les essences (`trees.rs`) sont des fonctions qui énumèrent
+moyenne), avec un écart minimal entre arbres. Les essences (`worldgen/trees.rs`) sont des fonctions qui énumèrent
 leurs blocs à partir de la base et d'un générateur pseudo-aléatoire : la même fonction sert à la génération
 et aux pousses qui grandissent. Les mondes v3 ont des arbres plus grands (`TreeBlocks::tall`).
 

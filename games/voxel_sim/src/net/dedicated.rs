@@ -1,11 +1,12 @@
 //! Le serveur dédié : `voxel --server` fait tourner un monde sans fenêtre, ouvert au réseau local.
 //!
 //! Il lit `server.ron` à la racine du projet (ou le fichier que nomme `VOXEL_SERVER_CONFIG`), créé
-//! avec les valeurs par défaut s'il manque : le monde (un dossier de `saves/`), le port, le nombre de joueurs, la distance de vue, la liste
-//! blanche, les opérateurs. Le serveur garde le joueur « hôte » que tout `VoxelServer` a, mais
-//! caché (`Hidden`) : ni vu, ni visé, ni sauvegardé. La boucle fait ce que fait la fenêtre de
-//! l'hôte (réseau, image, pas fixes à 60 Hz, envois, sauvegarde automatique), et une console lit
-//! l'entrée standard : `list`, `say`, `kick`, `save`, `stop`.
+//! avec les valeurs par défaut s'il manque : le monde (un dossier de `saves/`), le port, le nombre
+//! de joueurs, la distance de vue, la liste blanche, les opérateurs. Le serveur garde le joueur «
+//! hôte » que tout `VoxelServer` a, mais caché (`Hidden`) : ni vu, ni visé, ni sauvegardé. La
+//! boucle fait ce que fait la fenêtre de l'hôte (réseau, image, pas fixes à 60 Hz, envois,
+//! sauvegarde automatique), et une console lit l'entrée standard : `list`, `say`, `kick`, `save`,
+//! `stop`.
 //!
 //! Le binaire lie encore les bibliothèques d'affichage : la simulation sortira dans sa propre crate
 //! plus tard. `stop`, la fin de l'entrée standard ou Ctrl+C (et SIGTERM) font partir les joueurs,
@@ -45,7 +46,7 @@ pub struct ServerConfig {
     pub view_distance: i32,
     /// Les noms admis (vide : tout le monde).
     pub whitelist: Vec<String>,
-    /// Les joueurs qui peuvent taper des commandes de jeu (voir `server_commands.rs`).
+    /// Les joueurs qui peuvent taper des commandes de jeu (voir `server/commands.rs`).
     pub operators: Vec<String>,
 }
 
@@ -115,7 +116,8 @@ pub fn parse_console(line: &str) -> Option<Result<ConsoleCommand, String>> {
 }
 
 impl VoxelServer {
-    /// Le joueur « hôte » d'un serveur dédié n'est personne : caché, porté par rien, jamais sauvegardé.
+    /// Le joueur « hôte » d'un serveur dédié n'est personne : caché, porté par rien, jamais
+    /// sauvegardé.
     pub fn hide_local(&mut self) {
         let entity = self.players.entity();
         self.ecs.insert(entity, crate::components::Hidden);
@@ -177,8 +179,9 @@ fn tick_report(ticks: &mut Vec<Duration>, seconds: f32, players: usize) -> Strin
 
 /// Lance le serveur dédié et le fait tourner jusqu'à `stop`.
 /// La boucle d'un serveur sans fenêtre : réseau, image, pas fixes à 60 Hz, envois, sauvegarde
-/// automatique, et les lignes de `lines` (console ; `None` ou `stop` arrêtent). À l'arrêt, les joueurs
-/// partent (sauvegardés) et le monde est sauvegardé. `report_ticks` : écrire les mesures des ticks.
+/// automatique, et les lignes de `lines` (console ; `None` ou `stop` arrêtent). À l'arrêt, les
+/// joueurs partent (sauvegardés) et le monde est sauvegardé. `report_ticks` : écrire les mesures
+/// des ticks.
 fn serve(server: &mut VoxelServer, lines: &mpsc::Receiver<Option<String>>, report_ticks: bool) {
     let mut last = Instant::now();
     let mut lag = 0.0f32;
@@ -305,8 +308,8 @@ pub fn run() -> Result<()> {
 }
 
 /// Un serveur intégré : le monde tourne dans son propre thread, et la fenêtre le rejoint comme un
-/// invité, sur la boucle locale (`VOXEL_SERVER_THREAD=1`, voir le jeu). Le lâcher l'arrête et attend la
-/// sauvegarde.
+/// invité, sur la boucle locale (`VOXEL_SERVER_THREAD=1`, voir le jeu). Le lâcher l'arrête et
+/// attend la sauvegarde.
 pub struct Integrated {
     /// Le port de la boucle locale où d'autres clients peuvent le rejoindre (les tests).
     pub port: u16,
@@ -332,8 +335,8 @@ impl Drop for Integrated {
     }
 }
 
-/// Construit le monde `world` dans un thread à lui (le serveur ne change jamais de thread : il y est
-/// construit) et l'y fait tourner. `owner` (le joueur de la fenêtre) y est opérateur.
+/// Construit le monde `world` dans un thread à lui (le serveur ne change jamais de thread : il y
+/// est construit) et l'y fait tourner. `owner` (le joueur de la fenêtre) y est opérateur.
 pub fn spawn_integrated(
     world: std::path::PathBuf,
     settings: &crate::settings::Settings,
@@ -341,8 +344,8 @@ pub fn spawn_integrated(
     owner_uuid: u128,
 ) -> Result<Integrated> {
     let mut settings = settings.clone();
-    // Le joueur « hôte » du serveur est caché : il ne porte pas l'identifiant du joueur de la fenêtre,
-    // qui le rejoint comme un invité et retrouve son propre fichier.
+    // Le joueur « hôte » du serveur est caché : il ne porte pas l'identifiant du joueur de la
+    // fenêtre, qui le rejoint comme un invité et retrouve son propre fichier.
     settings.player_name = "Serveur".into();
     settings.player_uuid = crate::player::players::uuid_name(0);
     let owner = owner.to_string();

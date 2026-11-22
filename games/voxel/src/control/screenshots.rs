@@ -49,7 +49,7 @@ enum Scene {
     /// L'échange avec un habitant (un fermier), de l'or et du blé dans l'inventaire.
     Trade,
     /// Les formes : une rangée de pièces taillées dans le monde, puis l'écran de l'établi de taille
-    /// (voir `shapes_scene.rs`).
+    /// (voir `control/shapes_scene.rs`).
     Shapes,
     ShapingTable,
     Inspector,
@@ -1223,8 +1223,8 @@ impl VoxelGame {
         IVec3::new(0, (self.ground(0, 0) - 20).max(SEA_LEVEL - 30), 0)
     }
 
-    /// Un point d'une grotte du biome souterrain `key` (en coordonnées de scène) : de l'air sur un sol,
-    /// avec de la place au-dessus et autour, pour voir la salle.
+    /// Un point d'une grotte du biome souterrain `key` (en coordonnées de scène) : de l'air sur un
+    /// sol, avec de la place au-dessus et autour, pour voir la salle.
     fn find_cave_biome(&self, key: &str) -> Option<IVec3> {
         let o = self.origin();
         let streamer = self.server.streamer();
@@ -1257,8 +1257,8 @@ impl VoxelGame {
                         continue;
                     };
                     let base = chunk_pos * 32;
-                    // L'air le plus dégagé du chunk : un sol dessous, 4 blocs libres au-dessus, et de
-                    // l'air à 3 blocs dans les quatre directions.
+                    // L'air le plus dégagé du chunk : un sol dessous, 4 blocs libres au-dessus, et
+                    // de l'air à 3 blocs dans les quatre directions.
                     let spot = (2..26).find_map(|ly| {
                         (3..29).find_map(|lz| {
                             (3..29).find_map(|lx| {

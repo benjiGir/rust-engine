@@ -30,9 +30,9 @@
 //! `Renderer::add_mesh_scaled`). Entre deux niveaux, des **jupes** (des bandes verticales sous
 //! les bords) cachent les fentes.
 //!
-//! Ce que le joueur a construit ou creusé hors du rayon des chunks y apparaît aussi : les chunks modifiés
-//! laissent un résumé de leur sol (voir `edited_surface.rs`), que les tuiles préfèrent au générateur et qui
-//! les fait reconstruire sur place.
+//! Ce que le joueur a construit ou creusé hors du rayon des chunks y apparaît aussi : les chunks
+//! modifiés laissent un résumé de leur sol (voir `edited_surface.rs`), que les tuiles préfèrent au
+//! générateur et qui les fait reconstruire sur place.
 //!
 //! # En tâche de fond
 //!
@@ -45,14 +45,15 @@
 //! Le terrain lointain partage les cœurs avec le pool des chunks détaillés ; ce sont eux qui
 //! comptent. Le jeu dit au streamer combien de tuiles il peut construire à la fois
 //! ([`FarStreamer::set_allowance`], calculé par [`far_allowance`] d'après la file des chunks
-//! proches) : de tous ses threads quand tout est calme à zéro pendant un gros chargement. Les demandes ne partent
-//! qu'au compte-gouttes (deux par thread autorisé) et dans l'ordre de la distance, recalculées à
-//! chaque image : une tuile devenue inutile avant son départ est abandonnée sans avoir coûté.
+//! proches) : de tous ses threads quand tout est calme à zéro pendant un gros chargement. Les
+//! demandes ne partent qu'au compte-gouttes (deux par thread autorisé) et dans l'ordre de la
+//! distance, recalculées à chaque image : une tuile devenue inutile avant son départ est abandonnée
+//! sans avoir coûté.
 //!
-//! Les changements de chaque région forment un **lot** (retraits et ajouts ensemble) livré d'un bloc,
-//! du plus proche au plus lointain, sous le même budget d'envoi que les chunks (voir `transfer.rs`) :
-//! pas de trou ni de double surface entre un retrait et son remplacement, même étalés sur plusieurs
-//! images.
+//! Les changements de chaque région forment un **lot** (retraits et ajouts ensemble) livré d'un
+//! bloc, du plus proche au plus lointain, sous le même budget d'envoi que les chunks (voir
+//! `streaming/transfer.rs`) : pas de trou ni de double surface entre un retrait et son
+//! remplacement, même étalés sur plusieurs images.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -140,7 +141,8 @@ pub fn select_tiles(camera: Vec3, config: FarConfig) -> Vec<FarTile> {
 /// Écart de l'hystérésis : une tuile montrée reste grossière jusqu'à `LOD_FACTOR × 0,85` fois sa
 /// taille, une tuile dont des détails sont montrés ne redevient grossière qu'à `× 1,15`.
 const HYSTERESIS: f32 = 0.15;
-/// Marge (en chunks) du bord extérieur : une tuile montrée n'est retirée que `FAR_MARGIN` chunks plus loin.
+/// Marge (en chunks) du bord extérieur : une tuile montrée n'est retirée que `FAR_MARGIN` chunks
+/// plus loin.
 const FAR_MARGIN: f32 = 2.0;
 
 /// Comme [`select_tiles`], avec de l'hystérésis : un joueur qui hésite autour de la distance de
@@ -293,7 +295,7 @@ impl FarMesh {
         self.indices.is_empty() && self.translucent_indices.is_empty()
     }
 
-    /// Ce que le GPU recevra pour cette tuile, en octets (voir `transfer.rs`).
+    /// Ce que le GPU recevra pour cette tuile, en octets (voir `streaming/transfer.rs`).
     pub fn byte_size(&self) -> usize {
         self.vertices.len() * std::mem::size_of::<MeshVertex>()
             + (self.indices.len() + self.translucent_indices.len()) * std::mem::size_of::<u32>()
@@ -402,7 +404,8 @@ pub fn build_tile(generator: &TerrainGenerator, tile: FarTile) -> FarMesh {
     build_tile_with(generator, tile, None)
 }
 
-/// Teinte de diagnostic du terrain lointain : rend visibles ses niveaux et l'origine de chaque cellule.
+/// Teinte de diagnostic du terrain lointain : rend visibles ses niveaux et l'origine de chaque
+/// cellule.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FarDebug {
     /// Les vraies couleurs.
@@ -410,7 +413,8 @@ pub enum FarDebug {
     Off,
     /// Une couleur par niveau de détail (0 rouge, 1 orange, 2 jaune, 3 vert, 4 bleu).
     Levels,
-    /// Magenta : le sol vient d'un chunk modifié (observé) ; gris délavé : estimé par le générateur.
+    /// Magenta : le sol vient d'un chunk modifié (observé) ; gris délavé : estimé par le
+    /// générateur.
     Sources,
 }
 
@@ -507,9 +511,10 @@ pub fn build_tile_debug(
         }
     }
     // Les sommets tiennent de -8 à 56 unités locales (voir `MeshVertex`). L'unité est l'écart des
-    // échantillons ; quand le relief de la tuile ne tient pas (plus de 110 blocs de dénivelé au niveau
-    // le plus fin, courant dans les massifs v3), l'unité double (sur les trois axes : la tuile garde
-    // ses proportions, seules les coordonnées locales changent) jusqu'à ce qu'il tienne.
+    // échantillons ; quand le relief de la tuile ne tient pas (plus de 110 blocs de dénivelé au
+    // niveau le plus fin, courant dans les massifs v3), l'unité double (sur les trois axes : la
+    // tuile garde ses proportions, seules les coordonnées locales changent) jusqu'à ce qu'il
+    // tienne.
     let mut unit = 1.0f32;
     while (top - min_h) / (spacing * unit) + 4.0 > 54.0 && unit < 16.0 {
         unit *= 2.0;
@@ -586,7 +591,8 @@ pub fn build_tile_debug(
     skirt_strip(&|k| (0, k), Vec3::NEG_X);
     skirt_strip(&|k| (CELLS, k), Vec3::X);
 
-    // Les arbres et les bâtiments des tuiles fines : des volumes simples (voir `far_props.rs`).
+    // Les arbres et les bâtiments des tuiles fines : des volumes simples (voir
+    // `worldgen/far_props.rs`).
     {
         let (ox, oz) = (ox as f32, oz as f32);
         let local = |x: f32, y: f32, z: f32| {
@@ -677,11 +683,11 @@ pub struct FarStats {
     pub waiting_bytes: usize,
 }
 
-/// Combien de tuiles le terrain lointain peut construire à la fois, d'après le travail de chargement
-/// des chunks proches ([`StreamStats::backlog`](crate::StreamStats::backlog)) : tous ses threads quand
-/// tout est calme (jusqu'à 300), un seul pendant un chargement soutenu (jusqu'à 1 500), aucun pendant
-/// un gros chargement (démarrage, téléportation) : les tâches en cours finissent, rien ne repart. Ne
-/// croît jamais avec la charge.
+/// Combien de tuiles le terrain lointain peut construire à la fois, d'après le travail de
+/// chargement des chunks proches ([`StreamStats::backlog`](crate::StreamStats::backlog)) : tous ses
+/// threads quand tout est calme (jusqu'à 300), un seul pendant un chargement soutenu (jusqu'à 1
+/// 500), aucun pendant un gros chargement (démarrage, téléportation) : les tâches en cours
+/// finissent, rien ne repart. Ne croît jamais avec la charge.
 pub fn far_allowance(backlog: usize, threads: usize) -> usize {
     if backlog <= 300 {
         threads
@@ -822,8 +828,8 @@ impl FarStreamer {
         self.shown.iter().copied()
     }
 
-    /// À appeler à chaque image avec la position de la caméra (en blocs) : tout ce qui est prêt, sans
-    /// budget. Le jeu préfère [`FarStreamer::refresh`] puis [`FarStreamer::next_batch`].
+    /// À appeler à chaque image avec la position de la caméra (en blocs) : tout ce qui est prêt,
+    /// sans budget. Le jeu préfère [`FarStreamer::refresh`] puis [`FarStreamer::next_batch`].
     pub fn update(&mut self, camera: Vec3) -> Vec<FarEvent> {
         self.refresh(camera);
         self.outbox
@@ -832,10 +838,10 @@ impl FarStreamer {
             .collect()
     }
 
-    /// Le prochain lot de changements (retraits et ajouts d'une région, à envoyer d'un bloc) qui tient
-    /// dans `budget`, ou `None`. Un lot n'est jamais coupé : le premier de l'image passe même s'il
-    /// dépasse le budget (voir `transfer.rs`), et un lot sans ajout (que des retraits) est gratuit. Le
-    /// jeu note ensuite chaque envoi dans le budget.
+    /// Le prochain lot de changements (retraits et ajouts d'une région, à envoyer d'un bloc) qui
+    /// tient dans `budget`, ou `None`. Un lot n'est jamais coupé : le premier de l'image passe même
+    /// s'il dépasse le budget (voir `streaming/transfer.rs`), et un lot sans ajout (que des
+    /// retraits) est gratuit. Le jeu note ensuite chaque envoi dans le budget.
     pub fn next_batch(&mut self, budget: &TransferBudget) -> Option<Vec<FarEvent>> {
         let bytes: usize = self
             .outbox
@@ -901,9 +907,9 @@ impl FarStreamer {
         missing.sort_by(|a, b| a.0.total_cmp(&b.0));
         rebuild.sort_by(|a, b| a.0.total_cmp(&b.0));
         missing.extend(rebuild);
-        // Au compte-gouttes : deux demandes par thread autorisé (une qui tourne, une qui attend), les
-        // plus proches d'abord. Le reste est recalculé à la prochaine image avec la caméra de ce
-        // moment : une tuile devenue inutile avant son départ n'aura rien coûté.
+        // Au compte-gouttes : deux demandes par thread autorisé (une qui tourne, une qui attend),
+        // les plus proches d'abord. Le reste est recalculé à la prochaine image avec la caméra de
+        // ce moment : une tuile devenue inutile avant son départ n'aura rien coûté.
         let window = self.allowance * 2;
         let slots = window.saturating_sub(self.pending.len());
         if let Some(tx) = &self.requests {
@@ -1071,16 +1077,17 @@ mod tests {
         count
     }
 
-    /// Un joueur qui hésite autour d'une distance de bascule fait changer les tuiles à chaque pas sans
-    /// hystérésis ; avec, une fois suffit. Les tuiles choisies couvrent toujours l'anneau une fois.
+    /// Un joueur qui hésite autour d'une distance de bascule fait changer les tuiles à chaque pas
+    /// sans hystérésis ; avec, une fois suffit. Les tuiles choisies couvrent toujours l'anneau une
+    /// fois.
     #[test]
     fn hysteresis_stops_the_levels_from_flickering_near_a_threshold() {
         let config = config();
         let at = |x: f32| Vec3::new(x, 80.0, 0.0);
         // Le premier endroit où la sélection change quand on avance.
         let mut threshold = None;
-        // Les tuiles fines suivent le bord du rayon détaillé avec la caméra : ce n'est pas une bascule
-        // de niveau, on les met de côté.
+        // Les tuiles fines suivent le bord du rayon détaillé avec la caméra : ce n'est pas une
+        // bascule de niveau, on les met de côté.
         let coarse = |tiles: Vec<FarTile>| -> Vec<FarTile> {
             tiles.into_iter().filter(|t| t.level > 0).collect()
         };
@@ -1459,7 +1466,8 @@ mod tests {
             stats.waiting_batches > 1 && stats.waiting_bytes > 0,
             "{stats:?}"
         );
-        // Un budget d'un octet : un lot par image, du plus proche au plus lointain ; rien n'est coupé.
+        // Un budget d'un octet : un lot par image, du plus proche au plus lointain ; rien n'est
+        // coupé.
         let center = Vec2::new(camera.x / 32.0, camera.z / 32.0);
         let mut frames = 0;
         let mut last = 0.0f32;
@@ -1506,8 +1514,8 @@ mod tests {
         assert!(frames > 1);
     }
 
-    /// Une longue marche (8 km) : les tuiles montrées et la mémoire de leurs maillages restent bornées,
-    /// rien ne s'accumule dans les files du streamer.
+    /// Une longue marche (8 km) : les tuiles montrées et la mémoire de leurs maillages restent
+    /// bornées, rien ne s'accumule dans les files du streamer.
     #[test]
     fn a_long_walk_keeps_tiles_memory_and_queues_bounded() {
         let generator = Arc::new(TerrainGenerator::new(11));
@@ -1555,7 +1563,8 @@ mod tests {
             max_bytes <= bytes0 * 3 / 2,
             "octets : {max_bytes} contre {bytes0} au départ"
         );
-        // Au pire (le remplissage initial), les files tiennent dans le nombre de tuiles de l'anneau.
+        // Au pire (le remplissage initial), les files tiennent dans le nombre de tuiles de
+        // l'anneau.
         assert!(
             max_queued <= max_tiles,
             "files : {max_queued} pour {max_tiles} tuiles"
@@ -1602,9 +1611,9 @@ mod tests {
         streamer.outbox.clear(); // le premier remplissage n'est pas ce qu'on regarde
         camera.x += 1_500.0;
         settle(&mut streamer, camera);
-        // Chaque lot qui retire des tuiles d'une région y en ajoute aussitôt : un remplacement, jamais un
-        // trou. (Les régions qui sortent du rayon n'ont que des retraits ; celles qui entrent, que des
-        // ajouts ; les autres changent de niveau d'un bloc.)
+        // Chaque lot qui retire des tuiles d'une région y en ajoute aussitôt : un remplacement,
+        // jamais un trou. (Les régions qui sortent du rayon n'ont que des retraits ; celles qui
+        // entrent, que des ajouts ; les autres changent de niveau d'un bloc.)
         let mut replacements = 0;
         for (_, batch) in &streamer.outbox {
             let removes = batch
@@ -1617,7 +1626,8 @@ mod tests {
                 .count();
             if removes > 0 && adds > 0 {
                 replacements += 1;
-                // Les retraits d'abord : jamais deux niveaux superposés si le jeu applique dans l'ordre.
+                // Les retraits d'abord : jamais deux niveaux superposés si le jeu applique dans
+                // l'ordre.
                 let first_add = batch
                     .iter()
                     .position(|e| matches!(e, FarEvent::Add(..)))

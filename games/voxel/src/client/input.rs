@@ -1,8 +1,8 @@
 //! Le côté qui lit les entrées : la souris, les touches de la barre d'objets, manger, jeter.
 //!
 //! Cette chaîne ne touche jamais au monde. Elle lit les boutons et fabrique des intentions
-//! (`protocol.rs`) dans `self.outbox` ; `update` vide la file à la fin de la chaîne, dans la même
-//! image : le simulateur (`intents.rs`) les applique sans aucun délai.
+//! (`net/protocol.rs`) dans `self.outbox` ; `update` vide la file à la fin de la chaîne, dans la
+//! même image : le simulateur (`server/intents.rs`) les applique sans aucun délai.
 //!
 //! Ce qui reste ici, du côté client, est ce que le joueur ressent tout de suite : la fissure qui
 //! avance, le bras qui frappe, le son d'un coup. Le minage est **prédit** : la fissure grandit
@@ -140,8 +140,8 @@ impl VoxelGame {
         }
     }
 
-    /// F2 : une capture de l'écran, interface comprise, dans `screenshots/` (nommée d'après la date,
-    /// en temps universel).
+    /// F2 : une capture de l'écran, interface comprise, dans `screenshots/` (nommée d'après la
+    /// date, en temps universel).
     fn take_screenshot(&mut self, ctx: &Context) {
         let size = ctx.window.inner_size();
         let (width, height) = (size.width.max(16), size.height.max(16));
@@ -179,8 +179,8 @@ impl VoxelGame {
     /// `click_used` : le clic de cette image a servi à autre chose (capturer la souris, un écran
     /// ouvert) ; il ne casse ni ne pose rien.
     pub(crate) fn play_input(&mut self, ctx: &Context, dt: f32, click_used: bool) {
-        // Le bloc visé, depuis la caméra de la dernière image, dans le monde que voit la fenêtre (la
-        // réplique) : le serveur refait lui-même son lancer de rayon dans `handle`.
+        // Le bloc visé, depuis la caméra de la dernière image, dans le monde que voit la fenêtre
+        // (la réplique) : le serveur refait lui-même son lancer de rayon dans `handle`.
         let target = raycast(
             self.view_world(),
             self.client.camera.position,
@@ -215,7 +215,8 @@ impl VoxelGame {
             if left_pressed {
                 self.press_attack(dt);
             }
-            // Rien à frapper ni à casser : le bras donne un coup dans le vide, tant que le bouton est tenu.
+            // Rien à frapper ni à casser : le bras donne un coup dans le vide, tant que le bouton
+            // est tenu.
             self.client.air_swing = mining && self.client.mining.is_none();
             // Un clic droit : une porte, un lit, un conteneur, sinon poser.
             if right_pressed {
@@ -236,8 +237,8 @@ impl VoxelGame {
     }
 
     /// Le bouton gauche vient d'être pressé : une créature ou un wagon devant le bloc visé est
-    /// frappé, sinon on commence à casser. La cible est choisie dans la réplique des entités (ce que
-    /// le joueur voit) ; le simulateur revérifie.
+    /// frappé, sinon on commence à casser. La cible est choisie dans la réplique des entités (ce
+    /// que le joueur voit) ; le simulateur revérifie.
     fn press_attack(&mut self, dt: f32) {
         let message_aim = self.window_aim();
         if let Some(id) = self.window_entity() {
@@ -245,7 +246,8 @@ impl VoxelGame {
                 aim: message_aim,
                 entity: id,
             });
-            // Les retours immédiats restent ici : le bras frappe, le coup résonne (sur une créature).
+            // Les retours immédiats restent ici : le bras frappe, le coup résonne (sur une
+            // créature).
             let mob = self.client.view.entities.get(id).is_some_and(|view| {
                 matches!(view.kind, voxel_sim::net::entities::EntityKind::Mob { .. })
             });

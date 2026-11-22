@@ -2,10 +2,11 @@
 //! fond deviennent des maillages GPU, dessinés avec les chunks détaillés.
 //!
 //! Les changements arrivent par lots (une région change de niveau d'un coup) : le jeu les envoie
-//! avec ce qui reste du budget d'envoi de l'image (voir `stream_upload.rs`), un lot entier à la fois,
-//! du plus proche au plus lointain. Les maillages sont toujours candidats au dessin : le frustum du
-//! renderer écarte ce qui est hors de vue. Le terrain lointain se fait discret pendant un gros
-//! chargement de chunks proches : `update_far` règle son allocation d'après leur file d'attente.
+//! avec ce qui reste du budget d'envoi de l'image (voir `client/stream_upload.rs`), un lot entier à
+//! la fois, du plus proche au plus lointain. Les maillages sont toujours candidats au dessin : le
+//! frustum du renderer écarte ce qui est hors de vue. Le terrain lointain se fait discret pendant
+//! un gros chargement de chunks proches : `update_far` règle son allocation d'après leur file
+//! d'attente.
 
 use std::collections::HashMap;
 
@@ -26,8 +27,8 @@ pub struct FarTerrain {
 impl FarTerrain {
     /// `near_radius` : le rayon des chunks détaillés ; `far_radius` : jusqu'où on va.
     pub fn new(chunks: &ChunkStreamer, near_radius: i32, far_radius: i32) -> Self {
-        // Peu de threads : le terrain lointain ne doit pas gêner les chunks (et il se met en veilleuse
-        // pendant un gros chargement : voir `update_far`).
+        // Peu de threads : le terrain lointain ne doit pas gêner les chunks (et il se met en
+        // veilleuse pendant un gros chargement : voir `update_far`).
         let threads = 2;
         let streamer = FarStreamer::with_debug(
             chunks.generator_arc(),
@@ -72,7 +73,8 @@ impl FarTerrain {
         self.streamer.stats().waiting_batches > 0
     }
 
-    /// Envoie un lot au GPU et note chaque envoi dans le budget. Renvoie le nombre de tuiles ajoutées.
+    /// Envoie un lot au GPU et note chaque envoi dans le budget. Renvoie le nombre de tuiles
+    /// ajoutées.
     pub fn apply(
         &mut self,
         renderer: &mut Renderer,
@@ -118,10 +120,10 @@ impl FarTerrain {
 }
 
 impl VoxelGame {
-    /// À chaque image : règle l'allocation du terrain lointain d'après le travail des chunks proches
-    /// (tous ses threads au calme, un seul pendant un chargement soutenu, aucun pendant un gros), puis
-    /// met à jour les tuiles voulues autour de la caméra. L'envoi au GPU se fait avec celui des chunks
-    /// (voir `stream_upload.rs`).
+    /// À chaque image : règle l'allocation du terrain lointain d'après le travail des chunks
+    /// proches (tous ses threads au calme, un seul pendant un chargement soutenu, aucun pendant un
+    /// gros), puis met à jour les tuiles voulues autour de la caméra. L'envoi au GPU se fait avec
+    /// celui des chunks (voir `client/stream_upload.rs`).
     pub(crate) fn update_far(&mut self, eye: Vec3) {
         let backlog = self.stream_stats().backlog();
         let Some(far) = &mut self.client.far else {

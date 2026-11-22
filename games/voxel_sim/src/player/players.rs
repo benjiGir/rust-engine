@@ -60,12 +60,12 @@ pub struct PlayerState {
     /// L'air, le feu, la chute : ce qui le blesse.
     pub vitals: Vitals,
     pub hunger: Hunger,
-    /// Ses attributs, calculés depuis son équipement (voir `gear.rs`).
+    /// Ses attributs, calculés depuis son équipement (voir `player/gear.rs`).
     pub gear: Gear,
     pub effects: Effects,
     /// Le palier d'aventure et la progression du joueur (voir `adventure.rs`).
     pub adventure: Adventure,
-    /// Le livre de quêtes et sa progression (voir `quest_play.rs`).
+    /// Le livre de quêtes et sa progression (voir `quests/play.rs`).
     pub quest_book: QuestBook,
     pub experience: Experience,
     /// Le lit où réapparaître, s'il y en a un.
@@ -83,30 +83,32 @@ pub struct PlayerState {
     /// Son orientation (`ClientMsg::Look`), pour la sauvegarde.
     pub yaw: f32,
     pub pitch: f32,
-    /// Le menu de mod ouvert par ce joueur (voir `mod_menu.rs`).
+    /// Le menu de mod ouvert par ce joueur (voir `modding/menu.rs`).
     pub mod_menu: Option<crate::modding::menu::OpenModMenu>,
     /// Le conteneur ouvert par ce joueur (coffre, four, sac, wagon) : les clics de cases ne valent
-    /// que pour lui (voir `intents.rs`).
+    /// que pour lui (voir `server/intents.rs`).
     pub open: Option<OpenContainer>,
     /// Le minage que le simulateur a vu commencer, et son avancement théorique (le contrôle du
     /// message `Dig Finish`).
     pub dig: Option<DigState>,
-    /// Le dernier mouvement accepté, pour contrôler le suivant (voir `movement.rs`).
+    /// Le dernier mouvement accepté, pour contrôler le suivant (voir `player/movement.rs`).
     pub last_move: Option<crate::player::movement::MoveSample>,
-    /// Les pieds sur lesquels le serveur et la fenêtre de ce joueur sont d'accord (le dernier `Move`
-    /// rangé, ou le dernier `Correct`) : ailleurs, c'est que le serveur l'a déplacé (voir
-    /// `predicted.rs`). `None` : le premier `Move` fera foi.
+    /// Les pieds sur lesquels le serveur et la fenêtre de ce joueur sont d'accord (le dernier
+    /// `Move` rangé, ou le dernier `Correct`) : ailleurs, c'est que le serveur l'a déplacé (voir
+    /// `net/predicted.rs`). `None` : le premier `Move` fera foi.
     pub synced: Option<glam::Vec3>,
     /// Le dernier `Correct` disait le joueur porté (wagon, structure).
     pub carried: bool,
-    /// Un joueur du serveur sans fenêtre (`ctl ghost`, voir `ghosts.rs`) : il n'est jamais sauvegardé.
+    /// Un joueur du serveur sans fenêtre (`ctl ghost`, voir `net/ghosts.rs`) : il n'est jamais
+    /// sauvegardé.
     pub ghost: bool,
-    /// Le compte de ses gestes (frapper, utiliser, commencer à creuser), qui fait tourner : les autres
-    /// joueurs voient son bras se lever à chaque changement (voir `entities::Look`).
+    /// Le compte de ses gestes (frapper, utiliser, commencer à creuser), qui fait tourner : les
+    /// autres joueurs voient son bras se lever à chaque changement (voir `entities::Look`).
     pub swings: u8,
 }
 
-/// Un conteneur ouvert devant un joueur : ce que `SlotClick` peut viser en dehors de son inventaire.
+/// Un conteneur ouvert devant un joueur : ce que `SlotClick` peut viser en dehors de son
+/// inventaire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpenContainer {
     /// Un coffre (de n'importe quel palier), par la position du bloc qui porte l'inventaire (la
@@ -235,8 +237,8 @@ pub struct Players {
     list: Vec<PlayerState>,
     local: PlayerId,
     next_id: u32,
-    /// Le joueur dont le simulateur traite un message (voir `intents.rs`) : tant qu'il est là,
-    /// `me()` est lui, et plus le joueur de la fenêtre.
+    /// Le joueur dont le simulateur traite un message (voir `server/intents.rs`) : tant qu'il est
+    /// là, `me()` est lui, et plus le joueur de la fenêtre.
     acting: Option<PlayerId>,
 }
 
@@ -359,7 +361,8 @@ impl Players {
         Some(self.list.remove(at))
     }
 
-    /// Les entités de tous les joueurs : le local en premier, puis les autres dans l'ordre d'arrivée.
+    /// Les entités de tous les joueurs : le local en premier, puis les autres dans l'ordre
+    /// d'arrivée.
     pub fn entities(&self) -> Vec<Entity> {
         let local = self.local;
         std::iter::once(self.local().entity)
@@ -381,7 +384,8 @@ impl Players {
 impl crate::server::VoxelServer {
     // (lot 4b) Méthodes du serveur.
     /// Les centres de chargement du monde du serveur : un par joueur. Le serveur ne maille pas : le
-    /// maillage de la fenêtre se fait dans sa réplique (voir `client_world.rs`), qui suit la caméra.
+    /// maillage de la fenêtre se fait dans sa réplique (voir `client/world.rs`), qui suit la
+    /// caméra.
     pub fn stream_views(&self) -> Vec<engine_voxel::View> {
         self.players
             .iter()

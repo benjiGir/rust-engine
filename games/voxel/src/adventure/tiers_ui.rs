@@ -3,8 +3,8 @@
 //! « Paliers du monde » des options (J par défaut) ; la même touche le referme.
 //!
 //! Le palier choisi change les créatures qui **apparaissent ensuite** (vie, dégâts, élites,
-//! envahisseurs) et la rareté du butin ; celles qui sont déjà là ne changent pas. Les règles sont dans
-//! `tiers.rs`, les données dans `tiers.ron`.
+//! envahisseurs) et la rareté du butin ; celles qui sont déjà là ne changent pas. Les règles sont
+//! dans `adventure/tiers.rs`, les données dans `tiers.ron`.
 
 use engine_render::egui;
 #[allow(unused_imports)]

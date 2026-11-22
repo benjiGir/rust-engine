@@ -1,7 +1,7 @@
-//! Le livre de quêtes dans le jeu vivant : charge les données et la progression du monde, observe le
-//! joueur et les événements, annonce les quêtes finies et donne les récompenses.
+//! Le livre de quêtes dans le jeu vivant : charge les données et la progression du monde, observe
+//! le joueur et les événements, annonce les quêtes finies et donne les récompenses.
 //!
-//! La logique est ailleurs (`quests.rs`, `quest_progress.rs`) ; ce module ne fait que la brancher.
+//! La logique est ailleurs (`quests.rs`, `quests/progress.rs`) ; ce module ne fait que la brancher.
 //!
 //! # Quand ça tourne
 //!
@@ -10,13 +10,13 @@
 //!   structures), puis la progression du monde (`quests.ron` à la racine du monde).
 //! - Les événements (blocs cassés et posés, créatures tuées près du joueur, objets fabriqués) sont
 //!   rassemblés à chaque pas ; un instantané du joueur (objets portés, dimension, biome, hauteur,
-//!   niveau, palier) est pris **une fois par seconde**. Dès qu'il y a l'un ou l'autre, la progression
-//!   se met à jour.
+//!   niveau, palier) est pris **une fois par seconde**. Dès qu'il y a l'un ou l'autre, la
+//!   progression se met à jour.
 //! - Une quête qui se termine fait un message (et la cloche) ; les récompenses attendent d'être
 //!   récupérées (touche des quêtes, ou `ctl quest claim`), sauf pour une quête `autoclaim`.
 //! - La progression est écrite avec le monde (sauvegarde automatique et fermeture). Passer dans une
-//!   autre dimension recharge le monde : la progression y est donc relue, et la tâche `Dimension` se
-//!   valide à l'arrivée.
+//!   autre dimension recharge le monde : la progression y est donc relue, et la tâche `Dimension`
+//!   se valide à l'arrivée.
 //!
 //! Le contenu est facultatif : un fichier de mod invalide n'empêche pas de jouer, il est journalisé
 //! et seuls les chapitres du jeu de base restent.
@@ -98,7 +98,8 @@ impl Names {
 }
 
 /// Charge `quests.ron` de core et des mods, confrontés au jeu. Un fichier de mod invalide est
-/// journalisé et laissé de côté (le jeu de base reste) ; si même celui-là est faux, le livre est vide.
+/// journalisé et laissé de côté (le jeu de base reste) ; si même celui-là est faux, le livre est
+/// vide.
 pub fn load_quests(
     assets: &Path,
     mods: &[(String, PathBuf)],
@@ -342,7 +343,8 @@ impl crate::server::VoxelServer {
         self.refresh_quests();
     }
 
-    /// Le dossier où vit `quests.ron` du joueur local : la racine du monde (voir [`crate::player::players::PlayerState::quest_dir`]).
+    /// Le dossier où vit `quests.ron` du joueur local : la racine du monde (voir
+    /// [`crate::player::players::PlayerState::quest_dir`]).
     fn quest_dir(&self) -> Option<PathBuf> {
         self.dims
             .meta_store
@@ -636,9 +638,9 @@ pub mod tests {
         (blocks, content, Arc::new(quests))
     }
 
-    /// Chaque `quests.ron` livré (core et mods) se charge : tout ce qu'il cite existe (objets, blocs,
-    /// créatures, biomes, dimensions, structures, paliers, chapitres du guide, tables de tirage),
-    /// sans doublon ni cycle.
+    /// Chaque `quests.ron` livré (core et mods) se charge : tout ce qu'il cite existe (objets,
+    /// blocs, créatures, biomes, dimensions, structures, paliers, chapitres du guide, tables de
+    /// tirage), sans doublon ni cycle.
     #[test]
     fn the_shipped_quests_load_and_cite_only_real_things() {
         let (_, content, quests) = shipped();
@@ -675,8 +677,8 @@ pub mod tests {
         let _ = content;
     }
 
-    /// Tous les chapitres livrés se terminent depuis rien, et chaque récompense se récupère (avec un
-    /// choix fait pour celles qui en demandent un) : aucune quête n'est un cul-de-sac.
+    /// Tous les chapitres livrés se terminent depuis rien, et chaque récompense se récupère (avec
+    /// un choix fait pour celles qui en demandent un) : aucune quête n'est un cul-de-sac.
     #[test]
     fn every_shipped_quest_can_be_finished_and_claimed() {
         use crate::quests::Reward;

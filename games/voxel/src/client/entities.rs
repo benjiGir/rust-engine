@@ -1,19 +1,20 @@
 //! Les entités que voit la fenêtre : une **réplique** de ce que le serveur envoie.
 //!
-//! Pour chaque [`NetId`] reçu, le client garde la sorte et l'apparence de l'entité, ses **deux derniers
-//! échantillons de position** et, pour un autre joueur, une animation déduite de ses déplacements. Il
-//! ne lit jamais l'ECS du serveur : le rendu (voir `entity_render.rs`), la visée d'une créature ou d'un
-//! wagon et les noms au-dessus des joueurs viennent d'ici.
+//! Pour chaque [`NetId`] reçu, le client garde la sorte et l'apparence de l'entité, ses **deux
+//! derniers échantillons de position** et, pour un autre joueur, une animation déduite de ses
+//! déplacements. Il ne lit jamais l'ECS du serveur : le rendu (voir `render/entities.rs`), la visée
+//! d'une créature ou d'un wagon et les noms au-dessus des joueurs viennent d'ici.
 //!
 //! **L'interpolation.** Les échantillons portent le pas fixe du serveur auquel ils appartiennent
 //! (`ServerMsg::Tick`). Le rendu se place à `pas - interval + alpha` : `alpha` est la part du pas
-//! fixe écoulée depuis le dernier, et `interval` le nombre de pas entre deux envois. Avec `interval = 1`
-//! (le lien en mémoire, 60 Hz), c'est exactement l'interpolation entre `PreviousPosition` et la
-//! position d'un pas, qu'avait le rendu de l'ECS ; avec 3 (20 Hz, le réseau), on glisse d'un échantillon
-//! à l'autre en trois pas, avec un retard de `interval` pas.
+//! fixe écoulée depuis le dernier, et `interval` le nombre de pas entre deux envois. Avec `interval
+//! = 1` (le lien en mémoire, 60 Hz), c'est exactement l'interpolation entre `PreviousPosition` et
+//! la position d'un pas, qu'avait le rendu de l'ECS ; avec 3 (20 Hz, le réseau), on glisse d'un
+//! échantillon à l'autre en trois pas, avec un retard de `interval` pas.
 //!
-//! Une entité qui ne bouge plus n'envoie plus rien : à la réception d'une pose, l'échantillon de départ
-//! est la pose précédente reculée d'un intervalle, comme si l'entité l'avait gardée jusque-là.
+//! Une entité qui ne bouge plus n'envoie plus rien : à la réception d'une pose, l'échantillon de
+//! départ est la pose précédente reculée d'un intervalle, comme si l'entité l'avait gardée
+//! jusque-là.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -67,8 +68,8 @@ impl EntityView {
         &self.to.pose
     }
 
-    /// La pose au temps `now` (voir [`ClientEntities::now`]) : la position, le lacet et l'inclinaison
-    /// glissent entre les deux échantillons ; l'animation est celle du dernier.
+    /// La pose au temps `now` (voir [`ClientEntities::now`]) : la position, le lacet et
+    /// l'inclinaison glissent entre les deux échantillons ; l'animation est celle du dernier.
     pub fn pose_at(&self, now: f32) -> Pose {
         let span = (self.to.tick - self.from.tick) as f32;
         let t = if span <= 0.0 {
@@ -90,9 +91,9 @@ impl EntityView {
         pose
     }
 
-    /// Le bras d'un autre joueur au temps `now` : l'angle (vers l'avant) qui s'ajoute à sa marche. Un
-    /// geste le lève puis le rabaisse ; creuser le fait aller et venir ; un objet en main le tient un
-    /// peu devant.
+    /// Le bras d'un autre joueur au temps `now` : l'angle (vers l'avant) qui s'ajoute à sa marche.
+    /// Un geste le lève puis le rabaisse ; creuser le fait aller et venir ; un objet en main le
+    /// tient un peu devant.
     pub fn arm_raise(&self, now: f32) -> f32 {
         let gesture = |t: f32| (t.clamp(0.0, 1.0) * std::f32::consts::PI).sin();
         let hold = if self.look.held.is_some() { 0.3 } else { 0.0 };
@@ -126,7 +127,8 @@ pub struct ClientEntities {
     views: BTreeMap<NetId, EntityView>,
     /// Le temps d'interpolation de l'image en cours (voir [`ClientEntities::begin_frame`]).
     frame_now: f32,
-    /// Les modèles des objets au sol, construits une fois par objet (vidés au rechargement des textures).
+    /// Les modèles des objets au sol, construits une fois par objet (vidés au rechargement des
+    /// textures).
     item_models: RefCell<HashMap<ItemId, Vec<CubeInstance>>>,
 }
 
@@ -262,8 +264,8 @@ impl ClientEntities {
         }
     }
 
-    /// Une nouvelle pose : l'ancienne devient l'échantillon de départ, reculé d'un intervalle si elle
-    /// date de plus longtemps (l'entité n'a pas bougé entre-temps).
+    /// Une nouvelle pose : l'ancienne devient l'échantillon de départ, reculé d'un intervalle si
+    /// elle date de plus longtemps (l'entité n'a pas bougé entre-temps).
     fn moved(&mut self, id: NetId, pose: Pose) {
         let Some(view) = self.views.get_mut(&id) else {
             return;
@@ -296,9 +298,9 @@ impl ClientEntities {
         }
     }
 
-    /// Ce que le regard touche à moins de `max` blocs : la créature la plus proche, sinon le wagon, comme
-    /// avant (une créature masque un wagon derrière elle). Les boîtes sont celles de la dernière pose :
-    /// c'est ce que le serveur revérifie.
+    /// Ce que le regard touche à moins de `max` blocs : la créature la plus proche, sinon le wagon,
+    /// comme avant (une créature masque un wagon derrière elle). Les boîtes sont celles de la
+    /// dernière pose : c'est ce que le serveur revérifie.
     pub fn hit(&self, origin: Vec3, dir: Vec3, max: f32) -> Option<NetId> {
         let nearest = |cart: bool| {
             let mut best: Option<(NetId, f32)> = None;
@@ -402,7 +404,8 @@ mod tests {
 
     #[test]
     fn with_an_interval_of_one_it_is_the_previous_position_interpolation() {
-        // Le même mouvement joué par l'ECS (`PreviousPosition` puis `Transform`) et par la réplique.
+        // Le même mouvement joué par l'ECS (`PreviousPosition` puis `Transform`) et par la
+        // réplique.
         let mut entities = ClientEntities::new(1);
         let id = spawn(&mut entities, 1, mob(0.9, 0.9), at(0.0));
         let mut ecs = (
@@ -455,7 +458,8 @@ mod tests {
             copy += tick as f32 - 6.0;
             entities.get(id).unwrap().pose_at(copy).position.x
         };
-        // Au pas 6 (alpha 0) le rendu est à la pose du pas 3 ; une fois et demie plus tard, au milieu.
+        // Au pas 6 (alpha 0) le rendu est à la pose du pas 3 ; une fois et demie plus tard, au
+        // milieu.
         assert!((x(6, 0.0) - 0.5).abs() < 1e-4, "{}", x(6, 0.0));
         assert!((x(7, 0.5) - 2.0).abs() < 1e-4, "{}", x(7, 0.5));
         assert!((x(9, 0.0) - 3.5).abs() < 1e-4);
@@ -467,7 +471,8 @@ mod tests {
     fn an_entity_that_was_still_starts_moving_from_where_it_stood() {
         let mut entities = ClientEntities::new(1);
         let id = spawn(&mut entities, 1, mob(0.9, 0.9), at(5.0));
-        // 100 pas immobile, puis un pas à 6 : le rendu glisse de 5 à 6 sur ce pas, pas depuis 100 pas.
+        // 100 pas immobile, puis un pas à 6 : le rendu glisse de 5 à 6 sur ce pas, pas depuis 100
+        // pas.
         entities.receive(&ServerMsg::Tick(100));
         entities.receive(&ServerMsg::Moves(vec![(id, at(6.0))]));
         let view = entities.get(id).unwrap();
@@ -516,7 +521,8 @@ mod tests {
         // Hors de portée des créatures (3 blocs), le wagon.
         assert_eq!(entities.hit(origin, Vec3::X, 3.0), Some(cart));
         assert_eq!(entities.hit(origin, Vec3::X, 0.5), None);
-        // Un mur plus près que les créatures les cache, mais pas la plus lointaine si elle seule est visée.
+        // Un mur plus près que les créatures les cache, mais pas la plus lointaine si elle seule
+        // est visée.
         assert_ne!(entities.hit(origin, Vec3::X, 10.0), Some(far));
         assert_eq!(entities.hit(origin, Vec3::Y, 10.0), None);
     }

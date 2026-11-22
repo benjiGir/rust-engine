@@ -1,4 +1,4 @@
-//! Les machines de base qui se branchent sur les réseaux (voir `networks.rs`) : de quoi
+//! Les machines de base qui se branchent sur les réseaux (voir `tech/networks.rs`) : de quoi
 //! produire, stocker et consommer de l'énergie, des fluides et de la rotation. Les mods
 //! techniques écrivent les leurs avec les mêmes capacités ; celles-ci servent d'exemple et de
 //! base au jeu.
@@ -319,7 +319,7 @@ impl BlockBehavior for Fan {
 
 /// Une hélice : elle consomme de la rotation (un arbre la relie à un moteur) et pousse dans
 /// le sens où elle regarde, d'autant plus que sa vitesse est grande. La poussée est appliquée par
-/// `ship.rs` à la structure qui la porte ; ici, elle ne fait que recevoir de la rotation.
+/// `motion/ship.rs` à la structure qui la porte ; ici, elle ne fait que recevoir de la rotation.
 struct Propeller;
 
 impl BlockBehavior for Propeller {

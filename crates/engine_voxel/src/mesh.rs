@@ -184,7 +184,7 @@ impl ChunkMesh {
     }
 
     /// Ce que le GPU recevra pour ce maillage, en octets (sommets et indices) : l'unité du budget
-    /// de transfert (voir `transfer.rs`).
+    /// de transfert (voir `streaming/transfer.rs`).
     pub fn byte_size(&self) -> usize {
         self.vertices.len() * std::mem::size_of::<MeshVertex>()
             + (self.indices.len() + self.translucent_indices.len()) * std::mem::size_of::<u32>()
@@ -1298,8 +1298,8 @@ fn face_corner(origin: IVec3, p: IVec3, face: Face) -> IVec3 {
 pub enum Mesher {
     Culling,
     Greedy,
-    /// Le même résultat que `Greedy`, par masques binaires (voir `mesh/binary.rs`) : plusieurs fois plus
-    /// rapide.
+    /// Le même résultat que `Greedy`, par masques binaires (voir `mesh/binary.rs`) : plusieurs fois
+    /// plus rapide.
     Binary,
 }
 
@@ -1341,8 +1341,8 @@ pub fn mesh_greedy(world: &World, chunk_pos: IVec3) -> ChunkMesh {
     Neighbourhood::from_world(world, chunk_pos).map_or_else(ChunkMesh::default, |h| greedy(&h))
 }
 
-/// Maillage par masques binaires (voir `mesh/binary.rs`) : les mêmes quads que [`mesh_greedy`], bien plus
-/// vite. Renvoie un maillage vide si le chunk n'existe pas.
+/// Maillage par masques binaires (voir `mesh/binary.rs`) : les mêmes quads que [`mesh_greedy`],
+/// bien plus vite. Renvoie un maillage vide si le chunk n'existe pas.
 pub fn mesh_binary(world: &World, chunk_pos: IVec3) -> ChunkMesh {
     Neighbourhood::from_world(world, chunk_pos)
         .map_or_else(ChunkMesh::default, |h| binary::binary(&h))

@@ -1,5 +1,5 @@
 //! Se présenter à un hôte (la poignée de main du client) : la fenêtre d'un invité et les bots
-//! (`bot.rs`) s'en servent. Voir `net_client.rs` pour l'invité.
+//! (`net/bot.rs`) s'en servent. Voir `client/join.rs` pour l'invité.
 
 use crate::net::protocol::{ClientMsg, ServerMsg};
 use std::time::Duration;
@@ -49,8 +49,8 @@ impl RemoteLink {
         }
     }
 
-    /// Ce que l'hôte a envoyé depuis la dernière fois ; une erreur si le lien est perdu (avec ce qui
-    /// était arrivé avant, perdu aussi).
+    /// Ce que l'hôte a envoyé depuis la dernière fois ; une erreur si le lien est perdu (avec ce
+    /// qui était arrivé avant, perdu aussi).
     pub fn receive(&self) -> Result<Vec<ServerMsg>, String> {
         let mut received = Vec::new();
         match &self.transport {
@@ -116,7 +116,7 @@ pub fn join(address: &str, server: &VoxelServer, name: &str, uuid: u128) -> Resu
     join_with(address, name, uuid, content)
 }
 
-/// Se présente avec une empreinte de contenu déjà calculée (les bots, voir `bot.rs`).
+/// Se présente avec une empreinte de contenu déjà calculée (les bots, voir `net/bot.rs`).
 pub fn join_with(address: &str, name: &str, uuid: u128, content: u64) -> Result<Joined> {
     let connection = Connection::connect(address, JOIN_TIMEOUT)
         .with_context(|| format!("impossible de joindre {address}"))?;

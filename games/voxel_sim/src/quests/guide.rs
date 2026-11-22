@@ -1,8 +1,8 @@
 //! Le Guide du voyageur : un livre qui explique le jeu, chapitre par chapitre.
 //!
 //! Le contenu est en données : `assets/core/guide.ron`, puis le `guide.ron` de chaque mod, dont les
-//! chapitres s'ajoutent à la suite. Chaque page a un texte et des objets ; l'écran (`guide_ui.rs`)
-//! ouvre leurs recettes dans l'explorateur d'un clic.
+//! chapitres s'ajoutent à la suite. Chaque page a un texte et des objets ; l'écran
+//! (`quests/guide_ui.rs`) ouvre leurs recettes dans l'explorateur d'un clic.
 //!
 //! Le texte peut citer une touche : `{touche:inventory}` devient la touche choisie dans les
 //! options (voir [`expand_keys`]).

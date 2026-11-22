@@ -1,5 +1,5 @@
-//! La part fenêtre de `backpacks.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
-//! multijoueur ; la simulation reste dans `backpacks.rs`).
+//! La part fenêtre de `storage/backpacks.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
+//! multijoueur ; la simulation reste dans `storage/backpacks.rs`).
 
 use crate::VoxelGame;
 #[allow(unused_imports)]

@@ -142,19 +142,20 @@ pub struct WorldMeta {
     /// plus ancien est normal.
     #[serde(default = "normal_difficulty")]
     pub difficulty: u8,
-    /// La dimension où se trouve le joueur (`mon_mod:ma_dimension`) ; vide : la dimension de départ.
-    /// `world.ron` est toujours à la racine du monde, quelle que soit la dimension.
+    /// La dimension où se trouve le joueur (`mon_mod:ma_dimension`) ; vide : la dimension de
+    /// départ. `world.ron` est toujours à la racine du monde, quelle que soit la dimension.
     #[serde(default)]
     pub dimension: String,
     /// Le joueur vient de passer un portail : à son arrivée, le jeu cherche le sol à ces
-    /// coordonnées (x, z) au lieu d'utiliser la hauteur sauvegardée, qui est celle de l'autre dimension.
+    /// coordonnées (x, z) au lieu d'utiliser la hauteur sauvegardée, qui est celle de l'autre
+    /// dimension.
     #[serde(default)]
     pub arriving: bool,
     /// Les paliers du monde et ce qui les débloque (absent d'un monde plus ancien).
     #[serde(default)]
     pub adventure: AdventureSave,
     /// La version de génération et la configuration effective du terrain, par dimension (voir
-    /// `generation.rs`). `None` dans un monde d'avant ce champ : génération historique v1,
+    /// `worldgen/generation.rs`). `None` dans un monde d'avant ce champ : génération historique v1,
     /// sélectionnée explicitement par [`WorldMeta::generation_version`].
     #[serde(default)]
     pub generation: Option<GenerationMeta>,

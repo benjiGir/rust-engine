@@ -1,15 +1,18 @@
-//! Les commandes `ctl` des formes, pour les essais sans souris (voir `shaping_ui.rs`, `shaped_play.rs`).
+//! Les commandes `ctl` des formes, pour les essais sans souris (voir `shaping/ui.rs`,
+//! `shaping/play.rs`).
 //!
-//! - `shape forme [n|all]` : taille `n` blocs (un par défaut, `all` : toute la pile) du bloc tenu en
-//!   pièces. Les formes : la clé de l'objet sans `core:shape_` (`layer`, `slab`, `slope_layer`, `slope`,
-//!   `micro`, `nano`, `stairs`, `vertical_stairs`, `step`, `beam`, `slice`, `corner_slice`, `half_layer`,
-//!   `half_panel`, `quarter_panel`, `board`, `corner_slope_layer`, `inner_slope_layer`, `wall`, `fence`,
-//!   `gate`, `pane`, `flat_pane`) ;
-//! - `rebuild [all]` : refait un bloc plein (ou tous ceux que la pile permet) avec les pièces tenues ;
+//! - `shape forme [n|all]` : taille `n` blocs (un par défaut, `all` : toute la pile) du bloc tenu
+//!   en pièces. Les formes : la clé de l'objet sans `core:shape_` (`layer`, `slab`, `slope_layer`,
+//!   `slope`, `micro`, `nano`, `stairs`, `vertical_stairs`, `step`, `beam`, `slice`,
+//!   `corner_slice`, `half_layer`, `half_panel`, `quarter_panel`, `board`, `corner_slope_layer`,
+//!   `inner_slope_layer`, `wall`, `fence`, `gate`, `pane`, `flat_pane`) ;
+//! - `rebuild [all]` : refait un bloc plein (ou tous ceux que la pile permet) avec les pièces
+//!   tenues ;
 //! - `shaping` : ouvre l'écran de l'établi de taille, le bloc tenu dans sa case d'entrée ;
 //! - `pieces x y z` : le contenu de la case de formes en x y z, en JSON.
 //!
-//! Pour poser une pièce, on la tient et on se sert de `use` (ou `place`) sur un bloc visé, comme au clic droit.
+//! Pour poser une pièce, on la tient et on se sert de `use` (ou `place`) sur un bloc visé, comme au
+//! clic droit.
 
 use anyhow::{Context as _, Result};
 use engine_voxel::shaped::{Piece, PieceKind};
@@ -93,7 +96,8 @@ impl VoxelGame {
                 Ok(format!("{{\"ok\":true,\"blocks\":{blocks}}}"))
             }
             Command::Open => {
-                // Le bloc tenu passe dans la case d'entrée (le reste de la grille revient à la fermeture).
+                // Le bloc tenu passe dans la case d'entrée (le reste de la grille revient à la
+                // fermeture).
                 let me = self.server.players.me_mut();
                 if let Some(stack) = me.inventory.slots[me.inventory.selected].take() {
                     let before = me.inventory.craft[0].replace(stack);

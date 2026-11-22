@@ -8,8 +8,8 @@
 //!    [`SubGrid`] : son propre petit monde, en coordonnées locales qui ne changent jamais.
 //! 2. **Transformation** : la sous-grille a une position (celle de son pivot, dans le monde) et
 //!    un lacet (une rotation autour de la verticale). Ses machines, ses ticks programmés et ses
-//!    réseaux (voir `networks.rs`) ne savent rien de ce mouvement : ils continuent de tourner en
-//!    coordonnées locales, désignés par un [`GridPos`].
+//!    réseaux (voir `tech/networks.rs`) ne savent rien de ce mouvement : ils continuent de tourner
+//!    en coordonnées locales, désignés par un [`GridPos`].
 //! 3. **Réassemblage** ([`land`]) : la structure se repose dans le monde, alignée sur la grille
 //!    (rotation arrondie au quart de tour). Il faut de la place ; sinon elle refuse.
 //!

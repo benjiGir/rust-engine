@@ -2,7 +2,7 @@
 //! simulateur).
 //!
 //! Le client n'agit jamais sur le monde : il fabrique des **intentions** ([`ClientMsg`]) que le
-//! simulateur applique dans `VoxelGame::handle` (voir `intents.rs`), joueur par joueur. Une
+//! simulateur applique dans `VoxelGame::handle` (voir `server/intents.rs`), joueur par joueur. Une
 //! intention ne dit jamais un résultat : « je casse le bloc que je regarde », pas « le bloc en
 //! (3, 60, 8) est cassé ». Le simulateur refait lui-même le lancer de rayon à partir de la
 //! [`Aim`] du message et ne croit jamais la cible que le client dit viser.
@@ -183,7 +183,7 @@ impl From<ClickButton> for Click {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ClientMsg {
     /// Où le joueur est allé : le mouvement est prédit par la physique du client, le simulateur
-    /// ne fait que le contrôler (voir `movement.rs`). `step` est le numéro du pas fixe.
+    /// ne fait que le contrôler (voir `player/movement.rs`). `step` est le numéro du pas fixe.
     Move {
         position: Vec3,
         velocity: Vec3,
@@ -191,8 +191,8 @@ pub enum ClientMsg {
         pitch: f32,
         on_ground: bool,
         in_liquid: bool,
-        /// L'intention qui a donné ce mouvement : le serveur s'en sert quand il simule le joueur porté,
-        /// et pour la fatigue de la marche, de la course et du saut.
+        /// L'intention qui a donné ce mouvement : le serveur s'en sert quand il simule le joueur
+        /// porté, et pour la fatigue de la marche, de la course et du saut.
         walk: Vec3,
         jump: bool,
         /// Le terrain autour n'est pas encore arrivé chez le client : il attend sans bouger.
@@ -262,7 +262,8 @@ pub enum ClientMsg {
     /// Couper ou rallumer une amélioration du sac ouvert (son emplacement).
     ToggleUpgrade(u8),
     /// Un geste dans l'écran ouvert (table d'enchantement, bibliothèque, forge...) : le serveur
-    /// vérifie que cet écran est bien celui qu'il a ouvert à ce joueur (voir `screen_actions.rs`).
+    /// vérifie que cet écran est bien celui qu'il a ouvert à ce joueur (voir
+    /// `server/screen_actions.rs`).
     Screen(ScreenAction),
     /// Fabriquer : avec la grille (`size` × `size`), ou une recette du livre (son numéro dans la
     /// liste des recettes, la même des deux côtés).
@@ -278,21 +279,21 @@ pub enum ClientMsg {
 
 /// Ce que le simulateur répond au client.
 ///
-/// Les messages de chunks portent un `Arc<Chunk>` : en mémoire il passe sans copie, et la réplique du
-/// client tient les mêmes blocs que le serveur. Sur le réseau, il passe par `Chunk::to_wire` (voir
-/// `wire.rs`).
+/// Les messages de chunks portent un `Arc<Chunk>` : en mémoire il passe sans copie, et la réplique
+/// du client tient les mêmes blocs que le serveur. Sur le réseau, il passe par `Chunk::to_wire`
+/// (voir `net/wire.rs`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServerMsg {
-    /// Un mouvement refusé (ou un déplacement imposé) : le client place le joueur ici. `carried` : un
-    /// wagon ou une structure porte le joueur, le serveur le simule et le client suit (sans s'arrêter,
-    /// à `velocity`). Voir `predicted.rs`.
+    /// Un mouvement refusé (ou un déplacement imposé) : le client place le joueur ici. `carried` :
+    /// un wagon ou une structure porte le joueur, le serveur le simule et le client suit (sans
+    /// s'arrêter, à `velocity`). Voir `net/predicted.rs`.
     Correct {
         position: Vec3,
         velocity: Vec3,
         carried: bool,
     },
     /// L'heure et le temps qu'il fait, quand la copie du client ne peut pas les deviner (voir
-    /// `sky_view.rs`).
+    /// `net/sky_view.rs`).
     Sky(crate::net::sky_view::SkyView),
     /// Un coup reçu : le client fait reculer son corps prédit (un bond, une poussée qui s'amortit).
     Push {
@@ -306,9 +307,9 @@ pub enum ServerMsg {
     /// Un chunk que le serveur a généré vide (de l'air) : rien à envoyer, mais il est prêt.
     ChunkEmpty(IVec3),
     /// Le pas fixe du serveur auquel appartiennent les messages d'entités qui suivent : le client
-    /// interpole les poses d'après ce compteur (voir `client_entities.rs`).
+    /// interpole les poses d'après ce compteur (voir `client/entities.rs`).
     Tick(u64),
-    /// Une entité entre dans la portée du joueur (voir `entities.rs`).
+    /// Une entité entre dans la portée du joueur (voir `net/entities.rs`).
     Spawn {
         id: NetId,
         kind: EntityKind,
@@ -329,7 +330,7 @@ pub enum ServerMsg {
     Inventory(InventoryView),
     /// Le conteneur ouvert (coffre, four, alambic, sac, wagon), quand il change ; `None` : fermé.
     Container(Option<ContainerView>),
-    /// Un son, un message à l'écran, le bras qui frappe (voir `player_view.rs`).
+    /// Un son, un message à l'écran, le bras qui frappe (voir `net/player_view.rs`).
     Feedback(Feedback),
     /// Le joueur est mort : l'écran de mort, avec sa cause.
     Died {
@@ -360,24 +361,26 @@ pub enum ServerMsg {
     Quests(Option<crate::quests::progress::Progress>),
     /// Ce que l'écran ouvert montre et que seul le serveur sait, quand cela change.
     ScreenView(Option<crate::server::screen_actions::ScreenView>),
-    /// Un chunk que le client n'avait pas, avec sa lumière et ses blocs actifs. Le serveur envoie des
-    /// colonnes entières, éclairées (voir `engine_voxel::ChunkSender`).
+    /// Un chunk que le client n'avait pas, avec sa lumière et ses blocs actifs. Le serveur envoie
+    /// des colonnes entières, éclairées (voir `engine_voxel::ChunkSender`).
     Chunk {
         pos: IVec3,
         #[serde(with = "crate::net::wire::chunk")]
         chunk: Arc<Chunk>,
     },
-    /// Les blocs d'une structure mobile (bateau, contraption), à sa première vue et quand ils changent.
+    /// Les blocs d'une structure mobile (bateau, contraption), à sa première vue et quand ils
+    /// changent.
     GridBlocks {
         id: NetId,
         grid: GridSnapshot,
     },
-    /// Les définitions du livre de quêtes (chapitres, quêtes, récompenses), à l'ouverture. Le contenu du
-    /// jeu : un client du réseau les chargera de ses propres mods.
+    /// Les définitions du livre de quêtes (chapitres, quêtes, récompenses), à l'ouverture. Le
+    /// contenu du jeu : un client du réseau les chargera de ses propres mods.
     QuestBook(#[serde(with = "crate::net::wire::shared")] Arc<crate::quests::Quests>),
-    /// Un chunk que le client a déjà et qui a changé : le chunk d'aujourd'hui, avec les positions des
-    /// blocs posés ou cassés (`edits`, remaillés dans l'image), ou `remesh` pour un changement qui
-    /// peut attendre (lumière, machine). Ni l'un ni l'autre : des données seules, sans remaillage.
+    /// Un chunk que le client a déjà et qui a changé : le chunk d'aujourd'hui, avec les positions
+    /// des blocs posés ou cassés (`edits`, remaillés dans l'image), ou `remesh` pour un changement
+    /// qui peut attendre (lumière, machine). Ni l'un ni l'autre : des données seules, sans
+    /// remaillage.
     ChunkChanged {
         pos: IVec3,
         #[serde(with = "crate::net::wire::chunk")]
@@ -532,8 +535,8 @@ mod tests {
             unreachable!()
         };
         assert!(Arc::ptr_eq(&copy, &chunk));
-        // Sur le réseau, il passe par `Chunk::to_wire` (voir `wire.rs`) : un chunk d'air tient en
-        // quelques centaines d'octets une fois la trame compressée.
+        // Sur le réseau, il passe par `Chunk::to_wire` (voir `net/wire.rs`) : un chunk d'air tient
+        // en quelques centaines d'octets une fois la trame compressée.
         let bytes = postcard::to_stdvec(&msg).unwrap();
         assert!(engine_net::encode(&bytes).len() < 1024);
     }

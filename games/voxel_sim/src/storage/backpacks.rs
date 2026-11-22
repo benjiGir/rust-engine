@@ -4,16 +4,16 @@
 //!
 //! L'objet « sac à dos » (`max_stack` 1) ne contient rien lui-même : son champ `damage` porte un
 //! **numéro de sac** (de 1 à 65 535, jamais plus : les bits hauts de `damage` sont ceux de
-//! l'enchantement et des fiches d'objets (bit 31, voir `item_data.rs`), que le sac ne doit pas
-//! imiter). Le contenu est dans le [`BackpackStore`], le
+//! l'enchantement et des fiches d'objets (bit 31, voir `player/item_data.rs`), que le sac ne doit
+//! pas imiter). Le contenu est dans le [`BackpackStore`], le
 //! magasin des sacs du monde, sauvegardé dans `backpacks.bin` à la racine du monde, à côté de
 //! `world.ron` (donc partagé par toutes les dimensions). Un sac jeté au sol, rangé dans un coffre
 //! ou ramassé garde son numéro : c'est la pile qui voyage, pas le contenu.
 //!
 //! Un sac neuf (fabriqué, `give`, explorateur de recettes) a `damage` 0 : il reçoit son numéro au
-//! premier usage ([`BackpackStore::number_for`]). Le palier suit l'objet : un sac qui monte de palier
-//! par recette garde son numéro (voir `Inventory::take_craft_result`), et le magasin range son
-//! contenu à la nouvelle disposition la prochaine fois qu'il le voit.
+//! premier usage ([`BackpackStore::number_for`]). Le palier suit l'objet : un sac qui monte de
+//! palier par recette garde son numéro (voir `Inventory::take_craft_result`), et le magasin range
+//! son contenu à la nouvelle disposition la prochaine fois qu'il le voit.
 //!
 //! Les sacs ne sont ni des outils ni des armures : aucune usure, aucun enchantement. Ils n'ont pas
 //! de durabilité, et leur numéro ne dépasse jamais les 16 bits bas de `damage`.
@@ -23,9 +23,11 @@
 //!
 //! # Les améliorations qui agissent sur le joueur
 //!
-//! Elles agissent tant que le sac est dans l'inventaire du joueur, ouvert ou non (voir [`carried`]) :
+//! Elles agissent tant que le sac est dans l'inventaire du joueur, ouvert ou non (voir [`carried`])
+//! :
 //! - **Ramassage** : un objet ramassé va d'abord dans le sac ([`pickup`]), s'il passe le filtre ;
-//! - **Aimant** : les objets au sol dans un rayon de [`MAGNET_RADIUS`] blocs viennent vers le joueur ;
+//! - **Aimant** : les objets au sol dans un rayon de [`MAGNET_RADIUS`] blocs viennent vers le
+//!   joueur ;
 //! - **Réapprovisionnement** : une pile de la barre sous le quart de sa taille est complétée
 //!   ([`restock`]) ;
 //! - **Nourriture** : quand la faim a assez baissé pour ne rien gaspiller, le sac nourrit

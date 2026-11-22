@@ -1,8 +1,8 @@
 //! Les enchantements en données : `assets/core/enchantments.ron`, puis ceux des mods (qui
 //! **ajoutent**). Chaque enchantement a un numéro stable (celui qu'on sauvegarde dans les objets),
 //! des niveaux plafonnés selon l'Eterna de la table, ce qui peut le porter, et ses effets, exprimés
-//! en bonus d'attributs par niveau (voir `attributes.rs`). `enchanting.rs` s'en sert pour les
-//! libellés et les offres, `gear.rs` pour calculer les attributs.
+//! en bonus d'attributs par niveau (voir `player/attributes.rs`). `enchanting.rs` s'en sert pour
+//! les libellés et les offres, `player/gear.rs` pour calculer les attributs.
 //!
 //! Les numéros de 1 à 63 sont ceux du jeu de base, de 64 à 127 ceux des mods : le plus grand reste
 //! sous 128, parce qu'une pile simple le range dans les bits 24 à 30 de `damage` (voir
@@ -233,7 +233,8 @@ mod tests {
                 .iter()
                 .all(|e| (1..=63).contains(&e.number))
         );
-        // Les quatre d'avant la phase 3 gardent leurs numéros (ils sont sauvegardés dans les objets).
+        // Les quatre d'avant la phase 3 gardent leurs numéros (ils sont sauvegardés dans les
+        // objets).
         for (key, number) in [
             ("core:efficiency", 1),
             ("core:sharpness", 2),

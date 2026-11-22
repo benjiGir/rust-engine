@@ -34,7 +34,7 @@ pub struct FluidDef {
     /// Le bloc de ce fluide dans le monde (sans espace de noms : celui du fichier).
     #[serde(default)]
     pub block: Option<String>,
-    /// Surpression admise par cellule de profondeur (voir `fluid_sim.rs`).
+    /// Surpression admise par cellule de profondeur (voir `fluids/sim.rs`).
     #[serde(default = "default_compressibility")]
     pub compressibility: f32,
     /// Dégâts par seconde pour qui s'y trouve.

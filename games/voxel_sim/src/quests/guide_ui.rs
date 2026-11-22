@@ -1,5 +1,5 @@
-//! La part serveur de `guide_ui.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
-//! multijoueur ; la fenêtre reste dans `guide_ui.rs`).
+//! La part serveur de `quests/guide_ui.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
+//! multijoueur ; la fenêtre reste dans `quests/guide_ui.rs`).
 
 use crate::quests::guide::GUIDE_ITEM;
 use crate::server::screens::Screen;

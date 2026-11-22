@@ -1,5 +1,5 @@
-//! La part serveur de `quest_ui.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
-//! multijoueur ; la fenêtre reste dans `quest_ui.rs`).
+//! La part serveur de `quests/ui.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
+//! multijoueur ; la fenêtre reste dans `quests/ui.rs`).
 
 use crate::net::protocol::QuestAct;
 

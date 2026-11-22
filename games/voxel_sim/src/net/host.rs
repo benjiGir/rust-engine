@@ -61,8 +61,8 @@ pub enum Welcome {
         fly: bool,
         /// La graine du monde (la météo de la fenêtre en tire ses nuages).
         seed: u32,
-        /// La portée de l'hôte, en chunks : il n'envoie pas de chunks au-delà, et le terrain lointain
-        /// de l'invité doit commencer là.
+        /// La portée de l'hôte, en chunks : il n'envoie pas de chunks au-delà, et le terrain
+        /// lointain de l'invité doit commencer là.
         view_radius: i32,
     },
     Refused(String),
@@ -95,10 +95,12 @@ pub struct NetHost {
     listener: Listener,
     pending: Vec<Pending>,
     peers: HashMap<PlayerId, Connection>,
-    /// Les joueurs d'un lien en mémoire (la fenêtre d'un serveur intégré, voir `local_link.rs`).
+    /// Les joueurs d'un lien en mémoire (la fenêtre d'un serveur intégré, voir
+    /// `net/local_link.rs`).
     locals: HashMap<PlayerId, crate::net::local_link::LocalPeer>,
-    /// Les trames des chunks envoyés dans cette image : un chunk encodé une fois pour tous les joueurs.
-    /// L'`Arc` est gardé avec la trame : son adresse ne peut pas resservir tant qu'il est là.
+    /// Les trames des chunks envoyés dans cette image : un chunk encodé une fois pour tous les
+    /// joueurs. L'`Arc` est gardé avec la trame : son adresse ne peut pas resservir tant qu'il est
+    /// là.
     chunk_frames: HashMap<(IVec3, usize), (Arc<Chunk>, Frame)>,
     /// L'annonce de la partie sur le réseau local (`None` si l'UDP n'est pas disponible).
     announcer: Option<engine_net::Announcer>,
@@ -333,8 +335,9 @@ impl VoxelServer {
         self.send_player_list();
     }
 
-    /// Fait entrer un joueur par un lien en mémoire (la fenêtre d'un serveur intégré) : il n'y a pas de
-    /// poignée de main, c'est la même application. Rend ce que la fenêtre en tire pour démarrer.
+    /// Fait entrer un joueur par un lien en mémoire (la fenêtre d'un serveur intégré) : il n'y a
+    /// pas de poignée de main, c'est la même application. Rend ce que la fenêtre en tire pour
+    /// démarrer.
     pub fn join_local(&mut self, name: &str, uuid: u128) -> crate::net::join::Joined {
         let id = self.add_remote_player(name, uuid);
         let (link, peer) = crate::net::local_link::pair();
@@ -363,8 +366,9 @@ impl VoxelServer {
         }
     }
 
-    /// Où faire apparaître un nouveau venu : le point de départ s'il est seul, sinon une place libre
-    /// autour (à 2, puis 3 et 4 blocs), pour que deux joueurs n'arrivent pas l'un dans l'autre.
+    /// Où faire apparaître un nouveau venu : le point de départ s'il est seul, sinon une place
+    /// libre autour (à 2, puis 3 et 4 blocs), pour que deux joueurs n'arrivent pas l'un dans
+    /// l'autre.
     fn arrival_spot(&self) -> Vec3 {
         let spawn = self.spawn;
         let center = spawn.as_vec3() + Vec3::new(0.5, 0.0, 0.5);

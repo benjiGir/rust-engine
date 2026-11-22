@@ -1,7 +1,7 @@
-//! Les gestes des écrans (hors des cases) : le serveur les applique pour le joueur courant, seulement
-//! si l'écran qu'ils visent est celui qu'il lui a ouvert (`PlayerState::screen`, voir
-//! `intents.rs::open_screen`). La fenêtre dessine ces écrans d'après ses vues et n'envoie que des
-//! [`ScreenAction`].
+//! Les gestes des écrans (hors des cases) : le serveur les applique pour le joueur courant,
+//! seulement si l'écran qu'ils visent est celui qu'il lui a ouvert (`PlayerState::screen`, voir
+//! `server/intents.rs::open_screen`). La fenêtre dessine ces écrans d'après ses vues et n'envoie
+//! que des [`ScreenAction`].
 
 use serde::{Deserialize, Serialize};
 

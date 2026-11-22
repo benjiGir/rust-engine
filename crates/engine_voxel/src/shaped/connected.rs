@@ -1,9 +1,10 @@
 //! Les formes qui se raccordent : muret, barrière, portillon, vitre et vitre à plat.
 //!
-//! Une forme raccordée **occupe seule sa case** : c'est l'usage normal et cela simplifie les raccords.
-//! Sa géométrie n'est pas rangée dans la case : elle se calcule à la demande depuis les **voisins**
-//! ([`Neighbours`]), comme les conduits (voir `connections.rs`), donc rien ne se sauvegarde de plus
-//! que `{ forme, ouvert }` et une case se raccorde toute seule quand un voisin arrive ou part.
+//! Une forme raccordée **occupe seule sa case** : c'est l'usage normal et cela simplifie les
+//! raccords. Sa géométrie n'est pas rangée dans la case : elle se calcule à la demande depuis les
+//! **voisins** ([`Neighbours`]), comme les conduits (voir `blocks/connections.rs`), donc rien ne se
+//! sauvegarde de plus que `{ forme, ouvert }` et une case se raccorde toute seule quand un voisin
+//! arrive ou part.
 //!
 //! # Qui se raccorde à qui
 //!
@@ -20,7 +21,8 @@
 //!
 //! | Forme | Poteau | Bras |
 //! |---|---|---|
-//! | muret | 8 × 16 × 8 (14 de haut s'il est droit et sans muret au-dessus) | 6 de large, 14 de haut |
+//! | muret | 8 × 16 × 8 (14 de haut s'il est droit et sans muret au-dessus) | 6 de large, 14 de
+//! haut |
 //! | barrière | 4 × 16 × 4 | deux traverses de 2 de large, à 6 et à 12 de haut |
 //! | vitre | 2 × 16 × 2 | 2 de large, 16 de haut |
 //! | vitre à plat | 8 × 2 × 8 au sol | 8 de large, 2 de haut |
@@ -187,7 +189,8 @@ impl Link {
                         out.push(arm(side, 4, 12, (4, 12), (0, 2)));
                     }
                 }
-                // Deux bras voisins (nord-est, est-sud...) comblent leur coin : la nappe est continue.
+                // Deux bras voisins (nord-est, est-sud...) comblent leur coin : la nappe est
+                // continue.
                 for side in 0..4 {
                     let next = (side + 1) % 4;
                     if n.sides[side] && n.sides[next] {
@@ -205,7 +208,8 @@ impl Link {
         out
     }
 
-    /// Les boîtes de collision, en seizièmes (la hauteur monte au-delà de 16 : 24). Vide : on traverse.
+    /// Les boîtes de collision, en seizièmes (la hauteur monte au-delà de 16 : 24). Vide : on
+    /// traverse.
     pub(crate) fn collision_boxes(self, open: bool, n: &Neighbours) -> Vec<IntBox> {
         match self {
             Link::Fence => {
@@ -240,7 +244,8 @@ fn link_in(entity: Option<&BlockEntity>) -> Option<Link> {
     Shaped::link_of(&entity?.data)
 }
 
-/// L'axe d'un portillon en `pos` d'après ses voisins non-portillons (une barrière, un muret, un cube).
+/// L'axe d'un portillon en `pos` d'après ses voisins non-portillons (une barrière, un muret, un
+/// cube).
 fn gate_axis<'a>(
     registry: &BlockRegistry,
     pos: IVec3,

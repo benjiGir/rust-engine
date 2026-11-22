@@ -1,30 +1,30 @@
 //! L'aventure côté jeu : le palier du monde, la progression, le butin à affixes, les envahisseurs.
 //!
-//! Les règles pures sont ailleurs (`tiers.rs`, `affixes.rs`, `elites.rs`, `gems.rs`,
-//! `forge_tables.rs`) ; ce module les branche sur le monde vivant.
+//! Les règles pures sont ailleurs (`adventure/tiers.rs`, `adventure/affixes.rs`, `mobs/elites.rs`,
+//! `adventure/gems.rs`, `adventure/forge_tables.rs`) ; ce module les branche sur le monde vivant.
 //!
 //! # À chaque pas
 //!
 //! [`VoxelGame::update_adventure`] tient à jour la ressource [`TierEffects`] que la simulation lit,
 //! puis, une fois par seconde : la profondeur du joueur, les objets qu'il porte (la plus haute
 //! rareté obtenue ; un objet « à tirer » ramassé dans un coffre est tiré ici s'il a échappé à
-//! l'ouverture), et les paliers qui se débloquent (un message l'annonce). Si le palier le permet, un
-//! minuteur fait surgir un **envahisseur** : un son grave, un message, et un faisceau de lumière
-//! (voir `elites.rs`).
+//! l'ouverture), et les paliers qui se débloquent (un message l'annonce). Si le palier le permet,
+//! un minuteur fait surgir un **envahisseur** : un son grave, un message, et un faisceau de lumière
+//! (voir `mobs/elites.rs`).
 //!
 //! # Le butin
 //!
 //! - une **hostile** lâche, avec la chance `drop_chance` du palier, un objet à affixes ;
-//! - une **élite** en lâche toujours un (rareté minimale `elite_min_rarity`), parfois une gemme et de
-//!   la poussière ; un **envahisseur** un objet d'une rareté plus haute, une gemme et de la
+//! - une **élite** en lâche toujours un (rareté minimale `elite_min_rarity`), parfois une gemme et
+//!   de la poussière ; un **envahisseur** un objet d'une rareté plus haute, une gemme et de la
 //!   poussière ;
 //! - les objets viennent de la liste `loot` de `elites.ron` (filtrée par palier) ; leur rareté suit
 //!   le palier choisi ([`TierDef::rarity_boost`](crate::adventure::data::TierDef)).
 //!
 //! # Les coffres
 //!
-//! Les coffres des structures contiennent des objets « à tirer » (voir `affixes::resolve_pending`) ;
-//! [`VoxelGame::resolve_chest_loot`] les tire à l'ouverture du coffre.
+//! Les coffres des structures contiennent des objets « à tirer » (voir `affixes::resolve_pending`)
+//! ; [`VoxelGame::resolve_chest_loot`] les tire à l'ouverture du coffre.
 
 pub mod affixes;
 pub mod charm_play;

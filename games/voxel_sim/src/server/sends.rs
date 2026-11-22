@@ -1,6 +1,6 @@
-//! Ce que le serveur a déjà envoyé à chaque joueur, et ce qu'il lui envoie à chaque pas : les chunks
-//! (`ChunkSender`), les entités (`EntityTracker`) et les vues du joueur (`PlayerViews`). C'est l'état
-//! du serveur : la fenêtre n'en lit rien, elle reçoit les messages (`ServerMsg`).
+//! Ce que le serveur a déjà envoyé à chaque joueur, et ce qu'il lui envoie à chaque pas : les
+//! chunks (`ChunkSender`), les entités (`EntityTracker`) et les vues du joueur (`PlayerViews`).
+//! C'est l'état du serveur : la fenêtre n'en lit rien, elle reçoit les messages (`ServerMsg`).
 
 use std::collections::HashMap;
 
@@ -19,11 +19,12 @@ pub struct ServerSends {
     pub senders: HashMap<PlayerId, ChunkSender>,
     /// Ce que chaque joueur a reçu des entités.
     pub trackers: HashMap<PlayerId, EntityTracker>,
-    /// Ce que le serveur a envoyé en dernier des jauges, de l'inventaire et des écrans de chaque joueur.
+    /// Ce que le serveur a envoyé en dernier des jauges, de l'inventaire et des écrans de chaque
+    /// joueur.
     pub player_views: PlayerViews,
     /// Le pas fixe du serveur auquel en sont les entités.
     pub tick: u64,
-    /// Ce qu'a la fenêtre du ciel (voir `sky_view.rs`).
+    /// Ce qu'a la fenêtre du ciel (voir `net/sky_view.rs`).
     pub sky: crate::net::sky_view::SkyEcho,
 }
 
@@ -50,7 +51,7 @@ impl VoxelServer {
         for player in self.players.iter() {
             let eye = crate::player::eye(&self.ecs, player.entity, 1.0);
             // Un joueur du réseau dont le lien a du retard ne reçoit que les changements, le temps
-            // de le rattraper (voir `net_host.rs`).
+            // de le rattraper (voir `net/host.rs`).
             let budget = if self.net_backlog(player.id) > crate::net::host::CHUNK_BACKLOG {
                 0
             } else {
@@ -76,8 +77,8 @@ impl VoxelServer {
         }
     }
 
-    /// Un pas fixe : un numéro pour les entités neuves, puis, pour chaque joueur, ce qui entre dans sa
-    /// portée, en sort, bouge ou change d'apparence.
+    /// Un pas fixe : un numéro pour les entités neuves, puis, pour chaque joueur, ce qui entre dans
+    /// sa portée, en sort, bouge ou change d'apparence.
     pub fn send_entities(&mut self) {
         self.sends.tick += 1;
         NetIds::assign(&mut self.ecs);

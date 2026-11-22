@@ -1,5 +1,5 @@
 //! Les tests de bout en bout du multijoueur : un serveur sans fenêtre et des bots (de vrais clients
-//! TCP, voir `bot.rs`) dans le même processus, sur 127.0.0.1.
+//! TCP, voir `net/bot.rs`) dans le même processus, sur 127.0.0.1.
 
 use std::time::Duration;
 

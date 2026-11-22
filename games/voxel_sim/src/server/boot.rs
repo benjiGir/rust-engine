@@ -1,7 +1,7 @@
 //! Construire le serveur seul, sans fenêtre (lot 4b du multijoueur) : registres, contenu, monde,
-//! dimensions, générateur, chunks, fluides, mods, structures mobiles, ECS et systèmes, joueur local.
-//! `VoxelGame::create` s'en sert puis construit la fenêtre ; les tests et, plus tard, le serveur
-//! dédié l'utilisent tels quels.
+//! dimensions, générateur, chunks, fluides, mods, structures mobiles, ECS et systèmes, joueur
+//! local. `VoxelGame::create` s'en sert puis construit la fenêtre ; les tests et, plus tard, le
+//! serveur dédié l'utilisent tels quels.
 
 use crate::DEFAULT_SEED;
 use crate::EventReaders;
@@ -97,8 +97,8 @@ impl VoxelServer {
             meta.as_ref(),
             launch.dimension.as_deref(),
         )?;
-        // Le joueur local vient de `players/<identifiant>.ron`, ou de `world.ron` pour un monde plus
-        // ancien (voir `persistence::with_player_file`).
+        // Le joueur local vient de `players/<identifiant>.ron`, ou de `world.ron` pour un monde
+        // plus ancien (voir `persistence::with_player_file`).
         let local_uuid = players::parse_uuid(&settings.player_uuid).unwrap_or_default();
         let meta = meta.map(|m| {
             persistence::with_player_file(
@@ -201,11 +201,12 @@ impl VoxelServer {
         );
         // Un monde sauvegardé reprend là où on l'a laissé.
         let (eye, yaw, pitch, mode) = persistence::saved_eye(meta.as_ref()).unwrap_or(default_view);
-        // Arrivé par un portail : au sol, aux mêmes x et z (voir `dimensions.rs`).
+        // Arrivé par un portail : au sol, aux mêmes x et z (voir `world/dimensions.rs`).
         let eye = dims.arrive(eye, meta.as_ref(), streamer.generator());
         // Le monde ECS : le streamer et les registres deviennent des ressources, que les
         // systèmes (physique, IA) lisent sans que le jeu ait à les leur passer.
-        // Le serveur ne maille pas ; la fenêtre en a la réplique (après les fluides, qu'elle copie).
+        // Le serveur ne maille pas ; la fenêtre en a la réplique (après les fluides, qu'elle
+        // copie).
         let streamer = streamer.as_server();
         let world = Rc::new(RefCell::new(streamer));
         let mut mods = modding::ModSystem::new(
@@ -291,7 +292,7 @@ impl VoxelServer {
         ecs.insert_resource(adventure.effects(&adventure::data::current()));
         ecs.insert_resource(spawning::Sky::default());
         let player = player::spawn(&mut ecs, eye, mode);
-        // Le joueur de la fenêtre se simule chez elle (voir `predicted.rs`).
+        // Le joueur de la fenêtre se simule chez elle (voir `net/predicted.rs`).
         ecs.insert(player, components::Predicted);
         let mut schedule = Schedule::new();
         schedule
@@ -345,16 +346,17 @@ impl VoxelServer {
             .or_else(|| env_parse("VOXEL_TIME"))
             .unwrap_or(0.3);
         let (survival, hunger_rules) = survival::load_rules(&assets);
-        // Les fiches d'objets du monde ouvert (voir `item_data.rs`).
-        // Ces deux tables sont globales au processus : un test qui construit un serveur (avec ou sans
-        // sauvegarde) ne les change pas sous les pieds des autres tests qui tournent en même temps.
+        // Les fiches d'objets du monde ouvert (voir `player/item_data.rs`).
+        // Ces deux tables sont globales au processus : un test qui construit un serveur (avec ou
+        // sans sauvegarde) ne les change pas sous les pieds des autres tests qui tournent en même
+        // temps.
         if !cfg!(test) {
             item_data::replace_all(
                 dims.meta_store
                     .as_ref()
                     .map_or_else(Default::default, |s| item_data::ItemStore::load(s.dir())),
             );
-            // Les matériaux des pièces taillées du monde ouvert (voir `shape_materials.rs`).
+            // Les matériaux des pièces taillées du monde ouvert (voir `shaping/materials.rs`).
             shaping::materials::replace_all(
                 dims.meta_store.as_ref().map_or_else(Default::default, |s| {
                     shaping::materials::Palette::load(s.dir())
@@ -602,7 +604,8 @@ pub mod tests {
                 .iter()
                 .all(|(_, m)| !matches!(m, ServerMsg::Correct { .. }))
         );
-        // Le serveur le déplace (une réapparition) : le mouvement suivant, joué ailleurs, est périmé.
+        // Le serveur le déplace (une réapparition) : le mouvement suivant, joué ailleurs, est
+        // périmé.
         let spawn = feet + Vec3::Z * 5.0;
         player::set_eye(
             &server.ecs,

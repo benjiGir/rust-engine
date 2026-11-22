@@ -1,6 +1,6 @@
 //! L'état de la fenêtre, à part de celui du serveur (lot 4 du multijoueur, voir
-//! `docs/plan-multijoueur.md`) : le serveur ne doit jamais le lire. Tout ce que la fenêtre montre lui
-//! arrive par messages (`ServerMsg`), et tout ce qu'elle fait part en intentions (`ClientMsg`).
+//! `docs/plan-multijoueur.md`) : le serveur ne doit jamais le lire. Tout ce que la fenêtre montre
+//! lui arrive par messages (`ServerMsg`), et tout ce qu'elle fait part en intentions (`ClientMsg`).
 
 pub mod culling;
 pub mod death;
@@ -48,7 +48,7 @@ pub(crate) struct ClientSide {
     /// Les mondes sauvegardés, listés à l'ouverture de l'écran de choix.
     pub(crate) worlds: Vec<menus::SavedWorld>,
     /// Le monde que voit la fenêtre : la réplique des chunks envoyés par le serveur (voir
-    /// `client_world.rs`). Tout ce qui se dessine ou se vise la lit.
+    /// `client/world.rs`). Tout ce qui se dessine ou se vise la lit.
     pub(crate) view: crate::client::world::ClientWorld,
     /// Le maillage GPU de chaque chunk affiché.
     pub(crate) meshes: HashMap<IVec3, MeshId>,
@@ -65,14 +65,14 @@ pub(crate) struct ClientSide {
     pub(crate) tour: Option<screenshots::Tour>,
     pub(crate) water_fx: water_fx::WaterFx,
     pub(crate) conduit_fx: conduit_fx::ConduitFx,
-    /// Le terrain lointain simplifié (voir `far_terrain.rs`), s'il est activé.
+    /// Le terrain lointain simplifié (voir `render/far_terrain.rs`), s'il est activé.
     pub(crate) far: Option<far_terrain::FarTerrain>,
-    /// Le budget d'envoi au GPU et ses compteurs (voir `stream_upload.rs`).
+    /// Le budget d'envoi au GPU et ses compteurs (voir `client/stream_upload.rs`).
     pub(crate) uploads: stream_upload::Uploads,
     /// Les maillages des structures mobiles, et la structure dont on tient la barre.
     pub(crate) grid_meshes: crate::vehicles::ships::GridMeshes,
     pub(crate) soundscape: soundscape::Soundscape,
-    /// L'état des écrans d'enchantement avancé et des charmes (voir `enchant_ui.rs`).
+    /// L'état des écrans d'enchantement avancé et des charmes (voir `enchanting/ui.rs`).
     pub(crate) enchant_ui: crate::enchanting::ui::EnchantUi,
     /// Un morceau est en cours jusqu'à cette date.
     pub(crate) music_until: Option<Instant>,
@@ -90,9 +90,10 @@ pub(crate) struct ClientSide {
     pub(crate) last_render: RenderStats,
     /// Le culling des grottes : quels chunks sont visibles depuis la caméra.
     pub(crate) culling: culling::CaveCulling,
-    /// `VOXEL_BENCH` : le benchmark reproductible (voir `bench.rs`).
+    /// `VOXEL_BENCH` : le benchmark reproductible (voir `control/bench.rs`).
     pub(crate) bench: Option<bench::Bench>,
-    /// Les intentions du joueur de la fenêtre, en attente d'être appliquées (voir `intents.rs`).
+    /// Les intentions du joueur de la fenêtre, en attente d'être appliquées (voir
+    /// `server/intents.rs`).
     pub(crate) outbox: Vec<protocol::ClientMsg>,
     /// La durée de la dernière image (le simulateur crédite la première image d'un minage).
     pub(crate) frame_dt: f32,
@@ -109,19 +110,19 @@ pub(crate) struct ClientSide {
     pub(crate) air_swing: bool,
     /// La barre envoyée en dernier (`ClientMsg::Steer`).
     pub(crate) steer_sent: f32,
-    /// L'horloge et la météo que voit la fenêtre, copiées du serveur (voir `sky_view.rs`).
+    /// L'horloge et la météo que voit la fenêtre, copiées du serveur (voir `net/sky_view.rs`).
     pub(crate) day: voxel_sim::world::daytime::DayCycle,
     pub(crate) weather: voxel_sim::world::weather::Weather,
-    /// Le lien avec l'hôte, pour un invité (voir `net_client.rs`) ; `None` : cette fenêtre fait
+    /// Le lien avec l'hôte, pour un invité (voir `client/join.rs`) ; `None` : cette fenêtre fait
     /// tourner le monde.
     pub(crate) remote: Option<crate::client::join::RemoteLink>,
     /// L'écoute des parties annoncées, ouverte sur l'écran « Multijoueur ».
     pub(crate) lan: Option<engine_net::Discovery>,
-    /// Le serveur intégré qui tourne dans son thread (`VOXEL_SERVER_THREAD=1`) : le lâcher l'arrête et
-    /// attend sa sauvegarde.
+    /// Le serveur intégré qui tourne dans son thread (`VOXEL_SERVER_THREAD=1`) : le lâcher l'arrête
+    /// et attend sa sauvegarde.
     pub(crate) integrated: Option<voxel_sim::net::dedicated::Integrated>,
     /// Les joueurs de la partie (`ServerMsg::PlayerList`), montrés tant que Tab est tenu.
     pub(crate) online: Vec<String>,
-    /// Le corps du joueur, simulé ici (voir `predicted.rs`).
+    /// Le corps du joueur, simulé ici (voir `net/predicted.rs`).
     pub(crate) body: voxel_sim::net::predicted::PredictedBody,
 }

@@ -14,7 +14,7 @@ use engine_voxel::{ChunkStreamer, SubGrids};
 /// La ressource ECS qui donne accès au monde.
 pub struct SharedStreamer(pub Rc<RefCell<ChunkStreamer>>);
 
-/// La ressource ECS qui donne accès aux structures mobiles (voir `ships.rs`).
+/// La ressource ECS qui donne accès aux structures mobiles (voir `vehicles/ships.rs`).
 pub struct SharedSubGrids(pub Rc<RefCell<SubGrids>>);
 
 /// `world.streamer().borrow()` dans les systèmes. Renvoie une copie du `Rc` (une

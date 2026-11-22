@@ -1,5 +1,5 @@
-//! La part fenêtre de `cart_play.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
-//! multijoueur ; la simulation reste dans `cart_play.rs`).
+//! La part fenêtre de `vehicles/cart_play.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
+//! multijoueur ; la simulation reste dans `vehicles/cart_play.rs`).
 
 use crate::key_codes::KeyCodes;
 use crate::*;

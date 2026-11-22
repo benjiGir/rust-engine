@@ -1,5 +1,5 @@
-//! La part serveur de `interact.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
-//! multijoueur ; la fenêtre reste dans `interact.rs`).
+//! La part serveur de `client/interact.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
+//! multijoueur ; la fenêtre reste dans `client/interact.rs`).
 
 use crate::mobs::MobRegistry;
 use crate::{components, mobs::breeding, player::inventory};
@@ -144,7 +144,8 @@ impl crate::server::VoxelServer {
 
     /// Maj + clic droit avec un conduit : poser contre une machine sans ouvrir son menu.
     pub fn place_conduit_first(&mut self) -> bool {
-        // Un sac à dos en main : Maj + clic droit le pose au sol (voir `backpack_block.rs`).
+        // Un sac à dos en main : Maj + clic droit le pose au sol (voir
+        // `storage/backpack_block.rs`).
         if self.place_backpack() {
             return true;
         }

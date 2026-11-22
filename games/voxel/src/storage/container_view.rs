@@ -1,5 +1,5 @@
-//! La part fenêtre de `container_view.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
-//! multijoueur ; la simulation reste dans `container_view.rs`).
+//! La part fenêtre de `storage/container_view.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du
+//! plan multijoueur ; la simulation reste dans `storage/container_view.rs`).
 
 use crate::VoxelGame;
 use voxel_sim::player::inventory::ItemStack;

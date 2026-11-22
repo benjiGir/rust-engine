@@ -225,20 +225,22 @@ pub enum Command {
     Travel(String),
     /// Ouvre la console (sans texte) ou y valide une ligne.
     Console(Option<String>),
-    /// Les commandes du stockage : sac, gestes sur un conteneur, contenu (voir `storage_ctl.rs`).
+    /// Les commandes du stockage : sac, gestes sur un conteneur, contenu (voir
+    /// `control/storage.rs`).
     Storage(crate::control::storage::Command),
-    /// Les commandes des objets et des attributs (voir `item_ctl.rs`).
+    /// Les commandes des objets et des attributs (voir `control/items.rs`).
     Items(crate::control::items::Command),
-    /// Les commandes de l'aventure : butin, gemmes, paliers, élites (voir `adventure_ctl.rs`).
+    /// Les commandes de l'aventure : butin, gemmes, paliers, élites (voir `control/adventure.rs`).
     Adventure(crate::control::adventure::Command),
-    /// Les commandes du livre de quêtes (voir `quest_ctl.rs`).
+    /// Les commandes du livre de quêtes (voir `control/quests.rs`).
     Quests(crate::control::quests::Command),
-    /// Les commandes des formes : tailler, reconstituer, lire une case (voir `shape_ctl.rs`).
+    /// Les commandes des formes : tailler, reconstituer, lire une case (voir `control/shaping.rs`).
     Shapes(crate::control::shaping::Command),
-    /// Les joueurs fantômes : ajouter, retirer, lister (voir `ghosts.rs`).
+    /// Les joueurs fantômes : ajouter, retirer, lister (voir `net/ghosts.rs`).
     Ghosts(voxel_sim::net::ghosts::Command),
     Net(crate::control::net::Command),
-    /// Les commandes de l'enchantement avancé : stats de table, livres, bibliothèque (voir `enchant_ctl.rs`).
+    /// Les commandes de l'enchantement avancé : stats de table, livres, bibliothèque (voir
+    /// `control/enchanting.rs`).
     Enchanting(crate::control::enchanting::Command),
     /// Les textes affichés (avec leur position en points), pour viser un bouton.
     UiTexts,
@@ -779,11 +781,11 @@ impl VoxelGame {
     }
 
     /// Exécute une commande. Celles qui simulent le joueur (`use`, `attack`, `select`, `eat`,
-    /// `respawn`, `throw`, `place` sans coordonnées) fabriquent les mêmes messages que ses entrées ;
-    /// `break` et `place x y z bloc` passent par la console (`Command`), comme `/give` ou `/tp`.
+    /// `respawn`, `throw`, `place` sans coordonnées) fabriquent les mêmes messages que ses entrées
+    /// ; `break` et `place x y z bloc` passent par la console (`Command`), comme `/give` ou `/tp`.
     pub(crate) fn execute(&mut self, command: Command) -> Result<String> {
-        // Un invité n'a qu'une coquille de serveur (voir `net_client.rs`) : seules les commandes de la
-        // fenêtre (état, clics, touches, capture) ont un sens chez lui.
+        // Un invité n'a qu'une coquille de serveur (voir `client/join.rs`) : seules les commandes
+        // de la fenêtre (état, clics, touches, capture) ont un sens chez lui.
         let window_only = matches!(
             command,
             Command::Help
@@ -954,8 +956,8 @@ impl VoxelGame {
         Ok(())
     }
 
-    /// Ce que le regard désigne pour un coup : la créature, sinon le wagon, plus près que le bloc. Comme
-    /// la fenêtre, `ctl` choisit dans ce que le client voit (la réplique des entités).
+    /// Ce que le regard désigne pour un coup : la créature, sinon le wagon, plus près que le bloc.
+    /// Comme la fenêtre, `ctl` choisit dans ce que le client voit (la réplique des entités).
     fn claimed_target(
         &self,
         aim: voxel_sim::net::protocol::Aim,

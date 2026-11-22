@@ -1,19 +1,20 @@
-//! Les envois au GPU des chunks et du terrain lointain, sous **un seul budget par image** (octets et
-//! temps, voir `engine_voxel::TransferBudget`).
+//! Les envois au GPU des chunks et du terrain lointain, sous **un seul budget par image** (octets
+//! et temps, voir `engine_voxel::TransferBudget`).
 //!
 //! Compter des maillages (16 par image avant) ne dit rien de leur coût : un chunk de plaine pèse
-//! quelques kilo-octets, un chunk de forêt dense des centaines. Le budget s'arrête au premier des deux
-//! plafonds, mais le premier envoi de l'image passe toujours : une très grosse opération n'est jamais
-//! bloquée, on mesure ce qu'elle coûte (`envois : ...` dans les logs).
+//! quelques kilo-octets, un chunk de forêt dense des centaines. Le budget s'arrête au premier des
+//! deux plafonds, mais le premier envoi de l'image passe toujours : une très grosse opération n'est
+//! jamais bloquée, on mesure ce qu'elle coûte (`envois : ...` dans les logs).
 //!
-//! Les maillages viennent de la réplique du client (voir `client_world.rs`), jamais du serveur.
+//! Les maillages viennent de la réplique du client (voir `client/world.rs`), jamais du serveur.
 //!
-//! Ordre dans l'image : les maillages d'un bloc modifié (hors budget, le joueur attend son coup), les
-//! maillages arrivés du plus proche au plus lointain, les libérations (étalées), puis ce qui reste va
-//! au terrain lointain, lot par lot. Pour que le lointain ne meure pas de faim pendant un long vol,
-//! un lot passe quand même au bout de [`FAR_PATIENCE`] images sans rien recevoir.
+//! Ordre dans l'image : les maillages d'un bloc modifié (hors budget, le joueur attend son coup),
+//! les maillages arrivés du plus proche au plus lointain, les libérations (étalées), puis ce qui
+//! reste va au terrain lointain, lot par lot. Pour que le lointain ne meure pas de faim pendant un
+//! long vol, un lot passe quand même au bout de [`FAR_PATIENCE`] images sans rien recevoir.
 //!
-//! Réglages : `VOXEL_UPLOAD_MB` (octets par image, 3 par défaut) et `VOXEL_UPLOAD_MS` (temps, 3 ms).
+//! Réglages : `VOXEL_UPLOAD_MB` (octets par image, 3 par défaut) et `VOXEL_UPLOAD_MS` (temps, 3
+//! ms).
 
 use std::time::{Duration, Instant};
 
@@ -25,8 +26,8 @@ use crate::*;
 const DEFAULT_BYTES: usize = 3 << 20;
 /// Temps d'envoi au plus par image, mesuré (les libérations comprises).
 const DEFAULT_TIME: Duration = Duration::from_millis(3);
-/// Libérations de maillages au plus par image : une téléportation en libère des milliers, étalés sur
-/// plusieurs images (ces chunks sont loin ou hors de vue, les garder un peu ne se voit pas).
+/// Libérations de maillages au plus par image : une téléportation en libère des milliers, étalés
+/// sur plusieurs images (ces chunks sont loin ou hors de vue, les garder un peu ne se voit pas).
 const UNLOAD_COUNT: usize = 256;
 /// Images sans lot lointain avant d'en forcer un.
 const FAR_PATIENCE: u32 = 6;

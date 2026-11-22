@@ -168,7 +168,7 @@ impl crate::server::VoxelServer {
             self.use_bucket(item);
             return None;
         }
-        // Une pièce taillée : elle s'ajoute à une case de formes (voir `shaped_play.rs`).
+        // Une pièce taillée : elle s'ajoute à une case de formes (voir `shaping/play.rs`).
         if let Some(done) = self.place_shaped_piece() {
             return done;
         }
@@ -291,7 +291,8 @@ impl crate::server::VoxelServer {
                     self.travel(&dimension);
                 }
                 MachineAction::ShowOptions { mod_id, data } => {
-                    // Une page d'options (réglages du jeu) : la fenêtre la montre si elle est ouverte.
+                    // Une page d'options (réglages du jeu) : la fenêtre la montre si elle est
+                    // ouverte.
                     let id = self.players.current_id();
                     self.replies
                         .push((id, protocol::ServerMsg::ModOptions { mod_id, data }));
@@ -333,7 +334,7 @@ impl crate::server::VoxelServer {
                     );
                 }
                 MachineAction::Log(message) => log::info!("{message}"),
-                // Les ordres aux créatures ne valent que pendant leur lot (`mob_brains.rs`).
+                // Les ordres aux créatures ne valent que pendant leur lot (`mobs/brains.rs`).
                 MachineAction::MobMove { .. }
                 | MachineAction::MobMoveTo { .. }
                 | MachineAction::MobJump { .. }
@@ -346,7 +347,7 @@ impl crate::server::VoxelServer {
     /// Casse le bloc en `pos` : il lâche son butin (selon l'outil), l'outil s'use, et les
     /// blocs qui en dépendaient (une fleur dessus, du sable) suivent.
     pub fn break_block(&mut self, pos: IVec3) -> bool {
-        // Une case de formes perd une pièce à la fois (voir `shaped_play.rs`).
+        // Une case de formes perd une pièce à la fois (voir `shaping/play.rs`).
         if let Some(done) = self.break_shaped_piece(pos) {
             return done;
         }

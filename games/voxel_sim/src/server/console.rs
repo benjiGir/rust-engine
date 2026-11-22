@@ -1,5 +1,5 @@
-//! La part serveur de `console.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
-//! multijoueur ; la fenêtre reste dans `console.rs`).
+//! La part serveur de `ui/console.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
+//! multijoueur ; la fenêtre reste dans `ui/console.rs`).
 
 impl crate::server::VoxelServer {
     // (lot 4b) Méthodes du serveur.

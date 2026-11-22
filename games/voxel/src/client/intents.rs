@@ -1,5 +1,5 @@
-//! La part fenêtre de `intents.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
-//! multijoueur ; la simulation reste dans `intents.rs`).
+//! La part fenêtre de `server/intents.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
+//! multijoueur ; la simulation reste dans `server/intents.rs`).
 
 use crate::*;
 use voxel_sim::net::entities::NetId;
@@ -28,7 +28,7 @@ impl VoxelGame {
     }
 
     /// Met un message dans la file du client : il sera appliqué à la fin de la chaîne d'entrées de
-    /// l'image (voir `play_input.rs`).
+    /// l'image (voir `client/input.rs`).
     pub(crate) fn send(&mut self, msg: ClientMsg) {
         self.client.outbox.push(msg);
     }
@@ -60,7 +60,7 @@ impl VoxelGame {
         while !self.client.outbox.is_empty() && guard < 64 {
             guard += 1;
             for msg in std::mem::take(&mut self.client.outbox) {
-                // Un invité envoie ses messages à l'hôte (voir `net_client.rs`).
+                // Un invité envoie ses messages à l'hôte (voir `client/join.rs`).
                 if self.hosting() {
                     self.server.handle(local, msg);
                 } else {
@@ -79,8 +79,8 @@ impl VoxelGame {
         self.apply_replies();
     }
 
-    /// Les commandes de console que le serveur a reçues : la fenêtre hôte les exécute (elles passent
-    /// par le pilotage `ctl`, voir `handle_command`).
+    /// Les commandes de console que le serveur a reçues : la fenêtre hôte les exécute (elles
+    /// passent par le pilotage `ctl`, voir `handle_command`).
     fn run_pending_commands(&mut self) {
         for line in std::mem::take(&mut self.server.pending_commands) {
             let (name, args) = line.split_once(char::is_whitespace).unwrap_or((&line, ""));
@@ -92,7 +92,7 @@ impl VoxelGame {
     /// Les réponses du simulateur au joueur de la fenêtre. Celles des autres joueurs partiront sur
     /// le réseau (lot 5).
     pub(crate) fn apply_replies(&mut self) {
-        // Celles des joueurs du réseau partent sur leur connexion (voir `net_host.rs`) ; un invité
+        // Celles des joueurs du réseau partent sur leur connexion (voir `net/host.rs`) ; un invité
         // reçoit les siennes de l'hôte.
         let replies = if self.hosting() {
             self.server.route_replies()
@@ -138,7 +138,7 @@ impl VoxelGame {
                 }
                 ServerMsg::Respawned => self.mode = Mode::Playing,
                 // Le monde que voit la fenêtre : la réplique l'applique à la prochaine mise à jour
-                // de ses vues (voir `client_world.rs`).
+                // de ses vues (voir `client/world.rs`).
                 chunk_msg => self.client.view.receive(chunk_msg),
             }
         }
@@ -150,7 +150,7 @@ impl VoxelGame {
     // ----- Le minage -----
 
     /// Envoie au serveur le mouvement que la physique de la fenêtre vient de jouer (voir
-    /// `predicted.rs`).
+    /// `net/predicted.rs`).
     pub(crate) fn send_local_move(&mut self, walk: Vec3, jump: bool) {
         // Les vols automatiques et les démos déplacent le joueur à leur guise : le contrôle de
         // `VOXEL_CHECK_MOVES=1` repart de zéro à chaque pas.

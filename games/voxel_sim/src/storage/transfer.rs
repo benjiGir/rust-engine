@@ -1,8 +1,8 @@
 //! Les transferts rapides entre l'inventaire du joueur et un conteneur, sans interface.
 //!
 //! Tout travaille sur des listes de cases (`[Option<ItemStack>]`) et des listes de numéros de
-//! cases à toucher : l'écran (voir `storage_ui.rs`) choisit les cases, ce module décide où va chaque
-//! objet. Quatre gestes :
+//! cases à toucher : l'écran (voir `storage/ui.rs`) choisit les cases, ce module décide où va
+//! chaque objet. Quatre gestes :
 //!
 //! - **Déposer** ([`move_all`]) : chaque pile de la source va dans la destination. D'abord on
 //!   complète les piles du même objet (et de même usure : un outil usé ne s'empile jamais) déjà
@@ -15,8 +15,8 @@
 //! - **Trier** ([`sort`]) : regroupe les piles et les range par catégorie puis par nom.
 //!
 //! Chaque côté a ses [`Rules`] : la taille maximale des piles (multipliée par les améliorations
-//! « pile » d'un coffre), ce qu'il refuse (un sac ne contient pas de sac) et ce que le Néant détruit.
-//! Une pile trop grande pour l'autre côté passe en plusieurs fois, case après case.
+//! « pile » d'un coffre), ce qu'il refuse (un sac ne contient pas de sac) et ce que le Néant
+//! détruit. Une pile trop grande pour l'autre côté passe en plusieurs fois, case après case.
 
 use engine_voxel::{Category, ItemId, ItemRegistry};
 

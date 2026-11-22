@@ -100,7 +100,7 @@ impl VoxelGame {
         self.client.ui.mod_menu = None;
         self.client.ui.browser.close();
         self.client.ui.split = None;
-        // Le simulateur range la main et la grille d'artisanat (voir `intents.rs`).
+        // Le simulateur range la main et la grille d'artisanat (voir `server/intents.rs`).
         self.send_now(voxel_sim::net::protocol::ClientMsg::CloseMenu);
         self.client.ui.inventory_open = false;
         self.client.ui.screen = ui::Screen::Inventory;

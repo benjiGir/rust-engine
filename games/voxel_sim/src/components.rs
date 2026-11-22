@@ -30,7 +30,8 @@ pub struct Collider {
     pub in_liquid: bool,
     /// La vitesse d'entrée si l'entité vient de plonger dans un liquide à ce pas (0 sinon).
     pub splash: f32,
-    /// Il nage contre une berge en tenant Espace : l'élan de sortie de l'eau continue au pas suivant.
+    /// Il nage contre une berge en tenant Espace : l'élan de sortie de l'eau continue au pas
+    /// suivant.
     pub exit_boost: bool,
     /// Le terrain autour n'est pas encore chargé : l'entité attend sans bouger.
     pub frozen: bool,
@@ -165,16 +166,16 @@ pub struct Trader {
 }
 
 /// L'entité se tient sur une structure mobile : sa physique se fait dans le repère de cette
-/// structure (voir `ships.rs`), pour qu'elle marche sur un pont qui bouge.
+/// structure (voir `vehicles/ships.rs`), pour qu'elle marche sur un pont qui bouge.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct OnGrid(pub engine_voxel::GridId);
 
-/// Le joueur est simulé par sa fenêtre (voir `predicted.rs`) : le système `physics` le saute, sauf
-/// quand il est porté (wagon, structure mobile).
+/// Le joueur est simulé par sa fenêtre (voir `net/predicted.rs`) : le système `physics` le saute,
+/// sauf quand il est porté (wagon, structure mobile).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Predicted;
 
-/// Le joueur sans fenêtre d'un serveur dédié (voir `dedicated.rs`) : ni vu, ni visé, ni compté pour
-/// les apparitions de créatures.
+/// Le joueur sans fenêtre d'un serveur dédié (voir `net/dedicated.rs`) : ni vu, ni visé, ni compté
+/// pour les apparitions de créatures.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Hidden;

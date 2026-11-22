@@ -1,5 +1,5 @@
-//! La part serveur de `death.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
-//! multijoueur ; la fenêtre reste dans `death.rs`).
+//! La part serveur de `client/death.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
+//! multijoueur ; la fenêtre reste dans `client/death.rs`).
 
 use crate::components::{Health, Mob, Transform};
 use crate::player;

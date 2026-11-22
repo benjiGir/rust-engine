@@ -1,5 +1,5 @@
-//! La part fenêtre de `ghosts.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
-//! multijoueur ; la simulation reste dans `ghosts.rs`).
+//! La part fenêtre de `net/ghosts.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
+//! multijoueur ; la simulation reste dans `net/ghosts.rs`).
 
 use crate::VoxelGame;
 use crate::control::{json_str, vec3};

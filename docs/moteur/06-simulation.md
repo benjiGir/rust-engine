@@ -9,7 +9,7 @@ fluides, la physique du joueur et des créatures, les structures mobiles et les 
 
 Une construction peut compter des centaines de milliers de blocs actifs (câbles, rails, coffres...), qui ne
 font rien la plupart du temps. Une liste parcourue à chaque tick coûterait autant qu'il y a de blocs ;
-`machines.rs` ne paie que pour ceux **qui travaillent**. Un bloc actif dort, et il est réveillé :
+`tech/machines.rs` ne paie que pour ceux **qui travaillent**. Un bloc actif dort, et il est réveillé :
 
 - par un **tick programmé** (« réveille-moi dans 10 ticks ») : une file triée par date (`Scheduler`) ;
 - par un **voisin qui change** : un bloc modifié prévient ses 6 voisins ;
@@ -42,7 +42,7 @@ four, alambic, chargeurs de wagons, terre labourée, herbe, feuilles, pousses, c
 ## Les réseaux : câbles, tuyaux, arbres de transmission
 
 Simuler chaque conduit séparément (chacun passe son contenu au voisin) est lent et instable : l'énergie
-mettrait N ticks à traverser N câbles, et oscillerait. `networks.rs` regroupe les conduits en **réseaux** :
+mettrait N ticks à traverser N câbles, et oscillerait. `tech/networks.rs` regroupe les conduits en **réseaux** :
 
 ![Réseau et extrémités](images/reseau.svg)
 
@@ -79,7 +79,7 @@ Mesuré : un réseau de 50 000 câbles se construit en 10 ms et son tick coûte 
 
 ## Les circuits
 
-`circuits.rs` : un signal de 0 à 15 (`BlockEntity::power`) émis par des interrupteurs et reçu par des
+`tech/circuits.rs` : un signal de 0 à 15 (`BlockEntity::power`) émis par des interrupteurs et reçu par des
 mécanismes.
 
 - **Câble** : à chaque changement, le réseau de câbles entier est recalculé d'un coup (la puissance est
@@ -95,7 +95,7 @@ mécanismes.
 
 ![Simulation des fluides](images/fluides.svg)
 
-`fluid_sim.rs` simule l'eau et la lave en **conservant le volume** : chaque cellule contient une quantité
+`fluids/sim.rs` simule l'eau et la lave en **conservant le volume** : chaque cellule contient une quantité
 (4 096 = un bloc), en entiers, pour que rien ne se perde par arrondi. Dix fois par seconde, chaque cellule
 **active** :
 
@@ -145,14 +145,14 @@ modèles (dalles, escaliers, coffres) sont testés boîte par boîte.
 
 ### Le chemin des créatures
 
-`pathfind.rs` : un **A\*** sur les blocs. Une case est la position des pieds ; une créature peut s'y tenir si
+`motion/pathfind.rs` : un **A\*** sur les blocs. Une case est la position des pieds ; une créature peut s'y tenir si
 son corps y passe sans danger et si un bloc la porte (ou si c'est de l'eau : elle nage). D'une case à
 l'autre : à plat dans 8 directions (pas de coin coupé), une marche vers le haut, une descente bornée. Le
 nombre de cases explorées est limité ; sans chemin, on va vers la case la plus proche du but.
 
 ## Les structures mobiles
 
-Un vaisseau, un bateau, une contraption : un groupe de blocs détaché du monde (`subgrid.rs`, `ship.rs`).
+Un vaisseau, un bateau, une contraption : un groupe de blocs détaché du monde (`motion/subgrid.rs`, `motion/ship.rs`).
 
 ![Structure mobile](images/structure-mobile.svg)
 
@@ -177,24 +177,24 @@ de fluides à bord.
 
 ![Formes des rails](images/rails.svg)
 
-- **Les rails** (`rails.rs`) sont des blocs actifs (`rail: Normal | Booster | Detector | Activator | Stop`).
+- **Les rails** (`motion/rails.rs`) sont des blocs actifs (`rail: Normal | Booster | Detector | Activator | Stop`).
   Leur **forme** (deux droites, quatre montées, quatre virages) est calculée depuis les rails voisins à la
   pose et au changement d'un voisin, et rangée dans `data[0]` ; trois liens font un **aiguillage** (droit
   sans signal, virage avec).
-- **La physique** (`rail_motion.rs`) : une abscisse le long du chemin du rail et une vitesse signée, en
+- **La physique** (`motion/rail_motion.rs`) : une abscisse le long du chemin du rail et une vitesse signée, en
   **sous-pas** de 0,5 bloc au plus (aucun rail sauté, même à 30 blocs/s) : gravité dans les pentes,
   accélérateur, butoir, frottement, vitesse maximale. Au bout de la voie, le wagon **déraille** et
   reprend une physique de boîte.
 - **Les trains** : `couple` garde deux wagons à distance (la locomotive tire), `bump` repousse deux wagons
   qui se touchent.
-- **Le jeu** (`carts.rs`) : wagonnet, wagon coffre, wagon trémie, locomotive ; passagers ; chargeurs et
+- **Le jeu** (`vehicles/carts.rs`) : wagonnet, wagon coffre, wagon trémie, locomotive ; passagers ; chargeurs et
   déchargeurs branchés aux tuyaux. Sauvegarde : `carts.bin`.
 
 ## Le stockage
 
-`storage.rs` : des coffres à **paliers** (27 → 45 → 54 → 81 → 108 cases) qu'on monte sur place avec un kit,
+`tech/storage.rs` : des coffres à **paliers** (27 → 45 → 54 → 81 → 108 cases) qu'on monte sur place avec un kit,
 des **emplacements d'amélioration** (piles ×2 et ×4, compactage, néant, entonnoir), un **contrôleur** qui
-voit jusqu'à 64 coffres voisins comme un seul inventaire, et le **grand coffre** (`double_chest.rs`) : deux
+voit jusqu'à 64 coffres voisins comme un seul inventaire, et le **grand coffre** (`blocks/double_chest.rs`) : deux
 coffres identiques côte à côte se réunissent, la moitié gauche garde l'inventaire doublé.
 
 ![Grand coffre](images/grand-coffre.svg)

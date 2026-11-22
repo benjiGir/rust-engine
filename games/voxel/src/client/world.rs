@@ -5,16 +5,16 @@
 //! [`engine_voxel::ChunkSender`] par joueur lit le monde du serveur à chaque image et en fait des
 //! messages ([`ServerMsg::Chunk`], [`ServerMsg::ChunkChanged`], [`ServerMsg::Unload`]) : les chunks
 //! sont des `Arc`, ils passent sans copie. Le client range ces messages dans sa réplique, un second
-//! `ChunkStreamer` qui ne génère, n'éclaire ni ne sauvegarde rien, mais maille. Tout ce que la fenêtre
-//! dessine ou vise (rendu, rayon de visée, culling des grottes, pas, couvercles de coffres, eau, vent,
-//! lumière du bras) lit cette réplique, jamais le monde du serveur.
+//! `ChunkStreamer` qui ne génère, n'éclaire ni ne sauvegarde rien, mais maille. Tout ce que la
+//! fenêtre dessine ou vise (rendu, rayon de visée, culling des grottes, pas, couvercles de coffres,
+//! eau, vent, lumière du bras) lit cette réplique, jamais le monde du serveur.
 //!
-//! Une édition du joueur est appliquée par le serveur dans l'image, envoyée à la fin de cette image, et
-//! remaillée par la réplique avant l'envoi au GPU : elle se voit tout de suite.
+//! Une édition du joueur est appliquée par le serveur dans l'image, envoyée à la fin de cette
+//! image, et remaillée par la réplique avant l'envoi au GPU : elle se voit tout de suite.
 //!
-//! Le serveur et le client sont encore dans le même thread, et le lien est la liste `replies` du jeu,
-//! vidée à chaque image. `VoxelGame::streamer()` désigne le monde du serveur, `VoxelGame::view_world()`
-//! celui que voit la fenêtre.
+//! Le serveur et le client sont encore dans le même thread, et le lien est la liste `replies` du
+//! jeu, vidée à chaque image. `VoxelGame::streamer()` désigne le monde du serveur,
+//! `VoxelGame::view_world()` celui que voit la fenêtre.
 
 use crate::VoxelGame;
 use crate::client::entities::ClientEntities;
@@ -30,9 +30,9 @@ pub struct ClientWorld {
     /// Les messages de chunks reçus, appliqués ensemble (voir [`ClientWorld::apply_received`]).
     incoming: Vec<ChunkUpdate>,
     /// Les entités que voit la fenêtre : créatures, objets, wagons, projectiles, structures, autres
-    /// joueurs (voir `client_entities.rs`).
+    /// joueurs (voir `client/entities.rs`).
     pub entities: ClientEntities,
-    /// Le joueur de la fenêtre, tel que le serveur le décrit (voir `player_view.rs`).
+    /// Le joueur de la fenêtre, tel que le serveur le décrit (voir `net/player_view.rs`).
     pub me: ClientPlayer,
 }
 
@@ -104,8 +104,8 @@ impl ClientWorld {
         }
     }
 
-    /// La réplique applique les chunks reçus : ils sont remplacés d'abord, les blocs édités se remaillent
-    /// à sa prochaine mise à jour.
+    /// La réplique applique les chunks reçus : ils sont remplacés d'abord, les blocs édités se
+    /// remaillent à sa prochaine mise à jour.
     pub fn apply_received(&mut self) {
         if !self.incoming.is_empty() {
             self.replica
@@ -158,7 +158,8 @@ impl VoxelGame {
         self.server.streamer().is_idle() && self.server.sends.idle() && self.client.view.idle()
     }
 
-    /// Ce que les commandes de `ctl` ont changé après la fin de l'image : envoyé, remaillé et déjà au GPU.
+    /// Ce que les commandes de `ctl` ont changé après la fin de l'image : envoyé, remaillé et déjà
+    /// au GPU.
     pub(crate) fn flush_world_view(&mut self) {
         self.sync_world_view();
         self.apply_stream_events();
@@ -177,7 +178,7 @@ impl VoxelGame {
     }
 
     /// Un pas fixe : le serveur dit à chaque joueur ce qui change parmi les entités (voir
-    /// `server_sends.rs`), et la fenêtre applique ce qui la concerne.
+    /// `server/sends.rs`), et la fenêtre applique ce qui la concerne.
     pub(crate) fn replicate_entities(&mut self) {
         if self.hosting() {
             self.server.send_entities();
@@ -185,8 +186,9 @@ impl VoxelGame {
         self.apply_replies();
     }
 
-    /// Fin d'image : le serveur envoie ce qui a changé à chaque joueur, le client applique les messages
-    /// reçus et sa réplique remaille (les éditions dans cette image, le reste en tâche de fond).
+    /// Fin d'image : le serveur envoie ce qui a changé à chaque joueur, le client applique les
+    /// messages reçus et sa réplique remaille (les éditions dans cette image, le reste en tâche de
+    /// fond).
     pub(crate) fn sync_world_view(&mut self) {
         // Ce que le serveur a laissé pour la fenêtre : les durées des éditions (mesures), et un
         // changement de dimension à faire (recharger le monde).

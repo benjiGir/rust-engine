@@ -2,19 +2,20 @@
 //!
 //! # Les emplacements
 //!
-//! Un objet à affixes a 0 à 3 emplacements de gemme, tirés avec sa rareté (voir `affixes.rs`) ; le
-//! sceau d'emplacement en ajoute, jusqu'à `max_sockets` (`rarities.ron`). Ils sont rangés dans la
-//! fiche de l'objet (`ItemData::sockets`) : vide, ou la **clé de l'objet gemme** posée
-//! (`core:gem_ruby_3`). Les données (`gems.ron`) disent à quelle sorte et à quelle qualité cette
-//! clé correspond ; elles ne sont donc jamais copiées dans la fiche, et un mod qui retire une
-//! gemme laisse un emplacement plein mais sans effet.
+//! Un objet à affixes a 0 à 3 emplacements de gemme, tirés avec sa rareté (voir
+//! `adventure/affixes.rs`) ; le sceau d'emplacement en ajoute, jusqu'à `max_sockets`
+//! (`rarities.ron`). Ils sont rangés dans la fiche de l'objet (`ItemData::sockets`) : vide, ou la
+//! **clé de l'objet gemme** posée (`core:gem_ruby_3`). Les données (`gems.ron`) disent à quelle
+//! sorte et à quelle qualité cette clé correspond ; elles ne sont donc jamais copiées dans la
+//! fiche, et un mod qui retire une gemme laisse un emplacement plein mais sans effet.
 //!
 //! # Le bonus
 //!
 //! Il dépend de la **catégorie** de l'objet (`weapon`, `tool`, `armor`...) : un rubis donne des
 //! dégâts à une épée, de la vitesse de minage à une pioche et de la vie à une armure. La première
 //! ligne de `bonuses` de la sorte dont une catégorie convient s'applique, avec la valeur de la
-//! qualité de la gemme. [`modifiers`] en fait des modificateurs d'attributs (voir `gear.rs`).
+//! qualité de la gemme. [`modifiers`] en fait des modificateurs d'attributs (voir
+//! `player/gear.rs`).
 //!
 //! # Les gestes
 //!
@@ -26,8 +27,8 @@
 //! - **un sceau d'emplacement** : un emplacement vide de plus (un objet sans fiche en reçoit une).
 //!
 //! Sur un objet qui n'a aucun emplacement, ou une case vide, le clic reste un clic ordinaire (on
-//! pose ou on échange la pile). La logique des gestes est dans `gem_sockets.rs` ; ce module-ci ne
-//! porte que les données (bonus, noms) que lisent aussi les bulles d'aide.
+//! pose ou on échange la pile). La logique des gestes est dans `adventure/gem_sockets.rs` ; ce
+//! module-ci ne porte que les données (bonus, noms) que lisent aussi les bulles d'aide.
 
 use engine_voxel::ItemDef;
 

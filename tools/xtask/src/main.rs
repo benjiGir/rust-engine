@@ -10,7 +10,8 @@
 //!   refuse le moindre avertissement de documentation (lien cassé...).
 //! - `check-arch` : vérifie les règles d'architecture (voir `check_arch.rs`).
 //! - `ctl <commande>...` : pilote le jeu lancé avec `VOXEL_CONTROL` (voir `ctl.rs`).
-//! - `bench [--runs N] [--compare ancien.csv]` : le benchmark reproductible (voir `bench.rs`).
+//! - `bench [--runs N] [--compare ancien.csv]` : le benchmark reproductible (voir
+//!   `control/bench.rs`).
 //! - `map [options]` : exporte sans fenêtre des cartes PNG d'une graine (altitude, pente, humidité,
 //!   température, continentalité, biomes ; `--generator v1|v3`) ; les options sont décrites dans
 //!   `crates/engine_voxel/examples/worldmap.rs`.

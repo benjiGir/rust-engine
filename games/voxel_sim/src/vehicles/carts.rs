@@ -12,9 +12,9 @@
 //! # Le mouvement
 //!
 //! Un wagon est soit sur un rail ([`Ride::Rail`] : la physique pure de `engine_voxel::rail_motion`,
-//! abscisse et vitesse le long du chemin), soit libre ([`Ride::Free`] : la physique d'une boîte, avec
-//! un fort frottement). Au bout de la voie il déraille ; un wagon libre qui passe au-dessus d'un
-//! rail le reprend. Tant que le terrain autour n'est pas chargé, le wagon attend, figé.
+//! abscisse et vitesse le long du chemin), soit libre ([`Ride::Free`] : la physique d'une boîte,
+//! avec un fort frottement). Au bout de la voie il déraille ; un wagon libre qui passe au-dessus
+//! d'un rail le reprend. Tant que le terrain autour n'est pas chargé, le wagon attend, figé.
 //!
 //! Les wagons attelés (liens par numéro, voir [`Cart::links`]) gardent leur écart et partagent
 //! leur vitesse ; deux wagons qui se touchent se repoussent. Un wagon sur un rail détecteur le
@@ -363,7 +363,7 @@ pub fn setup(
     }
 }
 
-/// Écrit les wagons dans le dossier du monde (voir `persistence.rs`).
+/// Écrit les wagons dans le dossier du monde (voir `world/persistence.rs`).
 pub fn save(world: &World, dir: &std::path::Path) {
     if let Err(err) = engine_voxel::save_carts(dir, &to_saved(world)) {
         log::error!("sauvegarde des wagons : {err:#}");

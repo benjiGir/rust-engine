@@ -237,7 +237,7 @@ Le dernier mip donne la couleur moyenne, utilisée pour la surface de l'eau vue 
 
 ## Le terrain lointain
 
-Au-delà des chunks détaillés, un décor simplifié prolonge le monde jusqu'à des kilomètres (`far.rs`).
+Au-delà des chunks détaillés, un décor simplifié prolonge le monde jusqu'à des kilomètres (`worldgen/far.rs`).
 
 ![Niveaux de détail du terrain lointain](images/lointain.svg)
 
@@ -250,7 +250,7 @@ Au-delà des chunks détaillés, un décor simplifié prolonge le monde jusqu'à
 - **Aucun trou** : le décor commence exactement où les chunks s'arrêtent ; des **jupes** verticales cachent
   les fentes entre deux niveaux ; une région ne change de niveau que d'un coup, quand toutes ses nouvelles
   tuiles sont prêtes. Une tuile dont le relief dépasse la plage des sommets passe à une unité plus grande.
-- **Arbres et villages au loin** (`far_props.rs`) : une pyramide par arbre (la couronne) sur les tuiles
+- **Arbres et villages au loin** (`worldgen/far_props.rs`) : une pyramide par arbre (la couronne) sur les tuiles
   fines, une maison par bâtiment de village, un mur par ruine.
 - **Ce que le joueur a construit** : un chunk modifié laisse un résumé de sa surface (`edited_surface.rs`),
   que les tuiles préfèrent au générateur.
@@ -265,9 +265,9 @@ que 64 chunks détaillés de rayon divisent les images par trois.
 - **Créatures, objets au sol, wagons, projectiles, particules** : des **cubes instanciés** (`CubeInstance`),
   un seul maillage de cube répété avec une matrice, une couleur, une texture par instance ; un seul appel
   de dessin pour tous.
-- **Le bras** (`hand_model.rs`) : décrit en coordonnées de vue, il suit le regard et s'anime (frappe, minage,
+- **Le bras** (`render/hand_model.rs`) : décrit en coordonnées de vue, il suit le regard et s'anime (frappe, minage,
   manger, geste) ; il prend la lumière du bloc où se trouve le joueur.
-- **Les icônes des objets** (`item_art.rs`) : des miniatures isométriques des blocs, calculées une fois.
+- **Les icônes des objets** (`render/item_art.rs`) : des miniatures isométriques des blocs, calculées une fois.
 - **Les structures mobiles** : leurs chunks locaux sont maillés par le même mailleur et dessinés avec leur
   origine et leur lacet ; les textures restent accrochées à la structure.
 

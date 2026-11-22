@@ -48,9 +48,9 @@ use crate::worldgen::trees::TreeBlocks;
 
 /// Hauteur utile du monde, en chunks : les blocs vont de y = 0 à y = 32 × 6 - 1.
 pub const WORLD_HEIGHT_CHUNKS: i32 = 6;
-/// Les bornes de stockage du monde, en couches de chunks (`MIN_CHUNK_Y..MAX_CHUNK_Y`) : y de -128 à 255.
-/// Chaque génération n'en occupe qu'une partie (voir [`TerrainGenerator::chunk_range`]) : les mondes
-/// v1 reste de 0 à 191 (`WORLD_HEIGHT_CHUNKS` couches).
+/// Les bornes de stockage du monde, en couches de chunks (`MIN_CHUNK_Y..MAX_CHUNK_Y`) : y de -128 à
+/// 255. Chaque génération n'en occupe qu'une partie (voir [`TerrainGenerator::chunk_range`]) : les
+///      mondes v1 reste de 0 à 191 (`WORLD_HEIGHT_CHUNKS` couches).
 pub const MIN_CHUNK_Y: i32 = -4;
 pub const MAX_CHUNK_Y: i32 = 8;
 const MAX_HEIGHT: i32 = WORLD_HEIGHT_CHUNKS * CHUNK_SIZE as i32 - 2;
@@ -206,7 +206,7 @@ impl TerrainBlocks {
 #[derive(Debug, Clone)]
 pub struct TerrainGenerator {
     seed: u32,
-    /// Comment le terrain est calculé (voir `generation.rs`).
+    /// Comment le terrain est calculé (voir `worldgen/generation.rs`).
     version: GenerationVersion,
     /// L'état de la génération v3 (densité 3D, voir `v3.rs`) ; `None` sinon.
     v3: Option<Arc<v3::V3State>>,
@@ -248,7 +248,8 @@ pub struct TerrainGenerator {
     site_cache: Arc<structures::SiteCache>,
     /// Les colonnes déjà calculées, partagées de la même façon (voir `column_cache.rs`).
     column_cache: Arc<ColumnCache>,
-    /// Une plage de couches imposée (voir [`TerrainGenerator::with_chunk_range`]), sinon celle de la version.
+    /// Une plage de couches imposée (voir [`TerrainGenerator::with_chunk_range`]), sinon celle de
+    /// la version.
     chunk_range: Option<std::ops::Range<i32>>,
     /// Ce qui distingue la dimension de ce générateur dans les clés du cache des colonnes.
     dimension_tag: u64,
@@ -317,7 +318,8 @@ impl TerrainGenerator {
         }
         self.world = kind.clone();
         // Les arbres et les colonnes dépendent des biomes, du genre de monde et des villages : on
-        // repart de caches vides (et neufs, pour ne rien partager avec un clone qui n'a pas changé).
+        // repart de caches vides (et neufs, pour ne rien partager avec un clone qui n'a pas
+        // changé).
         self.tree_cache = Arc::default();
         self.site_cache = Arc::default();
         self.column_cache = Arc::default();
@@ -526,9 +528,9 @@ impl TerrainGenerator {
         0..WORLD_HEIGHT_CHUNKS
     }
 
-    /// Impose une plage de couches (bornée au stockage, `MIN_CHUNK_Y..MAX_CHUNK_Y`). Sert aux tests du
-    /// monde haut : la génération v1 n'étant pas définie sous 0, elle y met de la pierre creusée d'une salle fermée
-    /// par chunk. La v3 aura la sienne.
+    /// Impose une plage de couches (bornée au stockage, `MIN_CHUNK_Y..MAX_CHUNK_Y`). Sert aux tests
+    /// du monde haut : la génération v1 n'étant pas définie sous 0, elle y met de la pierre creusée
+    /// d'une salle fermée par chunk. La v3 aura la sienne.
     pub fn with_chunk_range(mut self, range: std::ops::Range<i32>) -> Self {
         let start = range.start.max(MIN_CHUNK_Y);
         let end = range.end.min(MAX_CHUNK_Y).max(start + 1);
@@ -1033,8 +1035,8 @@ impl TerrainGenerator {
         if !self.chunk_range().contains(&chunk_pos.y) {
             return None;
         }
-        // Une plage imposée sous 0 (tests du monde haut) : la génération v1 n'y est pas définie ; on y
-        // met de la pierre creusée d'une salle fermée par chunk.
+        // Une plage imposée sous 0 (tests du monde haut) : la génération v1 n'y est pas définie ;
+        // on y met de la pierre creusée d'une salle fermée par chunk.
         if chunk_pos.y < 0 {
             return Some(self.deep_test_chunk());
         }
@@ -1437,8 +1439,8 @@ pub use structures::{
 
 impl TerrainGenerator {
     /// Ce générateur, réglé sur une version de génération. `V1` ne change rien ; `V3` branche la
-    /// densité 3D (voir `generator/v3.rs`). Les clés des caches contiennent la version : deux versions
-    /// ne se voient jamais leurs valeurs.
+    /// densité 3D (voir `generator/v3.rs`). Les clés des caches contiennent la version : deux
+    /// versions ne se voient jamais leurs valeurs.
     pub fn with_version(mut self, version: GenerationVersion) -> Result<Self> {
         self.version = version;
         self.v3 = match version {

@@ -1,5 +1,5 @@
-//! La part fenêtre de `ships.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
-//! multijoueur ; la simulation reste dans `ships.rs`).
+//! La part fenêtre de `vehicles/ships.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
+//! multijoueur ; la simulation reste dans `vehicles/ships.rs`).
 
 use crate::key_codes::KeyCodes;
 use crate::*;

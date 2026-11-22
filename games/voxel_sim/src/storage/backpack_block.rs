@@ -4,7 +4,7 @@
 //!
 //! - Un clic droit sur le sac posé ouvre son contenu, comme depuis l'inventaire.
 //! - Cassé (à la main, par une explosion…), il rend le même sac, avec son numéro : le contenu,
-//!   rangé dans le magasin des sacs (`backpacks.rs`), n'a jamais bougé.
+//!   rangé dans le magasin des sacs (`storage/backpacks.rs`), n'a jamais bougé.
 //! - Posé, un sac n'est plus porté : ses améliorations (aimant, ramassage…) ne jouent plus.
 
 use engine_voxel::{BlockEntity, BlockId, BlockRegistry, ItemRegistry};

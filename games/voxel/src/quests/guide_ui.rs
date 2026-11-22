@@ -1,5 +1,6 @@
 //! L'écran du Guide du voyageur : les chapitres à gauche, la page à droite, et sous le texte les
-//! objets dont un clic ouvre les recettes dans l'explorateur. Le contenu est dans `guide.rs`.
+//! objets dont un clic ouvre les recettes dans l'explorateur. Le contenu est dans
+//! `quests/guide.rs`.
 
 use engine_render::egui;
 #[allow(unused_imports)]

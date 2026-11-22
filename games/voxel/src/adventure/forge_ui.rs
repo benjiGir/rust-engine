@@ -1,8 +1,8 @@
-//! Les écrans des deux tables du butin (voir `forge_tables.rs` pour les règles).
+//! Les écrans des deux tables du butin (voir `adventure/forge_tables.rs` pour les règles).
 //!
-//! Dans les deux, on **prend l'objet à la souris** (un clic sur sa case dans l'inventaire, en dessous),
-//! puis on agit avec les boutons de l'écran. Les matériaux sont pris dans l'inventaire, ce qu'on
-//! récupère y retourne (ou tombe à terre s'il est plein).
+//! Dans les deux, on **prend l'objet à la souris** (un clic sur sa case dans l'inventaire, en
+//! dessous), puis on agit avec les boutons de l'écran. Les matériaux sont pris dans l'inventaire,
+//! ce qu'on récupère y retourne (ou tombe à terre s'il est plein).
 
 use engine_render::egui::{self, Color32};
 #[allow(unused_imports)]
@@ -99,8 +99,8 @@ impl VoxelGame {
         }
     }
 
-    /// La table de réforge : la rareté voulue, le coût, les trois tirages (calculés comme le serveur,
-    /// d'après la graine de la vue du joueur) et le bouton qui envoie `ReforgeChoose`.
+    /// La table de réforge : la rareté voulue, le coût, les trois tirages (calculés comme le
+    /// serveur, d'après la graine de la vue du joueur) et le bouton qui envoie `ReforgeChoose`.
     pub(crate) fn reforge_panel(&mut self, ui: &mut egui::Ui) {
         let data = voxel_sim::adventure::data::current();
         let items = self.client.content.items.clone();

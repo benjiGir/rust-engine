@@ -1,17 +1,17 @@
 //! Le conteneur ouvert, tel que la fenêtre le voit : coffre, four, alambic, sac à dos, wagon.
 //!
-//! Le serveur sait ce que chaque joueur a ouvert (`PlayerState::open`). À la fin de chaque image, il
-//! décrit ce conteneur dans une [`ContainerView`] : ses cases, leur disposition (améliorations,
-//! filtres), les améliorations coupées d'un sac, les jauges d'un four ou d'un alambic, la sorte et le
-//! feu d'un wagon. Comme les autres vues (`player_view.rs`), elle n'est envoyée que si elle a changé
-//! (`ServerMsg::Container`), et `None` quand plus rien n'est ouvert.
+//! Le serveur sait ce que chaque joueur a ouvert (`PlayerState::open`). À la fin de chaque image,
+//! il décrit ce conteneur dans une [`ContainerView`] : ses cases, leur disposition (améliorations,
+//! filtres), les améliorations coupées d'un sac, les jauges d'un four ou d'un alambic, la sorte et
+//! le feu d'un wagon. Comme les autres vues (`net/player_view.rs`), elle n'est envoyée que si elle
+//! a changé (`ServerMsg::Container`), et `None` quand plus rien n'est ouvert.
 //!
 //! Les écrans dessinent cette vue ; leurs gestes partent en messages : les clics de cases
 //! (`SlotClick`, lot 2), les boutons Déposer, Compléter, Tout prendre et Trier (`ContainerOp`), les
 //! améliorations d'un sac coupées d'un clic (`ToggleUpgrade`), l'artisanat (`Craft`).
 //!
-//! Le contrôleur de stockage, qui réunit plusieurs coffres, n'a pas encore de vue : son écran lit le
-//! serveur (sous-lot 3d-2).
+//! Le contrôleur de stockage, qui réunit plusieurs coffres, n'a pas encore de vue : son écran lit
+//! le serveur (sous-lot 3d-2).
 
 use engine_voxel::{FurnaceState, ItemStack as StoredStack, Layout};
 use serde::{Deserialize, Serialize};
@@ -102,8 +102,8 @@ impl crate::server::VoxelServer {
 
     /// `Craft` : fabriquer avec la grille du joueur courant, ou une recette du livre de recettes.
     pub fn craft(&mut self, size: u8, recipe: Option<u32>) {
-        // La grille 3 × 3 est celle de l'établi : il faut qu'il soit ouvert (celle de l'inventaire est
-        // de 2 × 2).
+        // La grille 3 × 3 est celle de l'établi : il faut qu'il soit ouvert (celle de l'inventaire
+        // est de 2 × 2).
         let allowed = if self.players.me().screen == Some(crate::server::screens::Screen::Workbench)
         {
             3

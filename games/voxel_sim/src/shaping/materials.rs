@@ -1,17 +1,21 @@
-//! La palette de matériaux d'un monde : à quel bloc correspond le numéro rangé dans une pièce taillée.
+//! La palette de matériaux d'un monde : à quel bloc correspond le numéro rangé dans une pièce
+//! taillée.
 //!
-//! Une pile de pièces (« Dalle de chêne ») ne porte qu'un entier, `ItemStack::damage`. On y range le
-//! **numéro du matériau** dans la palette du monde (`materials.ron`, à la racine du monde, à côté de
-//! `items.bin`) : une liste d'identifiants texte, un numéro attribué au premier usage et **jamais
-//! réutilisé** (le numéro 1 est le premier matériau taillé, le 0 ne désigne rien). Deux piles de même
-//! pièce et même matériau s'empilent donc comme n'importe quels objets.
+//! Une pile de pièces (« Dalle de chêne ») ne porte qu'un entier, `ItemStack::damage`. On y range
+//! le
+//! **numéro du matériau** dans la palette du monde (`materials.ron`, à la racine du monde, à côté
+//! de `items.bin`) : une liste d'identifiants texte, un numéro attribué au premier usage et
+//! **jamais réutilisé** (le numéro 1 est le premier matériau taillé, le 0 ne désigne rien). Deux
+//! piles de même pièce et même matériau s'empilent donc comme n'importe quels objets.
 //!
-//! Le fichier ne contient que des identifiants texte : il reste valable quand la liste des mods change
-//! (un matériau inconnu garde son nom, la pile s'affiche avec ce nom brut). Les cases posées dans
-//! le monde, elles, portent déjà leurs matériaux en toutes lettres (voir `engine_voxel::shaped`).
+//! Le fichier ne contient que des identifiants texte : il reste valable quand la liste des mods
+//! change (un matériau inconnu garde son nom, la pile s'affiche avec ce nom brut). Les cases posées
+//! dans le monde, elles, portent déjà leurs matériaux en toutes lettres (voir
+//! `engine_voxel::shaped`).
 //!
-//! Comme le magasin des fiches d'objets (`item_data.rs`), la palette du monde ouvert est unique pour le
-//! processus : les piles sont lues partout par des fonctions qui n'ont que `damage` sous la main.
+//! Comme le magasin des fiches d'objets (`player/item_data.rs`), la palette du monde ouvert est
+//! unique pour le processus : les piles sont lues partout par des fonctions qui n'ont que `damage`
+//! sous la main.
 
 use std::path::Path;
 use std::sync::{LazyLock, Mutex, MutexGuard};

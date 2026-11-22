@@ -1,8 +1,9 @@
-//! Le dessin des entités répliquées : créatures, autres joueurs, projectiles, wagons et objets au sol.
+//! Le dessin des entités répliquées : créatures, autres joueurs, projectiles, wagons et objets au
+//! sol.
 //!
-//! Tout vient de la réplique ([`ClientEntities`]) et du monde que voit la fenêtre (pour la lumière) :
-//! le rendu ne lit plus l'ECS du serveur. Les noms des autres joueurs se dessinent au-dessus de leur
-//! tête, dans l'interface.
+//! Tout vient de la réplique ([`ClientEntities`]) et du monde que voit la fenêtre (pour la lumière)
+//! : le rendu ne lit plus l'ECS du serveur. Les noms des autres joueurs se dessinent au-dessus de
+//! leur tête, dans l'interface.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -20,8 +21,8 @@ use voxel_sim::mobs::sheep_colors::SheepCoat;
 use voxel_sim::net::entities::{EliteLook, EntityKind};
 use voxel_sim::player::inventory::ItemStack;
 
-/// Ce dont le dessin a besoin en dehors de la réplique : les définitions, la lumière du monde vu, et
-/// le temps.
+/// Ce dont le dessin a besoin en dehors de la réplique : les définitions, la lumière du monde vu,
+/// et le temps.
 pub struct DrawEnv<'a> {
     pub mobs: &'a MobRegistry,
     pub items: &'a ItemRegistry,
@@ -38,8 +39,8 @@ pub struct DrawEnv<'a> {
 const ITEM_SIZE: f32 = 0.28;
 const PROJECTILE_SIZE: f32 = 0.22;
 
-/// Le modèle d'un autre joueur : un corps de blocs (+x vers l'avant), à teinte unie, qui marche comme
-/// une créature.
+/// Le modèle d'un autre joueur : un corps de blocs (+x vers l'avant), à teinte unie, qui marche
+/// comme une créature.
 fn player_parts() -> &'static [MobPart] {
     static PARTS: LazyLock<Vec<MobPart>> = LazyLock::new(|| {
         let part = |offset: (f32, f32, f32), size: (f32, f32, f32), color, bone| MobPart {
@@ -116,7 +117,7 @@ pub fn draw(entities: &ClientEntities, env: &DrawEnv, out: &mut Vec<CubeInstance
             EntityKind::Item { stack } => {
                 draw_item(stack, view, now, env, entities.item_models(), out)
             }
-            // Les structures mobiles ont leur maillage (voir `ships.rs`).
+            // Les structures mobiles ont leur maillage (voir `vehicles/ships.rs`).
             EntityKind::Grid { .. } => {}
         }
     }
@@ -125,15 +126,15 @@ pub fn draw(entities: &ClientEntities, env: &DrawEnv, out: &mut Vec<CubeInstance
 /// Le bras droit dans [`player_parts`] (+z est la droite quand +x est l'avant), et son épaule.
 const RIGHT_ARM: usize = 7;
 const SHOULDER: Vec3 = Vec3::new(0.0, 1.40, 0.37);
-/// Le centre de l'objet tenu, depuis l'épaule, le bras pendant : un peu devant la main, qui le tient
-/// par le bas. Et sa taille : presque la longueur du bras (0,7).
+/// Le centre de l'objet tenu, depuis l'épaule, le bras pendant : un peu devant la main, qui le
+/// tient par le bas. Et sa taille : presque la longueur du bras (0,7).
 const HAND: Vec3 = Vec3::new(0.24, -0.56, 0.0);
 const HELD_SIZE: f32 = 0.62;
 /// L'objet tenu est tourné d'un huitième de tour : on le reconnaît de face comme de profil.
 const HELD_TURN: f32 = std::f32::consts::FRAC_PI_4;
 
-/// Un autre joueur : son corps qui marche, son bras droit qui se lève à chaque geste, et l'objet qu'il
-/// tient au bout.
+/// Un autre joueur : son corps qui marche, son bras droit qui se lève à chaque geste, et l'objet
+/// qu'il tient au bout.
 fn draw_player(
     view: &EntityView,
     now: f32,
@@ -174,8 +175,8 @@ fn draw_player(
         .or_insert_with(|| crate::render::item_models::build(stack.item, env.items, env.blocks));
     for part in parts.iter() {
         let mut instance = *part;
-        // Les boîtes de l'objet suivent la main ; elles gardent leur aplomb (un objet fait de petits
-        // cubes se lit encore bien quand le bras se lève).
+        // Les boîtes de l'objet suivent la main ; elles gardent leur aplomb (un objet fait de
+        // petits cubes se lit encore bien quand le bras se lève).
         let offset = turn(rotate_y(
             Vec3::from_array(part.center) * HELD_SIZE,
             HELD_TURN,
@@ -202,8 +203,8 @@ struct Model {
 }
 
 impl Model {
-    /// Le corps d'une créature ou d'un joueur à la pose actuelle : le lacet d'une créature est celui du
-    /// dernier pas (comme avant, il n'était pas interpolé).
+    /// Le corps d'une créature ou d'un joueur à la pose actuelle : le lacet d'une créature est
+    /// celui du dernier pas (comme avant, il n'était pas interpolé).
     fn of(view: &EntityView, scale: f32, pose: &voxel_sim::net::entities::Pose) -> Self {
         let yaw = if matches!(view.kind, EntityKind::Player { .. }) {
             pose.yaw
@@ -338,8 +339,8 @@ fn draw_item(
     }
 }
 
-/// Où écrire le nom d'un joueur : le point `world` en points d'écran, ou `None` s'il est derrière la
-/// caméra ou hors de l'écran.
+/// Où écrire le nom d'un joueur : le point `world` en points d'écran, ou `None` s'il est derrière
+/// la caméra ou hors de l'écran.
 pub fn project(view_proj: glam::Mat4, rect: egui::Rect, world: Vec3) -> Option<egui::Pos2> {
     let clip = view_proj * Vec4::new(world.x, world.y, world.z, 1.0);
     if clip.w <= 0.0 {
@@ -427,8 +428,8 @@ pub(crate) mod support {
     use voxel_sim::net::entities::{EntityTracker, NetIds, Viewer, collect};
     use voxel_sim::shared::StreamerExt;
 
-    /// Les boîtes de toutes les entités de l'ECS, comme la fenêtre les dessinerait à la part `alpha`
-    /// du pas (une fois répliquées sans perte, à 60 Hz).
+    /// Les boîtes de toutes les entités de l'ECS, comme la fenêtre les dessinerait à la part
+    /// `alpha` du pas (une fois répliquées sans perte, à 60 Hz).
     pub fn boxes(ecs: &mut Ecs, alpha: f32) -> Vec<CubeInstance> {
         NetIds::assign(ecs);
         let subs = engine_voxel::SubGrids::new(Arc::new(crate::test_registry()));
@@ -545,8 +546,8 @@ mod tests {
             voxel_sim::player::players::PlayerId(1),
         ));
         let _ = other;
-        // Le suivi du joueur local ne le renvoie pas à lui-même (voir `entities.rs`) ; ici on dessine
-        // tout ce que répliquerait un client sans entité propre : les deux corps.
+        // Le suivi du joueur local ne le renvoie pas à lui-même (voir `net/entities.rs`) ; ici on
+        // dessine tout ce que répliquerait un client sans entité propre : les deux corps.
         let boxes = support::boxes(&mut world, 1.0);
         assert_eq!(boxes.len(), 2 * player_parts().len());
     }

@@ -37,7 +37,7 @@ Plusieurs fréquences se dérivent du pas de 60 Hz :
 | 60 Hz | physique du joueur et des créatures, IA, wagons, structures mobiles | `Stage::FixedUpdate` |
 | 20 Hz (1 pas sur 3) | machines, réseaux, ticks aléatoires des plantes, scripts des mods | `Machines`, `modding.rs` |
 | 10 Hz (1 pas sur 6) | fluides (budget de 4 ms par étape) | `step_fluids` |
-| 4 Hz | créatures dirigées par un script (`brain: true`) | `mob_brains.rs` |
+| 4 Hz | créatures dirigées par un script (`brain: true`) | `mobs/brains.rs` |
 | chaque image | entrées, caméra, visée, UI, sons, streaming, rendu | `update`, `render` |
 
 ## Une image, de bout en bout

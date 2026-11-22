@@ -16,7 +16,7 @@ Cette planche utilise le thème et les images du jeu, avec un rendu CPU sans fen
 - Palette ramenée à 32 niveaux par canal, ombres légèrement froides, reflets chauds.
   La transparence des plantes, feuilles et objets est conservée.
 - Outils dessinés en diagonale, manche en bas à gauche. Les repères des manches sont
-  vérifiés contre les icônes dans `games/voxel/src/hand_model.rs` ; la pose en main
+  vérifiés contre les icônes dans `games/voxel/src/render/hand_model.rs` ; la pose en main
   utilise l'origine centrée du modèle.
   La pioche porte une tête transversale à deux pointes ; la hache une large lame
   à talon ; la pelle un fer de bêche et une poignée en D.
@@ -97,7 +97,7 @@ reproduit sans réseau. Voir la [passe sonore](audio/README.md) et ses extraits.
 
 ## Interface et personnages
 
-`games/voxel/src/skin.rs` centralise la palette, les boutons, les cases, les cadres et les
+`games/voxel/src/ui/skin.rs` centralise la palette, les boutons, les cases, les cadres et les
 jauges. Les menus sont superposés au monde, sans grande fenêtre d'encadrement : logo
 original « VOXEL » dessiné en pixels, actions principales centrées et boutons gris
 en relief. La typographie courante est à chasse fixe. Les inventaires et machines
@@ -148,8 +148,8 @@ La rotation latérale et la perspective rendent la grande face oblique ; le manc
 peut sortir du cadre en bas ou à droite. Les familles n'ont plus de taille ou de
 prise artificielle propre. Le format de la fenêtre change la projection, pas ce
 profil. La main vide garde le bras. La projection de main reste à 70°, indépendante
-du champ de vision du monde. Les réglages et le cache sont dans `hand_model.rs` ;
-`hand.rs` relie les animations au joueur. Aucun dessin ni fichier graphique de
+du champ de vision du monde. Les réglages et le cache sont dans `render/hand_model.rs` ;
+`render/hand.rs` relie les animations au joueur. Aucun dessin ni fichier graphique de
 Minecraft n'est intégré au jeu.
 
 Les blocs en main reprennent les volumes du modèle au sol et la découpe des
@@ -216,7 +216,7 @@ les grilles 16 et 32 : fibres, coutures, rayures de forge et pores utilisent les
 pixels supplémentaires. Les couleurs de repli des pièces sont les moyennes
 linéaires des dessins 16 ; les dessins 32 sont accordés à ces moyennes.
 La géométrie reste identique entre les deux packs. Le modèle animé commun est
-dans `mob_model.rs` : tête et détails pivotent ensemble, patte et sabot partagent
+dans `mobs/model.rs` : tête et détails pivotent ensemble, patte et sabot partagent
 leur hanche. Les petits utilisent les mêmes formes à l'échelle prévue par le jeu.
 Les [planches du bestiaire](visual/README.md#lot-15--animaux-et-ennemis-en-16-et-32)
 montrent les modèles réels sous quatre vues, dont la marche avec le regard tourné.
@@ -284,7 +284,7 @@ un éclat sur la houle. Le calcul utilise le maillage et la passe translucide ex
 
 **Sous l'eau**, le rouge s'éteint avant le vert et le lointain devient bleu sombre.
 Les caustiques dansent près de la surface et celle-ci devient un miroir aux angles rasants.
-`games/voxel/src/water_fx.rs` ajoute les effets décoratifs : gerbe de gouttes et rides au plongeon,
+`games/voxel/src/render/water_fx.rs` ajoute les effets décoratifs : gerbe de gouttes et rides au plongeon,
 sillage quand on nage à la surface, bulles sous l'eau. La physique (`PlayerBody`) freine un plongeon
 (`splash` donne la vitesse d'entrée), et un **courant** emporte les corps vers les cellules d'eau
 moins remplies (`PlayerBody::current`). La lave n'est pas animée (elle émet de la lumière).
@@ -294,7 +294,7 @@ moins remplies (`PlayerBody::current`). La lave n'est pas animée (elle émet de
 donne un élan (`EXIT_SPEED`) qui le fait passer par-dessus. Une falaise plus haute reste hors de portée.
 
 **L'écoulement** : un réservoir (source) alimente un ruisseau de 7 cellules au plus, de plus en plus
-mince, au lieu d'inonder tout ce qui est plat (`fluid_sim.rs`, « portée »). En tombant, l'eau
+mince, au lieu d'inonder tout ce qui est plat (`fluids/sim.rs`, « portée »). En tombant, l'eau
 retrouve toute sa portée en bas. À l'écran, la normale du dessus de l'eau suit la pente de la
 surface calculée au maillage. Le shader entraîne les ondulations dans le sens de la pente.
 Les parois des cascades et les pentes raides restent translucides, avec des filets plus clairs dont

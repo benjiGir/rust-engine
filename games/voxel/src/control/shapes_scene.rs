@@ -1,6 +1,6 @@
-//! Les captures des formes (voir `screenshots.rs`) : une scène de pièces taillées (dalles de deux
-//! matériaux, pentes qui montent, microblocs, verre, une pente retournée) et l'écran de l'établi de
-//! taille.
+//! Les captures des formes (voir `control/screenshots.rs`) : une scène de pièces taillées (dalles
+//! de deux matériaux, pentes qui montent, microblocs, verre, une pente retournée) et l'écran de
+//! l'établi de taille.
 
 use engine_voxel::Face;
 use engine_voxel::shaped::{self, Corner, Link, Piece, PieceKind, Shaped};
@@ -37,9 +37,9 @@ impl VoxelGame {
         )
     }
 
-    /// Une plateforme de pierre et, dessus, une rangée de pièces : de gauche à droite, des dalles de
-    /// pierre et de chêne, une pente de chêne, une pente de pierre qui monte jusqu'au niveau 10, une pente
-    /// retournée sous un linteau, des microblocs, du verre.
+    /// Une plateforme de pierre et, dessus, une rangée de pièces : de gauche à droite, des dalles
+    /// de pierre et de chêne, une pente de chêne, une pente de pierre qui monte jusqu'au niveau 10,
+    /// une pente retournée sous un linteau, des microblocs, du verre.
     pub(crate) fn build_shapes(&mut self) {
         let Some(stone) = self.client.registry.id("core:stone") else {
             return;
@@ -141,8 +141,8 @@ impl VoxelGame {
         }
     }
 
-    /// Deuxième vague : une rangée de pièces en boîtes et de pentes en coin (z = 5), une rangée de formes
-    /// raccordées (z = 7 : un muret en L, une barrière et son portillon ouvert, des vitres).
+    /// Deuxième vague : une rangée de pièces en boîtes et de pentes en coin (z = 5), une rangée de
+    /// formes raccordées (z = 7 : un muret en L, une barrière et son portillon ouvert, des vitres).
     fn build_shapes_wave_two(&mut self, cell: impl Fn(i32, i32, i32) -> IVec3) {
         let oak = "core:oak_planks";
         let rock = "core:stone";

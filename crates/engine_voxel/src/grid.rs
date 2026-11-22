@@ -1,4 +1,4 @@
-//! Les grilles de blocs : le monde, et les structures mobiles (voir `subgrid.rs`).
+//! Les grilles de blocs : le monde, et les structures mobiles (voir `motion/subgrid.rs`).
 //!
 //! Dans Create (contraptions) ou Valkyrien Skies (vaisseaux), un groupe de blocs se
 //! détache du monde et bouge : il tourne, vole, flotte. Ses machines doivent continuer

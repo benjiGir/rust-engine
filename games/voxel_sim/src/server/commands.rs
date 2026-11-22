@@ -1,8 +1,8 @@
 //! Les commandes de console exécutées par le serveur lui-même, pour le joueur qui les tape.
 //!
-//! La fenêtre de l'hôte passe encore par son pilotage (`ctl`, voir `console.rs`). Un joueur venu du
-//! réseau, lui, n'a que le serveur : ses commandes passent ici. `help` et `mods` sont à tous ; le
-//! reste (objets, heure, temps, téléportation, expérience, créatures, blocs, commandes des mods)
+//! La fenêtre de l'hôte passe encore par son pilotage (`ctl`, voir `ui/console.rs`). Un joueur venu
+//! du réseau, lui, n'a que le serveur : ses commandes passent ici. `help` et `mods` sont à tous ;
+//! le reste (objets, heure, temps, téléportation, expérience, créatures, blocs, commandes des mods)
 //! demande d'être opérateur (`operators`, réglé par `server.ron`). Changer de dimension recharge le
 //! monde de tous : c'est l'affaire de l'hôte.
 
@@ -112,7 +112,7 @@ impl VoxelServer {
                     entity,
                     to + Vec3::Y * engine_voxel::PLAYER_EYE_HEIGHT,
                 );
-                // Sa fenêtre est replacée (voir `predicted.rs`).
+                // Sa fenêtre est replacée (voir `net/predicted.rs`).
                 let id = self.players.current_id();
                 self.send_correct(id, false);
                 self.forget_last_move();

@@ -1,10 +1,10 @@
-//! Les charmes de potion : un objet fait d'une potion, qui garde son effet actif tant qu'il est dans
-//! l'inventaire et qu'on l'a activé d'un clic droit.
+//! Les charmes de potion : un objet fait d'une potion, qui garde son effet actif tant qu'il est
+//! dans l'inventaire et qu'on l'a activé d'un clic droit.
 //!
 //! # Comment c'est rangé
 //!
-//! Un charme est un objet ordinaire (un par potion, voir `charms.ron`), dont la **durabilité** est sa
-//! charge en secondes : l'usure monte d'un point par seconde tant qu'il est actif, et une barre
+//! Un charme est un objet ordinaire (un par potion, voir `charms.ron`), dont la **durabilité** est
+//! sa charge en secondes : l'usure monte d'un point par seconde tant qu'il est actif, et une barre
 //! s'affiche dans la case. L'activation tient dans un bit de `damage` ([`ACTIVE`], le bit 16, que
 //! l'enchantement simple n'a de raison de lire que comme un niveau sans sorte : un charme ne reçoit
 //! jamais d'enchantement). Aucune fiche, donc aucun format de sauvegarde ne change.
@@ -14,9 +14,10 @@
 //! - **clic droit** avec le charme en main : l'active ou le désactive (refusé s'il est vide) ;
 //! - **recharge** : la même potion au curseur, un clic sur le charme (l'usure revient à zéro, la
 //!   fiole vide est rendue) ;
-//! - **chaque seconde**, `VoxelGame::update_charms` (voir `charm_play.rs`) relit les cases de l'inventaire : l'effet de la
-//!   potion est renouvelé pour trois secondes (il s'éteint donc un instant après qu'on a posé le
-//!   charme), et une potion de soin rend de la vie toutes les dix secondes.
+//! - **chaque seconde**, `VoxelGame::update_charms` (voir `adventure/charm_play.rs`) relit les
+//!   cases de l'inventaire : l'effet de la potion est renouvelé pour trois secondes (il s'éteint
+//!   donc un instant après qu'on a posé le charme), et une potion de soin rend de la vie toutes les
+//!   dix secondes.
 
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;

@@ -223,7 +223,7 @@ pub struct Scheduler {
     neighbors: Vec<GridPos>,
     /// L'état du générateur pseudo-aléatoire des ticks aléatoires et des comportements.
     random_state: u64,
-    /// Les conduits dont le réseau est à reconstruire (voir `networks.rs`).
+    /// Les conduits dont le réseau est à reconstruire (voir `tech/networks.rs`).
     network_dirty: Vec<GridPos>,
 }
 

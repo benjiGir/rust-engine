@@ -1,5 +1,5 @@
-//! La part serveur de `enchant_ui.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
-//! multijoueur ; la fenêtre reste dans `enchant_ui.rs`).
+//! La part serveur de `enchanting/ui.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
+//! multijoueur ; la fenêtre reste dans `enchanting/ui.rs`).
 
 use crate::enchanting::books::{BookKind, ENCHANTED_BOOK};
 use crate::enchanting::library::Library;
@@ -23,7 +23,7 @@ impl crate::server::VoxelServer {
         }
     }
 
-    /// Les stats de la table posée en `pos` (voir `enchant_table.rs`).
+    /// Les stats de la table posée en `pos` (voir `enchanting/table.rs`).
     pub fn table_stats(&self, pos: IVec3) -> TableStats {
         table_stats_in(&self.registry, self.streamer().world(), pos)
     }

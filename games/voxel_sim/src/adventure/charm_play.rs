@@ -1,5 +1,6 @@
-//! Les gestes des charmes de potion dans le jeu : activer d'un clic droit, recharger avec la potion,
-//! user les charmes actifs chaque seconde. Les règles (bits, usure, bulle d'aide) sont dans `charms.rs`.
+//! Les gestes des charmes de potion dans le jeu : activer d'un clic droit, recharger avec la
+//! potion, user les charmes actifs chaque seconde. Les règles (bits, usure, bulle d'aide) sont dans
+//! `adventure/charms.rs`.
 
 use crate::adventure::charms::{charge, is_active, is_empty, recharged, wear_one, with_active};
 use crate::player::inventory::{Click, ItemStack, Slot};
@@ -64,7 +65,8 @@ impl crate::server::VoxelServer {
         }
     }
 
-    /// Un clic droit avec un charme en main : l'active ou le désactive. `true` si c'était un charme.
+    /// Un clic droit avec un charme en main : l'active ou le désactive. `true` si c'était un
+    /// charme.
     pub fn use_charm(&mut self) -> bool {
         let Some(stack) = self.players.me_mut().inventory.selected_stack() else {
             return false;

@@ -119,8 +119,8 @@ pub struct BlockDef {
     /// Un portail : le joueur qui s'y tient quelques secondes passe dans cette dimension
     /// (`mon_mod:ma_dimension`, ou `core:overworld` pour revenir).
     pub portal: Option<String>,
-    /// Ce bloc est un rail (voir `rails.rs`) : sa forme est calculée depuis les rails voisins.
-    /// Son dessin est un panneau posé au sol (`Shape::Rail`), orienté selon cette forme.
+    /// Ce bloc est un rail (voir `motion/rails.rs`) : sa forme est calculée depuis les rails
+    /// voisins. Son dessin est un panneau posé au sol (`Shape::Rail`), orienté selon cette forme.
     pub rail: Option<crate::motion::rails::RailKind>,
     /// Le débit d'un conduit : au plus ce nombre d'unités par passage (le plus faible du réseau
     /// l'emporte). Sans valeur : le débit par défaut de la sorte.
@@ -132,9 +132,9 @@ pub struct BlockDef {
     /// d'enchantements (voir [`EnchantingStats`]).
     pub enchanting: Option<EnchantingStats>,
     /// Un conduit **à sens unique** (`flow: true`, avec `conduit: Items`, `Energy` ou `Fluid` et un
-    /// état `Facing4` ou `Facing6`) : le contenu ne va que vers l'« avant » de la variante (le nord de la forme
-    /// écrite). Posé, il pointe là où regarde le joueur. Il accepte par l'arrière et les côtés, et
-    /// ne rend que par l'avant.
+    /// état `Facing4` ou `Facing6`) : le contenu ne va que vers l'« avant » de la variante (le nord
+    /// de la forme écrite). Posé, il pointe là où regarde le joueur. Il accepte par l'arrière et
+    /// les côtés, et ne rend que par l'avant.
     pub directed: bool,
     /// Pour un conduit à sens unique : la direction où vont les objets, selon la variante.
     pub flow: Option<IVec3>,
@@ -154,9 +154,9 @@ pub struct BlockDef {
 /// additionne ces valeurs : un mod ajoute ses étagères sans toucher au jeu.
 ///
 /// Les nombres sont tous facultatifs (0 par défaut). `eterna`, `quanta`, `arcana`, `clues` et
-/// `stability` s'**ajoutent** d'un bloc à l'autre ; `max_eterna` est un **plafond** : l'Eterna de la
-/// table ne dépasse jamais le plus haut plafond des blocs présents (les étagères de bois plafonnent
-/// bas, les plus rares permettent d'aller jusqu'à 100).
+/// `stability` s'**ajoutent** d'un bloc à l'autre ; `max_eterna` est un **plafond** : l'Eterna de
+/// la table ne dépasse jamais le plus haut plafond des blocs présents (les étagères de bois
+/// plafonnent bas, les plus rares permettent d'aller jusqu'à 100).
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct EnchantingStats {
@@ -309,7 +309,7 @@ pub enum StateKind {
     Axis,
     /// Pivote autour du montant nord-ouest. Les boîtes fermées ont une profondeur de 3/16.
     DoorOpen,
-    /// Un coffre seul, ou une moitié de grand coffre (voir `double_chest.rs`) : la moitié
+    /// Un coffre seul, ou une moitié de grand coffre (voir `blocks/double_chest.rs`) : la moitié
     /// gauche (vue de face, côté +X du modèle) ou droite. Les boîtes d'une moitié s'étirent
     /// jusqu'à la jointure ; la serrure se partage entre les deux. Toujours après `Facing4`.
     ChestPart,
@@ -404,8 +404,8 @@ pub enum Shape {
     /// sélection.
     Model,
     /// Un rail : un panneau texturé au ras du sol, tourné et incliné selon sa forme (rangée dans
-    /// l'état du bloc, voir `rails.rs`). `textures` : dessus = rail droit, côtés = virage. La
-    /// sélection se fait sur une dalle très fine ; le joueur le traverse.
+    /// l'état du bloc, voir `motion/rails.rs`). `textures` : dessus = rail droit, côtés = virage.
+    /// La sélection se fait sur une dalle très fine ; le joueur le traverse.
     Rail,
 }
 
@@ -1339,7 +1339,8 @@ impl BlockRegistry {
         index as u32 + 1
     }
 
-    /// Ajoute une surface d'entité au tableau partagé, sans créer de bloc ni modifier ses identifiants.
+    /// Ajoute une surface d'entité au tableau partagé, sans créer de bloc ni modifier ses
+    /// identifiants.
     pub fn register_texture(&mut self, key: &str) -> u32 {
         self.texture_layer(key)
     }

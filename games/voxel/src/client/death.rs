@@ -1,7 +1,7 @@
 //! La mort et la réapparition (phase O4), et le lit qui fixe le point de réapparition.
 //!
 //! - Vie à 0 : l'inventaire tombe par terre là où le joueur est mort, et l'écran de mort
-//!   dit pourquoi (la cause du dernier coup, voir `survival.rs`). Le monde continue.
+//!   dit pourquoi (la cause du dernier coup, voir `player/survival.rs`). Le monde continue.
 //! - « Réapparaître » : au lit, s'il existe encore, sinon au point de départ du monde ;
 //!   vie, faim, air pleins.
 //! - Le lit (clic droit) : fixe le point de réapparition, et la nuit fait dormir jusqu'au

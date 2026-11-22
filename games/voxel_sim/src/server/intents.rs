@@ -1,17 +1,17 @@
 //! Le côté qui agit : `VoxelGame::handle(joueur, message)` applique une intention du client.
 //!
 //! Toute action sur le monde passe par ici : le minage, les coups, le clic droit, les clics de
-//! cases, la console, la réapparition (voir `protocol.rs` pour les messages). La fenêtre ne fait
-//! que lire les entrées et fabriquer des messages (`play_input.rs`) ; en solo ils sont appliqués
-//! dans la même image, sans délai.
+//! cases, la console, la réapparition (voir `net/protocol.rs` pour les messages). La fenêtre ne
+//! fait que lire les entrées et fabriquer des messages (`client/input.rs`) ; en solo ils sont
+//! appliqués dans la même image, sans délai.
 //!
 //! - **La visée est refaite ici.** Un message d'action porte l'œil et le regard du client
 //!   ([`Aim`]) ; le simulateur lance son propre rayon dans son monde (bloc et créature visés) et ne
 //!   croit jamais la cible que le client dit viser. Pendant le traitement, cette visée est
 //!   [`ActingAim`] : les fonctions d'action la lisent par [`VoxelGame::aim`] au lieu de la caméra
 //!   et du bloc visé de la fenêtre (qui restent la visée quand rien n'est en cours).
-//! - **Le joueur courant** est celui du message : `players.me()` désigne ce joueur tant que `handle`
-//!   tourne (voir `players.rs`), jamais le joueur de la fenêtre en dur.
+//! - **Le joueur courant** est celui du message : `players.me()` désigne ce joueur tant que
+//!   `handle` tourne (voir `player/players.rs`), jamais le joueur de la fenêtre en dur.
 //! - **Le minage** est prédit côté client (la fissure et le son avancent sans attendre) ; le
 //!   simulateur compte son propre temps en pas fixes et n'accepte `Dig Finish` que si au moins
 //!   70 % du temps de minage théorique s'est écoulé.
@@ -238,8 +238,8 @@ impl crate::server::VoxelServer {
             eye: player::eye(&self.ecs, me.entity, 1.0),
             forward: me.look,
             hit: None,
-            // La fenêtre choisit ce qu'elle frappe dans sa réplique (voir `window_entity`) ; le simulateur
-            // refait sa propre visée à chaque message.
+            // La fenêtre choisit ce qu'elle frappe dans sa réplique (voir `window_entity`) ; le
+            // simulateur refait sa propre visée à chaque message.
             mob: None,
         }
     }
@@ -509,8 +509,8 @@ impl crate::server::VoxelServer {
                         return;
                     }
                     let block = game.streamer().world().block(pos);
-                    // La première image est créditée comme chez le client (qui y a déjà avancé) : un
-                    // pas fixe, la durée d'image n'étant pas connue du serveur.
+                    // La première image est créditée comme chez le client (qui y a déjà avancé) :
+                    // un pas fixe, la durée d'image n'étant pas connue du serveur.
                     let first = 1.0 / 60.0;
                     game.players.me_mut().dig = game
                         .mining_time(pos, block)
@@ -528,9 +528,9 @@ impl crate::server::VoxelServer {
         if line.is_empty() {
             return;
         }
-        // Les commandes de la fenêtre hôte passent encore par son pilotage (`ctl`) : elle les exécute
-        // juste après ce message (`run_pending_commands`). Celles d'un joueur du réseau, le serveur
-        // les exécute lui-même (voir `server_commands.rs`).
+        // Les commandes de la fenêtre hôte passent encore par son pilotage (`ctl`) : elle les
+        // exécute juste après ce message (`run_pending_commands`). Celles d'un joueur du réseau, le
+        // serveur les exécute lui-même (voir `server/commands.rs`).
         if !self.players.current_is_local() {
             let reply = self.run_server_command(line);
             self.chat(&reply);
@@ -539,8 +539,8 @@ impl crate::server::VoxelServer {
         self.pending_commands.push(line.to_string());
     }
 
-    /// `CloseMenu` : la main et la grille d'artisanat retournent dans l'inventaire (ce qui n'y tient
-    /// pas tombe par terre), et le conteneur n'est plus ouvert.
+    /// `CloseMenu` : la main et la grille d'artisanat retournent dans l'inventaire (ce qui n'y
+    /// tient pas tombe par terre), et le conteneur n'est plus ouvert.
     pub fn close_menu(&mut self) {
         self.forget_mod_menu();
         self.players.me_mut().open = None;
@@ -586,7 +586,7 @@ impl crate::server::VoxelServer {
                 let (sin_pitch, cos_pitch) = pitch.sin_cos();
                 self.players.me_mut().look =
                     Vec3::new(cos_yaw * cos_pitch, sin_pitch, sin_yaw * cos_pitch);
-                // Contrôlé si `VOXEL_CHECK_MOVES=1`, puis rangé (voir `predicted.rs`).
+                // Contrôlé si `VOXEL_CHECK_MOVES=1`, puis rangé (voir `net/predicted.rs`).
                 let sample = MoveSample {
                     position,
                     mode,

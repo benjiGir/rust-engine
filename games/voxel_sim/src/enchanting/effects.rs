@@ -1,7 +1,8 @@
 //! Les effets des enchantements qui ne sont pas de simples bonus de combat : Fortune, Toucher de
-//! soie, Aspiration, Épines et Légèreté. Ils lisent tous un **attribut** (voir `attributes.rs`),
-//! rempli par les enchantements de l'objet en main ou de l'armure portée (voir `gear.rs`) : ce
-//! module ne connaît aucun enchantement par son nom, seulement ce que les attributs disent.
+//! soie, Aspiration, Épines et Légèreté. Ils lisent tous un **attribut** (voir
+//! `player/attributes.rs`), rempli par les enchantements de l'objet en main ou de l'armure portée
+//! (voir `player/gear.rs`) : ce module ne connaît aucun enchantement par son nom, seulement ce que
+//! les attributs disent.
 //!
 //! - **Fortune** : un minerai (un bloc qui donne de l'expérience) lâche de 1 à « niveau + 1 » fois
 //!   son butin ([`fortune_count`]) ;

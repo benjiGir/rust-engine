@@ -1,8 +1,10 @@
-//! Les sortes de pièces qu'on tient en main : une sorte d'objet par forme (couche, escalier, muret...).
+//! Les sortes de pièces qu'on tient en main : une sorte d'objet par forme (couche, escalier,
+//! muret...).
 //!
-//! Le matériau n'est pas dans la sorte : il est rangé dans la pile (voir le jeu, `shape_materials.rs`).
-//! La sorte dit seulement **quelle forme** l'objet pose, **combien d'objets** un bloc plein donne à
-//! l'établi (le rendement) et dans quelle famille l'établi la range.
+//! Le matériau n'est pas dans la sorte : il est rangé dans la pile (voir le jeu,
+//! `shaping/materials.rs`). La sorte dit seulement **quelle forme** l'objet pose, **combien
+//! d'objets** un bloc plein donne à l'établi (le rendement) et dans quelle famille l'établi la
+//! range.
 
 /// Les familles de l'établi de taille : la grille des formes est rangée par elles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,8 +41,8 @@ impl Family {
     }
 }
 
-/// Une sorte de pièce. Les numéros sont écrits dans les sauvegardes (voir `format.rs`) : ne jamais les
-/// changer, seulement en ajouter.
+/// Une sorte de pièce. Les numéros sont écrits dans les sauvegardes (voir `format.rs`) : ne jamais
+/// les changer, seulement en ajouter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum PieceKind {
@@ -161,8 +163,8 @@ impl PieceKind {
         Self::ALL.into_iter().find(|k| k.key() == key)
     }
 
-    /// Le nom court de la forme (la clé sans `core:shape_`) : `slab`, `corner_slice`... Les commandes
-    /// de la console s'en servent.
+    /// Le nom court de la forme (la clé sans `core:shape_`) : `slab`, `corner_slice`... Les
+    /// commandes de la console s'en servent.
     pub fn short_name(self) -> &'static str {
         self.key().trim_start_matches("core:shape_")
     }
@@ -202,9 +204,10 @@ impl PieceKind {
 
     /// Combien de pièces donne un bloc plein, et combien il en faut pour le reconstituer.
     ///
-    /// L'escalier, l'escalier vertical, le muret et le portillon valent un bloc : on y garde 3/4 de la
-    /// matière (comme un escalier), le reste est perdu dans la taille. Une tranche vaut une barre de
-    /// 1 × 1 × 16 (256 par bloc) ; une tranche de coin vaut 8 seizièmes cubes (512 par bloc).
+    /// L'escalier, l'escalier vertical, le muret et le portillon valent un bloc : on y garde 3/4 de
+    /// la matière (comme un escalier), le reste est perdu dans la taille. Une tranche vaut une
+    /// barre de 1 × 1 × 16 (256 par bloc) ; une tranche de coin vaut 8 seizièmes cubes (512 par
+    /// bloc).
     pub fn per_block(self) -> u32 {
         match self {
             PieceKind::Layer
@@ -285,9 +288,9 @@ impl PieceKind {
     }
 }
 
-/// Le nombre d'objets « tranche » que vaut une tranche d'arête de `n` × `n` : une barre de 1 × 1 × 16
-/// par seizième carré. Grossir de n à n + 1 coûte la différence ; casser rend le total : rien ne se
-/// perd ni ne se crée.
+/// Le nombre d'objets « tranche » que vaut une tranche d'arête de `n` × `n` : une barre de 1 × 1 ×
+/// 16 par seizième carré. Grossir de n à n + 1 coûte la différence ; casser rend le total : rien ne
+/// se perd ni ne se crée.
 pub fn slice_cost(n: u32) -> u32 {
     n * n
 }

@@ -1,33 +1,36 @@
 //! Les formes en jeu : poser une pièce, l'empiler, la casser pièce par pièce, et la fiche de visée.
 //! (Le modèle de données est dans `engine_voxel::shaped` ; la fabrication des pièces, dans
-//! `shaping_ui.rs`.)
+//! `shaping/ui.rs`.)
 //!
 //! # Poser
 //!
 //! Un clic droit avec une pièce en main vise un point d'un bloc :
 //!
-//! - sur une **case de formes**, la pièce s'ajoute **dans cette case** quand la face visée est à l'intérieur
-//!   (le dessus d'une dalle : la dalle de chêne se pose sur la dalle de pierre ; une pente qui monte d'un niveau ;
-//!   un microbloc à côté d'un autre). Si elle n'y tient pas, elle va dans la case voisine ;
-//! - sinon la pièce naît dans la **case voisine** de la face visée (couche collée à cette face, pente
-//!   tournée vers le joueur, microbloc sur le point visé). Une case de formes y naît d'un bloc d'air, ou
-//!   s'enrichit si elle y est déjà.
+//! - sur une **case de formes**, la pièce s'ajoute **dans cette case** quand la face visée est à
+//!   l'intérieur (le dessus d'une dalle : la dalle de chêne se pose sur la dalle de pierre ; une
+//!   pente qui monte d'un niveau ; un microbloc à côté d'un autre). Si elle n'y tient pas, elle va
+//!   dans la case voisine ;
+//! - sinon la pièce naît dans la **case voisine** de la face visée (couche collée à cette face,
+//!   pente tournée vers le joueur, microbloc sur le point visé). Une case de formes y naît d'un
+//!   bloc d'air, ou s'enrichit si elle y est déjà.
 //!
-//! Le matériau vient de la pile (son `damage`, voir `shape_materials.rs`).
+//! Le matériau vient de la pile (son `damage`, voir `shaping/materials.rs`).
 //!
 //! Quelques cas particuliers :
 //!
 //! - une **tranche** (d'arête ou de coin) posée sur une tranche de même sorte et de même matière
-//!   l'agrandit d'un cran ; l'objet coûte la matière ajoutée (voir `engine_voxel::shaped::slice_cost`) ;
-//! - un **portillon** s'ouvre et se ferme d'un clic droit (sauf si l'on tient une pièce, qui se pose) ;
+//!   l'agrandit d'un cran ; l'objet coûte la matière ajoutée (voir
+//!   `engine_voxel::shaped::slice_cost`) ;
+//! - un **portillon** s'ouvre et se ferme d'un clic droit (sauf si l'on tient une pièce, qui se
+//!   pose) ;
 //! - une **forme raccordée** (muret, barrière, vitre...) va toujours seule dans une case.
 //!
 //! # Casser
 //!
-//! Le clic gauche retire **la pièce visée** (le rayon touche une de ses boîtes) et la rend en objets
-//! (une couche de 5 seizièmes rend 5 couches). Le temps de minage est celui de son matériau, au prorata
-//! de son volume. La case se simplifie : vide, elle redevient de l'air ; pleine d'un seul matériau, le
-//! vrai bloc.
+//! Le clic gauche retire **la pièce visée** (le rayon touche une de ses boîtes) et la rend en
+//! objets (une couche de 5 seizièmes rend 5 couches). Le temps de minage est celui de son matériau,
+//! au prorata de son volume. La case se simplifie : vide, elle redevient de l'air ; pleine d'un
+//! seul matériau, le vrai bloc.
 
 use std::borrow::Cow;
 
@@ -181,7 +184,8 @@ impl crate::server::VoxelServer {
         fresh || (before.is_empty() && self.mob_overlaps(pos))
     }
 
-    /// Ajoute `piece` à la case `pos` (qui contient `existing`, ou rien). `Some(pos)` si c'est fait.
+    /// Ajoute `piece` à la case `pos` (qui contient `existing`, ou rien). `Some(pos)` si c'est
+    /// fait.
     fn try_place(
         &mut self,
         pos: IVec3,

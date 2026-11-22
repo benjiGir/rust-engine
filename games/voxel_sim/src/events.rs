@@ -41,7 +41,7 @@ pub struct EntityDied {
     pub kind: String,
     /// Où elle est morte (pour les mods : un butin, une explosion...).
     pub position: glam::Vec3,
-    /// Une élite ou un envahisseur (voir `elites.rs`) : son butin est garanti.
+    /// Une élite ou un envahisseur (voir `mobs/elites.rs`) : son butin est garanti.
     pub elite: Option<crate::mobs::elites::Elite>,
     /// Conservée avant la disparition du mouton pour déterminer sa laine.
     pub coat: Option<crate::mobs::sheep_colors::SheepCoat>,
@@ -58,7 +58,7 @@ pub struct PlayerAttacked {
     pub amount: f32,
     /// D'où vient le coup (la créature, le projectile) : le joueur recule à l'opposé.
     pub from: glam::Vec3,
-    /// Les points d'armure que ce coup ignore (la perforation, voir `attributes.rs`).
+    /// Les points d'armure que ce coup ignore (la perforation, voir `player/attributes.rs`).
     pub pierce: f32,
 }
 

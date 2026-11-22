@@ -1,14 +1,15 @@
-//! L'écran des conteneurs : coffres (de base ou à paliers), wagons coffres, sacs à dos et contrôleur
-//! de stockage. Un seul module pour tous : les boutons, le Maj + clic et la colonne des
+//! L'écran des conteneurs : coffres (de base ou à paliers), wagons coffres, sacs à dos et
+//! contrôleur de stockage. Un seul module pour tous : les boutons, le Maj + clic et la colonne des
 //! améliorations ne sont écrits qu'une fois.
 //!
 //! # Un conteneur, quatre façons de le lire
 //!
 //! [`Target`] désigne le conteneur : un bloc (son inventaire est dans l'entité du bloc), un wagon
-//! (`CartCargo`) ou un sac (le magasin de `backpacks.rs`). Chacun se lit et s'écrit comme une
-//! liste de cases du moteur ([`engine_voxel::ItemStack`], objets par identifiant texte). Les
+//! (`CartCargo`) ou un sac (le magasin de `storage/backpacks.rs`). Chacun se lit et s'écrit comme
+//! une liste de cases du moteur ([`engine_voxel::ItemStack`], objets par identifiant texte). Les
 //! gestes en gros (Déposer, Compléter, Tout prendre, Trier, Maj + clic) convertissent les cases
-//! principales en piles du jeu, appellent la logique pure de `transfer.rs`, puis réécrivent.
+//! principales en piles du jeu, appellent la logique pure de `voxel_sim::storage::transfer`, puis
+//! réécrivent.
 //!
 //! # La disposition des cases
 //!
@@ -16,8 +17,9 @@
 //! emplacements d'amélioration, puis les filtres (voir `engine_voxel::storage`). L'écran dessine
 //! les améliorations dans un bandeau à part en haut, puis les cases principales, qui défilent si
 //! elles sont nombreuses (l'inventaire du joueur reste visible). Les filtres sont
-//! des cases fantômes : on y pose un exemplaire d'un objet (rien n'est consommé), un clic le retire.
-//! Après chaque geste, les améliorations passives (compactage, néant) s'appliquent tout de suite.
+//! des cases fantômes : on y pose un exemplaire d'un objet (rien n'est consommé), un clic le
+//! retire. Après chaque geste, les améliorations passives (compactage, néant) s'appliquent tout de
+//! suite.
 //!
 //! # Le contrôleur
 //!
@@ -95,8 +97,8 @@ impl VoxelGame {
 
     /// Les cases, la colonne des améliorations, les filtres et les boutons d'un conteneur.
     pub(crate) fn storage_panel(&mut self, ui: &mut egui::Ui, bag: bool) {
-        // La vue que le serveur a envoyée (voir `container_view.rs`) ; un conteneur ancien y a déjà
-        // reçu ses emplacements d'amélioration.
+        // La vue que le serveur a envoyée (voir `storage/container_view.rs`) ; un conteneur ancien
+        // y a déjà reçu ses emplacements d'amélioration.
         let Some(shown) = self.shown_container().cloned() else {
             ui.label("Ce conteneur n'existe plus.");
             return;
@@ -109,7 +111,8 @@ impl VoxelGame {
         };
         let layout = view.layout;
         let ups = engine_voxel::installed_upgrades(&view.raw, layout, 0);
-        // Les améliorations d'abord, dans un bandeau à part : on ne les confond pas avec le stockage.
+        // Les améliorations d'abord, dans un bandeau à part : on ne les confond pas avec le
+        // stockage.
         if layout.upgrades > 0 {
             egui::Frame::new()
                 .fill(UPGRADE_BAND)

@@ -1,5 +1,5 @@
-//! La part serveur de `storage_ui.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
-//! multijoueur ; la fenêtre reste dans `storage_ui.rs`).
+//! La part serveur de `storage/ui.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
+//! multijoueur ; la fenêtre reste dans `storage/ui.rs`).
 
 use crate::net::protocol::TakeHow;
 use crate::player::inventory::{Click, ItemStack, Slot, click_slot_mult};
@@ -37,8 +37,8 @@ impl crate::server::VoxelServer {
     }
 
     /// Le contenu d'un conteneur pour la vue de la fenêtre (cases, disposition, améliorations
-    /// coupées, à paliers). Un conteneur ancien (27 cases) reçoit ses emplacements d'amélioration dès
-    /// qu'il est ouvert.
+    /// coupées, à paliers). Un conteneur ancien (27 cases) reçoit ses emplacements d'amélioration
+    /// dès qu'il est ouvert.
     pub fn open_contents(
         &mut self,
         t: Target,
@@ -368,7 +368,8 @@ impl crate::server::VoxelServer {
                     inv.slots = view.raw;
                 }
                 if wakes {
-                    // Les améliorations qui travaillent seules (entonnoir, compactage) se réveillent.
+                    // Les améliorations qui travaillent seules (entonnoir, compactage) se
+                    // réveillent.
                     self.mods
                         .machines
                         .schedule(engine_voxel::GridPos::world(pos), 1);

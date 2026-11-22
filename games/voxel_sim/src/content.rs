@@ -21,11 +21,12 @@ pub struct Content {
     pub brewing: Arc<Brewing>,
     pub loot: Arc<LootTables>,
     pub machine_recipes: Arc<MachineRecipes>,
-    /// Toutes les recettes, par produit et par ingrédient (l'explorateur, voir `recipe_browser.rs`).
+    /// Toutes les recettes, par produit et par ingrédient (l'explorateur, voir
+    /// `ui/recipe_browser.rs`).
     pub recipe_index: Arc<RecipeIndex>,
     /// Ce que l'amélioration « compactage » sait regrouper (lu dans les recettes).
     pub compact: Arc<CompactTable>,
-    /// Le Guide du voyageur (voir `guide.rs`).
+    /// Le Guide du voyageur (voir `quests/guide.rs`).
     pub guide: Arc<crate::quests::guide::Guide>,
 }
 

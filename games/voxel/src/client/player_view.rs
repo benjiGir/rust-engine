@@ -1,5 +1,5 @@
-//! La part fenêtre de `player_view.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
-//! multijoueur ; la simulation reste dans `player_view.rs`).
+//! La part fenêtre de `net/player_view.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
+//! multijoueur ; la simulation reste dans `net/player_view.rs`).
 
 use crate::VoxelGame;
 use std::time::Instant;

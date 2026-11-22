@@ -1,5 +1,5 @@
 //! Les objets à affixes : tirer une rareté, des affixes, des emplacements de gemmes, et composer le
-//! nom. Un module **pur** : il lit les données (`adventure_data.rs`) et un générateur aléatoire,
+//! nom. Un module **pur** : il lit les données (`adventure/data.rs`) et un générateur aléatoire,
 //! jamais l'inventaire ni le monde. Le même tirage (même graine, même objet) donne toujours la même
 //! fiche : c'est ce qui rend les coffres de structure stables d'une ouverture à l'autre.
 //!

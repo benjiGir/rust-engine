@@ -1,6 +1,6 @@
 //! L'enchantement : des propriétés d'un outil ou d'une armure, achetées à la table
-//! d'enchantement (voir `enchant_table.rs`) avec des points d'expérience et des saphirs, ou reçues
-//! d'un livre (voir `enchant_books.rs`).
+//! d'enchantement (voir `enchanting/table.rs`) avec des points d'expérience et des saphirs, ou
+//! reçues d'un livre (voir `enchanting/books.rs`).
 //!
 //! # Où elles sont rangées
 //!
@@ -12,7 +12,7 @@
 //!   (les numéros restent sous 128, donc le bit 31 n'est jamais touché). C'est le format des
 //!   mondes déjà joués ;
 //! - **pile étendue** (le bit 31 est à 1) : `damage` ne porte qu'un numéro de fiche, et la fiche
-//!   (voir `item_data.rs`) contient l'usure et la liste des enchantements.
+//!   (voir `player/item_data.rs`) contient l'usure et la liste des enchantements.
 //!
 //! Un objet passe de la première forme à la seconde (usure et enchantement recopiés) dès qu'il
 //! reçoit un deuxième enchantement ([`with_enchantment`], [`edit_sheet`]). Dans les deux cas
@@ -21,12 +21,12 @@
 //!
 //! # Les enchantements sont des données
 //!
-//! Chacun est décrit dans `enchantments.ron` (voir `enchant_data.rs`) : son numéro stable, ses
+//! Chacun est décrit dans `enchantments.ron` (voir `enchanting/data.rs`) : son numéro stable, ses
 //! niveaux (plafonnés selon l'Eterna de la table), ce qui peut le porter et ses effets, des bonus
-//! d'attributs par niveau (voir `attributes.rs` et `gear.rs`). Douze sont fournis : Efficacité,
-//! Tranchant, Solidité, Protection, Butin, Vol de vie, Fortune, Toucher de soie, Aspiration,
-//! Épines, Légèreté et Vivacité. Solidité est la seule qui agit ailleurs que par les attributs :
-//! l'objet s'use moins (une chance sur « niveau + 1 » d'être épargné).
+//! d'attributs par niveau (voir `player/attributes.rs` et `player/gear.rs`). Douze sont fournis :
+//! Efficacité, Tranchant, Solidité, Protection, Butin, Vol de vie, Fortune, Toucher de soie,
+//! Aspiration, Épines, Légèreté et Vivacité. Solidité est la seule qui agit ailleurs que par les
+//! attributs : l'objet s'use moins (une chance sur « niveau + 1 » d'être épargné).
 
 pub mod book_play;
 pub mod books;
@@ -453,7 +453,8 @@ mod tests {
 
     #[test]
     fn unknown_kinds_are_ignored_and_new_kinds_survive_the_sheet() {
-        // Un numéro que les données ne connaissent pas (un mod retiré) n'est ni lu ni perdu par un autre.
+        // Un numéro que les données ne connaissent pas (un mod retiré) n'est ni lu ni perdu par un
+        // autre.
         assert!(Enchantment::from_id(99).is_none());
         assert!(Enchantment::from_id(300).is_none());
         let mut damage = 0;

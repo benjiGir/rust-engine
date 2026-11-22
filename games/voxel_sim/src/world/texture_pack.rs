@@ -1,5 +1,5 @@
 //! Quel pack de textures le registre des blocs utilise (la simulation le configure au lancement ;
-//! le choix du pack se fait dans `texture_packs.rs`, côté fenêtre).
+//! le choix du pack se fait dans `render/texture_packs.rs`, côté fenêtre).
 
 use std::path::{Path, PathBuf};
 

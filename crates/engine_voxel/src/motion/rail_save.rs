@@ -1,5 +1,5 @@
 //! La sauvegarde des wagons : `carts.bin` dans le dossier de la dimension, à côté des structures
-//! mobiles (`grids.bin`, voir `subgrid.rs`).
+//! mobiles (`grids.bin`, voir `motion/subgrid.rs`).
 //!
 //! Le moteur ne connaît pas l'ECS du jeu : il range des [`SavedCart`], que le jeu remplit depuis
 //! ses entités et relit au chargement. Le format est du postcard ; les objets sont rangés par

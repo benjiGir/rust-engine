@@ -3,7 +3,7 @@
 //!
 //! Un projectile est une petite entité : il file, tombe un peu (la gravité), s'arrête au
 //! premier bloc plein, et blesse le joueur qu'il touche (un coup ordinaire : armure,
-//! invulnérabilité, recul ; voir `survival.rs`). La créature vise un peu au-dessus pour
+//! invulnérabilité, recul ; voir `player/survival.rs`). La créature vise un peu au-dessus pour
 //! compenser la chute.
 
 use std::sync::Arc;

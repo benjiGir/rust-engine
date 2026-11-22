@@ -1,22 +1,22 @@
 //! L'avancement du joueur dans le livre de quêtes : états, compteurs, récompenses, sauvegarde.
 //!
-//! Tout est pur : ce module ne connaît ni l'ECS ni l'affichage. Le jeu (`quest_play.rs`) lui donne
+//! Tout est pur : ce module ne connaît ni l'ECS ni l'affichage. Le jeu (`quests/play.rs`) lui donne
 //! un **instantané** du joueur ([`Snapshot`] : objets portés, dimension, biome, hauteur...) et la
 //! liste des **événements** survenus ([`Event`] : blocs cassés ou posés, créatures tuées, objets
 //! fabriqués), et reçoit la liste des quêtes qui viennent de se terminer.
 //!
 //! # États d'une quête
 //!
-//! [`Status`] : `Locked` (dépendances non finies), `Available` (rien de fait), `Started` (au moins une
-//! tâche avance), `Done` (tâches finies, récompenses à récupérer), `Claimed` (tout est récupéré ; une
-//! quête sans récompense passe directement ici).
+//! [`Status`] : `Locked` (dépendances non finies), `Available` (rien de fait), `Started` (au moins
+//! une tâche avance), `Done` (tâches finies, récompenses à récupérer), `Claimed` (tout est récupéré
+//! ; une quête sans récompense passe directement ici).
 //!
 //! # Les compteurs
 //!
 //! Chaque tâche a un compteur, et la tâche est finie quand il atteint [`Task::target`]. Il ne
 //! redescend jamais : une tâche d'objet finie le reste si on jette l'objet. En mode `Linear`, rien
-//! n'avance tant que les dépendances ne sont pas finies ; en mode `Flexible`, les compteurs avancent
-//! toujours, mais la quête ne se termine que quand ses dépendances le sont.
+//! n'avance tant que les dépendances ne sont pas finies ; en mode `Flexible`, les compteurs
+//! avancent toujours, mais la quête ne se termine que quand ses dépendances le sont.
 //!
 //! # La sauvegarde
 //!
@@ -612,7 +612,8 @@ mod tests {
     use super::*;
     use crate::quests::tests::{load, with_catalog};
 
-    /// Un petit livre qui sert à tout : une chaîne, un choix, un tirage, des tâches de chaque sorte.
+    /// Un petit livre qui sert à tout : une chaîne, un choix, un tirage, des tâches de chaque
+    /// sorte.
     const BOOK: &str = r##"(
         settings: (progression: Flexible),
         groups: [(id: "core:g", title: "G", icon: "stick")],

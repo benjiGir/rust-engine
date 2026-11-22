@@ -2,25 +2,27 @@
 //!
 //! # Les objets
 //!
-//! - **Livre** (`core:book`) : vierge ; posé dans la main devant une table d'enchantement, il reçoit
-//!   des enchantements de tout genre et devient un **livre enchanté** (`core:enchanted_book`), qui les
-//!   porte dans sa fiche (voir `item_data.rs`), comme n'importe quel objet enchanté ;
+//! - **Livre** (`core:book`) : vierge ; posé dans la main devant une table d'enchantement, il
+//!   reçoit des enchantements de tout genre et devient un **livre enchanté**
+//!   (`core:enchanted_book`), qui les porte dans sa fiche (voir `player/item_data.rs`), comme
+//!   n'importe quel objet enchanté ;
 //! - **Tomes** (`core:tome_weapons`, `core:tome_tools`, `core:tome_armor`) : des livres qui ne
-//!   reçoivent que les enchantements de leur type (armes, outils, armures), ce qui laisse choisir ce
-//!   qu'on enchante. Une table en fait aussi des livres enchantés ;
-//! - **Tome d'extraction** (`core:tome_extraction`) : retire tous les enchantements d'un objet et les
-//!   range dans un livre enchanté (il consomme un livre vierge de l'inventaire). L'objet reste, avec
-//!   son usure, ses affixes et ses gemmes.
+//!   reçoivent que les enchantements de leur type (armes, outils, armures), ce qui laisse choisir
+//!   ce qu'on enchante. Une table en fait aussi des livres enchantés ;
+//! - **Tome d'extraction** (`core:tome_extraction`) : retire tous les enchantements d'un objet et
+//!   les range dans un livre enchanté (il consomme un livre vierge de l'inventaire). L'objet reste,
+//!   avec son usure, ses affixes et ses gemmes.
 //!
 //! # Les gestes
 //!
 //! Le livre ou le tome d'extraction se tient **au curseur** dans l'écran d'une table d'enchantement
 //! ou d'une enclume simple, puis on clique sur un objet de l'inventaire :
 //!
-//! - livre enchanté sur un objet : chaque enchantement qui convient à l'objet est appliqué. Une sorte
-//!   absente s'ajoute (dans la limite du nombre d'enchantements par objet) ; une sorte déjà là prend
-//!   le niveau le plus haut des deux, et **monte d'un niveau** si les deux sont égaux, sans dépasser
-//!   le niveau maximal de la sorte. Rien n'est appliqué (et le livre est gardé) si rien ne change ;
+//! - livre enchanté sur un objet : chaque enchantement qui convient à l'objet est appliqué. Une
+//!   sorte absente s'ajoute (dans la limite du nombre d'enchantements par objet) ; une sorte déjà
+//!   là prend le niveau le plus haut des deux, et **monte d'un niveau** si les deux sont égaux,
+//!   sans dépasser le niveau maximal de la sorte. Rien n'est appliqué (et le livre est gardé) si
+//!   rien ne change ;
 //! - tome d'extraction sur un objet enchanté : voir ci-dessus.
 
 use engine_voxel::ItemDef;

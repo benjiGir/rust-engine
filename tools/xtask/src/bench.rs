@@ -1,5 +1,5 @@
 //! `cargo xtask bench` : lance le benchmark du jeu (`VOXEL_BENCH`, voir
-//! `games/voxel/src/bench.rs`) plusieurs fois, garde la médiane de chaque mesure, et
+//! `games/voxel/src/control/bench.rs`) plusieurs fois, garde la médiane de chaque mesure, et
 //! compare à un ancien résultat.
 //!
 //! ```text
@@ -22,7 +22,8 @@ const METRICS: [(&str, &str, bool); 4] = [
     ("cpu_ms", "CPU (ms)", false),
     ("gpu_ms", "GPU (ms)", false),
     // Pas le « 1 % le plus lent » en FPS : sans VSync, il mesure surtout l'attente d'une
-    // image libre auprès du système, pas le travail du jeu (voir `games/voxel/src/bench.rs`).
+    // image libre auprès du système, pas le travail du jeu (voir
+    // `games/voxel/src/control/bench.rs`).
     ("cpu_p99_ms", "CPU 99e (ms)", false),
     ("chunks_dessines", "chunks", false),
 ];

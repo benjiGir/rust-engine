@@ -1,7 +1,7 @@
 //! Les attributs du joueur : des valeurs calculées (dégâts, armure, vitesse...) à partir de
 //! sources (objet en main, armure portée, potions). Un module **pur** : il ne connaît ni
 //! l'inventaire ni le monde, seulement des [`Source`] de [`Modifier`] et des formules. Le
-//! rassemblement des sources est dans `gear.rs`, l'affichage dans `attributes_ui.rs`.
+//! rassemblement des sources est dans `player/gear.rs`, l'affichage dans `adventure/attributes.rs`.
 //!
 //! # Le calcul
 //!
@@ -49,7 +49,8 @@ pub enum Attribute {
     LootChance = 11,
     Reach = 12,
     XpGain = 13,
-    /// Fortune : les minerais lâchent jusqu'à ce nombre de fois plus (voir `enchant_effects.rs`).
+    /// Fortune : les minerais lâchent jusqu'à ce nombre de fois plus (voir
+    /// `enchanting/effects.rs`).
     Fortune = 14,
     /// Épines : les dégâts renvoyés à la créature qui frappe le joueur.
     Thorns = 15,

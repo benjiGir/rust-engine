@@ -10,6 +10,9 @@
 //!    toutes les autres s'en servent, ou elles sont compilées en WebAssembly.
 //! 4. **Pas de fichier géant** : un fichier `.rs` de plus de [`MAX_LINES`] lignes est
 //!    difficile à lire et ralentit la compilation incrémentale. On le découpe en modules.
+//! 5. **Pas de dossier fourre-tout** : un dossier de plus de [`MAX_FILES`] fichiers `.rs` se
+//!    parcourt mal. On le range en sous-dossiers par domaine (voir `docs/plan-rangement.md`). Un
+//!    fichier `x.rs` posé à côté d'un dossier `x/` en est l'entrée : il compte avec ce dossier.
 //!
 //! Idée reprise d'Horizon (`tools/check_layers.py`, `tools/check_file_size.py`).
 //! Les manifestes sont lus ligne à ligne, sans bibliothèque TOML : xtask reste léger.
@@ -20,6 +23,9 @@ use anyhow::{Context as _, Result, bail};
 
 /// Au-delà, un fichier doit être découpé.
 const MAX_LINES: usize = 2500;
+
+/// Au-delà, un dossier doit être rangé en sous-dossiers.
+const MAX_FILES: usize = 20;
 
 /// Dossiers dont les paquets ne doivent jamais être une dépendance du moteur.
 const NOT_ENGINE: [&str; 4] = ["games", "mods", "tools", "exercises"];
@@ -116,6 +122,13 @@ pub fn run(root: &Path) -> Result<()> {
         }
     }
 
+    for (dir, count) in crowded_dirs(&files) {
+        errors.push(format!(
+            "{} a {count} fichiers .rs (maximum {MAX_FILES}) : à ranger en sous-dossiers",
+            dir.strip_prefix(root).unwrap_or(&dir).display()
+        ));
+    }
+
     if !errors.is_empty() {
         for error in &errors {
             eprintln!("✗ {error}");
@@ -128,6 +141,22 @@ pub fn run(root: &Path) -> Result<()> {
         files.len()
     );
     Ok(())
+}
+
+/// Les dossiers qui ont plus de [`MAX_FILES`] fichiers `.rs`, et combien. Un fichier `x.rs` à côté
+/// d'un dossier `x/` (le parent d'un module rangé en dossier) n'est pas compté.
+fn crowded_dirs(files: &[PathBuf]) -> Vec<(PathBuf, usize)> {
+    let mut counts: std::collections::BTreeMap<PathBuf, usize> = Default::default();
+    for file in files {
+        let Some(dir) = file.parent() else { continue };
+        let entrance = file
+            .file_stem()
+            .is_some_and(|stem| files.iter().any(|f| f.starts_with(dir.join(stem))));
+        if !entrance {
+            *counts.entry(dir.to_path_buf()).or_default() += 1;
+        }
+    }
+    counts.into_iter().filter(|&(_, n)| n > MAX_FILES).collect()
 }
 
 /// Les paquets du workspace : chaque dossier de premier niveau sous `crates`, `games`,
@@ -289,6 +318,23 @@ workspace = true
         assert_eq!(
             package.all,
             ["glam", "engine_trace", "rayon", "voxel", "mimalloc", "wgpu"]
+        );
+    }
+
+    #[test]
+    fn a_crowded_folder_is_reported_but_module_entrances_do_not_count() {
+        let mut files: Vec<PathBuf> = (0..MAX_FILES)
+            .map(|i| PathBuf::from(format!("src/f{i}.rs")))
+            .collect();
+        // Le parent d'un dossier de modules compte avec son dossier.
+        files.push(PathBuf::from("src/domaine.rs"));
+        files.push(PathBuf::from("src/domaine/a.rs"));
+        assert!(crowded_dirs(&files).is_empty());
+        // Un fichier de plus à plat : 21.
+        files.push(PathBuf::from("src/encore.rs"));
+        assert_eq!(
+            crowded_dirs(&files),
+            [(PathBuf::from("src"), MAX_FILES + 1)]
         );
     }
 

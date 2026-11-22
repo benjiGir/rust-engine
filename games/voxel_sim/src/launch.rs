@@ -15,9 +15,11 @@ pub struct Launch {
     pub title: bool,
     /// La difficulté d'un nouveau monde (0 paisible, 1 normale, 2 difficile).
     pub difficulty: Option<u8>,
-    /// La dimension où arriver (`None` : celle que le monde sauvegardé indique, sinon celle de départ).
+    /// La dimension où arriver (`None` : celle que le monde sauvegardé indique, sinon celle de
+    /// départ).
     pub dimension: Option<String>,
-    /// Rejoindre la partie d'un hôte (« adresse:port ») au lieu d'ouvrir un monde (voir `net_client.rs`).
+    /// Rejoindre la partie d'un hôte (« adresse:port ») au lieu d'ouvrir un monde (voir
+    /// `client/join.rs`).
     pub join: Option<String>,
 }
 
@@ -40,7 +42,8 @@ impl Launch {
             return None;
         }
         Some(Self {
-            // Les modes automatiques n'écrivent pas dans le monde du joueur, sauf demande explicite.
+            // Les modes automatiques n'écrivent pas dans le monde du joueur, sauf demande
+            // explicite.
             world: named.then(|| persistence::world_dir(&crate::paths::get().saves)),
             seed: env_parse("VOXEL_SEED"),
             title: false,

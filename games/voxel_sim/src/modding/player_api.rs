@@ -1,5 +1,5 @@
-//! La part serveur de `player_api.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du plan
-//! multijoueur ; la fenêtre reste dans `player_api.rs`).
+//! La part serveur de `modding/player_api.rs` : ses méthodes sur `VoxelServer` (voir le lot 8 du
+//! plan multijoueur ; la fenêtre reste dans `modding/player_api.rs`).
 
 use crate::components::{Collider, Health, Mob, PreviousPosition, Transform, Velocity};
 use crate::player;
@@ -89,8 +89,8 @@ impl crate::server::VoxelServer {
     /// L'état du joueur tel que les scripts le voient.
     pub fn player_snapshot(&self) -> PlayerSnapshot {
         let health = player::health(&self.ecs, self.players.entity());
-        // La visée de l'action en cours (un clic droit avec un objet de mod), sinon le dernier regard
-        // connu du joueur.
+        // La visée de l'action en cours (un clic droit avec un objet de mod), sinon le dernier
+        // regard connu du joueur.
         let (eye, look) = match self.acting {
             Some(aim) => (aim.eye, aim.forward),
             None => (

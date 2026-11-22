@@ -5,7 +5,7 @@
 //! Une pile ne porte qu'un entier, `ItemStack::damage`. Il suffit pour l'usure et un seul
 //! enchantement (voir `enchanting.rs`), pas pour plusieurs enchantements, une rareté, des
 //! affixes, des emplacements de gemmes ou un nom. Ces données vont donc dans un magasin, le
-//! [`ItemStore`], sur le modèle de celui des sacs à dos (`backpacks.rs`) : la pile ne garde
+//! [`ItemStore`], sur le modèle de celui des sacs à dos (`storage/backpacks.rs`) : la pile ne garde
 //! qu'un **numéro de fiche**, et c'est la pile qui voyage (inventaire, coffre, sol, sac,
 //! wagon, sauvegarde), jamais la fiche.
 //!
@@ -23,12 +23,12 @@
 //! - **La fiche** ([`ItemData`]) : l'usure, les enchantements (plusieurs : sorte et niveau),
 //!   la rareté, les affixes (un bonus d'attribut chacun), les emplacements de gemmes (vide ou
 //!   la clé de la gemme) et un nom. Rareté, affixes, emplacements et nom sont remplis par la phase
-//!   « aventure » (voir `affixes.rs`, `gems.rs`) ; une fiche d'enchantements seule les laisse vides.
-//!   Cette phase n'a **pas** changé la forme de [`ItemData`] : `items.bin` reste en version 1, les
-//!   fiches de la phase précédente se lisent telles quelles.
-//! - **Un marqueur dans `damage`** : les deux bits hauts à 1 ([`is_pending`]) ne sont pas une fiche mais
-//!   un objet à affixes « à tirer » rangé par un coffre de structure ; les numéros de fiche s'arrêtent
-//!   donc à [`MAX_NUMBER`] (2^30 - 1).
+//!   « aventure » (voir `adventure/affixes.rs`, `adventure/gems.rs`) ; une fiche d'enchantements
+//!   seule les laisse vides. Cette phase n'a **pas** changé la forme de [`ItemData`] : `items.bin`
+//!   reste en version 1, les fiches de la phase précédente se lisent telles quelles.
+//! - **Un marqueur dans `damage`** : les deux bits hauts à 1 ([`is_pending`]) ne sont pas une fiche
+//!   mais un objet à affixes « à tirer » rangé par un coffre de structure ; les numéros de fiche
+//!   s'arrêtent donc à [`MAX_NUMBER`] (2^30 - 1).
 //!
 //! # La migration
 //!
@@ -63,8 +63,8 @@ pub const MAX_NUMBER: u32 = (1 << 30) - 1;
 const FILE: &str = "items.bin";
 
 /// Cette pile est-elle un objet à affixes pas encore tiré (un coffre de structure) ? Le moteur le
-/// pose à la génération (`engine_voxel::pending_loot`) ; le jeu le remplace par une vraie fiche à la
-/// première ouverture du coffre (voir `affixes::resolve_pending`).
+/// pose à la génération (`engine_voxel::pending_loot`) ; le jeu le remplace par une vraie fiche à
+/// la première ouverture du coffre (voir `affixes::resolve_pending`).
 pub fn is_pending(damage: u32) -> bool {
     damage & engine_voxel::PENDING_LOOT == engine_voxel::PENDING_LOOT
 }

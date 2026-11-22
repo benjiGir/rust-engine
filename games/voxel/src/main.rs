@@ -179,9 +179,10 @@ impl VoxelGame {
             .filter(|_| automatic)
             .map(|dir| crate::control::screenshots::Tour::new(dir.into()));
 
-        // `VOXEL_SERVER_THREAD=1` : le monde tourne dans son propre thread (un serveur intégré, voir
-        // `voxel_sim::net::dedicated::spawn_integrated`), et la fenêtre le rejoint comme un invité, sur la
-        // boucle locale. Les outils de l'hôte (`ctl`, captures, démo) n'ont alors que la fenêtre.
+        // `VOXEL_SERVER_THREAD=1` : le monde tourne dans son propre thread (un serveur intégré,
+        // voir `voxel_sim::net::dedicated::spawn_integrated`), et la fenêtre le rejoint comme un
+        // invité, sur la boucle locale. Les outils de l'hôte (`ctl`, captures, démo) n'ont alors
+        // que la fenêtre.
         let mut integrated = None;
         let threaded = std::env::var("VOXEL_SERVER_THREAD").is_ok_and(|v| v == "1");
         if threaded
@@ -200,7 +201,7 @@ impl VoxelGame {
             integrated = Some(started);
         }
 
-        // Le serveur d'abord, sans fenêtre (voir `server_boot.rs`), puis ce que la fenêtre en tire.
+        // Le serveur d'abord, sans fenêtre (voir `server/boot.rs`), puis ce que la fenêtre en tire.
         let boot = VoxelServer::boot(
             &launch,
             &settings,
@@ -211,9 +212,11 @@ impl VoxelGame {
         let (mut server, mut yaw, mut pitch, mut seed) =
             (boot.server, boot.yaw, boot.pitch, boot.seed);
         // Un invité : la poignée de main avec l'hôte, puis la coquille refaite sur sa graine (le
-        // terrain lointain en dépend) et le joueur placé où l'hôte l'accueille (voir `net_client.rs`).
+        // terrain lointain en dépend) et le joueur placé où l'hôte l'accueille (voir
+        // `client/join.rs`).
         let mut remote = None;
-        // La portée de l'hôte : il n'envoie pas de chunks au-delà (voir plus bas, le terrain lointain).
+        // La portée de l'hôte : il n'envoie pas de chunks au-delà (voir plus bas, le terrain
+        // lointain).
         let mut host_radius = None;
         if let Some(address) = &launch.join {
             // Déjà accueilli depuis le menu, ou (`VOXEL_JOIN`) la poignée de main maintenant.
@@ -257,9 +260,9 @@ impl VoxelGame {
         let block_textures = assets::load_textures(&registry);
         renderer.set_block_textures(&block_textures);
         let config = server.world.borrow().config().clone();
-        // Les chunks détaillés vont jusqu'à notre portée, ou celle de l'hôte pour un invité : c'est lui
-        // qui les envoie. Le terrain lointain commence là, sinon un anneau resterait vide entre les
-        // deux.
+        // Les chunks détaillés vont jusqu'à notre portée, ou celle de l'hôte pour un invité : c'est
+        // lui qui les envoie. Le terrain lointain commence là, sinon un anneau resterait vide entre
+        // les deux.
         let near_radius = host_radius.unwrap_or(config.view_radius);
         // Le terrain lointain (simplifié) prolonge le monde au-delà des chunks détaillés ;
         // `VOXEL_FAR=0` le coupe, pour comparer. Pas dans le décor du menu principal.
@@ -299,7 +302,8 @@ impl VoxelGame {
         // `VOXEL_PIPELINE=1` : les délais d'un chunk reçu → maillage → envoi (la réplique).
         view.replica_mut()
             .set_pipeline_timing(std::env::var("VOXEL_PIPELINE").is_ok_and(|v| v == "1"));
-        // La fenêtre simule son joueur à partir de là où le serveur l'a placé (voir `predicted.rs`).
+        // La fenêtre simule son joueur à partir de là où le serveur l'a placé (voir
+        // `net/predicted.rs`).
         let body = predicted::PredictedBody::new(
             player::body(&server.ecs, server.players.entity()).position,
             player::mode(&server.ecs, server.players.entity()),
@@ -448,7 +452,8 @@ impl VoxelGame {
             ),
             None if busy => (Vec3::ZERO, false),
             None => {
-                // Affamé, on ne court plus (les jauges viennent du serveur, voir `player_view.rs`).
+                // Affamé, on ne court plus (les jauges viennent du serveur, voir
+                // `net/player_view.rs`).
                 let vitals = self.client.view.me.vitals.as_ref();
                 let can_sprint = vitals.is_none_or(|v| v.can_sprint);
                 let speed = if input.key_held(keys.key(Action::Sprint)) && can_sprint {
@@ -461,7 +466,7 @@ impl VoxelGame {
                 (direction * speed, jump)
             }
         };
-        // La fenêtre joue le mouvement de son joueur et l'envoie (voir `predicted.rs`).
+        // La fenêtre joue le mouvement de son joueur et l'envoie (voir `net/predicted.rs`).
         self.predict_move(walk, jump, ctx.fixed_dt);
         if self.hosting() {
             self.server.fixed_step(ctx.fixed_dt);
@@ -471,9 +476,10 @@ impl VoxelGame {
     }
 
     fn window_event(&mut self, ctx: &mut Context, event: &WindowEvent) -> bool {
-        // La fenêtre perd le focus en pleine partie : le jeu se met en pause et rend la souris, comme
-        // Minecraft (on la reprend d'un clic sur « Reprendre », jamais par surprise).
-        // (Pas dans les modes automatiques : captures, banc d'essai, démo, qui tournent sans focus.)
+        // La fenêtre perd le focus en pleine partie : le jeu se met en pause et rend la souris,
+        // comme Minecraft (on la reprend d'un clic sur « Reprendre », jamais par surprise).
+        // (Pas dans les modes automatiques : captures, banc d'essai, démo, qui tournent sans
+        // focus.)
         let automatic =
             self.client.tour.is_some() || self.client.bench.is_some() || self.client.demo.is_some();
         if *event == WindowEvent::Focused(false) && self.mode == Mode::Playing && !automatic {
@@ -486,7 +492,7 @@ impl VoxelGame {
 
     fn update(&mut self, ctx: &mut Context, dt: f32) {
         self.client.frame_dt = dt;
-        // Les joueurs du réseau local : arrivées, messages, départs (voir `net_host.rs`).
+        // Les joueurs du réseau local : arrivées, messages, départs (voir `net/host.rs`).
         if self.hosting() {
             self.server.poll_net();
         }
@@ -602,7 +608,7 @@ impl VoxelGame {
 
         // Les entrées de la souris : le bloc visé, le minage, les coups, le clic droit, le repas.
         // Elles ne font que fabriquer des messages, appliqués avant la fin de cette image
-        // (voir `play_input.rs` et `intents.rs`).
+        // (voir `client/input.rs` et `server/intents.rs`).
         self.play_input(ctx, dt, click_used);
         if interactive {
             self.animate_hand(ctx, dt);
@@ -638,7 +644,7 @@ impl VoxelGame {
         }
 
         // Le travail du serveur à chaque image : l'heure, la météo, les villages, les systèmes de
-        // l'image et les événements (voir `server_step.rs`).
+        // l'image et les événements (voir `server/step.rs`).
         // En pause, le monde s'arrête : l'heure, les potions et les villages aussi (sauf ouvert au
         // réseau local).
         let paused = matches!(self.mode, Mode::Paused(_)) && self.server.net.is_none();
@@ -668,7 +674,7 @@ impl VoxelGame {
         // Le vent dans les feuilles suit le temps réel depuis le lancement.
         self.client.renderer.time = self.started.elapsed().as_secs_f32();
         // Les entités viennent de la réplique du client : créatures, autres joueurs, projectiles,
-        // wagons et objets au sol (voir `entity_render.rs`).
+        // wagons et objets au sol (voir `render/entities.rs`).
         self.client.view.entities.begin_frame(alpha);
         let mobs = self.server.ecs.resource::<Arc<MobRegistry>>().clone();
         let mut mob_boxes = Vec::new();
@@ -1065,7 +1071,7 @@ impl VoxelGame {
         if self.client.body.mode != MoveMode::Walk || self.client.body.frozen {
             return;
         }
-        // Le corps prédit (voir `predicted.rs`).
+        // Le corps prédit (voir `net/predicted.rs`).
         let collider = self.client.body.body;
         let (velocity, transform) = (collider.velocity, collider.position);
         let below_block = self
@@ -1342,11 +1348,12 @@ fn main() -> Result<()> {
     // Le journal, dans la console et `logs/latest.log` ; plus détaillé avec `RUST_LOG=info`.
     voxel_sim::logs::init(voxel_sim::logs::Program::Game);
 
-    // `voxel --server` : le serveur dédié, sans fenêtre (voir `dedicated.rs`).
+    // `voxel --server` : le serveur dédié, sans fenêtre (voir `net/dedicated.rs`).
     if std::env::args().any(|a| a == "--server") {
         return dedicated::run();
     }
-    // `voxel --bots N adresse [idle|walk|explore]` : des bots sans fenêtre (voir `bot_swarm.rs`).
+    // `voxel --bots N adresse [idle|walk|explore]` : des bots sans fenêtre (voir
+    // `net/bot_swarm.rs`).
     if args.iter().any(|a| a == "--bots") {
         return bot_swarm::run(&args);
     }

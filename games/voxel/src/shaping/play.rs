@@ -1,5 +1,5 @@
-//! La part fenêtre de `shaped_play.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
-//! multijoueur ; la simulation reste dans `shaped_play.rs`).
+//! La part fenêtre de `shaping/play.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
+//! multijoueur ; la simulation reste dans `shaping/play.rs`).
 
 use crate::VoxelGame;
 use crate::ui::info::Card;

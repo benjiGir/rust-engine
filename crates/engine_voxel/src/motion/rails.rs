@@ -4,7 +4,7 @@
 //! Stop` (`blocks.ron`) : un mod peut donc ajouter les siens. La **forme** du rail (dix
 //! possibilités : deux droites, quatre montées, quatre virages) n'est pas une variante de bloc :
 //! elle est calculée à la pose et à chaque changement d'un voisin (comme les raccords des
-//! conduits, voir `connections.rs`), puis rangée dans `BlockEntity::data` :
+//! conduits, voir `blocks/connections.rs`), puis rangée dans `BlockEntity::data` :
 //!
 //! - `data[0]` : l'indice de la forme ([`RailShape::index`]) ;
 //! - `data[1]` : 1 si le rail reçoit du signal (accélérateur, activateur, butoir, aiguillage).
@@ -407,7 +407,8 @@ fn ring(at: IVec3) -> impl Iterator<Item = IVec3> {
 }
 
 impl RailBehavior {
-    /// Recalcule la forme et l'alimentation du rail en `at`, et refait son maillage si elles ont changé.
+    /// Recalcule la forme et l'alimentation du rail en `at`, et refait son maillage si elles ont
+    /// changé.
     fn refresh(ctx: &mut MachineContext, at: GridPos) {
         let Some(grid) = ctx.grids.get(at.grid) else {
             return;

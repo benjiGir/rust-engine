@@ -5,13 +5,15 @@
 //!
 //! | Fichier | Contenu | Voir |
 //! | --- | --- | --- |
-//! | `rarities.ron` | les raretés (couleur, poids, affixes, emplacements, coûts) | `affixes.rs` |
-//! | `affixes.ron` | les affixes (nom, catégories, attribut, valeurs par rareté) | `affixes.rs` |
-//! | `gems.ron` | les sortes de gemmes et leur bonus par catégorie | `gems.rs` |
-//! | `tiers.ron` | les paliers du monde et leurs critères de déblocage | `tiers.rs` |
-//! | `elites.ron` | les augmentations des élites | `elites.rs` |
-//! | `enchantments.ron` | les enchantements (niveaux, cibles, effets) | `enchant_data.rs` |
-//! | `charms.ron` | les charmes de potion | `charms.rs` |
+//! | `rarities.ron` | les raretés (couleur, poids, affixes, emplacements, coûts) |
+//! `adventure/affixes.rs` |
+//! | `affixes.ron` | les affixes (nom, catégories, attribut, valeurs par rareté) |
+//! `adventure/affixes.rs` |
+//! | `gems.ron` | les sortes de gemmes et leur bonus par catégorie | `adventure/gems.rs` |
+//! | `tiers.ron` | les paliers du monde et leurs critères de déblocage | `adventure/tiers.rs` |
+//! | `elites.ron` | les augmentations des élites | `mobs/elites.rs` |
+//! | `enchantments.ron` | les enchantements (niveaux, cibles, effets) | `enchanting/data.rs` |
+//! | `charms.ron` | les charmes de potion | `adventure/charms.rs` |
 //!
 //! # Les numéros sont des places
 //!
@@ -25,8 +27,8 @@
 //!
 //! Les tests et le jeu de secours lisent les fichiers de `core` intégrés au binaire
 //! ([`AdventureData::builtin`]). Le jeu, lui, charge les fichiers du disque (core et mods) puis
-//! les installe pour tout le processus ([`install`]) : les modules purs (`gear.rs`, `ui_info.rs`)
-//! y accèdent par [`current`] sans qu'on ait à leur faire suivre un registre.
+//! les installe pour tout le processus ([`install`]) : les modules purs (`player/gear.rs`,
+//! `ui/info.rs`) y accèdent par [`current`] sans qu'on ait à leur faire suivre un registre.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -349,10 +351,10 @@ pub struct AdventureData {
     pub invader_gem: GemDrop,
     /// Les objets de base des butins à affixes : (clé, palier minimal).
     pub loot: Vec<(String, u8)>,
-    /// Les enchantements (voir `enchant_data.rs`) et le plus qu'un objet en porte.
+    /// Les enchantements (voir `enchanting/data.rs`) et le plus qu'un objet en porte.
     pub enchantments: Vec<crate::enchanting::data::EnchantDef>,
     pub max_enchantments: usize,
-    /// Les charmes de potion (voir `charms.rs`).
+    /// Les charmes de potion (voir `adventure/charms.rs`).
     pub charms: Vec<crate::adventure::charms::CharmDef>,
     gem_by_item: HashMap<String, (usize, usize)>,
 }

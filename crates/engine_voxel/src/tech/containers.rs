@@ -96,7 +96,7 @@ impl BlockBehavior for Chest {
 }
 
 /// Le chargeur et le déchargeur de wagon : un petit coffre, que le jeu vide dans un wagon arrêté
-/// à côté ou remplit depuis lui (voir `carts.rs` du jeu).
+/// à côté ou remplit depuis lui (voir `vehicles/carts.rs` du jeu).
 pub struct Loader;
 
 impl BlockBehavior for Loader {

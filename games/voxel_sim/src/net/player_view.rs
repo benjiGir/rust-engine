@@ -3,18 +3,19 @@
 //! Le serveur tient l'état de chaque joueur (`PlayerState`, la vie dans l'ECS). À la fin de chaque
 //! image, il en fait deux vues :
 //! - [`VitalsView`] : vie, faim, air, feu, coups reçus, expérience, effets en cours ;
-//! - [`InventoryView`] : les cases, l'armure, la grille d'artisanat, la case choisie, la pile tenue.
+//! - [`InventoryView`] : les cases, l'armure, la grille d'artisanat, la case choisie, la pile
+//!   tenue.
 //!
-//! Chacune n'est envoyée que si elle a changé depuis le dernier envoi à ce joueur. Le client les range
-//! dans [`ClientPlayer`] : le HUD (barre d'objets, vie, faim, air, expérience, effets) et la main ne
-//! lisent plus que lui.
+//! Chacune n'est envoyée que si elle a changé depuis le dernier envoi à ce joueur. Le client les
+//! range dans [`ClientPlayer`] : le HUD (barre d'objets, vie, faim, air, expérience, effets) et la
+//! main ne lisent plus que lui.
 //!
-//! Les **retours** d'une action ([`Feedback`]) suivent le même chemin : un son, un message à l'écran,
-//! le bras qui frappe. Le code du serveur les adresse au joueur qui agit (`VoxelGame::sound`,
-//! `toast`, `punch`), ou aux joueurs proches d'un point (`sound_near`).
+//! Les **retours** d'une action ([`Feedback`]) suivent le même chemin : un son, un message à
+//! l'écran, le bras qui frappe. Le code du serveur les adresse au joueur qui agit
+//! (`VoxelGame::sound`, `toast`, `punch`), ou aux joueurs proches d'un point (`sound_near`).
 //!
-//! Le minage et le repas en cours restent une **prédiction** du client (la barre sous le réticule) :
-//! ils sont calculés par la fenêtre elle-même, comme aujourd'hui.
+//! Le minage et le repas en cours restent une **prédiction** du client (la barre sous le réticule)
+//! : ils sont calculés par la fenêtre elle-même, comme aujourd'hui.
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -145,7 +146,8 @@ impl Default for InventoryView {
     }
 }
 
-/// Un son. Les sons de blocs portent le numéro du bloc : le client choisit la matière (bois, pierre...).
+/// Un son. Les sons de blocs portent le numéro du bloc : le client choisit la matière (bois,
+/// pierre...).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Sound {
     Key(String),
@@ -175,9 +177,10 @@ pub enum Feedback {
 pub struct ClientPlayer {
     pub vitals: Option<VitalsView>,
     pub inventory: InventoryView,
-    /// Le conteneur ouvert (voir `container_view.rs`).
+    /// Le conteneur ouvert (voir `storage/container_view.rs`).
     pub container: Option<ContainerView>,
-    /// Ce que montre l'écran ouvert, quand le serveur seul le sait (voir `screen_actions.rs`).
+    /// Ce que montre l'écran ouvert, quand le serveur seul le sait (voir
+    /// `server/screen_actions.rs`).
     pub screen: Option<crate::server::screen_actions::ScreenView>,
     /// La progression des quêtes du joueur (le livre et les quêtes épinglées la lisent).
     pub quests: Option<crate::quests::progress::Progress>,

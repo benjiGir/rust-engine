@@ -1,5 +1,5 @@
-//! Ce que la fenêtre dessine de la météo (voir `weather.rs`, côté simulation) : le ciel nuageux et
-//! les gouttes ou les flocons autour du joueur.
+//! Ce que la fenêtre dessine de la météo (voir `world/weather.rs`, côté simulation) : le ciel
+//! nuageux et les gouttes ou les flocons autour du joueur.
 
 use engine_render::CubeInstance;
 use glam::Vec3;

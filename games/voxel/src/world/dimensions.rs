@@ -1,5 +1,5 @@
-//! La part fenêtre de `dimensions.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
-//! multijoueur ; la simulation reste dans `dimensions.rs`).
+//! La part fenêtre de `world/dimensions.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
+//! multijoueur ; la simulation reste dans `world/dimensions.rs`).
 
 use crate::VoxelGame;
 #[allow(unused_imports)]

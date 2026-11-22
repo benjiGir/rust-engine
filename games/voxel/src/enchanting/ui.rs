@@ -1,6 +1,7 @@
-//! Les écrans de l'enchantement avancé : la table (stats, indices, lots payés en points d'expérience),
-//! l'enclume simple et la bibliothèque. Les règles sont dans `enchant_table.rs`, `enchant_books.rs`
-//! et `enchant_library.rs` ; ici, la lecture du monde autour de la table et le dessin.
+//! Les écrans de l'enchantement avancé : la table (stats, indices, lots payés en points
+//! d'expérience), l'enclume simple et la bibliothèque. Les règles sont dans `enchanting/table.rs`,
+//! `enchanting/books.rs` et `enchanting/library.rs` ; ici, la lecture du monde autour de la table
+//! et le dessin.
 
 use std::collections::HashMap;
 #[allow(unused_imports)]

@@ -1,5 +1,5 @@
-//! La part fenêtre de `sky_view.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
-//! multijoueur ; la simulation reste dans `sky_view.rs`).
+//! La part fenêtre de `net/sky_view.rs` : ses méthodes sur `VoxelGame` (voir le lot 8 du plan
+//! multijoueur ; la simulation reste dans `net/sky_view.rs`).
 
 #[allow(unused_imports)]
 use voxel_sim::net::sky_view::*;
@@ -11,8 +11,8 @@ impl crate::VoxelGame {
         self.client.weather.follow(view.weather);
     }
 
-    /// Une image du ciel de la fenêtre : l'horloge avance, la météo fait tomber ses gouttes autour du
-    /// joueur et gronde.
+    /// Une image du ciel de la fenêtre : l'horloge avance, la météo fait tomber ses gouttes autour
+    /// du joueur et gronde.
     pub(crate) fn update_sky(&mut self, dt: f32) {
         self.client.day.update(dt);
         self.client.weather.update_sky(dt);

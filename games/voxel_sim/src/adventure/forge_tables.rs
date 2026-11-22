@@ -1,5 +1,5 @@
 //! Les deux tables du butin : la **récupération** et la **réforge**. La logique est ici (pure et
-//! testée) ; les écrans sont dans `forge_ui.rs`.
+//! testée) ; les écrans sont dans `adventure/forge_ui.rs`.
 //!
 //! Comme la table d'enchantement, elles travaillent sur l'objet que le joueur **tient à la
 //! souris** dans leur écran, et prennent leurs matériaux dans son inventaire : aucun objet ne reste
@@ -17,8 +17,8 @@
 //! Un objet **de base** (sans affixe) devient un objet à affixes de la rareté choisie, contre des
 //! fragments de cette rareté, de la poussière de gemme et des niveaux d'expérience (le coût est
 //! dans `reforge` de `rarities.ron`). On voit **trois tirages** (des fiches différentes, de la même
-//! rareté) et on en choisit un ; l'usure et les enchantements de l'objet sont gardés. Les tirages ne
-//! changent pas tant qu'on ne choisit pas : la graine de la table avance après chaque réforge.
+//! rareté) et on en choisit un ; l'usure et les enchantements de l'objet sont gardés. Les tirages
+//! ne changent pas tant qu'on ne choisit pas : la graine de la table avance après chaque réforge.
 
 use engine_voxel::{ItemDef, ItemRegistry, Rng64};
 
