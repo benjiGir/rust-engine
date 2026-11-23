@@ -34,6 +34,7 @@ use crate::worldgen::biome::{BiomeId, BiomeRegistry};
 
 mod binary;
 mod shaped;
+mod vegetation;
 
 const SIZE: i32 = CHUNK_SIZE as i32;
 /// La lumière moyenne d'un coin est gardée en entier, de 0 à 60 (4 × 15) :
@@ -58,7 +59,7 @@ pub struct MeshVertex {
     /// Position dans le chunk, en 1/1024 de bloc à partir de -8 (voir
     /// [`MeshVertex::local_position`]) : les coins entiers restent exacts, donc pas de
     /// fente entre deux faces voisines. Le 4e nombre est le pivot d'un bloc animé ou
-    /// la couche du masque de teinte d'une face herbeuse.
+    /// la couche du masque de teinte d'une face herbeuse, ou les UV d'une plante 64.
     pub position: [u16; 4],
     /// Normale, de -127 à 127 par axe ; w : vitesse de rotation × 8 (rad/s).
     pub normal: [i8; 4],
@@ -66,7 +67,7 @@ pub struct MeshVertex {
     /// les trois premiers octets contiennent les UV du panneau et la phase.
     pub color: [u8; 4],
     /// Lumière du ciel, lumière des blocs et occlusion ambiante, de 0 à 255 ; w :
-    /// axe de rotation (0 : X, 1 : Y, 2 : Z) ou profondeur normalisée de l'eau.
+    /// axe de rotation (0 : X, 1 : Y, 2 : Z), profondeur de l'eau ou prise au vent d'une plante.
     pub light: [u8; 4],
     /// Couche de la texture (0 = pas de texture) dans les 16 bits du bas, et des
     /// drapeaux au-dessus ([`FLAG_CUTOUT`], [`FLAG_SWAY`]). Les coordonnées de texture,
@@ -142,6 +143,8 @@ pub const FLAG_SWAY: u32 = 1 << 17;
 pub const FLAG_FILLED: u32 = 1 << 18;
 /// Le haut d'une plante (herbe, fleur, culture) : il plie au vent bien plus qu'une feuille.
 pub const FLAG_PLANT: u32 = 1 << 30;
+/// UV explicites et prise au vent par sommet pour la végétation détaillée.
+const FLAG_PLANT_UV: u32 = 1 << 31;
 /// Rotation d'une boîte autour du centre de son bloc (métadonnées dans les w inutilisés).
 pub const FLAG_ROTATE: u32 = 1 << 19;
 /// Flammes dans la bouche du four, seulement pendant la combustion.
@@ -902,6 +905,34 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                 let vertex_light = [sky as f32 / 15.0, light as f32 / 15.0, 1.0];
                 let base = (origin + p).as_vec3();
                 let flags = block_flags(def) | FLAG_CUTOUT;
+                if hood.registry.texture_size() == 64 {
+                    if def.key == "core:cactus" && def.shape == Shape::Model {
+                        vegetation::cactus(
+                            mesh,
+                            base,
+                            color,
+                            vertex_light,
+                            def.face_textures,
+                            [
+                                hood.get(p + IVec3::Y) == block,
+                                hood.get(p - IVec3::Y) == block,
+                            ],
+                        );
+                        continue;
+                    }
+                    if let Some(plant) = vegetation::profile(&def.key, def.shape) {
+                        vegetation::mesh(
+                            mesh,
+                            &def.key,
+                            plant,
+                            origin + p,
+                            color,
+                            vertex_light,
+                            def.face_textures[1] | flags,
+                        );
+                        continue;
+                    }
+                }
                 let mut texture = def.face_textures[1] | (flags & !FLAG_SWAY);
                 let mut rail_corners = None;
                 if def.shape == Shape::Rail {

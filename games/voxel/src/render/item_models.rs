@@ -2,14 +2,17 @@
 //! Les pixels voisins de même couleur sont réunis en bandes, une fois par objet.
 
 use engine_render::CubeInstance;
-use engine_voxel::{BlockBox, BlockRegistry, Icon, ItemId, ItemRegistry, Shape};
+use engine_voxel::{BlockBox, BlockId, BlockRegistry, Icon, ItemId, ItemRegistry, Shape};
 use glam::Vec3;
 
 pub fn build(item: ItemId, items: &ItemRegistry, blocks: &BlockRegistry) -> Vec<CubeInstance> {
     let def = items.get(item);
     match &def.icon {
-        Icon::Block(id) => engine_voxel::blocks::paired_block::display_parts(blocks, *id)
-            .map_or_else(
+        Icon::Block(id) => {
+            if let Some(pixels) = tall_plant_sprite(blocks, *id) {
+                return extrude(&pixels);
+            }
+            engine_voxel::blocks::paired_block::display_parts(blocks, *id).map_or_else(
                 || block_parts(blocks.def(*id), Vec3::ZERO, blocks),
                 |parts| {
                     parts
@@ -17,9 +20,42 @@ pub fn build(item: ItemId, items: &ItemRegistry, blocks: &BlockRegistry) -> Vec<
                         .flat_map(|(id, offset)| block_parts(blocks.def(id), offset, blocks))
                         .collect()
                 },
-            ),
+            )
+        }
         Icon::Texture(key) => sprite(key, "items", blocks),
     }
+}
+
+/// Miniature de la plante entière pour le pack qui sépare réellement pied et fleur.
+pub fn tall_plant_sprite(blocks: &BlockRegistry, block: BlockId) -> Option<Vec<u8>> {
+    if blocks.texture_size() != 64 {
+        return None;
+    }
+    let top = engine_voxel::blocks::tall_plant::top_of(blocks, block)?;
+    const SIDE: usize = 64;
+    const HALF: usize = SIDE / 2;
+    let mut pixels = vec![0; SIDE * SIDE * 4];
+    for (half, id) in [top, block].into_iter().enumerate() {
+        let layer = blocks.def(id).face_textures[1].checked_sub(1)? as usize;
+        let key = blocks.textures().get(layer)?;
+        let path = blocks.asset_path(key, "textures", "png")?;
+        let image = crate::assets::load_png(&path).ok()?;
+        if image.len() != SIDE * SIDE * 4 {
+            return None;
+        }
+        for y in 0..HALF {
+            for x in 0..HALF {
+                let first = (y * 2 * SIDE + x * 2) * 4;
+                // Garde les petits pétales et brindilles dans la réduction 2 × 2.
+                let src = [first, first + 4, first + 4 * SIDE, first + 4 * (SIDE + 1)]
+                    .into_iter()
+                    .max_by_key(|&at| image[at + 3])?;
+                let dst = ((y + half * HALF) * SIDE + x + HALF / 2) * 4;
+                pixels[dst..dst + 4].copy_from_slice(&image[src..src + 4]);
+            }
+        }
+    }
+    Some(pixels)
 }
 
 fn block_parts(

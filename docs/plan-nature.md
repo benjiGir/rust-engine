@@ -58,8 +58,8 @@ cerisiers (sakura) dont les pétales tombent.
 | **N2, les feuilles qui tombent (réalisé)** | des feuilles se détachent du dessous du feuillage proche du joueur et tombent en tournoyant, poussées par le vent de N1 ; leur couleur suit l'essence (et la teinte du biome) ; plus nombreuses par vent fort et en automne des érables ; un plafond de particules (quelques centaines), dessinées comme les éclaboussures de l'eau | captures en forêt, au calme et sous l'orage ; coût mesuré au bench |
 | **N3, des forêts plus denses et des arbres plus variés (réalisé)** | densité relevée des forêts (×2 à ×3 selon le biome, réglée sur des captures) ; des arbres plus grands et moins réguliers : chênes et bouleaux de tailles variées, couronnes irrégulières, grands chênes à branches, **chêne noir** à tronc 2 × 2 pour la forêt sombre, bouleaux élancés, sapins géants ; sous-bois (buissons, jeunes arbres) ; le serré monte plus haut que l'isolé | cartes de biomes et captures avant/après ; temps de génération et de maillage mesurés (le bench), pour que la densité ne coûte pas d'images |
 | **N4, les cerisiers (réalisé)** | bois, feuilles et planches de cerisier (textures dans les trois packs) ; un **cerisier** : tronc qui se divise, large couronne rose qui retombe ; un biome **cerisaie** (pentes tempérées, entre prairie et montagne) ; un **tapis de pétales** posable (1 à 4 par case) au sol à la place des fleurs ; les cerisiers lâchent des **pétales** (N2) plus que les autres arbres | carte des biomes (où sont les cerisaies), captures de jour et au couchant |
-| **N5, les prés et les champs** | **orge** et **avoine** : graines, quatre stades, récolte, recettes (pain d'orge, porridge ; l'avoine nourrit les chevaux) ; des **champs sauvages** de blé, d'orge et d'avoine en taches dans les plaines, les prairies et la steppe (on y trouve les graines) ; **herbe haute sur deux blocs** ; **buissons à baies** (baies sucrées en taïga, myrtilles en forêt froide) qu'on récolte d'un clic droit et qui repoussent ; des **champs de fleurs** : biome de tournesols et prairies de fleurs plus fournies, quelques fleurs nouvelles | captures des prés ; un test de pousse et de récolte |
-| **N6, les races de vaches** | un mécanisme de **variantes** pour les créatures (une variante tirée à l'apparition selon le biome ; textures ou teintes et parties propres ; transmise aux petits ; envoyée au client avec l'apparence) ; trois vaches : **tempérée** (l'actuelle), **des Highlands** (froid : longs poils roux, frange, grandes cornes larges), **à bosse** façon zébu (chaud : robe claire, bosse, cornes en lyre) ; elles se croisent entre elles | captures des trois ; tests du tirage par biome et de l'élevage |
+| **N5, les prés et les champs (réalisé)** | **orge** et **avoine** : graines, quatre stades, récolte, recettes (pain d'orge, porridge ; l'avoine nourrit les chevaux) ; des **champs sauvages** de blé, d'orge et d'avoine en taches dans les plaines, les prairies et la steppe (on y trouve les graines) ; **herbe haute sur deux blocs** ; **buissons à baies** (baies sucrées en taïga, myrtilles en forêt froide) qu'on récolte d'un clic droit et qui repoussent ; des **champs de fleurs** : biome de tournesols et prairies de fleurs plus fournies, quelques fleurs nouvelles | captures des prés ; un test de pousse et de récolte |
+| **N6, les races de vaches (réalisé)** | un mécanisme de **variantes** pour les créatures (une variante tirée à l'apparition selon le biome ; textures ou teintes et parties propres ; transmise aux petits ; envoyée au client avec l'apparence) ; trois vaches : **tempérée** (l'actuelle), **des Highlands** (froid : longs poils roux, frange, grandes cornes larges), **à bosse** façon zébu (chaud : robe claire, bosse, cornes en lyre) ; elles se croisent entre elles | captures des trois ; tests du tirage par biome et de l'élevage |
 | **N7, les alpagas** | un alpaga (cou long, toison épaisse) dans les prairies alpines, les hauts plateaux et la steppe, en petits troupeaux ; robe naturelle tirée à l'apparition (blanc, crème, fauve, brun, gris, noir) ; **on le tond** (laine de sa couleur, qui repousse en mangeant) ; il crache sur qui le frappe | captures ; tests de la tonte et de la repousse |
 | **N8, les chevaux** | un cheval aux 35 robes (7 couleurs × 5 marques, avec les variantes de N6), en troupeaux de 2 à 6 dans les plaines, la prairie et la savane ; élevage à l'avoine ou à la pomme | captures de troupeaux et de robes |
 | **N9, monter à cheval** | apprivoiser (le monter plusieurs fois jusqu'à ce qu'il accepte), une **selle**, le diriger (avancer, tourner, sauter, galoper), descendre ; le serveur fait foi, comme pour les wagons ; vu des autres joueurs | essai en jeu, en local et en LAN |
@@ -140,6 +140,26 @@ d'œil en jeu.
   cerisaie (graine 42, en −532, −452) : 308 pétales en l'air au calme (le plafond est de 320). Vérifié
   : la cerisaie apparaît en v3 et jamais en v1 (test), le cerisier tient dans les bornes des chunks
   (test), la vue « biome-cerisaie » de la visite et une capture sous les arbres.
+- **N5** : **orge** et **avoine** (graines, quatre stades, récolte ; trois orges font un pain, deux
+  avoines et des baies un **porridge**) ; **blé, orge et avoine sauvages** en taches dans les plaines,
+  la prairie, la steppe et les forêts tempérées (on y trouve les graines) ; **herbe haute** et
+  **tournesol** sur deux blocs (`blocks/tall_plant.rs` : la tête porte la clé du pied suivie de `_top`,
+  les deux tombent ensemble) ; **buissons à baies** (baies sucrées, myrtilles) en trois stades : un clic
+  droit cueille un buisson mûr, qui revient au stade du milieu et repousse ; **tulipe** et **allium** ;
+  un biome **plaine de tournesols** (`core:sunflower_plains`, v3). Tout en v3 seulement (`v3_plants`).
+  Tests : pied et tête liés, cueillette, une plante haute de la génération a toujours sa tête.
+- **N6** : `games/voxel_sim/src/mobs/variants.rs`. Une créature peut lister des `variants` dans
+  `entities.ron` (identifiant, nom, biomes, corps entier). À l'apparition, un groupe prend la race de son
+  biome (corps de base ailleurs) ; les biomes des races s'ajoutent à ceux de la créature. Un petit prend
+  la race d'un de ses parents au sort. La race (composant `Variant`) part au client dans l'apparence
+  (`Look::variant`, protocole 3) et le rendu dessine son corps (`MobDef::parts_for`). `/summon <créature>
+  [race]` (console et `ctl`). Deux races de vaches : **des Highlands** (taïgas, landes, toundra,
+  hauts plateaux, prés alpins : robe rousse à longues mèches, poils qui pendent sous le ventre et sur
+  les flancs, frange sur les yeux, grandes cornes larges relevées au bout) et **zébu** (savane,
+  garrigue, maquis, jungle clairsemée, steppe : robe claire et rase, tête grise, bosse, fanon, oreilles
+  tombantes, cornes en lyre). Les vaches apparaissent aussi sur le podzol. Quatre textures dans les trois
+  packs. Les créatures ne sont pas sauvegardées : la race non plus. Vérifié : tirage par biome et
+  croisement (tests), planche `creature_review -- . 32 sortie.png --breeds`, et les trois vaches en jeu.
 
 ## Choix à valider
 

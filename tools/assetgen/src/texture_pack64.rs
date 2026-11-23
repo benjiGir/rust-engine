@@ -353,4 +353,23 @@ mod tests {
             assert!(leaf.iter().any(|p| p[3] == 0));
         }
     }
+
+    #[test]
+    fn native_vegetation_preserves_alpha_and_vertical_joins() {
+        for (bottom, top) in [
+            ("tall_grass_double", "tall_grass_double_top"),
+            ("sunflower", "sunflower_top"),
+            ("vine", "vine"),
+        ] {
+            let lower = pixels(bottom);
+            let upper = pixels(top);
+            assert_eq!(&lower[..SIDE], &upper[SIDE * (SIDE - 1)..]);
+            assert!(lower[..SIDE].iter().any(|p| p[3] == 255));
+        }
+        for name in ["fern", "lily_pad", "poppy", "wheat_3", "blueberry_bush_2"] {
+            let tile = pixels(name);
+            assert!(tile.iter().any(|p| p[3] == 0), "{name}");
+            assert!(tile.iter().filter(|p| p[3] == 255).count() > SIDE, "{name}");
+        }
+    }
 }

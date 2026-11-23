@@ -6,12 +6,16 @@ la préférence. **Classique · 16 × 16** restaure le rendu d'origine.
 
 ## Sous-bois et forge · 64 × 64
 
-**Sous-bois et forge · 64 × 64** propose 629 textures de blocs, de créatures et d’objets. Les pépites
+**Sous-bois et forge · 64 × 64** propose 633 textures de blocs, de créatures et d’objets. Les pépites
 métalliques et les éclats de cristal se détachent sur la roche fracturée. Les sols mêlent
 humus, aiguilles, brins et grains. Les nuances du bois suivent les fibres, le
 métal a des piqûres de surface et le four porte un dépôt de suie. Les ombres
 de faible échelle sont calculées par le générateur à partir du relief des
-matières. Les herbes, fougères et fleurs de prairie sont dessinées en 64 pixels. Le reste du catalogue reprend les dessins existants avec un affinage des contours par Scale2x.
+matières. Les fleurs, herbes, jeunes pousses, cultures, champignons et plantes
+aquatiques ont des textures dessinées en 64 × 64. Leurs maillages dans le monde
+épousent les plis du feuillage et varient en hauteur et en orientation. Les
+cactus ont des côtes en relief et les nénuphars une nervure relevée. Le reste du
+catalogue reprend les dessins existants avec un affinage des contours par Scale2x.
 
 Le générateur `cargo run -p assetgen -- --pack64-only` écrit les PNG et le
 manifeste dans `texture_packs/earth-copper-64/`.

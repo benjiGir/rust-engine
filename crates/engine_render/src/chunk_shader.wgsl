@@ -75,6 +75,7 @@ const FLAG_CHEST_LID: u32 = 1u << 27u;
 const FLAG_TORCH_FLAME: u32 = 1u << 28u;
 const FLAG_TORCH_WOOD: u32 = 1u << 29u;
 const FLAG_PLANT: u32 = 1u << 30u;     // le haut d'une plante : il plie plus qu'une feuille
+const FLAG_PLANT_UV: u32 = 1u << 31u;
 const TEXTURE_MASK: u32 = 65535u;
 
 struct VertexOut {
@@ -114,6 +115,12 @@ fn project_vertex(vertex: VertexIn, projection: mat4x4<f32>, foliage_wind: bool)
     // Les UV restent dans le repère de repos : la texture tourne avec la pièce.
     var tex_position = vertex.uv_base.xyz + local;
     var tex_normal = vertex.normal.xyz;
+    let detailed_plant = (vertex.texture & FLAG_PLANT_UV) != 0u;
+    if detailed_plant {
+        let uv = vec2<f32>(f32(vertex.position.w & 255u), f32(vertex.position.w >> 8u)) / 128.0;
+        // Les bords correspondent aux centres des texels extrêmes, sans répéter l'autre bord.
+        tex_position = vec3((uv * 63.0 + 0.5) / 64.0, 0.0);
+    }
     // Une rotation de modèle transforme aussi les côtés (axe de projection des UV).
     if (vertex.texture & FLAG_MODEL_UV) != 0u {
         let turns = (vertex.texture >> TURN_SHIFT) & 3u;
@@ -169,7 +176,9 @@ fn project_vertex(vertex: VertexIn, projection: mat4x4<f32>, foliage_wind: bool)
     // voisines restent jointes. Un sommet trop éclairé par le ciel (dehors) bouge plus.
     if foliage_wind && (vertex.texture & FLAG_SWAY) != 0u {
         let plant = (vertex.texture & FLAG_PLANT) != 0u;
-        position += wind_offset(world, camera.sun_color.w, plant) * (0.4 + 0.6 * vertex.light.x);
+        // Les deux moitiés d'une grande plante utilisent la même souplesse à leur jonction.
+        let flexibility = select(0.4 + 0.6 * vertex.light.x, vertex.light.w, detailed_plant);
+        position += wind_offset(world, camera.sun_color.w, plant) * flexibility;
     }
     out.clip_position = projection * vec4<f32>(position, 1.0);
     out.color = vertex.color;
@@ -454,6 +463,9 @@ fn voxel_terrain(input: TerrainEffect) -> vec4<f32> {
 // VOXEL_PACK_END
 
 fn block_uv(in: VertexOut) -> vec2<f32> {
+    if (in.flags & FLAG_PLANT_UV) != 0u {
+        return in.tex_position.xy;
+    }
     var uv = face_uv(in.tex_position, in.tex_normal);
     // Un rail : le même dessin tourné d'un, deux ou trois quarts de tour (sens horaire, vu d'en haut).
     let turns = (in.flags >> TURN_SHIFT) & 3u;

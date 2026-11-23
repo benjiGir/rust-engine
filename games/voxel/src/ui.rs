@@ -223,7 +223,11 @@ impl GameUi {
                     (Icon::Block(block), None) => {
                         let id = *block;
                         let block = blocks.def(id);
-                        if matches!(
+                        if let Some(pixels) =
+                            crate::render::item_models::tall_plant_sprite(blocks, id)
+                        {
+                            pixels
+                        } else if matches!(
                             block.shape,
                             engine_voxel::Shape::Cube | engine_voxel::Shape::Model
                         ) {
