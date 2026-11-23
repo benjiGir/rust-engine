@@ -750,13 +750,14 @@ impl crate::server::VoxelServer {
                     e.position,
                     e.elite.clone(),
                     e.coat,
+                    e.shorn,
                     e.killer,
                 )
             })
             .collect();
         let player_at = player::body(&self.ecs, self.players.entity()).position;
         let me = self.players.local_id();
-        for (kind, position, elite, coat, killer) in died {
+        for (kind, position, elite, coat, shorn, killer) in died {
             let (drops, xp, hostile, boss) = self
                 .ecs
                 .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
@@ -777,6 +778,10 @@ impl crate::server::VoxelServer {
             for drop in drops {
                 let mut rng = engine_voxel::Rng64::new(self.next_random());
                 if rng.next_f32() >= drop.chance {
+                    continue;
+                }
+                // Un animal tondu n'a plus de laine à laisser.
+                if shorn && drop.item == "core:wool" {
                     continue;
                 }
                 let key = crate::mobs::sheep_colors::drop_key(&drop.item, coat);

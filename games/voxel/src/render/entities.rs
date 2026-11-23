@@ -17,7 +17,7 @@ use crate::VoxelGame;
 use crate::client::entities::{ClientEntities, EntityView};
 use voxel_sim::mobs::MobRegistry;
 use voxel_sim::mobs::model::{Bone, MobPart};
-use voxel_sim::mobs::sheep_colors::SheepCoat;
+use voxel_sim::mobs::sheep_colors::{SheepCoat, is_fleece_texture};
 use voxel_sim::net::entities::{EliteLook, EntityKind};
 use voxel_sim::player::inventory::ItemStack;
 
@@ -101,12 +101,13 @@ pub fn draw(entities: &ClientEntities, env: &DrawEnv, out: &mut Vec<CubeInstance
                         env.alpha + view.latest().position.x,
                     ));
                 }
-                draw_model(
-                    def.parts_for(view.look.variant),
-                    &Model::of(view, scale, &pose),
-                    env,
-                    out,
-                );
+                let mut model = Model::of(view, scale, &pose);
+                // Un animal tondu montre sa peau là où était la toison.
+                model.shorn = def
+                    .fleece
+                    .filter(|_| view.look.shorn)
+                    .map(|f| Vec3::new(f.skin.0, f.skin.1, f.skin.2));
+                draw_model(def.parts_for(view.look.variant), &model, env, out);
             }
             EntityKind::Player { .. } => {
                 draw_player(view, now, &pose, env, entities.item_models(), out)
@@ -203,9 +204,14 @@ struct Model {
     stride: f32,
     look: f32,
     coat: Option<SheepCoat>,
+    /// La couleur de la peau d'un animal tondu (sa toison n'est plus dessinée).
+    shorn: Option<Vec3>,
     elite: Option<EliteLook>,
     hurt: bool,
 }
+
+/// De combien la toison enlevée amincit le corps : la peau est plus près des os.
+const SHORN_SCALE: f32 = 0.82;
 
 impl Model {
     /// Le corps d'une créature ou d'un joueur à la pose actuelle : le lacet d'une créature est
@@ -224,6 +230,7 @@ impl Model {
             stride: pose.stride,
             look: pose.look,
             coat: view.look.coat.map(SheepCoat),
+            shorn: None,
             elite: view.look.elite,
             hurt: view.look.hurt,
         }
@@ -254,7 +261,15 @@ fn draw_model(parts: &[MobPart], model: &Model, env: &DrawEnv, out: &mut Vec<Cub
         cube.yaw += model.yaw;
         cube.swing[1] *= model.scale;
         let mut color = Vec3::from_array(cube.color);
-        if let Some(coat) = model.coat {
+        let bare = model
+            .shorn
+            .filter(|_| part.texture.as_deref().is_some_and(is_fleece_texture));
+        if let Some(skin) = bare {
+            // Sans toison : une boîte plus mince, unie, couleur peau.
+            cube.size = (Vec3::from_array(cube.size) * SHORN_SCALE).to_array();
+            cube.textures = [0; 3];
+            color = skin;
+        } else if let Some(coat) = model.coat {
             color *= coat.tint_part(part);
         }
         if let Some(elite) = &model.elite {

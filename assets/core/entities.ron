@@ -21,7 +21,12 @@
 //   bone (facultatif) : ce que fait la boîte quand la créature vit. `Leg` et `Arm` se balancent
 //   en marchant, par le haut de la boîte (deux boîtes de même place, une patte et son sabot,
 //   pivotent ensemble par le haut de la plus haute) ; `Head` suit le regard : la tête (toutes
-//   ses boîtes) se tourne vers le joueur quand il est près, par moments.
+//   ses boîtes) se tourne vers le joueur quand il est près, par moments ;
+// - variants : ses races, chacune avec ses biomes et son corps entier (voir mobs/variants.rs) ;
+// - fleece : sa toison, (coats : Sheep ou Alpaca, count : (min, max) laines par tonte, regrow :
+//   secondes de pâture avant qu'elle repousse, skin : la peau dessous). Les boîtes dont la texture
+//   finit par `_wool` forment la toison, celles en `_fur` suivent la couleur sans être tondues ;
+// - spit : (range, interval, speed, damage, color), elle crache sur qui la frappe.
 [
     (
         id: "core:pig", name: "Cochon", health: 10.0, speed: 1.6, size: (0.9, 0.9),
@@ -325,6 +330,7 @@
         id: "core:sheep", name: "Mouton", health: 8.0, speed: 1.35, size: (0.8, 1.1),
         spawn_on: ["core:grass"], group: (2, 3),
         breeds: (food: "core:wheat"), drops: [(item: "core:wool", count: (1, 2)), (item: "core:raw_mutton", count: (1, 2))], xp: (1, 3),
+        fleece: (count: (1, 3), regrow: 60.0, skin: (0.78, 0.58, 0.5)),
         parts: [
             (offset: (0.0, 0.65, 0.0), size: (1.0, 0.6, 0.64), color: (0.67763, 0.63398, 0.46825), texture: "core:mob_sheep_wool"),
             (offset: (0.0, 0.97, 0.0), size: (0.8, 0.11, 0.54), color: (0.67763, 0.63398, 0.46825), texture: "core:mob_sheep_wool"),
@@ -401,6 +407,43 @@
             (offset: (0.32, 0.26, 0.091), size: (0.012, 0.012, 0.01), color: (0.71, 0.75, 0.58)),
             (offset: (0.215, 0.22, 0.091), size: (0.015, 0.15, 0.012), color: (0.16, 0.19, 0.12)),
             (offset: (0.38, 0.21, 0.0), size: (0.015, 0.025, 0.07), color: (0.06, 0.07, 0.04)),
+        ],
+    ),
+    // L'alpaga : dans les prairies alpines, les hauts plateaux et la steppe, en petits troupeaux.
+    // Sa robe naturelle est tirée à l'apparition (blanc, crème, fauve, brun, gris, noir) ; on le
+    // tond aux cisailles et sa laine, de sa couleur, repousse quand il broute ; il crache sur qui
+    // le frappe.
+    (
+        id: "core:alpaca", name: "Alpaga", health: 10.0, speed: 1.3, size: (0.8, 1.7),
+        spawn_on: ["core:grass"], biomes: ["core:alpine_meadow", "core:highland", "core:steppe"], group: (2, 4),
+        breeds: (food: "core:barley"),
+        drops: [(item: "core:wool", count: (1, 2)), (item: "core:leather", count: (0, 1))], xp: (1, 3),
+        fleece: (coats: Alpaca, count: (1, 3), regrow: 90.0, skin: (0.62, 0.5, 0.44)),
+        spit: (range: 12.0, interval: 2.5, speed: 14.0, damage: 1.5, color: (0.78, 0.84, 0.56)),
+        parts: [
+            (offset: (0.0, 0.78, 0.0), size: (0.98, 0.5, 0.58), color: (0.8, 0.77, 0.68), texture: "core:mob_alpaca_wool"),
+            (offset: (0.36, 0.8, 0.0), size: (0.32, 0.54, 0.62), color: (0.8, 0.77, 0.68), texture: "core:mob_alpaca_wool"),
+            (offset: (-0.36, 0.8, 0.0), size: (0.32, 0.54, 0.62), color: (0.8, 0.77, 0.68), texture: "core:mob_alpaca_wool"),
+            (offset: (0.0, 1.06, 0.0), size: (0.78, 0.1, 0.5), color: (0.8, 0.77, 0.68), texture: "core:mob_alpaca_wool"),
+            (offset: (0.0, 0.52, 0.0), size: (0.8, 0.1, 0.5), color: (0.8, 0.77, 0.68), texture: "core:mob_alpaca_wool"),
+            (offset: (0.52, 1.14, 0.0), size: (0.24, 0.66, 0.26), color: (0.8, 0.77, 0.68), texture: "core:mob_alpaca_wool"),
+            (offset: (0.68, 1.55, 0.0), size: (0.3, 0.28, 0.26), color: (0.8, 0.77, 0.68), bone: Head, texture: "core:mob_alpaca_fur"),
+            (offset: (0.86, 1.49, 0.0), size: (0.14, 0.16, 0.19), color: (0.8, 0.77, 0.68), bone: Head, texture: "core:mob_alpaca_fur"),
+            (offset: (0.936, 1.5, 0.0), size: (0.02, 0.06, 0.1), color: (0.07, 0.055, 0.045), bone: Head),
+            (offset: (0.8, 1.585, -0.117), size: (0.03, 0.05, 0.03), color: (0.015, 0.014, 0.012), bone: Head),
+            (offset: (0.8, 1.585, 0.117), size: (0.03, 0.05, 0.03), color: (0.015, 0.014, 0.012), bone: Head),
+            (offset: (0.62, 1.74, -0.09), size: (0.06, 0.2, 0.06), color: (0.8, 0.77, 0.68), bone: Head, texture: "core:mob_alpaca_fur"),
+            (offset: (0.62, 1.74, 0.09), size: (0.06, 0.2, 0.06), color: (0.8, 0.77, 0.68), bone: Head, texture: "core:mob_alpaca_fur"),
+            (offset: (0.72, 1.72, 0.0), size: (0.2, 0.1, 0.22), color: (0.8, 0.77, 0.68), bone: Head, texture: "core:mob_alpaca_fur"),
+            (offset: (-0.55, 0.97, 0.0), size: (0.12, 0.22, 0.1), color: (0.8, 0.77, 0.68), bone: Tail, texture: "core:mob_alpaca_fur"),
+            (offset: (0.34, 0.27, -0.19), size: (0.13, 0.54, 0.13), color: (0.8, 0.77, 0.68), bone: Leg, texture: "core:mob_alpaca_fur"),
+            (offset: (0.34, 0.035, -0.19), size: (0.15, 0.07, 0.17), color: (0.05501, 0.03877, 0.02727), bone: Leg, texture: "core:mob_hoof"),
+            (offset: (0.34, 0.27, 0.19), size: (0.13, 0.54, 0.13), color: (0.8, 0.77, 0.68), bone: Leg, texture: "core:mob_alpaca_fur"),
+            (offset: (0.34, 0.035, 0.19), size: (0.15, 0.07, 0.17), color: (0.05501, 0.03877, 0.02727), bone: Leg, texture: "core:mob_hoof"),
+            (offset: (-0.34, 0.27, -0.19), size: (0.13, 0.54, 0.13), color: (0.8, 0.77, 0.68), bone: Leg, texture: "core:mob_alpaca_fur"),
+            (offset: (-0.34, 0.035, -0.19), size: (0.15, 0.07, 0.17), color: (0.05501, 0.03877, 0.02727), bone: Leg, texture: "core:mob_hoof"),
+            (offset: (-0.34, 0.27, 0.19), size: (0.13, 0.54, 0.13), color: (0.8, 0.77, 0.68), bone: Leg, texture: "core:mob_alpaca_fur"),
+            (offset: (-0.34, 0.035, 0.19), size: (0.15, 0.07, 0.17), color: (0.05501, 0.03877, 0.02727), bone: Leg, texture: "core:mob_hoof"),
         ],
     ),
 ]

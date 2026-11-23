@@ -1,11 +1,13 @@
-// Palette sRGB de la toison et de son objet ; weight règle les apparitions naturelles.
-// L'ordre est stable : le blanc garde core:wool et le numéro de couleur 0.
+// Palette sRGB de la toison et de son objet. L'ordre est stable : le blanc garde core:wool et le
+// numéro de couleur 0 ; les nouvelles couleurs vont à la fin.
+// weight : la chance d'un mouton de naître de cette couleur ; alpaca : la même pour un alpaga
+// (0 par défaut : une couleur sans poids n'apparaît pas naturellement chez cette espèce).
 [
-    (id: "white", name: "Blanc", item: "core:wool", rgb: (215, 207, 179), weight: 55),
+    (id: "white", name: "Blanc", item: "core:wool", rgb: (215, 207, 179), weight: 55, alpaca: 40),
     (id: "light_gray", name: "Gris clair", item: "core:wool_light_gray", rgb: (170, 175, 169), weight: 9),
-    (id: "gray", name: "Gris", item: "core:wool_gray", rgb: (104, 111, 112), weight: 8),
-    (id: "black", name: "Noir", item: "core:wool_black", rgb: (48, 49, 53), weight: 8),
-    (id: "brown", name: "Brun", item: "core:wool_brown", rgb: (117, 84, 60), weight: 8),
+    (id: "gray", name: "Gris", item: "core:wool_gray", rgb: (104, 111, 112), weight: 8, alpaca: 8),
+    (id: "black", name: "Noir", item: "core:wool_black", rgb: (48, 49, 53), weight: 8, alpaca: 7),
+    (id: "brown", name: "Brun", item: "core:wool_brown", rgb: (117, 84, 60), weight: 8, alpaca: 10),
     (id: "red", name: "Rouge", item: "core:wool_red", rgb: (177, 76, 61), weight: 1),
     (id: "orange", name: "Orange", item: "core:wool_orange", rgb: (207, 126, 67), weight: 1),
     (id: "yellow", name: "Jaune", item: "core:wool_yellow", rgb: (216, 184, 88), weight: 1),
@@ -17,4 +19,6 @@
     (id: "purple", name: "Violet", item: "core:wool_purple", rgb: (127, 93, 161), weight: 1),
     (id: "magenta", name: "Magenta", item: "core:wool_magenta", rgb: (173, 100, 145), weight: 1),
     (id: "pink", name: "Rose", item: "core:wool_pink", rgb: (210, 146, 154), weight: 1),
+    (id: "cream", name: "Crème", item: "core:wool_cream", rgb: (224, 200, 150), weight: 0, alpaca: 20),
+    (id: "fawn", name: "Fauve", item: "core:wool_fawn", rgb: (178, 134, 88), weight: 0, alpaca: 15),
 ]

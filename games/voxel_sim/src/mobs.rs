@@ -5,6 +5,7 @@ pub mod aquatic;
 pub mod brains;
 pub mod breeding;
 pub mod elites;
+pub mod fleece;
 pub mod model;
 pub mod navigation;
 pub mod projectiles;
@@ -98,6 +99,12 @@ struct MobFileEntry {
     /// Ses races (voir `mobs/variants.rs`).
     #[serde(default)]
     variants: Vec<crate::mobs::variants::VariantEntry>,
+    /// Sa toison : on la tond, elle repousse (voir `mobs/fleece.rs`).
+    #[serde(default)]
+    fleece: Option<crate::mobs::fleece::FleeceDef>,
+    /// Elle crache sur qui la frappe (voir `mobs/projectiles.rs`).
+    #[serde(default)]
+    spit: Option<crate::mobs::projectiles::RangedDef>,
 }
 
 /// Ce que lâche une créature à sa mort : un objet, un nombre (min, max), une chance.
@@ -148,6 +155,10 @@ pub struct MobDef {
     pub boss: bool,
     /// Ses races, chacune avec son corps (voir `mobs/variants.rs`).
     pub variants: Vec<crate::mobs::variants::MobVariant>,
+    /// Sa toison (voir `mobs/fleece.rs`) ; `None` : elle n'en a pas.
+    pub fleece: Option<crate::mobs::fleece::FleeceDef>,
+    /// Son crachat quand on la frappe : portée, intervalle, vitesse, dégâts, couleur.
+    pub spit: Option<crate::mobs::projectiles::RangedDef>,
 }
 
 /// Toutes les créatures connues. Leur numéro (`Mob::kind`) est leur place dans la liste.
@@ -259,6 +270,8 @@ impl MobRegistry {
                 brain: entry.brain,
                 boss: entry.boss,
                 variants: entry.variants.into_iter().map(Into::into).collect(),
+                fleece: entry.fleece,
+                spit: entry.spit,
             });
         }
         Ok(())
@@ -565,11 +578,14 @@ pub fn spawn_mob_with_coat(
     // À part : un « bundle » prend au plus 8 composants.
     world.insert(entity, PathFollow::default());
     world.insert(entity, MobAnim::default());
-    if def.key == "core:sheep" {
+    if let Some(fleece) = def.fleece {
         let coat = inherited.unwrap_or_else(|| {
-            crate::mobs::sheep_colors::SheepCoat::choose(world.resource_mut::<GameRng>().next_f32())
+            crate::mobs::sheep_colors::SheepCoat::choose_in(
+                fleece.coats,
+                world.resource_mut::<GameRng>().next_f32(),
+            )
         });
-        log::debug!("mouton : {} ({})", coat.data().name, coat.data().id);
+        log::debug!("{} : {} ({})", def.key, coat.data().name, coat.data().id);
         world.insert(entity, coat);
     }
     if def.aquatic {
@@ -888,6 +904,7 @@ pub fn cleanup(world: &mut World) {
                         coat: world
                             .get::<crate::mobs::sheep_colors::SheepCoat>(entity)
                             .map(|c| *c),
+                        shorn: world.has::<crate::mobs::fleece::Shorn>(entity),
                         killer: world
                             .get::<crate::player::players::LastHitBy>(entity)
                             .map(|k| k.0),
@@ -967,6 +984,7 @@ pub fn damage_mob(world: &mut World, entity: Entity, amount: f32, from: Vec3) ->
     if !hostile && let Some(mut wander) = world.get_mut::<Wander>(entity) {
         wander.panic = 4.0;
     }
+    crate::mobs::projectiles::spit_back(world, entity);
     true
 }
 
@@ -1540,6 +1558,7 @@ pub mod tests {
                 position: deaths[0].position,
                 elite: None,
                 coat: None,
+                shorn: false,
                 killer: None,
             }]
         );

@@ -45,6 +45,8 @@ pub struct EntityDied {
     pub elite: Option<crate::mobs::elites::Elite>,
     /// Conservée avant la disparition du mouton pour déterminer sa laine.
     pub coat: Option<crate::mobs::sheep_colors::SheepCoat>,
+    /// Tondue quand elle est morte : elle ne laisse pas de laine.
+    pub shorn: bool,
     /// Le joueur qui l'a tuée (`None` : chute, feu, soleil...).
     pub killer: Option<PlayerId>,
 }

@@ -120,6 +120,8 @@ pub struct Look {
     pub coat: Option<u8>,
     /// La race d'une créature (voir `mobs/variants.rs`) : 0 pour le corps de base.
     pub variant: u8,
+    /// Un animal tondu : sa toison n'est pas dessinée (voir `mobs/fleece.rs`).
+    pub shorn: bool,
     pub elite: Option<EliteLook>,
     /// La boîte de la créature (largeur, hauteur) : le client s'en sert pour la viser. Elle change
     /// quand un petit grandit.
@@ -288,6 +290,7 @@ pub fn collect(
                     variant: world
                         .get::<crate::mobs::variants::Variant>(entity)
                         .map_or(0, |v| v.0),
+                    shorn: world.has::<crate::mobs::fleece::Shorn>(entity),
                     elite: world
                         .get::<crate::mobs::elites::Elite>(entity)
                         .map(|e| EliteLook {

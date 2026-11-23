@@ -60,7 +60,7 @@ cerisiers (sakura) dont les pétales tombent.
 | **N4, les cerisiers (réalisé)** | bois, feuilles et planches de cerisier (textures dans les trois packs) ; un **cerisier** : tronc qui se divise, large couronne rose qui retombe ; un biome **cerisaie** (pentes tempérées, entre prairie et montagne) ; un **tapis de pétales** posable (1 à 4 par case) au sol à la place des fleurs ; les cerisiers lâchent des **pétales** (N2) plus que les autres arbres | carte des biomes (où sont les cerisaies), captures de jour et au couchant |
 | **N5, les prés et les champs (réalisé)** | **orge** et **avoine** : graines, quatre stades, récolte, recettes (pain d'orge, porridge ; l'avoine nourrit les chevaux) ; des **champs sauvages** de blé, d'orge et d'avoine en taches dans les plaines, les prairies et la steppe (on y trouve les graines) ; **herbe haute sur deux blocs** ; **buissons à baies** (baies sucrées en taïga, myrtilles en forêt froide) qu'on récolte d'un clic droit et qui repoussent ; des **champs de fleurs** : biome de tournesols et prairies de fleurs plus fournies, quelques fleurs nouvelles | captures des prés ; un test de pousse et de récolte |
 | **N6, les races de vaches (réalisé)** | un mécanisme de **variantes** pour les créatures (une variante tirée à l'apparition selon le biome ; textures ou teintes et parties propres ; transmise aux petits ; envoyée au client avec l'apparence) ; trois vaches : **tempérée** (l'actuelle), **des Highlands** (froid : longs poils roux, frange, grandes cornes larges), **à bosse** façon zébu (chaud : robe claire, bosse, cornes en lyre) ; elles se croisent entre elles | captures des trois ; tests du tirage par biome et de l'élevage |
-| **N7, les alpagas** | un alpaga (cou long, toison épaisse) dans les prairies alpines, les hauts plateaux et la steppe, en petits troupeaux ; robe naturelle tirée à l'apparition (blanc, crème, fauve, brun, gris, noir) ; **on le tond** (laine de sa couleur, qui repousse en mangeant) ; il crache sur qui le frappe | captures ; tests de la tonte et de la repousse |
+| **N7, les alpagas (réalisé)** | un alpaga (cou long, toison épaisse) dans les prairies alpines, les hauts plateaux et la steppe, en petits troupeaux ; robe naturelle tirée à l'apparition (blanc, crème, fauve, brun, gris, noir) ; **on le tond** (laine de sa couleur, qui repousse en mangeant) ; il crache sur qui le frappe | captures ; tests de la tonte et de la repousse |
 | **N8, les chevaux** | un cheval aux 35 robes (7 couleurs × 5 marques, avec les variantes de N6), en troupeaux de 2 à 6 dans les plaines, la prairie et la savane ; élevage à l'avoine ou à la pomme | captures de troupeaux et de robes |
 | **N9, monter à cheval** | apprivoiser (le monter plusieurs fois jusqu'à ce qu'il accepte), une **selle**, le diriger (avancer, tourner, sauter, galoper), descendre ; le serveur fait foi, comme pour les wagons ; vu des autres joueurs | essai en jeu, en local et en LAN |
 
@@ -160,6 +160,33 @@ d'œil en jeu.
   tombantes, cornes en lyre). Les vaches apparaissent aussi sur le podzol. Quatre textures dans les trois
   packs. Les créatures ne sont pas sauvegardées : la race non plus. Vérifié : tirage par biome et
   croisement (tests), planche `creature_review -- . 32 sortie.png --breeds`, et les trois vaches en jeu.
+- **N7** : `games/voxel_sim/src/mobs/fleece.rs`. Une créature peut déclarer une toison dans
+  `entities.ron` : `fleece: (coats: Alpaca, count: (1, 3), regrow: 90.0, skin: (...))` (ensemble de
+  couleurs naturelles, laines par tonte, secondes de pâture avant la repousse, couleur de la peau).
+  Le mouton en a une aussi (1 à 3 laines, 60 s). **Tonte** : cisailles en main, clic droit
+  (`VoxelServer::shear_mob`, avant la mise en rut) : la laine, de la couleur de l'animal, tombe à ses
+  pieds, les cisailles s'usent, et l'animal reçoit le composant `Shorn`. Un petit ne se tond pas. Il
+  **repousse en broutant** : le système `fleece::graze` fait avancer le compte à rebours quand
+  l'animal est sur un bloc où il pourrait apparaître (l'herbe), plein rythme à l'arrêt, un quart en
+  marchant. Un tondu qui meurt ne laisse pas de laine (`EntityDied::shorn`). Le client le dessine
+  maigre (`Look::shorn`, protocole 4) : les boîtes à matière `_wool` perdent 18 % de taille et
+  passent à la couleur de la peau ; celles en `_fur` (tête, pattes, oreilles) gardent le pelage. Les
+  deux matières suivent la robe (`sheep_colors::is_coat_texture`). **Robes** : le numéro de couleur
+  du mouton (`SheepCoat`) sert aussi à l'alpaga, avec ses propres poids (`alpaca` dans
+  `wool_colors.ron`, `CoatSet`) : blanc 40, crème 20, fauve 15, brun 10, gris 8, noir 7. Deux
+  couleurs de laine neuves, `core:wool_cream` et `core:wool_fawn` (poids 0 pour les moutons : ils ne
+  changent pas), en fin de palette et de `items.ron`, dans la famille `#wools`, avec leurs icônes
+  16, 32 et 64. **Alpaga** (`core:alpaca`, 10 points de vie, 0,8 × 1,7) : cou long, tête de poil
+  court, petite touffe sur le front, pattes à pieds mous ; il vit dans la prairie alpine, les
+  hauts plateaux et la steppe, par 2 à 4, se nourrit d'orge, et laisse de la laine et un peu de cuir.
+  **Crachat** (`spit` dans `entities.ron`, `projectiles::spit_back`) : frappé, il crache sur le joueur
+  le plus proche, à portée et en vue, un projectile vert pâle qui retire 1,5 point, au plus un toutes
+  les 2,5 s. Deux textures neuves dans les trois packs (`mob_alpaca_wool`, `mob_alpaca_fur`). Vérifié :
+  tests (robes naturelles seulement, pas de couleur neuve chez le mouton, tonte et laine de la bonne
+  couleur, pas de tonte d'un petit ni d'un tondu, repousse seulement sur l'herbe, mort d'un tondu,
+  alpaga dans ses biomes, crachat et son délai) ; en jeu, sur la graine 7 : un troupeau d'alpagas de
+  robes différentes, trois « Laine crème » tombées à la tonte, l'animal tondu dessiné maigre, et un
+  coup d'alpaga rendu en crachat (20 → 18,5 points de vie).
 
 ## Choix à valider
 

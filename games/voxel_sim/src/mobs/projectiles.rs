@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use engine_ecs::World;
+use engine_ecs::{Entity, World};
 use glam::Vec3;
 use serde::Deserialize;
 
@@ -111,20 +111,72 @@ pub fn shoot(world: &mut World) {
         });
     drop(streamer);
     for (start, velocity, damage, color) in shots {
-        world.spawn((
-            Transform {
-                position: start,
-                yaw: 0.0,
-            },
-            PreviousPosition(start),
-            Projectile {
-                velocity,
-                damage,
-                age: 0.0,
-                color,
-            },
-        ));
+        launch(world, start, velocity, damage, color);
     }
+}
+
+/// Lance un projectile.
+fn launch(world: &mut World, start: Vec3, velocity: Vec3, damage: f32, color: Vec3) {
+    world.spawn((
+        Transform {
+            position: start,
+            yaw: 0.0,
+        },
+        PreviousPosition(start),
+        Projectile {
+            velocity,
+            damage,
+            age: 0.0,
+            color,
+        },
+    ));
+}
+
+/// Une créature qui a `spit` crache sur le joueur le plus proche quand on la frappe (au plus une
+/// fois par `interval`, et seulement s'il est à portée et en vue). Le crachat est un projectile
+/// ordinaire, qui blesse peu.
+pub fn spit_back(world: &mut World, entity: Entity) {
+    let Some(kind) = world.get::<Mob>(entity).map(|m| m.kind) else {
+        return;
+    };
+    let registry = world.resource::<Arc<MobRegistry>>().clone();
+    let Some(spit) = registry.get(kind).and_then(|d| d.spit) else {
+        return;
+    };
+    let (Some(position), Some(collider)) = (
+        world.get::<Transform>(entity).map(|t| t.position),
+        world.get::<Collider>(entity).map(|c| *c),
+    ) else {
+        return;
+    };
+    if world
+        .get::<Wander>(entity)
+        .is_none_or(|w| w.attack_cooldown > 0.0)
+    {
+        return;
+    }
+    let spots: Vec<PlayerSpot> = crate::mobs::player_spots(world)
+        .into_iter()
+        .filter(|s| !world.has::<Flying>(s.entity))
+        .collect();
+    let Some(target) = crate::mobs::nearest_position(&spots, position) else {
+        return;
+    };
+    let target = target + Vec3::Y * 1.2;
+    let eye = eye_of(position, &collider);
+    let shared = world.streamer();
+    let clear =
+        eye.distance(target) <= spit.range && line_of_sight(shared.borrow().world(), eye, target);
+    if !clear {
+        return;
+    }
+    if let Some(mut wander) = world.get_mut::<Wander>(entity) {
+        wander.attack_cooldown = spit.interval;
+    }
+    let velocity = aim(eye, target, spit.speed);
+    let start = eye + velocity.normalize_or_zero() * (collider.width * 0.5 + 0.3);
+    let (r, g, b) = spit.color;
+    launch(world, start, velocity, spit.damage, Vec3::new(r, g, b));
 }
 
 /// Les projectiles en vol : la gravité, puis un bloc (il s'arrête) ou le joueur (il le
@@ -215,5 +267,64 @@ mod tests {
             p += v * dt;
         }
         assert!((p.y - to.y).abs() < 0.5, "arrive à {p}");
+    }
+
+    #[test]
+    fn an_alpaca_spits_back_at_whoever_hits_it_but_not_every_time() {
+        use crate::components::Transform;
+        use crate::events::PlayerAttacked;
+        use crate::mobs::tests::{blocks, sim};
+        use crate::mobs::{self, PlayerEntities, damage_mob};
+        use engine_ecs::Events;
+        use glam::IVec3;
+        let mut world = sim();
+        let stone = blocks().id("core:stone").unwrap();
+        {
+            let shared = world.streamer();
+            let mut streamer = shared.borrow_mut();
+            for x in -10..10 {
+                for z in -3..4 {
+                    streamer.set_block_raw(IVec3::new(x, 150, z), stone);
+                }
+            }
+        }
+        let player = world.resource::<PlayerEntities>().0[0];
+        world.remove::<Flying>(player);
+        world.get_mut::<Transform>(player).unwrap().position = Vec3::new(4.5, 151.0, 0.5);
+        let kind = world
+            .resource::<Arc<MobRegistry>>()
+            .id("core:alpaca")
+            .unwrap();
+        let alpaca = mobs::spawn_mob(&mut world, kind, Vec3::new(0.5, 151.0, 0.5)).unwrap();
+        let count = |world: &World| {
+            let mut n = 0;
+            world.query::<(&Projectile,)>().for_each(|_, _| n += 1);
+            n
+        };
+        assert_eq!(count(&world), 0);
+        assert!(damage_mob(&mut world, alpaca, 1.0, Vec3::X));
+        assert_eq!(count(&world), 1, "il crache");
+        // Un second coup aussitôt : l'invulnérabilité passée, mais le crachat est encore à
+        // recharger.
+        world.remove::<crate::components::Hurt>(alpaca);
+        assert!(damage_mob(&mut world, alpaca, 1.0, Vec3::X));
+        assert_eq!(count(&world), 1, "pas deux crachats d'affilée");
+        // Le crachat arrive sur le joueur et le blesse un peu.
+        let mut reader = world.resource::<Events<PlayerAttacked>>().reader();
+        let mut amount = 0.0;
+        for _ in 0..120 {
+            fly(&mut world);
+            world.apply_commands();
+            amount += reader
+                .read(&world.resource::<Events<PlayerAttacked>>())
+                .map(|e| e.amount)
+                .sum::<f32>();
+        }
+        assert!(amount > 0.0 && amount < 3.0, "dégâts du crachat : {amount}");
+        // Une vache, elle, ne crache pas.
+        let cow = world.resource::<Arc<MobRegistry>>().id("core:cow").unwrap();
+        let cow = mobs::spawn_mob(&mut world, cow, Vec3::new(1.5, 151.0, 0.5)).unwrap();
+        assert!(damage_mob(&mut world, cow, 1.0, Vec3::X));
+        assert_eq!(count(&world), 0);
     }
 }

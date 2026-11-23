@@ -11,7 +11,28 @@ pub struct WoolColor {
     pub name: String,
     pub item: String,
     pub rgb: (u8, u8, u8),
+    /// La chance d'un mouton de naître de cette couleur.
     pub weight: u32,
+    /// La même chance pour un alpaga (0 : cette couleur n'apparaît pas chez lui).
+    #[serde(default)]
+    pub alpaca: u32,
+}
+
+/// Les couleurs naturelles d'une espèce à toison : chacune a son propre tirage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+pub enum CoatSet {
+    #[default]
+    Sheep,
+    Alpaca,
+}
+
+impl CoatSet {
+    fn weight(self, color: &WoolColor) -> u32 {
+        match self {
+            CoatSet::Sheep => color.weight,
+            CoatSet::Alpaca => color.alpaca,
+        }
+    }
 }
 
 pub fn palette() -> &'static [WoolColor] {
@@ -20,13 +41,19 @@ pub fn palette() -> &'static [WoolColor] {
             ron::from_str(include_str!("../../../../assets/core/wool_colors.ron"))
                 .expect("palette de laine intégrée invalide");
         assert!(!colors.is_empty() && colors.len() <= 256 && colors[0].item == "core:wool");
-        assert!(colors.iter().all(|c| c.weight > 0));
+        for set in [CoatSet::Sheep, CoatSet::Alpaca] {
+            assert!(
+                colors.iter().any(|c| set.weight(c) > 0),
+                "{set:?} sans couleur"
+            );
+        }
         colors
     });
     &COLORS
 }
 
-/// La couleur appartient au mouton, pas à son espèce ni à une image temporaire.
+/// La couleur de la toison appartient à l'animal (mouton ou alpaga), pas à son espèce ni à une
+/// image temporaire : c'est un numéro dans la palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct SheepCoat(pub u8);
 
@@ -34,14 +61,20 @@ impl SheepCoat {
     pub fn data(self) -> &'static WoolColor {
         palette().get(self.0 as usize).unwrap_or(&palette()[0])
     }
+    /// La couleur d'un mouton qui naît (`roll` dans [0, 1[).
     pub fn choose(roll: f32) -> Self {
-        let total: u32 = palette().iter().map(|c| c.weight).sum();
+        Self::choose_in(CoatSet::Sheep, roll)
+    }
+    /// La couleur d'un animal de l'espèce `set` qui naît, selon le poids de chaque couleur.
+    pub fn choose_in(set: CoatSet, roll: f32) -> Self {
+        let total: u32 = palette().iter().map(|c| set.weight(c)).sum();
         let mut pick = (roll.clamp(0.0, 0.999_999) * total as f32) as u32;
         for (index, color) in palette().iter().enumerate() {
-            if pick < color.weight {
+            let weight = set.weight(color);
+            if pick < weight {
                 return Self(index as u8);
             }
-            pick -= color.weight;
+            pick -= weight;
         }
         Self::default()
     }
@@ -66,13 +99,25 @@ impl SheepCoat {
         };
         linear(self.data().rgb) / linear(palette()[0].rgb)
     }
+    /// La toison et le pelage prennent la couleur : les matières dont le nom finit par `_wool` ou
+    /// `_fur` (`mob_sheep_wool`, `mob_alpaca_fur`), dessinées en blanc pour être teintées.
     pub fn tint_part(self, part: &MobPart) -> Vec3 {
-        if part.texture.as_deref() == Some("core:mob_sheep_wool") {
+        if part.texture.as_deref().is_some_and(is_coat_texture) {
             self.tint()
         } else {
             Vec3::ONE
         }
     }
+}
+
+/// Cette matière suit la couleur de l'animal ?
+pub fn is_coat_texture(name: &str) -> bool {
+    name.ends_with("_wool") || name.ends_with("_fur")
+}
+
+/// La matière d'une toison, qu'on enlève à la tonte (`_wool` et pas `_fur` : le pelage reste).
+pub fn is_fleece_texture(name: &str) -> bool {
+    name.ends_with("_wool")
 }
 
 /// Le butin conserve la couleur même si le mouton a déjà quitté l'ECS.
@@ -90,7 +135,7 @@ mod tests {
     #[test]
     fn weighted_colours_are_reachable_and_genetics_never_introduces_an_unrelated_colour() {
         let colors = palette();
-        assert_eq!(colors.len(), 16);
+        assert_eq!(colors.len(), 18);
         let ids: std::collections::HashSet<_> = colors.iter().map(|c| &c.id).collect();
         let items: std::collections::HashSet<_> = colors.iter().map(|c| &c.item).collect();
         assert_eq!(ids.len(), colors.len());
@@ -99,7 +144,12 @@ mod tests {
         for i in 0..10000 {
             counts[SheepCoat::choose((i as f32 + 0.5) / 10000.0).0 as usize] += 1;
         }
-        assert!(counts.iter().all(|&n| n > 0));
+        assert!(
+            counts
+                .iter()
+                .zip(colors)
+                .all(|(&n, c)| (n > 0) == (c.weight > 0))
+        );
         assert!(
             counts[0] > 5000,
             "les moutons blancs restent les plus communs"
@@ -117,5 +167,34 @@ mod tests {
             drop_key("core:raw_mutton", Some(SheepCoat(3))),
             "core:raw_mutton"
         );
+    }
+
+    #[test]
+    fn alpacas_get_only_natural_colours_and_sheep_never_get_the_new_ones() {
+        let (mut alpaca, mut sheep) = (
+            std::collections::HashMap::new(),
+            std::collections::HashSet::new(),
+        );
+        for i in 0..20000 {
+            let roll = (i as f32 + 0.5) / 20000.0;
+            *alpaca
+                .entry(
+                    SheepCoat::choose_in(CoatSet::Alpaca, roll)
+                        .data()
+                        .id
+                        .clone(),
+                )
+                .or_insert(0) += 1;
+            sheep.insert(SheepCoat::choose_in(CoatSet::Sheep, roll).data().id.clone());
+        }
+        let mut found: Vec<_> = alpaca.keys().cloned().collect();
+        found.sort();
+        assert_eq!(found, ["black", "brown", "cream", "fawn", "gray", "white"]);
+        assert!(alpaca["white"] > alpaca["cream"] && alpaca["cream"] > alpaca["black"]);
+        assert!(!sheep.contains("cream") && !sheep.contains("fawn"));
+        assert_eq!(sheep.len(), 16);
+        // La laine crème et fauve existe comme objet.
+        assert_eq!(palette()[16].item, "core:wool_cream");
+        assert_eq!(palette()[17].item, "core:wool_fawn");
     }
 }

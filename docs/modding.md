@@ -999,13 +999,23 @@ partagent le pivot à l'avant de la plus grosse boîte de queue et oscillent lat
 Le mouton de base conserve le même type `core:sheep` quelle que soit sa couleur.
 Son composant de toison choisit une entrée de `assets/core/wool_colors.ron` ; ce
 fichier contient les RGB sRGB des teintes, leur objet de laine et leur poids
-d'apparition. Il est intégré à la compilation : après modification, régénérer
+d'apparition (`weight` pour un mouton, `alpaca` pour un alpaga ; 0 : la couleur n'apparaît
+pas naturellement chez l'espèce). Il est intégré à la compilation : après modification, régénérer
 les PNG et reconstruire le jeu. Les valeurs `color` des objets restent les
 moyennes linéaires des PNG. Les teintes s'appliquent seulement aux pièces portant
-la texture `core:mob_sheep_wool`. La couleur est héritée d'un parent à la naissance
+une texture dont le nom finit par `_wool` ou `_fur` (`core:mob_sheep_wool`, `core:mob_alpaca_fur`). La couleur est héritée d'un parent à la naissance
 et copiée dans l'événement interne de mort pour le butin après disparition de
 l'entité ; l'événement envoyé aux scripts garde son format. Le groupe d'objets
-`#wools` contient les seize laines ; `core:wool` est toujours la blanche.
+`#wools` contient les dix-huit laines ; `core:wool` est toujours la blanche.
+
+Toute créature peut avoir une **toison** : `fleece: (coats: Alpaca, count: (1, 3), regrow: 60.0,
+skin: (0.78, 0.58, 0.5))` (`coats` : `Sheep` par défaut ou `Alpaca`, les couleurs naturelles de
+l'espèce ; `count` : les laines d'une tonte ; `regrow` : les secondes de pâture avant que la
+laine repousse ; `skin` : la peau sous la laine). Le joueur la tond d'un clic droit avec des
+cisailles : la laine, de la couleur de l'animal, tombe, et l'animal est dessiné sans les boîtes
+dont la texture finit par `_wool` (elles deviennent une peau amincie) jusqu'à ce qu'il ait
+brouté. Un petit ne se tond pas. `spit: (range, interval, speed, damage, color)` fait cracher
+(un projectile) une créature pacifique sur le joueur qui la frappe.
 
 ```ron
 (offset: (0.0, 0.5, 0.0), size: (0.8, 0.6, 0.5),

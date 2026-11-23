@@ -18,11 +18,11 @@ use crate::server::VoxelServer;
 use crate::world::daytime::DayCycle;
 use crate::{
     adventure, components, content, enchanting, events, mobs, mobs::breeding, mobs::elites,
-    mobs::navigation, mobs::projectiles, mobs::spawning, mobs::trading, mobs::villagers, modding,
-    player, player::attributes, player::gear, player::inventory, player::item_data,
-    player::players, player::potions, player::survival, server::intents, server::stress, settings,
-    shaping, shared, storage::backpacks, vehicles::carts, vehicles::ships, world::dimensions,
-    world::persistence, world::weather,
+    mobs::fleece, mobs::navigation, mobs::projectiles, mobs::spawning, mobs::trading,
+    mobs::villagers, modding, player, player::attributes, player::gear, player::inventory,
+    player::item_data, player::players, player::potions, player::survival, server::intents,
+    server::stress, settings, shaping, shared, storage::backpacks, vehicles::carts,
+    vehicles::ships, world::dimensions, world::persistence, world::weather,
 };
 use anyhow::{Context as _, Result};
 use engine_ecs::Schedule;
@@ -304,6 +304,7 @@ impl VoxelServer {
             )
             .add(Stage::FixedUpdate, "créatures : soleil", spawning::dissolve)
             .add(Stage::FixedUpdate, "créatures : élevage", breeding::update)
+            .add(Stage::FixedUpdate, "créatures : pâture", fleece::graze)
             .add(Stage::FixedUpdate, "créatures : IA", mobs::wander)
             .add(
                 Stage::FixedUpdate,

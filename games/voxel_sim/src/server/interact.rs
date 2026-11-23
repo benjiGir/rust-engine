@@ -211,6 +211,40 @@ impl crate::server::VoxelServer {
         true
     }
 
+    /// Des cisailles en main, clic droit sur un animal à toison (mouton, alpaga) : on le tond. La
+    /// laine, de la couleur de l'animal, tombe à ses pieds ; elle repousse quand il a brouté.
+    pub fn shear_mob(&mut self) -> bool {
+        let Some(mob) = self.aim().mob else {
+            return false;
+        };
+        if self
+            .held_tool()
+            .is_none_or(|t| t.kind != engine_voxel::ToolKind::Shears)
+        {
+            return false;
+        }
+        let roll = engine_voxel::Rng64::new(self.next_random()).next_f32();
+        let Some((key, count)) = crate::mobs::fleece::shear(&mut self.ecs, mob, roll) else {
+            return false;
+        };
+        let at = self
+            .ecs
+            .get::<components::Transform>(mob)
+            .map_or(glam::Vec3::ZERO, |t| t.position);
+        match self.content.items.id(&key) {
+            Some(item) => self.give_loot(
+                at.floor().as_ivec3(),
+                crate::player::inventory::ItemStack::new(item, count),
+                true,
+            ),
+            None => log::warn!("tonte : objet « {key} » inconnu"),
+        }
+        self.wear_held();
+        self.punch();
+        self.sound("core:break_soft");
+        true
+    }
+
     /// Rend des points de vie, sans dépasser le maximum.
     pub fn heal(&mut self, amount: f32) {
         if let Some(mut health) = self

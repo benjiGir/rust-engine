@@ -10,6 +10,8 @@ const SKINS: &[(&str, &str)] = &[
     ("core", "mob_pig_skin"),
     ("core", "mob_sheep_wool"),
     ("core", "mob_sheep_face"),
+    ("core", "mob_alpaca_wool"),
+    ("core", "mob_alpaca_fur"),
     ("core", "mob_chicken_feathers"),
     ("core", "mob_fish_scales"),
     ("core", "mob_fish_fins"),
@@ -75,6 +77,24 @@ pub fn draw(name: &str, side: usize) -> Option<Vec<[u8; 4]>> {
                 "mob_sheep_wool" => {
                     let curls = noise(u, v, if side == 32 { 12 } else { 7 }, 3401);
                     shade([213, 207, 181], 0.89 + broad * 0.10 + curls * 0.13)
+                }
+                "mob_alpaca_wool" => {
+                    // Une laine fine et dense, aux mèches ondulées, dessinée en blanc pour être
+                    // teintée par la robe de l'animal.
+                    let crimp = noise(u * 1.4, v * 0.8, if side == 32 { 15 } else { 8 }, 3421);
+                    let wave = ((u * 6.0 + v * 1.5 + broad) * std::f32::consts::TAU).sin();
+                    shade(
+                        [216, 210, 188],
+                        0.90 + broad * 0.07 + crimp * 0.11 + wave * 0.025,
+                    )
+                }
+                "mob_alpaca_fur" => {
+                    // Un poil court et lisse, un peu plus clair, en fines stries verticales.
+                    let strand = noise(u * 3.0, v * 0.5, if side == 32 { 18 } else { 9 }, 3431);
+                    shade(
+                        [222, 216, 197],
+                        0.93 + broad * 0.05 + strand * 0.07 - v * 0.03,
+                    )
                 }
                 "mob_sheep_face" => shade([126, 112, 88], 0.94 + fine * 0.08),
                 "mob_chicken_feathers" => {

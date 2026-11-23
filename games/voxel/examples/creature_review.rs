@@ -171,7 +171,8 @@ fn main() -> Result<()> {
                 continue;
             }
             if args.get(3).is_some_and(|a| a == "--fauna")
-                && !["core:sheep", "core:chicken", "core:fish"].contains(&c.id.as_str())
+                && !["core:sheep", "core:alpaca", "core:chicken", "core:fish"]
+                    .contains(&c.id.as_str())
             {
                 continue;
             }
