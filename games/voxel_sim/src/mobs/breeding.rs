@@ -12,6 +12,7 @@ use serde::Deserialize;
 
 use crate::components::{Baby, BreedCooldown, Collider, Love, Mob, Transform, Wander};
 use crate::mobs::navigation::{PathFollow, cell_of};
+use crate::mobs::variants::Variant;
 use crate::mobs::{self, FixedDt, MobRegistry};
 
 /// Combien de temps un animal nourri cherche un partenaire.
@@ -181,7 +182,15 @@ pub fn update(world: &mut World) {
         } else {
             None
         };
+        let variant = crate::mobs::variants::inherit(
+            world.get::<Variant>(a).map_or(Variant(0), |v| *v),
+            world.get::<Variant>(b).map_or(Variant(0), |v| *v),
+            world.resource_mut::<crate::mobs::GameRng>().next_f32(),
+        );
         if let Some(baby) = mobs::spawn_mob_with_coat(world, kind, at, inherited) {
+            if variant.0 > 0 {
+                world.insert(baby, variant);
+            }
             world.insert(
                 baby,
                 Baby {
@@ -308,6 +317,31 @@ mod tests {
         world.apply_commands();
         assert!(!world.has::<Baby>(lamb));
         assert_eq!(*world.get::<SheepCoat>(lamb).unwrap(), coat);
+    }
+
+    #[test]
+    fn a_calf_of_two_breeds_takes_one_of_them() {
+        let mut world = sim();
+        let registry = world.resource::<Arc<MobRegistry>>().clone();
+        let kind = registry.id("core:cow").unwrap();
+        let cow = registry.get(kind).unwrap();
+        let parents = [
+            Variant(cow.variant_id("highland").unwrap()),
+            Variant(cow.variant_id("zebu").unwrap()),
+        ];
+        let a = mobs::spawn_mob(&mut world, kind, Vec3::new(5.5, 80.0, 5.5)).unwrap();
+        let b = mobs::spawn_mob(&mut world, kind, Vec3::new(6.0, 80.0, 5.5)).unwrap();
+        world.insert(a, parents[0]);
+        world.insert(b, parents[1]);
+        assert!(feed(&mut world, a, "core:wheat") && feed(&mut world, b, "core:wheat"));
+        update(&mut world);
+        world.apply_commands();
+        let mut calves = Vec::new();
+        world
+            .query::<(&Baby, &Variant)>()
+            .for_each(|_, (_, variant)| calves.push(*variant));
+        assert_eq!(calves.len(), 1);
+        assert!(parents.contains(&calves[0]));
     }
 
     #[test]

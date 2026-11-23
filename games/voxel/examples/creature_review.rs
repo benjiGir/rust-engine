@@ -25,6 +25,16 @@ struct Creature {
     name: String,
     size: (f32, f32),
     parts: Vec<mobs::model::MobPart>,
+    #[serde(default)]
+    variants: Vec<Breed>,
+}
+
+/// Une race (`variants`), montrée comme une créature à part.
+#[derive(Clone, Deserialize)]
+struct Breed {
+    id: String,
+    name: String,
+    parts: Vec<mobs::model::MobPart>,
 }
 
 fn render(parts: &[CubeInstance], textures: &[Vec<u8>], direction: Vec3, height: f32) -> Vec<u8> {
@@ -135,9 +145,10 @@ fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     anyhow::ensure!(
         (args.len() == 3
-            || (args.len() == 4 && matches!(args[3].as_str(), "--fauna" | "--sheep-colors")))
+            || (args.len() == 4
+                && matches!(args[3].as_str(), "--fauna" | "--sheep-colors" | "--breeds")))
             && matches!(args[1].as_str(), "16" | "32"),
-        "creature_review <racine RON> <16|32> <sortie.png> [--fauna|--sheep-colors]"
+        "creature_review <racine RON> <16|32> <sortie.png> [--fauna|--sheep-colors|--breeds]"
     );
     let source = Path::new(&args[0]);
     let sheep_colors = args.get(3).is_some_and(|a| a == "--sheep-colors");
@@ -167,8 +178,24 @@ fn main() -> Result<()> {
             if ["core:farmer", "core:smith", "core:merchant"].contains(&c.id.as_str()) {
                 continue;
             }
-            mobs::model::bind_textures(&mut c.parts, c.id.split_once(':').unwrap().0, &mut blocks);
-            creatures.push(c);
+            let breeds = args.get(3).is_some_and(|a| a == "--breeds");
+            if breeds && c.variants.is_empty() {
+                continue;
+            }
+            let namespace = c.id.split_once(':').unwrap().0.to_owned();
+            mobs::model::bind_textures(&mut c.parts, &namespace, &mut blocks);
+            let variants = std::mem::take(&mut c.variants);
+            creatures.push(c.clone());
+            for breed in variants.into_iter().filter(|_| breeds) {
+                let mut parts = breed.parts;
+                mobs::model::bind_textures(&mut parts, &namespace, &mut blocks);
+                creatures.push(Creature {
+                    id: format!("{}:{}", c.id, breed.id),
+                    name: breed.name,
+                    parts,
+                    ..c.clone()
+                });
+            }
         }
     }
     if sheep_colors {

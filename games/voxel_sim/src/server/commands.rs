@@ -124,15 +124,10 @@ impl VoxelServer {
                 Ok(format!("{points} points d'expérience"))
             }
             "summon" => {
-                let key = qualified(args.first().context("summon <créature>")?);
-                let kind = self
-                    .ecs
-                    .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
-                    .id(&key)
-                    .with_context(|| format!("créature inconnue « {key} »"))?;
+                let key = qualified(args.first().context("summon <créature> [race]")?);
                 let look = self.players.me().look;
                 let at = feet + Vec3::new(look.x, 0.0, look.z).normalize_or_zero() * 3.0;
-                crate::mobs::spawn_mob(&mut self.ecs, kind, at).context("impossible ici")?;
+                crate::mobs::summon(&mut self.ecs, &key, args.get(1).copied(), at)?;
                 Ok(format!("{key} est apparu"))
             }
             "break" => {

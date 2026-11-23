@@ -16,6 +16,10 @@ const SKINS: &[(&str, &str)] = &[
     ("core", "mob_cow_hide"),
     ("core", "mob_cow_head"),
     ("core", "mob_cow_leg"),
+    ("core", "mob_cow_highland_hide"),
+    ("core", "mob_cow_highland_head"),
+    ("core", "mob_cow_zebu_hide"),
+    ("core", "mob_cow_zebu_head"),
     ("core", "mob_hoof"),
     ("core", "mob_horn"),
     ("core", "mob_prowler_cloth"),
@@ -136,6 +140,31 @@ pub fn draw(name: &str, side: usize) -> Option<Vec<[u8; 4]>> {
                         0.0
                     };
                     shade(base, 0.91 + fine * 0.14 + hair)
+                }
+                "mob_cow_highland_hide" | "mob_cow_highland_head" => {
+                    // De longues mèches rousses qui tombent, plus courtes sur la tête.
+                    let head = name.ends_with("head");
+                    let strands = noise(
+                        u * if head { 1.0 } else { 1.6 },
+                        v * if head { 0.5 } else { 0.25 },
+                        if side == 32 { 14 } else { 8 },
+                        3361,
+                    );
+                    let wave = ((u * 9.0 + v * 2.5 + broad * 1.5) * std::f32::consts::TAU).sin();
+                    shade(
+                        if head { [181, 104, 56] } else { [170, 92, 47] },
+                        0.80 + strands * 0.30 + wave * 0.05 + broad * 0.08,
+                    )
+                }
+                "mob_cow_zebu_hide" | "mob_cow_zebu_head" => {
+                    // Une robe claire, rase, à peine nuancée de gris.
+                    let base = if name.ends_with("head") {
+                        [168, 165, 158]
+                    } else {
+                        [214, 209, 196]
+                    };
+                    let grey = noise(u, v, 3, 3371);
+                    shade(base, 0.92 + broad * 0.06 + fine * 0.05 - grey * 0.08)
                 }
                 "mob_hoof" => {
                     let cleft = (u - 0.5).abs() < 0.06;

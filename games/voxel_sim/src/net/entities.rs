@@ -118,6 +118,8 @@ pub struct Look {
     pub baby: bool,
     /// La couleur de toison d'un mouton (son numéro dans la palette).
     pub coat: Option<u8>,
+    /// La race d'une créature (voir `mobs/variants.rs`) : 0 pour le corps de base.
+    pub variant: u8,
     pub elite: Option<EliteLook>,
     /// La boîte de la créature (largeur, hauteur) : le client s'en sert pour la viser. Elle change
     /// quand un petit grandit.
@@ -283,6 +285,9 @@ pub fn collect(
                     coat: world
                         .get::<crate::mobs::sheep_colors::SheepCoat>(entity)
                         .map(|c| c.0),
+                    variant: world
+                        .get::<crate::mobs::variants::Variant>(entity)
+                        .map_or(0, |v| v.0),
                     elite: world
                         .get::<crate::mobs::elites::Elite>(entity)
                         .map(|e| EliteLook {

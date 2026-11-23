@@ -47,7 +47,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 const HELP: &str = "state | goto x y z | look yaw pitch | lookat x y z \
 | walk secondes [forward|back|left|right] [sprint] [jump] | jump | stop | wait secondes \
 | block x y z | break [x y z] | place [x y z bloc] | give objet [nombre] | select 1-36 \
-| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hold left|right|off | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | drag x y x y... [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin|select|ui|view|close ... | questpin id | screen quests [chapitre] | shape forme [n|all] | rebuild [all] | shaping | pieces x y z | ghost [nom] [x y z] | ghost remove [nom] | ghost list | host [port] | players | quit";
+| inventory | mode walk|fly | time 0-1 | culling on|off | damage n [perce] | eat | hold left|right|off | hunger n | mobs | attack | swing | use | mods | swing | travel dimension | carts | cart sorte x y z | ride [numéro] | dismount | couple a b | cartstock numéro objet [nombre] | console [texte] | texts | click x y [right] | drag x y x y... [right] | clicktext texte [right] | type texte | key Nom [ctrl] [shift] [alt] | respawn | pause | resume | modoptions mod | optionsevent button|toggle|slider id [valeur] | backpack | placebag | deposit | topup | takeall | sort | quickmove 1-36 | container x y z | bag [numéro] | drops | capture on|off | xp n | summon créature [race] | screenshot fichier.png [largeur hauteur] | enchant sorte niveau [sorte niveau...] | attributes [open|close|modified on|off] | affix attribut fixe [part] | hover x y | equip n | sheet | throw | loot [rareté] [objet] | gem sorte qualité [n] | tier n | tiers | progress kills|bosses|rarity|depth n | elite [créature] | invader [créature] | elites | slay [all] | cursor n|clear | open tiers|salvage|reforge | sockets n | clearinv | pending x y z objet [rareté_min] | table x y z | shelves x y z [étagère] [n] | offers x y z | screen enchant x y z|anvil|library x y z|guide | book sorte niveau [...] | libadd x y z sorte niveau | library x y z | points n | charms | quests [chapitre] | quest done|claim|check|handin|choose|scan|reset|pin|select|ui|view|close ... | questpin id | screen quests [chapitre] | shape forme [n|all] | rebuild [all] | shaping | pieces x y z | ghost [nom] [x y z] | ghost remove [nom] | ghost list | host [port] | players | quit";
 
 /// Une ligne reçue, et le chemin de sa réponse.
 pub struct Request {
@@ -261,7 +261,7 @@ pub enum Command {
     /// Gagner des points d'expérience.
     Xp(u32),
     /// Faire apparaître une créature à 3 blocs devant le joueur.
-    Summon(String),
+    Summon(String, Option<String>),
     /// Régler la faim (de 0 à 20), pour les tests.
     Hunger(f32),
     Screenshot(PathBuf, u32, u32),
@@ -605,8 +605,8 @@ pub fn parse(line: &str) -> Result<Command> {
             }
         }
         "summon" => {
-            count(&[1])?;
-            Command::Summon(qualified(args[0]))
+            count(&[1, 2])?;
+            Command::Summon(qualified(args[0]), args.get(1).map(|b| b.to_string()))
         }
         "xp" => {
             count(&[1])?;
@@ -1425,17 +1425,11 @@ impl VoxelGame {
                 let list: Vec<String> = mobs.into_iter().take(20).map(|(_, m)| m).collect();
                 Ok(format!("{{\"ok\":true,\"mobs\":[{}]}}", list.join(",")))
             }
-            Command::Summon(key) => {
-                let kind = self
-                    .server
-                    .ecs
-                    .resource::<std::sync::Arc<voxel_sim::mobs::MobRegistry>>()
-                    .id(&key)
-                    .with_context(|| format!("summon : créature inconnue « {key} »"))?;
+            Command::Summon(key, breed) => {
                 let feet = self.client.body.body.position;
                 let at = feet + self.client.camera.forward_flat() * 3.0;
-                voxel_sim::mobs::spawn_mob(&mut self.server.ecs, kind, at)
-                    .context("summon : impossible")?;
+                voxel_sim::mobs::summon(&mut self.server.ecs, &key, breed.as_deref(), at)
+                    .context("summon")?;
                 Ok(format!("{{\"ok\":true,\"pos\":{}}}", vec3(at)))
             }
             Command::Xp(points) => {

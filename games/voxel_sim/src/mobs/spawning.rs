@@ -296,10 +296,18 @@ pub fn spawn(world: &mut World) {
                     biome,
                     in_water: aquatic,
                 };
-                choose(&registry, hostile, &spot, r_pick).map(|kind| (kind, floor))
+                choose(&registry, hostile, &spot, r_pick).map(|kind| {
+                    // Tout le groupe est de la race de son biome.
+                    let variant = registry
+                        .get(kind)
+                        .map_or(0, |d| d.variant_for_biome(biome, r_kind));
+                    (kind, floor, variant)
+                })
             })
         };
-        let Some((kind, floor)) = found else { continue };
+        let Some((kind, floor, variant)) = found else {
+            continue;
+        };
         let (min, max) = registry.get(kind).map_or((1, 1), |d| d.spawn.group);
         let count = min + ((max.saturating_sub(min) + 1) as f32 * r_group) as u32;
         for i in 0..count.min(max.max(1)) {
@@ -331,6 +339,9 @@ pub fn spawn(world: &mut World) {
             };
             if ok {
                 let spawned = mobs::spawn_mob(world, kind, position);
+                if let Some(entity) = spawned.filter(|_| variant > 0) {
+                    world.insert(entity, crate::mobs::variants::Variant(variant));
+                }
                 // Une part des hostiles naît élite, selon le palier du monde (voir
                 // `mobs/elites.rs`).
                 if let Some(entity) = spawned.filter(|_| hostile) {

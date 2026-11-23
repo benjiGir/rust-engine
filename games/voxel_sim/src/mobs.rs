@@ -11,6 +11,7 @@ pub mod projectiles;
 pub mod sheep_colors;
 pub mod spawning;
 pub mod trading;
+pub mod variants;
 pub mod villagers;
 
 use std::collections::HashMap;
@@ -94,6 +95,9 @@ struct MobFileEntry {
     /// Un boss : il ne devient jamais élite, et le vaincre compte pour les paliers du monde.
     #[serde(default)]
     boss: bool,
+    /// Ses races (voir `mobs/variants.rs`).
+    #[serde(default)]
+    variants: Vec<crate::mobs::variants::VariantEntry>,
 }
 
 /// Ce que lâche une créature à sa mort : un objet, un nombre (min, max), une chance.
@@ -142,6 +146,8 @@ pub struct MobDef {
     pub brain: bool,
     /// Un boss (voir `mobs/elites.rs` et `adventure/tiers.rs`).
     pub boss: bool,
+    /// Ses races, chacune avec son corps (voir `mobs/variants.rs`).
+    pub variants: Vec<crate::mobs::variants::MobVariant>,
 }
 
 /// Toutes les créatures connues. Leur numéro (`Mob::kind`) est leur place dans la liste.
@@ -208,6 +214,18 @@ impl MobRegistry {
                         .with_context(|| format!("{origin} : bloc « {key} » inconnu"))
                 })
                 .collect::<Result<Vec<_>>>()?;
+            // Une créature apparaît aussi là où vivent ses races.
+            let mut biomes = entry.biomes;
+            for variant in &entry.variants {
+                for biome in &variant.biomes {
+                    if !biomes.contains(biome) {
+                        biomes.push(biome.clone());
+                    }
+                }
+            }
+            if entry.variants.len() > u8::MAX as usize - 1 {
+                bail!("{origin} : « {} » a trop de variantes", entry.id);
+            }
             self.defs.push(MobDef {
                 key: entry.id,
                 name: entry.name,
@@ -228,7 +246,7 @@ impl MobRegistry {
                         .light
                         .unwrap_or(if entry.hostile { (0, 7) } else { (9, 15) }),
                     when: entry.when,
-                    biomes: entry.biomes,
+                    biomes,
                     group: entry.group.unwrap_or((1, 1)),
                     weight: entry.weight.unwrap_or(10),
                     dissolves: entry.dissolves.unwrap_or(entry.hostile),
@@ -240,6 +258,7 @@ impl MobRegistry {
                 breeds: entry.breeds,
                 brain: entry.brain,
                 boss: entry.boss,
+                variants: entry.variants.into_iter().map(Into::into).collect(),
             });
         }
         Ok(())
@@ -250,6 +269,9 @@ impl MobRegistry {
         for def in &mut self.defs {
             let namespace = def.key.split_once(':').unwrap().0;
             crate::mobs::model::bind_textures(&mut def.parts, namespace, blocks);
+            for variant in &mut def.variants {
+                crate::mobs::model::bind_textures(&mut variant.parts, namespace, blocks);
+            }
         }
     }
 
@@ -489,6 +511,28 @@ pub fn physics(world: &mut World) {
 /// Crée une créature et prévient les abonnés (`EntitySpawned`).
 pub fn spawn_mob(world: &mut World, kind: u32, position: Vec3) -> Option<Entity> {
     spawn_mob_with_coat(world, kind, position, None)
+}
+
+/// Fait apparaître une créature par son identifiant, d'une race (`variants`) au choix : pour les
+/// commandes `/summon`.
+pub fn summon(world: &mut World, key: &str, breed: Option<&str>, at: Vec3) -> Result<Entity> {
+    let registry = world.resource::<Arc<MobRegistry>>().clone();
+    let kind = registry
+        .id(key)
+        .with_context(|| format!("créature inconnue « {key} »"))?;
+    let def = registry.get(kind).unwrap();
+    let variant = match breed {
+        None => 0,
+        Some(id) => def.variant_id(id).with_context(|| {
+            let ids: Vec<_> = def.variants.iter().map(|v| v.id.as_str()).collect();
+            format!("race inconnue « {id} » (connues : {})", ids.join(", "))
+        })?,
+    };
+    let entity = spawn_mob(world, kind, at).context("impossible ici")?;
+    if variant > 0 {
+        world.insert(entity, crate::mobs::variants::Variant(variant));
+    }
+    Ok(entity)
 }
 
 /// Une naissance peut fournir une couleur héritée ; les apparitions ordinaires la tirent au sort.

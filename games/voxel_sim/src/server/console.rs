@@ -72,7 +72,7 @@ pub const GAME_COMMANDS: &[(&str, &str, &str)] = &[
     (
         "summon",
         "summon",
-        "/summon <créature> : faire apparaître une créature",
+        "/summon <créature> [race] : faire apparaître une créature",
     ),
     ("tp", "goto", "/tp <x> <y> <z> : se téléporter"),
     (

@@ -101,7 +101,12 @@ pub fn draw(entities: &ClientEntities, env: &DrawEnv, out: &mut Vec<CubeInstance
                         env.alpha + view.latest().position.x,
                     ));
                 }
-                draw_model(&def.parts, &Model::of(view, scale, &pose), env, out);
+                draw_model(
+                    def.parts_for(view.look.variant),
+                    &Model::of(view, scale, &pose),
+                    env,
+                    out,
+                );
             }
             EntityKind::Player { .. } => {
                 draw_player(view, now, &pose, env, entities.item_models(), out)
