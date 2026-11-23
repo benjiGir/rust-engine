@@ -388,6 +388,8 @@ pub struct Renderer {
     egui_free: Vec<egui::TextureId>,
     meshes: HashMap<MeshId, GpuMesh>,
     arena: GeometryArena,
+    /// Les copies de géométrie en attente (voir `arena::Uploads`).
+    uploads: crate::arena::Uploads,
     origins: OriginTable,
     next_mesh_id: u64,
     lines: Lines,
@@ -480,6 +482,7 @@ impl Renderer {
             .await?;
         let gpu_timer = crate::gpu_timer::GpuTimer::new(&device, &queue);
         let origins = OriginTable::new(&device);
+        let uploads = crate::arena::Uploads::new(&device);
 
         // On part de la configuration proposée par wgpu pour cette surface.
         let mut config = surface
@@ -694,6 +697,7 @@ impl Renderer {
             crosshair: false,
             meshes: HashMap::new(),
             arena: GeometryArena::new(),
+            uploads,
             origins,
             next_mesh_id: 0,
             frustum_culling: true,
@@ -944,15 +948,18 @@ impl Renderer {
         let all_indices: Vec<u32> = indices.iter().chain(translucent_indices).copied().collect();
         let slice = self
             .arena
-            .alloc(&self.device, &self.queue, vertices, &all_indices);
+            .alloc(&self.device, &mut self.uploads, vertices, &all_indices);
         let slot = self.origins.alloc(
             &self.device,
-            &self.queue,
+            &mut self.uploads,
             [
                 origin.extend(0.0).to_array(),
                 uv_base.extend(scale).to_array(),
             ],
         );
+        if self.uploads.should_flush() {
+            self.uploads.flush(&self.queue);
+        }
         let id = MeshId(self.next_mesh_id);
         self.next_mesh_id += 1;
         self.meshes.insert(
@@ -981,7 +988,8 @@ impl Renderer {
         let slot = mesh.slot;
         let mut entry: OriginEntry = self.origins.entry(slot);
         entry[0] = [origin.x, origin.y, origin.z, yaw];
-        self.origins.write(&self.queue, slot, entry);
+        self.origins
+            .write(&self.device, &mut self.uploads, slot, entry);
     }
 
     /// Retire un maillage ; ses tampons GPU sont libérés.
@@ -1150,6 +1158,8 @@ impl Renderer {
         size: [u32; 2],
         ui: Option<UiFrame>,
     ) -> RenderStats {
+        // Les maillages arrivés depuis la dernière image : copiés avant de dessiner.
+        self.uploads.flush(&self.queue);
         // Les plages libérées arrivées à échéance redeviennent utilisables.
         self.arena.begin_frame();
         self.origins.begin_frame();

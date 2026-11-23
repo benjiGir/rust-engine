@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 use crate::block::BlockId;
 use crate::tech::capabilities::Capabilities;
 
+mod storage;
+use storage::{Blocks, Light};
+
 /// L'état attaché à un bloc « actif » (une machine, une lampe, une horloge...).
 ///
 /// Comme dans Minecraft, une machine n'est pas une entité de l'ECS : c'est un bloc, plus
@@ -40,18 +43,17 @@ pub(crate) const VOLUME: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 /// blocs (torches...). Deux canaux séparés car le ciel change avec l'heure, pas les torches.
 pub const DEFAULT_LIGHT: u8 = 0xF0;
 
-/// Les blocs d'un chunk, stockés « à plat ».
+/// Les blocs d'un chunk.
 ///
-/// `Box<[BlockId]>` est un tableau de taille fixe alloué sur le tas.
-/// On évite `[BlockId; VOLUME]` directement : 64 Ko sur la pile à chaque
-/// déplacement du chunk, c'est lent et peut faire déborder la pile.
+/// Un chunk neuf range ses blocs dans un tableau plein (64 Kio, rapide à remplir bloc par bloc) ;
+/// [`Chunk::compact`] le réduit ensuite à une palette (voir `chunk/storage.rs`).
 ///
-/// À côté des blocs, la lumière : un octet par bloc (voir [`DEFAULT_LIGHT`]).
-/// Par défaut, plein ciel (15) et aucune torche (0), la lumière d'un chunk d'air.
+/// À côté des blocs, la lumière : un octet par bloc (voir [`DEFAULT_LIGHT`]), un seul si elle est
+/// la même partout. Par défaut, plein ciel (15) et aucune torche (0), la lumière d'un chunk d'air.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chunk {
-    blocks: Box<[BlockId]>,
-    light: Box<[u8]>,
+    blocks: Blocks,
+    light: Light,
     /// Les blocs actifs du chunk, par position ([`Chunk::index`]). Presque toujours vide.
     block_entities: HashMap<u16, BlockEntity>,
     /// Le biome de chaque colonne (x + 32 z), pour teinter l'herbe et les feuilles. Vide
@@ -74,9 +76,8 @@ impl Chunk {
     /// Un chunk rempli d'air.
     pub fn new() -> Self {
         Self {
-            // `vec![x; n]` puis `into_boxed_slice` : on fige la taille du tableau.
-            blocks: vec![BlockId::AIR; VOLUME].into_boxed_slice(),
-            light: vec![DEFAULT_LIGHT; VOLUME].into_boxed_slice(),
+            blocks: Blocks::full(BlockId::AIR),
+            light: Light::Uniform(DEFAULT_LIGHT),
             block_entities: HashMap::default(),
             biomes: Vec::new(),
             fluids: HashMap::default(),
@@ -129,24 +130,60 @@ impl Chunk {
     /// Hors limites, l'indexation du tableau panique : c'est un bug de l'appelant.
     #[inline]
     pub fn get(&self, x: usize, y: usize, z: usize) -> BlockId {
-        self.blocks[Self::index(x, y, z)]
+        self.blocks.get(Self::index(x, y, z))
     }
 
     #[inline]
     pub fn set(&mut self, x: usize, y: usize, z: usize, block: BlockId) {
-        self.blocks[Self::index(x, y, z)] = block;
+        self.blocks.set(Self::index(x, y, z), block);
     }
 
-    /// Tous les blocs, dans l'ordre de [`Chunk::index`].
-    pub fn blocks(&self) -> &[BlockId] {
-        &self.blocks
+    /// Tous les blocs, dans l'ordre de [`Chunk::index`]. Copiés si le chunk est compact : pour
+    /// parcourir sans allouer, voir [`Chunk::iter_blocks`] et [`Chunk::copy_blocks`].
+    pub fn blocks(&self) -> std::borrow::Cow<'_, [BlockId]> {
+        self.blocks.as_slice()
+    }
+
+    /// Tous les blocs, dans l'ordre de [`Chunk::index`], sans copie.
+    pub fn iter_blocks(&self) -> impl Iterator<Item = BlockId> + '_ {
+        self.blocks.iter()
+    }
+
+    /// Copie les blocs `start..start + out.len()` (dans l'ordre de [`Chunk::index`]) dans `out`.
+    #[inline]
+    pub fn copy_blocks(&self, start: usize, out: &mut [BlockId]) {
+        self.blocks.copy_to(start, out);
+    }
+
+    /// Copie la lumière `start..start + out.len()` dans `out`.
+    #[inline]
+    pub fn copy_light(&self, start: usize, out: &mut [u8]) {
+        self.light.copy_to(start, out);
+    }
+
+    /// Réduit les blocs et la lumière à leur plus petite représentation (palette, valeur unique).
+    /// À appeler une fois le chunk rempli : la génération écrit plus vite dans le tableau plein.
+    pub fn compact(&mut self) {
+        self.blocks.compact();
+        if let Light::Full(data) = &self.light
+            && let Some(&first) = data.first()
+            && data.iter().all(|&v| v == first)
+        {
+            self.light = Light::Uniform(first);
+        }
+        self.biomes.shrink_to_fit();
+    }
+
+    /// Octets occupés sur le tas par les blocs et la lumière (pour les statistiques).
+    pub fn heap_bytes(&self) -> usize {
+        self.blocks.heap_bytes() + self.light.heap_bytes() + self.biomes.capacity()
     }
 
     /// Un chunk à partir de ses blocs (lumière par défaut). `None` si la taille est fausse.
     pub fn from_blocks(blocks: Vec<BlockId>) -> Option<Self> {
         (blocks.len() == VOLUME).then(|| Self {
-            blocks: blocks.into_boxed_slice(),
-            light: vec![DEFAULT_LIGHT; VOLUME].into_boxed_slice(),
+            blocks: Blocks::Full(blocks.into_boxed_slice()),
+            light: Light::Uniform(DEFAULT_LIGHT),
             block_entities: HashMap::default(),
             biomes: Vec::new(),
             fluids: HashMap::default(),
@@ -178,45 +215,52 @@ impl Chunk {
     /// Lumière du ciel, de 0 à 15. `>> 4` garde les 4 bits de poids fort.
     #[inline]
     pub fn sky_light(&self, x: usize, y: usize, z: usize) -> u8 {
-        self.light[Self::index(x, y, z)] >> 4
+        self.light.get(Self::index(x, y, z)) >> 4
     }
 
     /// Lumière des blocs, de 0 à 15. `& 0x0F` garde les 4 bits de poids faible.
     #[inline]
     pub fn block_light(&self, x: usize, y: usize, z: usize) -> u8 {
-        self.light[Self::index(x, y, z)] & 0x0F
+        self.light.get(Self::index(x, y, z)) & 0x0F
     }
 
     #[inline]
     pub fn set_sky_light(&mut self, x: usize, y: usize, z: usize, level: u8) {
-        let cell = &mut self.light[Self::index(x, y, z)];
+        let cell = self.light.cell_mut(Self::index(x, y, z));
         *cell = (*cell & 0x0F) | (level << 4);
     }
 
     #[inline]
     pub fn set_block_light(&mut self, x: usize, y: usize, z: usize, level: u8) {
-        let cell = &mut self.light[Self::index(x, y, z)];
+        let cell = self.light.cell_mut(Self::index(x, y, z));
         *cell = (*cell & 0xF0) | (level & 0x0F);
     }
 
     /// Remplace toute la lumière (calculée par une tâche de fond).
     pub fn set_light_data(&mut self, light: Box<[u8]>) {
         assert_eq!(light.len(), VOLUME, "taille de lumière invalide");
-        self.light = light;
+        self.light = Light::from_data(light);
     }
 
     /// Remet la lumière par défaut (plein ciel, aucune torche).
     pub fn reset_light(&mut self) {
-        self.light.fill(DEFAULT_LIGHT);
+        self.light = Light::Uniform(DEFAULT_LIGHT);
     }
 
-    pub fn light_data(&self) -> &[u8] {
-        &self.light
+    /// Toute la lumière. Copiée si elle est uniforme : pour lire sans allouer, voir
+    /// [`Chunk::copy_light`] et [`Chunk::light_all`].
+    pub fn light_data(&self) -> std::borrow::Cow<'_, [u8]> {
+        self.light.as_slice()
+    }
+
+    /// Vrai si la lumière de chaque bloc vérifie `f`.
+    pub fn light_all(&self, f: impl Fn(u8) -> bool) -> bool {
+        self.light.all(f)
     }
 
     /// Vrai si le chunk ne contient que de l'air (rien à mailler).
     pub fn is_empty(&self) -> bool {
-        self.blocks.iter().all(|b| b.is_air())
+        self.blocks.all(|b| b.is_air())
     }
 }
 
@@ -271,7 +315,7 @@ impl Chunk {
         let wire = WireChunk {
             palette,
             indices,
-            light: self.light.to_vec(),
+            light: self.light.as_slice().into_owned(),
             biomes: self.biomes.clone(),
             block_entities,
             fluids,
@@ -301,13 +345,15 @@ impl Chunk {
         {
             return Err(WireError("position hors du chunk".to_string()));
         }
-        Ok(Self {
-            blocks: blocks.into_boxed_slice(),
-            light: wire.light.into_boxed_slice(),
+        let mut chunk = Self {
+            blocks: Blocks::Full(blocks.into_boxed_slice()),
+            light: Light::Full(wire.light.into_boxed_slice()),
             block_entities: wire.block_entities.into_iter().collect(),
             biomes: wire.biomes,
             fluids: wire.fluids.into_iter().collect(),
-        })
+        };
+        chunk.compact();
+        Ok(chunk)
     }
 }
 
@@ -367,7 +413,7 @@ mod tests {
         chunk.set_block_entity(1, 2, 3, Some(BlockEntity::default()));
         let bytes = chunk.to_wire();
         let back = Chunk::from_wire(&bytes).unwrap();
-        assert!(back.blocks == chunk.blocks && back.light == chunk.light);
+        assert!(back.blocks() == chunk.blocks() && back.light_data() == chunk.light_data());
         assert_eq!(back.fluid_amount(4, 5, 6), Some(2048));
         assert_eq!(back.block_entities, chunk.block_entities);
         assert!(Chunk::from_wire(&bytes[..bytes.len() / 2]).is_err());

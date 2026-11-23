@@ -204,7 +204,7 @@ impl ChunkStreamer {
         let fresh = !self.slots.contains_key(&pos);
         // Aucune lumière du ciel : le maillage peut attendre le joueur (voir `StreamingConfig::mesh_depth`).
         if relit || fresh {
-            if chunk.light_data().iter().all(|v| v >> 4 == 0) {
+            if chunk.light_all(|v| v >> 4 == 0) {
                 self.dark.insert(pos);
             } else {
                 self.dark.remove(&pos);

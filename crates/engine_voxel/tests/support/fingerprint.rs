@@ -59,7 +59,7 @@ pub fn chunk_hash(generator: &TerrainGenerator, keys: &Keys, pos: IVec3) -> u64 
         return 0;
     };
     let mut h = FNV_OFFSET;
-    for &block in chunk.blocks() {
+    for block in chunk.iter_blocks() {
         h = mix(h, keys.block(block));
     }
     for biome in generator.biome_columns(pos) {

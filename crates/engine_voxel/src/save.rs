@@ -486,8 +486,8 @@ fn encode_chunk(
 ) -> Result<Vec<u8>> {
     let mut palette: Vec<String> = Vec::new();
     let mut lookup: HashMap<String, u16> = HashMap::new();
-    let mut blocks = Vec::with_capacity(chunk.blocks().len());
-    for (i, &id) in chunk.blocks().iter().enumerate() {
+    let mut blocks = Vec::with_capacity(crate::chunk::CHUNK_SIZE.pow(3));
+    for (i, id) in chunk.iter_blocks().enumerate() {
         // Un bloc inconnu retrouve son vrai identifiant.
         let key = match unknown.get(&i) {
             Some(original) => original.as_str(),

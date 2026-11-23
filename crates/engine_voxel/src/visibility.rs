@@ -98,11 +98,10 @@ impl FaceConnections {
     fn fill(chunk: &Chunk, registry: &BlockRegistry, buffers: &mut FillBuffers) -> Self {
         const N: usize = CHUNK_SIZE;
         const SHIFT: u32 = N.trailing_zeros();
-        let blocks = chunk.blocks();
         let FillBuffers { open, seen, stack } = buffers;
         // `true` : un bloc à travers lequel on voit (le même critère que le maillage).
         open.clear();
-        open.extend(blocks.iter().map(|&b| registry.is_transparent(b)));
+        open.extend(chunk.iter_blocks().map(|b| registry.is_transparent(b)));
         if open.iter().all(|&o| o) {
             return Self::ALL;
         }
@@ -110,10 +109,10 @@ impl FaceConnections {
             return Self::NONE;
         }
         seen.clear();
-        seen.resize(blocks.len(), false);
+        seen.resize(open.len(), false);
         stack.clear();
         let mut connections = Self::NONE;
-        for start in 0..blocks.len() {
+        for start in 0..open.len() {
             if !open[start] || seen[start] {
                 continue;
             }

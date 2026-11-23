@@ -216,7 +216,7 @@ impl GeometryArena {
     pub fn alloc(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        uploads: &mut Uploads,
         vertices: &[ColorVertex],
         indices: &[u32],
     ) -> Slice {
@@ -255,12 +255,14 @@ impl GeometryArena {
         let page = self.pages[index].as_mut().expect("page vivante");
         let first_vertex = page.vertices.alloc(vertex_count).expect("plage de sommets");
         let first_index = page.indices.alloc(index_count).expect("plage d'indices");
-        queue.write_buffer(
+        uploads.write(
+            device,
             &page.vertex_buffer,
             u64::from(first_vertex) * size_of::<ColorVertex>() as u64,
             bytemuck::cast_slice(vertices),
         );
-        queue.write_buffer(
+        uploads.write(
+            device,
             &page.index_buffer,
             u64::from(first_index) * 4,
             bytemuck::cast_slice(indices),
@@ -383,17 +385,22 @@ impl OriginTable {
 
     /// Réserve une entrée et l'écrit. La table double si elle est pleine (copie de l'ombre
     /// côté processeur : les images en vol gardent l'ancien tampon vivant).
-    pub fn alloc(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, entry: OriginEntry) -> u32 {
+    pub fn alloc(
+        &mut self,
+        device: &wgpu::Device,
+        uploads: &mut Uploads,
+        entry: OriginEntry,
+    ) -> u32 {
         if self.free.is_empty() {
             let old = self.shadow.len() as u32;
             let new = old * 2;
             self.shadow.resize(new as usize, [[0.0; 4]; 2]);
             self.free.extend((old..new).rev());
             self.buffer = Self::buffer(device, new);
-            queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&self.shadow));
+            uploads.write(device, &self.buffer, 0, bytemuck::cast_slice(&self.shadow));
         }
         let slot = self.free.pop().expect("entrée libre");
-        self.write(queue, slot, entry);
+        self.write(device, uploads, slot, entry);
         slot
     }
 
@@ -401,9 +408,16 @@ impl OriginTable {
         self.shadow[slot as usize]
     }
 
-    pub fn write(&mut self, queue: &wgpu::Queue, slot: u32, entry: OriginEntry) {
+    pub fn write(
+        &mut self,
+        device: &wgpu::Device,
+        uploads: &mut Uploads,
+        slot: u32,
+        entry: OriginEntry,
+    ) {
         self.shadow[slot as usize] = entry;
-        queue.write_buffer(
+        uploads.write(
+            device,
             &self.buffer,
             u64::from(slot) * size_of::<OriginEntry>() as u64,
             bytemuck::bytes_of(&entry),
@@ -431,6 +445,76 @@ impl OriginTable {
     pub fn clear(&mut self) {
         self.free = (0..self.shadow.len() as u32).rev().collect();
         self.pending.clear();
+    }
+}
+
+/// Taille d'un tampon de transit : plus grande que le budget d'envoi d'une image (3 Mio)
+/// et que presque tous les maillages (un plus gros a son propre tampon, rendu ensuite).
+const STAGING_CHUNK: u64 = 4 << 20;
+/// Au-delà de ces octets en attente, on envoie sans attendre la prochaine image : une fenêtre
+/// cachée (aucune image dessinée) ne doit pas accumuler des tampons de transit.
+const FLUSH_BYTES: u64 = 16 << 20;
+
+/// Les envois de géométrie vers le GPU, regroupés dans des tampons de transit **réutilisés**.
+///
+/// `queue.write_buffer` crée un tampon de transit neuf à chaque appel. Pour les centaines de
+/// maillages envoyés chaque seconde en explorant, le pilote Metal garde ces tampons détruits
+/// en cache avant de rendre leur mémoire : on a mesuré plus de 2 Gio de tampons morts
+/// (des dizaines de milliers de régions « IOAccelerator »). Une `StagingBelt` recycle
+/// quelques tampons de 4 Mio à la place : la mémoire de transit reste à quelques dizaines de Mio.
+pub struct Uploads {
+    belt: wgpu::util::StagingBelt,
+    encoder: Option<wgpu::CommandEncoder>,
+    pending: u64,
+}
+
+impl Uploads {
+    pub fn new(device: &wgpu::Device) -> Self {
+        Self {
+            belt: wgpu::util::StagingBelt::new(device.clone(), STAGING_CHUNK),
+            encoder: None,
+            pending: 0,
+        }
+    }
+
+    /// Copie `bytes` dans `target` à `offset`, à la prochaine [`Uploads::flush`].
+    /// `offset` et la taille doivent être des multiples de 4 (sommets et indices le sont).
+    pub fn write(
+        &mut self,
+        device: &wgpu::Device,
+        target: &wgpu::Buffer,
+        offset: u64,
+        bytes: &[u8],
+    ) {
+        let Some(size) = wgpu::BufferSize::new(bytes.len() as u64) else {
+            return;
+        };
+        let encoder = self.encoder.get_or_insert_with(|| {
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("envois de géométrie"),
+            })
+        });
+        self.belt
+            .write_buffer(encoder, target, offset, size)
+            .copy_from_slice(bytes);
+        self.pending += size.get();
+    }
+
+    /// Trop d'octets en attente : à envoyer sans attendre l'image.
+    pub fn should_flush(&self) -> bool {
+        self.pending >= FLUSH_BYTES
+    }
+
+    /// Envoie les copies en attente. À appeler avant de dessiner (les copies passent avant).
+    pub fn flush(&mut self, queue: &wgpu::Queue) {
+        let Some(encoder) = self.encoder.take() else {
+            return;
+        };
+        self.belt.finish();
+        queue.submit([encoder.finish()]);
+        // Les tampons reviennent quand le GPU a fini de les lire (au prochain `submit`).
+        self.belt.recall();
+        self.pending = 0;
     }
 }
 

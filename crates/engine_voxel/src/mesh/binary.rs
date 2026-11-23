@@ -244,10 +244,8 @@ fn fill(s: &mut Scratch, hood: &Neighbourhood) {
                 match &hood.chunks[index_of(IVec3::new(ox, oy, oz))] {
                     Some(chunk) => {
                         let src = Chunk::index(from as usize, ly as usize, lz as usize);
-                        s.blocks[dst..dst + count]
-                            .copy_from_slice(&chunk.blocks()[src..src + count]);
-                        s.light[dst..dst + count]
-                            .copy_from_slice(&chunk.light_data()[src..src + count]);
+                        chunk.copy_blocks(src, &mut s.blocks[dst..dst + count]);
+                        chunk.copy_light(src, &mut s.light[dst..dst + count]);
                     }
                     None => {
                         // Un chunk absent est de l'air en plein ciel ; sous le monde, il fait noir.

@@ -1602,6 +1602,11 @@ impl ChunkStreamer {
                 }
                 None => (generator.generate(pos), None),
             };
+            // La palette (voir `chunk/storage.rs`) : ici, sur le thread de fond.
+            let chunk = chunk.map(|mut chunk| {
+                chunk.compact();
+                chunk
+            });
             // Si le jeu s'est fermé entre-temps, le `Receiver` n'existe plus : on ignore.
             let _ = sender.send(JobResult::Generated { pos, chunk, saved });
         });
