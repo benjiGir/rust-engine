@@ -137,6 +137,15 @@ quelques grands tampons :
   `first_instance = n`.
 - Une plage libérée n'est réutilisée qu'après 3 images : le GPU lit peut-être encore les précédentes. Les
   pages vides sont rendues au système (sauf une de réserve).
+- `Uploads` : les envois passent par une `StagingBelt` (quelques tampons de transit de 4 Mio
+  **réutilisés**), copiés en tête de l'image. `queue.write_buffer` créait un tampon de transit par envoi, et
+  le pilote Metal gardait ces tampons morts en cache : jusqu'à 2 Gio en explorant.
+- **La défragmentation** : les chunks déchargés derrière le joueur laissent des trous dans toutes les pages,
+  et une page n'est rendue que vide (on a mesuré des arènes remplies à 46 %). `drain_target` choisit la page
+  la moins remplie (sous 60 %, si les autres ont deux fois sa place occupée de libre) et n'y place plus
+  rien ; à chaque image, `Renderer::defragment` déplace au plus 4 Mio de ses maillages dans les trous des
+  autres pages (`relocate`, une copie GPU → GPU dans le même encodeur que les envois). Vidée, la page est
+  rendue. L'arène reste ainsi remplie à 83–96 %.
 
 ## Le culling : ne dessiner que ce qu'on voit
 

@@ -24,7 +24,7 @@ const SIZE: i32 = CHUNK_SIZE as i32;
 ///
 /// Les chunks sont rangés dans des `Arc<Chunk>` (« Atomically Reference Counted ») :
 /// plusieurs propriétaires peuvent partager le même chunk, même sur des threads
-/// différents. Cloner un `Arc` ne copie pas les 64 Ko du chunk, cela incrémente
+/// différents. Cloner un `Arc` ne copie pas les blocs du chunk, cela incrémente
 /// juste un compteur. C'est ce qui permet d'envoyer un chunk et ses voisins à un
 /// thread de maillage pendant que le thread principal continue à les lire.
 ///

@@ -23,15 +23,30 @@ de `y = -128` (le socle, `MIN_CHUNK_Y = -4`) à `y = 255` (`MAX_CHUNK_Y = 8`, ex
 
 ```rust
 pub struct Chunk {
-    blocks: Box<[BlockId]>,                     // 32 768 blocs, index x + 32·z + 1024·y
-    light: Box<[u8]>,                           // 32 768 octets : ciel (4 bits) | blocs (4 bits)
+    blocks: Blocks,                             // 32 768 blocs, index x + 32·z + 1024·y (palette)
+    light: Light,                               // 32 768 octets : ciel (4 bits) | blocs (4 bits), ou un seul
     block_entities: HashMap<u16, BlockEntity>,  // les blocs actifs, presque toujours vide
     biomes: Vec<u8>,                            // le biome de chaque colonne (teintes), recalculé
     fluids: HashMap<u16, u16>,                  // le volume des cellules de fluide en mouvement
 }
 ```
 
-Un chunk pèse environ 96 Kio (blocs + lumière). Le monde le garde dans un `Arc` : les threads de fond le
+Les blocs et la lumière sont **compacts** (`chunk/storage.rs`). Un chunk neuf écrit ses blocs dans un
+tableau plein de `u16` (64 Kio, rapide pour la génération), puis le streamer appelle `Chunk::compact` sur
+le thread de fond :
+
+- les blocs passent en **palette** : un indice de 4 bits (16 Kio) jusqu'à 16 sortes de blocs, de 8 bits
+  (32 Kio) jusqu'à 256, un seul numéro pour un chunk uniforme ; au-delà de 256 sortes, le tableau plein
+  reste. Presque tous les chunks générés ont moins de 16 sortes de blocs ;
+- la lumière tient en **un octet** quand elle est la même partout (un chunk profond est tout noir).
+
+Une écriture ensuite (`set`, `set_sky_light`...) va directement dans la palette et ne l'agrandit
+(4 → 8 → 16 bits) que si la nouvelle sorte de bloc ne tient plus. Pour lire sans décoder bloc par bloc :
+`copy_blocks` et `copy_light` (une rangée, pour le maillage), `iter_blocks`. `blocks()` et `light_data()`
+renvoient un `Cow` : une copie si le chunk est compact.
+
+Un chunk pèse ainsi **environ 25 Kio** au lieu de 97 : à un rayon de vue de 32, les ~45 000 chunks
+chargés tiennent en 1,1 Gio au lieu de plus de 4. Le monde le garde dans un `Arc` : les threads de fond le
 lisent sans copie, et le thread principal le copie seulement s'il le modifie pendant qu'une tâche le lit
 (`Arc::make_mut`).
 
@@ -285,7 +300,7 @@ flowchart LR
   libère (`Unload`) ceux sortis du rayon plus une marge.
 - **La réplique** ne génère, n'éclaire ni ne sauvegarde rien : elle range les chunks reçus et les maille
   avec les mêmes priorités, le même budget, les mêmes couches sombres que le streamer seul. Elle tient les
-  **mêmes `Arc`** que le serveur : une édition copie le chunk (`Arc::make_mut`, environ 96 Kio) tant que
+  **mêmes `Arc`** que le serveur : une édition copie le chunk (`Arc::make_mut`, environ 25 Kio une fois compact) tant que
   la réplique tient l'ancien.
 - **Une édition se voit dans la même image** : le serveur l'applique, l'expéditeur la renvoie à la fin de
   l'image, et la réplique remplace d'abord tous les chunks reçus, puis refait la géométrie de chaque

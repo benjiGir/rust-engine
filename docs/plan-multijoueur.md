@@ -446,7 +446,7 @@ fenêtre dessine ou vise vient de la réplique, plus jamais du monde du serveur.
 changements et la réplique les applique avant l'envoi au GPU, en remaillage urgent comme aujourd'hui.
 
 **Coût mémoire** : la réplique tient les mêmes `Arc` que le serveur. Une édition sur le serveur copie donc le chunk
-(`Arc::make_mut`), soit environ 64 Ko par chunk modifié. On le mesure (`cargo xtask bench` avant et après) et on le
+(`Arc::make_mut`), soit environ 64 Ko par chunk modifié (environ 25 Kio depuis les chunks en palette, `chunk/storage.rs`). On le mesure (`cargo xtask bench` avant et après) et on le
 note.
 
 **Tests**

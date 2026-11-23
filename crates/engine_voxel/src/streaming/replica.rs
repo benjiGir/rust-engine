@@ -11,7 +11,7 @@
 //!
 //! Les chunks passent en `Arc<Chunk>` sans copie : le serveur et la réplique partagent les mêmes
 //! blocs. Quand le serveur modifie un chunk que la réplique tient encore, `Arc::make_mut` en fait une
-//! copie (environ 96 Kio) ; la réplique garde l'ancien jusqu'à ce que le nouveau lui arrive.
+//! copie (environ 25 Kio, voir `chunk/storage.rs`) ; la réplique garde l'ancien jusqu'à ce que le nouveau lui arrive.
 //!
 //! # Une édition se voit dans la même image
 //!

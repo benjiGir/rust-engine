@@ -992,6 +992,34 @@ impl Renderer {
             .write(&self.device, &mut self.uploads, slot, entry);
     }
 
+    /// Vide peu à peu la page la moins remplie de l'arène (voir « Défragmentation » dans
+    /// `arena.rs`) : au plus [`crate::arena::DEFRAG_BYTES_PER_FRAME`] octets déplacés par image.
+    fn defragment(&mut self) {
+        let Some(page) = self.arena.drain_target() else {
+            return;
+        };
+        let mut budget = crate::arena::DEFRAG_BYTES_PER_FRAME as i64;
+        for mesh in self.meshes.values_mut() {
+            if mesh.slice.page != page {
+                continue;
+            }
+            if budget <= 0 {
+                return;
+            }
+            match self.arena.relocate(&mut self.uploads, mesh.slice) {
+                Some(moved) => {
+                    budget -= (u64::from(moved.vertex_count) * size_of::<ColorVertex>() as u64
+                        + u64::from(moved.index_count) * 4) as i64;
+                    mesh.slice = moved;
+                }
+                None => {
+                    self.arena.stop_draining();
+                    return;
+                }
+            }
+        }
+    }
+
     /// Retire un maillage ; ses tampons GPU sont libérés.
     pub fn remove_mesh(&mut self, id: MeshId) {
         if let Some(mesh) = self.meshes.remove(&id) {
@@ -1158,6 +1186,7 @@ impl Renderer {
         size: [u32; 2],
         ui: Option<UiFrame>,
     ) -> RenderStats {
+        self.defragment();
         // Les maillages arrivés depuis la dernière image : copiés avant de dessiner.
         self.uploads.flush(&self.queue);
         // Les plages libérées arrivées à échéance redeviennent utilisables.
