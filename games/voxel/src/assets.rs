@@ -105,10 +105,17 @@ mod tests {
         let icon = crate::render::item_models::tall_plant_sprite(&registry, sunflower).unwrap();
         let (head, stem) = icon.split_at(64 * 32 * 4);
         assert!(
-            head.chunks_exact(4)
+            head.as_chunks::<4>()
+                .0
+                .iter()
                 .any(|p| p[3] > 0 && p[0] > 180 && p[2] < 100)
         );
-        assert!(stem.chunks_exact(4).any(|p| p[3] > 0 && p[1] > p[0]));
+        assert!(
+            stem.as_chunks::<4>()
+                .0
+                .iter()
+                .any(|p| p[3] > 0 && p[1] > p[0])
+        );
         assert!(
             load_textures(&registry)
                 .iter()
