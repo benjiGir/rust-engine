@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use engine_voxel::{BlockId, PlayerBody, blocks::bed, blocks::door};
+use engine_voxel::{BlockId, PlayerBody, blocks::bed, blocks::door, blocks::tall_plant};
 use glam::{IVec3, Vec3};
 
 use crate::{BlockPlaced, events, player};
@@ -96,6 +96,8 @@ impl crate::server::VoxelServer {
     ) -> Option<[(IVec3, BlockId); 2]> {
         if self.registry.def(block).key == bed::ITEM {
             bed::placement(&self.registry, pos, look)
+        } else if let Some(parts) = tall_plant::placement(&self.registry, block, pos) {
+            Some(parts)
         } else {
             door::placement(&self.registry, block, pos, look)
         }

@@ -447,6 +447,77 @@ fn v3_forests_are_denser_and_their_crowded_trees_taller() {
     );
 }
 
+/// Les plantes hautes des mondes v3 (tournesols, grande herbe) ont toujours leur tête au-dessus de leur
+/// pied, même quand le pied et la tête tombent dans deux chunks différents.
+#[test]
+fn v3_tall_plants_always_have_their_head() {
+    use crate::GenerationVersion;
+    let g = TerrainGenerator::new(42)
+        .with_version(GenerationVersion::V3)
+        .unwrap();
+    let biome = g.biomes().id("core:sunflower_plains").unwrap();
+    // Un champ de tournesols de la graine 42 est vers (1 920, −320) : chercher autour (un champ, rare,
+    // serait long à trouver depuis l'origine).
+    let (x, z) = g
+        .find_column(1920, -320, 16, 2_000, |c| c.biome == biome)
+        .expect("un champ de tournesols");
+    // Seulement les chunks autour du sol (les têtes peuvent passer dans le chunk du dessus).
+    let ground = World::split(IVec3::new(x, g.column(x, z).height, z)).0;
+    let home = ground;
+    let mut world = World::with_registry(g.registry().clone());
+    for cx in -1..=1 {
+        for cz in -1..=1 {
+            for cy in -1..=1 {
+                let pos = ground + IVec3::new(cx, cy, cz);
+                if let Some(chunk) = g.generate(pos) {
+                    world.insert(pos, chunk.into());
+                }
+            }
+        }
+    }
+    let registry = g.registry();
+    let id = |k: &str| registry.id(k).unwrap();
+    let pairs = [
+        (id("core:sunflower"), id("core:sunflower_top")),
+        (
+            id("core:tall_grass_double"),
+            id("core:tall_grass_double_top"),
+        ),
+    ];
+    let mut feet = 0;
+    for cx in 0..3 {
+        for cz in 0..3 {
+            for y in home.y - 1..=home.y + 1 {
+                let pos = IVec3::new(home.x - 1 + cx, y, home.z - 1 + cz);
+                let Some(chunk) = world.chunk(pos) else {
+                    continue;
+                };
+                let origin = World::chunk_origin(pos);
+                for (lx, ly, lz) in itertools_cells() {
+                    let block = chunk.get(lx, ly, lz);
+                    let at = origin + IVec3::new(lx as i32, ly as i32, lz as i32);
+                    for &(foot, head) in &pairs {
+                        if block == foot {
+                            feet += 1;
+                            assert_eq!(world.block(at + IVec3::Y), head, "tête manquante en {at}");
+                        }
+                        if block == head {
+                            assert_eq!(world.block(at - IVec3::Y), foot, "pied manquant en {at}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(feet > 10, "{feet} plantes hautes seulement");
+}
+
+/// Les cases d'un chunk.
+fn itertools_cells() -> impl Iterator<Item = (usize, usize, usize)> {
+    let n = CHUNK_SIZE;
+    (0..n).flat_map(move |x| (0..n).flat_map(move |y| (0..n).map(move |z| (x, y, z))))
+}
+
 /// Un chunk généré seul est identique au même chunk généré au milieu de ses voisins :
 /// l'ordre de génération (et donc les threads) ne change rien.
 #[test]

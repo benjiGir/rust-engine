@@ -24,6 +24,9 @@
 // - trees : les formes d'arbres et leur poids, tree_density : arbres par colonne de chunk
 //   (32 × 32 blocs) ; formes : Oak, BigOak, Birch, Spruce, TallSpruce, Acacia, Jungle,
 //   JungleBush, Swamp, Cactus, Bush ;
+// - v3_plants : les plantes des mondes v3, quand elles diffèrent (champs sauvages wild_wheat,
+//   wild_barley, wild_oats ; buissons à baies posés mûrs ; plantes hautes tall_grass_double, sunflower,
+//   dont la tête est posée au-dessus) ;
 // - v3_trees, v3_tree_density : les arbres des mondes v3, quand ils diffèrent (des forêts plus
 //   denses, des formes de plus : TallBirch, DarkOak, GiantSpruce, YoungOak pour le sous-bois) ; au
 //   cœur d'un bosquet, les arbres v3 montent jusqu'à 3 blocs plus haut. Les mondes v1 ne changent
@@ -90,6 +93,7 @@
         grass_color: (0.5, 0.75, 0.3), foliage_color: (0.4, 0.65, 0.25), water_color: (0.25, 0.45, 0.85),
         trees: [(Oak, 0.6), (Bush, 0.4)], tree_density: 0.7, groves: 0.9,
         plants: [("tall_grass", 0.25, 0.4), ("poppy", 0.008), ("dandelion", 0.012), ("daisy", 0.008), ("cornflower", 0.005)],
+        v3_plants: [("tall_grass", 0.22, 0.4), ("tall_grass_double", 0.03, 0.6), ("wild_wheat", 0.012, 0.92), ("poppy", 0.008), ("dandelion", 0.012), ("daisy", 0.008), ("cornflower", 0.005)],
     ),
     (
         id: "core:forest", name: "Forêt", kind: Land, climate: (0.1, 0.25), temperature: 0.7,
@@ -98,6 +102,7 @@
         trees: [(Oak, 0.75), (BigOak, 0.07), (Birch, 0.18)], tree_density: 10.0,
         v3_trees: [(Oak, 0.62), (BigOak, 0.1), (Birch, 0.16), (YoungOak, 0.08), (Bush, 0.04)], v3_tree_density: 34.0,
         plants: [("tall_grass", 0.08, 0.4), ("fern", 0.02), ("brown_mushroom", 0.006), ("red_mushroom", 0.003), ("poppy", 0.004)],
+        v3_plants: [("tall_grass", 0.08, 0.4), ("tall_grass_double", 0.015, 0.6), ("fern", 0.02), ("brown_mushroom", 0.006), ("red_mushroom", 0.003), ("poppy", 0.004)],
     ),
     (
         id: "core:birch_forest", name: "Forêt de bouleaux", kind: Land, climate: (-0.2, 0.05), temperature: 0.6,
@@ -114,6 +119,7 @@
         trees: [(Spruce, 1.0)], tree_density: 9.0,
         v3_trees: [(Spruce, 1.0)], v3_tree_density: 26.0,
         plants: [("fern", 0.08, 0.5), ("tall_grass", 0.04, 0.4), ("brown_mushroom", 0.005)],
+        v3_plants: [("fern", 0.08, 0.5), ("tall_grass", 0.04, 0.4), ("sweet_berry_bush_2", 0.006, 0.8), ("brown_mushroom", 0.005)],
         ground_patches: [("podzol", 0.45), ("coarse_dirt", 0.08)],
     ),
     (
@@ -160,6 +166,7 @@
         grass_color: (0.44, 0.75, 0.28), foliage_color: (0.36, 0.65, 0.22), water_color: (0.25, 0.45, 0.85),
         trees: [(Birch, 0.4), (Oak, 0.3), (Bush, 0.3)], tree_density: 0.6, groves: 1.0,
         plants: [("tall_grass", 0.18, 0.5), ("poppy", 0.03), ("dandelion", 0.03), ("daisy", 0.035), ("cornflower", 0.025), ("lavender", 0.02)],
+        v3_plants: [("tall_grass", 0.15, 0.5), ("tall_grass_double", 0.02, 0.6), ("poppy", 0.035), ("dandelion", 0.035), ("daisy", 0.04), ("cornflower", 0.03), ("lavender", 0.025), ("tulip", 0.035), ("allium", 0.025)],
     ),
     (
         id: "core:dark_forest", name: "Forêt sombre", kind: Land, climate: (0.1, 0.25), variety: -0.8, temperature: 0.7,
@@ -186,6 +193,7 @@
         trees: [(Spruce, 0.45), (Birch, 0.3), (Oak, 0.25)], tree_density: 9.0,
         v3_trees: [(Spruce, 0.42), (Birch, 0.28), (Oak, 0.25), (YoungOak, 0.05)], v3_tree_density: 24.0,
         plants: [("fern", 0.06, 0.5), ("tall_grass", 0.05, 0.4), ("brown_mushroom", 0.004), ("lavender", 0.004)],
+        v3_plants: [("fern", 0.06, 0.5), ("tall_grass", 0.05, 0.4), ("blueberry_bush_2", 0.007, 0.8), ("brown_mushroom", 0.004), ("lavender", 0.004)],
         ground_patches: [("podzol", 0.3)],
     ),
     (
@@ -195,6 +203,7 @@
         trees: [(TallSpruce, 0.55), (Spruce, 0.45)], tree_density: 10.0, groves: 0.4,
         v3_trees: [(GiantSpruce, 0.3), (TallSpruce, 0.4), (Spruce, 0.3)], v3_tree_density: 22.0,
         plants: [("fern", 0.14, 0.4), ("brown_mushroom", 0.012), ("red_mushroom", 0.004)],
+        v3_plants: [("fern", 0.14, 0.4), ("sweet_berry_bush_2", 0.005, 0.8), ("blueberry_bush_2", 0.006, 0.8), ("brown_mushroom", 0.012), ("red_mushroom", 0.004)],
         ground_patches: [("grass", 0.3), ("coarse_dirt", 0.12)],
     ),
     (
@@ -212,6 +221,7 @@
         grass_color: (0.48, 0.62, 0.26), foliage_color: (0.36, 0.52, 0.2), water_color: (0.22, 0.4, 0.7),
         trees: [(Bush, 0.7), (Spruce, 0.3)], tree_density: 0.4, groves: 0.9,
         plants: [("tall_grass", 0.4, 0.5), ("lavender", 0.004), ("dandelion", 0.003)],
+        v3_plants: [("tall_grass", 0.12, 0.5), ("wild_barley", 0.012, 0.92), ("dead_bush", 0.002)],
         ground_patches: [("coarse_dirt", 0.2), ("gravel", 0.06)],
     ),
     (
@@ -305,6 +315,7 @@
         grass_color: (0.72, 0.72, 0.34), foliage_color: (0.6, 0.62, 0.3), water_color: (0.25, 0.45, 0.8),
         trees: [(Bush, 0.7), (Oak, 0.3)], tree_density: 0.4, groves: 1.0,
         plants: [("tall_grass", 0.34, 0.6), ("dandelion", 0.02), ("poppy", 0.006)],
+        v3_plants: [("tall_grass", 0.2, 0.5), ("tall_grass_double", 0.04, 0.6), ("wild_oats", 0.014, 0.92), ("wild_barley", 0.01, 0.92), ("dandelion", 0.006)],
         ground_patches: [("coarse_dirt", 0.04)],
     ),
     (
@@ -428,5 +439,14 @@
         grass_color: (0.52, 0.68, 0.32), foliage_color: (0.42, 0.6, 0.28), water_color: (0.25, 0.45, 0.82),
         trees: [(Cherry, 1.0)], tree_density: 7.0, groves: 0.7,
         plants: [("pink_petals", 0.2, 0.55), ("tall_grass", 0.1, 0.4)],
+    ),
+    // ----- Les champs de tournesols (lot N5 de docs/plan-nature.md) : une plaine tempérée et sèche,
+    // semée de tournesols et de grande herbe. -----
+    (
+        id: "core:sunflower_plains", name: "Champ de tournesols", kind: Land, temperature: 0.8, v3_only: true,
+        surface: "grass", subsurface: "dirt", underwater: "sand",
+        grass_color: (0.55, 0.7, 0.3), foliage_color: (0.45, 0.62, 0.26), water_color: (0.25, 0.45, 0.82),
+        trees: [(Oak, 0.5), (Bush, 0.5)], tree_density: 0.3, groves: 1.0,
+        plants: [("sunflower", 0.07, 0.85), ("tall_grass_double", 0.05, 0.6), ("tall_grass", 0.18, 0.4), ("dandelion", 0.008)],
     ),
 ]

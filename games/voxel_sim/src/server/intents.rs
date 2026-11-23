@@ -334,7 +334,8 @@ impl crate::server::VoxelServer {
     }
 
     /// Un clic droit : les usages s'enchaînent (wagon, structure, porte, lit, conteneur, machine,
-    /// habitant, animal, houe, engrais, charme, guide, objet de mod), puis on pose le bloc tenu.
+    /// habitant, animal, buisson à baies, houe, engrais, charme, guide, objet de mod), puis on pose le
+    /// bloc tenu.
     fn handle_use(&mut self, sneaking: bool) {
         let block_pos = self.aim().hit.map(|hit| hit.block_pos);
         let used = self.use_cart()
@@ -346,6 +347,7 @@ impl crate::server::VoxelServer {
             || self.use_machine()
             || self.trade_with_villager()
             || self.feed_mob()
+            || self.pick_berries()
             || self.use_hoe()
             || self.use_fertilizer()
             || self.use_charm()

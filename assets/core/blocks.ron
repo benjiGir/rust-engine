@@ -1856,4 +1856,156 @@
         sounds: (break: "break_soft", place: "place_soft"),
         hardness: 0.0, support: Floor,
     ),
+    // ----- Les prés et les champs (lot N5 de docs/plan-nature.md). -----
+    // L'orge et l'avoine : des cultures comme le blé (graine sur terre labourée, quatre stades).
+    (
+        id: "core:barley_0", name: "Orge (stade 0)", color: (0.07, 0.26, 0.04), texture: "barley_0", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:barley_1", name: "Orge (stade 1)", color: (0.09, 0.27, 0.04), texture: "barley_1", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:barley_2", name: "Orge (stade 2)", color: (0.20, 0.30, 0.05), texture: "barley_2", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:barley_3", name: "Orge (stade 3)", color: (0.62, 0.48, 0.14), texture: "barley_3", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:oats_0", name: "Avoine (stade 0)", color: (0.07, 0.26, 0.04), texture: "oats_0", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:oats_1", name: "Avoine (stade 1)", color: (0.09, 0.27, 0.04), texture: "oats_1", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:oats_2", name: "Avoine (stade 2)", color: (0.24, 0.32, 0.08), texture: "oats_2", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    (
+        id: "core:oats_3", name: "Avoine (stade 3)", color: (0.70, 0.64, 0.38), texture: "oats_3", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        behavior: "core:crop", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Farmland,
+    ),
+    // Les champs sauvages : blé, orge et avoine qui poussent seuls dans les prés ; on y trouve les graines.
+    (
+        id: "core:wild_wheat", name: "Blé sauvage", color: (0.52, 0.42, 0.12), texture: "wild_wheat", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true, placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:wild_barley", name: "Orge sauvage", color: (0.58, 0.46, 0.14), texture: "wild_barley", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true, placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:wild_oats", name: "Avoine sauvage", color: (0.66, 0.6, 0.34), texture: "wild_oats", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true, placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    // Les plantes hautes : un pied et une tête (voir crates/engine_voxel/src/blocks/tall_plant.rs).
+    (
+        id: "core:tall_grass_double", name: "Grande herbe", color: (0.1356, 0.3712, 0.0595), texture: "tall_grass_double", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, tint: Grass, sway: true, behavior: "core:tall_plant",
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:tall_grass_double_top", name: "Grande herbe (haut)", color: (0.1356, 0.3712, 0.0595), texture: "tall_grass_double_top", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, tint: Grass, sway: true, behavior: "core:tall_plant", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: None,
+    ),
+    (
+        id: "core:sunflower", name: "Tournesol", color: (0.16, 0.34, 0.08), texture: "sunflower", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true, behavior: "core:tall_plant",
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:sunflower_top", name: "Tournesol (haut)", color: (0.86, 0.68, 0.10), texture: "sunflower_top", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true, behavior: "core:tall_plant", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: None,
+    ),
+    // Les buissons à baies : trois stades ; mûrs, on les cueille d'un clic droit et ils refont des baies.
+    (
+        id: "core:sweet_berry_bush_0", name: "Buisson de baies sucrées", color: (0.12, 0.28, 0.10), texture: "sweet_berry_bush_0", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true, behavior: "core:berry_bush", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:sweet_berry_bush_1", name: "Buisson de baies sucrées", color: (0.14, 0.30, 0.10), texture: "sweet_berry_bush_1", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true, behavior: "core:berry_bush", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:sweet_berry_bush_2", name: "Buisson de baies sucrées", color: (0.40, 0.12, 0.10), texture: "sweet_berry_bush_2", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true, behavior: "core:berry_bush", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:blueberry_bush_0", name: "Buisson de myrtilles", color: (0.10, 0.26, 0.12), texture: "blueberry_bush_0", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true, behavior: "core:berry_bush", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:blueberry_bush_1", name: "Buisson de myrtilles", color: (0.12, 0.28, 0.12), texture: "blueberry_bush_1", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true, behavior: "core:berry_bush", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:blueberry_bush_2", name: "Buisson de myrtilles", color: (0.14, 0.16, 0.34), texture: "blueberry_bush_2", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true, behavior: "core:berry_bush", placeable: false,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    // Des fleurs de plus pour les champs fleuris.
+    (
+        id: "core:tulip", name: "Tulipe", color: (0.78, 0.30, 0.42), texture: "tulip", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
+    (
+        id: "core:allium", name: "Ail des ours", color: (0.56, 0.36, 0.72), texture: "allium", shape: Cross,
+        cutout: true, solid: false, transparent: true, light_opacity: 0, sway: true,
+        sounds: (break: "break_soft", place: "place_soft"),
+        hardness: 0.0, support: Floor,
+    ),
 ]

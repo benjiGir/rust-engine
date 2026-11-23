@@ -980,6 +980,152 @@ fn crop(kind: &str, stage: usize) -> Image {
     image
 }
 
+/// L'orge et l'avoine (lot N5 du plan nature), à un stade (0..=3) : des tiges comme le blé ; mûre,
+/// l'orge porte des épis dorés barbus (une barbe qui dépasse), l'avoine des grappes pâles qui pendent
+/// de chaque côté.
+fn grain_crop(kind: &str, stage: usize) -> Image {
+    let mut image = Image::transparent();
+    let height = 4 + stage as i32 * 3;
+    let ripe = stage == 3;
+    let (stalk, ear) = match (kind, ripe) {
+        ("barley", true) => ([0.78, 0.62, 0.22], [0.88, 0.72, 0.3]),
+        ("oats", true) => ([0.78, 0.74, 0.48], [0.92, 0.88, 0.64]),
+        _ => ([0.3 + 0.03 * stage as f32, 0.62, 0.2], [0.58, 0.68, 0.28]),
+    };
+    for (i, x) in (2..15).step_by(3).enumerate() {
+        let h = height + (i as i32 % 2);
+        for k in 0..h {
+            image.plot(x, 15 - k, scale(stalk, 0.85 + 0.05 * (k % 3) as f32));
+        }
+        if stage >= 2 {
+            if kind == "oats" {
+                // Des grappes qui pendent de part et d'autre du haut de la tige.
+                for k in 0..3 {
+                    image.plot(x - 1, 16 - h + k * 2, ear);
+                    image.plot(x + 1, 17 - h + k * 2, scale(ear, 0.88));
+                }
+            } else {
+                image.plot(x, 15 - h, ear);
+                image.plot(x, 14 - h, ear);
+                image.plot(x + 1, 14 - h, scale(ear, 0.85));
+                if ripe {
+                    // La barbe de l'orge.
+                    image.plot(x + 1, 13 - h, scale(ear, 1.08));
+                    image.plot(x + 2, 12 - h, scale(ear, 1.08));
+                }
+            }
+        }
+    }
+    image
+}
+
+/// Une plante sauvage des prés : quelques tiges mûres de `kind` au milieu de l'herbe.
+fn wild_grain(kind: &str) -> Image {
+    let mut image = if kind == "wheat" {
+        crop("wheat", 3)
+    } else {
+        grain_crop(kind, 3)
+    };
+    let grass = [0.36, 0.6, 0.24];
+    for (x, h) in [(1, 6), (4, 4), (7, 7), (10, 5), (13, 6)] {
+        for k in 0..h {
+            image.plot(x, 15 - k, scale(grass, 0.85 + 0.06 * (k % 3) as f32));
+        }
+    }
+    image
+}
+
+/// La grande herbe, sur deux blocs : le pied (des brins pleine hauteur) et la tête (la suite des mêmes
+/// brins, de hauteurs variées).
+fn double_grass(color: [f32; 3], top: bool) -> Image {
+    let mut image = Image::transparent();
+    let mut rng = Rng::new(173);
+    for x in (1..15).step_by(2) {
+        let lean = rng.signed();
+        let height = 4 + (rng.next_u64() % 10) as i32;
+        let shade = 0.85 + 0.25 * rng.next_f32();
+        let (from, to) = if top { (16, 16 + height) } else { (0, 16) };
+        for k in from..to {
+            let px = x + (lean * k as f32 / 8.0) as i32;
+            image.plot(
+                px,
+                15 - (k - from),
+                scale(color, shade + 0.03 * (k % 3) as f32),
+            );
+        }
+    }
+    image
+}
+
+/// Le tournesol : le pied (une tige et deux grandes feuilles) et la tête (le haut de la tige et une
+/// grosse fleur jaune au cœur brun, tournée de côté).
+fn sunflower(top: bool) -> Image {
+    let stem = [0.28, 0.52, 0.18];
+    let mut image = Image::transparent();
+    if top {
+        for y in 9..16 {
+            image.set(7, y, stem);
+        }
+        for dy in -5i32..=5 {
+            for dx in -5i32..=5 {
+                let d = dx * dx + dy * dy;
+                let color = if d <= 6 {
+                    [0.42, 0.26, 0.1]
+                } else if d <= 26 {
+                    if (dx + dy).rem_euclid(3) == 0 {
+                        [0.98, 0.78, 0.12]
+                    } else {
+                        [0.95, 0.7, 0.08]
+                    }
+                } else {
+                    continue;
+                };
+                image.plot(8 + dx, 5 + dy, color);
+            }
+        }
+    } else {
+        for y in 0..16 {
+            image.set(7, y, stem);
+        }
+        for (x, y) in [
+            (5, 9),
+            (4, 8),
+            (3, 8),
+            (6, 10),
+            (9, 4),
+            (10, 3),
+            (11, 3),
+            (8, 5),
+        ] {
+            image.set(x, y, scale(stem, 1.15));
+        }
+    }
+    image
+}
+
+/// Un buisson à baies à un stade (0..=2) : une touffe de feuilles qui s'étoffe, et des baies de la
+/// couleur donnée quand il est mûr.
+fn berry_bush(stage: usize, berry: [f32; 3]) -> Image {
+    let leaf = [0.22, 0.48, 0.2];
+    let mut image = Image::transparent();
+    let r = 3 + stage as i32 * 2;
+    let mut rng = Rng::new(211 + stage as u64);
+    for dy in 0..=r {
+        for dx in -r..=r {
+            if dx * dx + (dy - r / 2) * (dy - r / 2) * 2 <= r * r && rng.next_f32() < 0.8 {
+                image.plot(8 + dx, 15 - dy, scale(leaf, 0.8 + 0.3 * rng.next_f32()));
+            }
+        }
+    }
+    if stage == 2 {
+        for (x, y) in [(5, 11), (9, 9), (11, 12), (7, 7), (4, 8), (12, 8), (8, 13)] {
+            image.plot(x, y, berry);
+            image.plot(x + 1, y, scale(berry, 0.8));
+        }
+    }
+    image
+}
+
 /// Une pomme de terre, un chou ou une pastèque à un stade (0..=3).
 fn ground_crop(kind: &str, stage: usize) -> Image {
     let mut image = Image::transparent();
@@ -1629,6 +1775,60 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
             sapling([0.3, 0.17, 0.18], [0.96, 0.62, 0.76]),
         ),
         (core.join("pink_petals.png"), pink_petals()),
+        // Les prés et les champs (lot N5 du plan nature).
+        (core.join("barley_0.png"), grain_crop("barley", 0)),
+        (core.join("barley_1.png"), grain_crop("barley", 1)),
+        (core.join("barley_2.png"), grain_crop("barley", 2)),
+        (core.join("barley_3.png"), grain_crop("barley", 3)),
+        (core.join("oats_0.png"), grain_crop("oats", 0)),
+        (core.join("oats_1.png"), grain_crop("oats", 1)),
+        (core.join("oats_2.png"), grain_crop("oats", 2)),
+        (core.join("oats_3.png"), grain_crop("oats", 3)),
+        (core.join("wild_wheat.png"), wild_grain("wheat")),
+        (core.join("wild_barley.png"), wild_grain("barley")),
+        (core.join("wild_oats.png"), wild_grain("oats")),
+        (
+            core.join("tall_grass_double.png"),
+            double_grass([0.4, 0.66, 0.26], false),
+        ),
+        (
+            core.join("tall_grass_double_top.png"),
+            double_grass([0.4, 0.66, 0.26], true),
+        ),
+        (core.join("sunflower.png"), sunflower(false)),
+        (core.join("sunflower_top.png"), sunflower(true)),
+        (
+            core.join("sweet_berry_bush_0.png"),
+            berry_bush(0, [0.85, 0.12, 0.15]),
+        ),
+        (
+            core.join("sweet_berry_bush_1.png"),
+            berry_bush(1, [0.85, 0.12, 0.15]),
+        ),
+        (
+            core.join("sweet_berry_bush_2.png"),
+            berry_bush(2, [0.85, 0.12, 0.15]),
+        ),
+        (
+            core.join("blueberry_bush_0.png"),
+            berry_bush(0, [0.22, 0.3, 0.72]),
+        ),
+        (
+            core.join("blueberry_bush_1.png"),
+            berry_bush(1, [0.22, 0.3, 0.72]),
+        ),
+        (
+            core.join("blueberry_bush_2.png"),
+            berry_bush(2, [0.22, 0.3, 0.72]),
+        ),
+        (
+            core.join("tulip.png"),
+            flower([0.92, 0.32, 0.48], [0.98, 0.84, 0.3]),
+        ),
+        (
+            core.join("allium.png"),
+            flower([0.66, 0.42, 0.86], [0.86, 0.7, 0.95]),
+        ),
         // La vague 2 : sapin aux aiguilles bleutées.
         (core.join("fir_leaves.png"), leaves([0.16, 0.34, 0.32], 145)),
         (

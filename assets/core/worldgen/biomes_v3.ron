@@ -88,6 +88,8 @@
         (biome: "core:flowering_desert", continentalness: (-0.115, 2.0), temperature: (0.55, 2.0), humidity: (-0.4, -0.2), erosion: (-0.3, 2.0)),
         // La cerisaie (lot N4 de docs/plan-nature.md) : sur les collines (érosion moyenne, pentes et
         // hauteurs mais pas les crêtes des massifs) du tempéré ni sec ni détrempé ; plus bas que la neige.
+        // Les champs de tournesols (lot N5) : la variante la plus rare des plaines sèches du tempéré.
+        (biome: "core:sunflower_plains", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.35, -0.1), variety: (-2.0, -0.4)),
         (biome: "core:cherry_grove", continentalness: (-0.05, 2.0), temperature: (-0.15, 0.2), humidity: (-0.2, 0.1), erosion: (-0.25, 0.1), pv: (0.1, 0.6)),
     ],
 )

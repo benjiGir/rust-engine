@@ -437,6 +437,7 @@ impl Machines {
         let farmland: Option<Rc<dyn BlockBehavior>> =
             crate::blocks::farming::Farmland::new(registry).map(|f| Rc::new(f) as _);
         let crop: Rc<dyn BlockBehavior> = Rc::new(crate::blocks::farming::Crop);
+        let berry_bush: Rc<dyn BlockBehavior> = Rc::new(crate::blocks::farming::BerryBush);
         let rail: Rc<dyn BlockBehavior> = Rc::new(crate::motion::rails::RailBehavior);
         for (id, def) in registry.iter() {
             // Un rail (`rail:` dans blocs.ron) : sa forme suit ses voisins.
@@ -464,6 +465,9 @@ impl Machines {
                     }
                 }
                 Some("core:crop") => machines.register_random(id, crop.clone()),
+                Some(crate::blocks::farming::BERRY_BUSH) => {
+                    machines.register_random(id, berry_bush.clone())
+                }
                 Some("core:farmland") => {
                     if let Some(farmland) = &farmland {
                         machines.register_random(id, farmland.clone());

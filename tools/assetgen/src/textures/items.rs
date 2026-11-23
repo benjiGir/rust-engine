@@ -282,6 +282,98 @@ fn leather() -> Image {
     icon(&mask, &[('H', hide), ('h', scale(hide, 0.65))])
 }
 
+/// Une grappe de baies (lot N5 du plan nature) : six petites boules et deux feuilles.
+fn berries(color: [f32; 3]) -> Image {
+    let mask = [
+        "................",
+        "................",
+        "......LL........",
+        ".....LLLL.......",
+        "......s.........",
+        "...BB.s.BB......",
+        "..BbBB.BbBB.....",
+        "..BBBdsBBBd.....",
+        "...BdBBBBd......",
+        ".....BbBB.......",
+        "....BBBBBB......",
+        "....BBBBBd......",
+        ".....BBdd.......",
+        "................",
+        "................",
+        "................",
+    ];
+    icon(
+        &mask,
+        &[
+            ('B', color),
+            ('b', [0.95, 0.85, 0.9]),
+            ('d', scale(color, 0.65)),
+            ('s', [0.4, 0.28, 0.15]),
+            ('L', [0.3, 0.62, 0.2]),
+        ],
+    )
+}
+
+/// Un bol de porridge : un bol de bois plein de flocons, et quelques baies dessus.
+fn porridge() -> Image {
+    let mask = [
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "...PPPPPPPPP....",
+        "..PPpPPrPPpPP...",
+        "..WPPPPPPPPPW...",
+        "..WWWWWWWWWWW...",
+        "...WwWWWWWwW....",
+        "....WWWWWWW.....",
+        ".....WWWWW......",
+        "....wwwwwww.....",
+        "................",
+        "................",
+        "................",
+    ];
+    let wood = [0.55, 0.36, 0.2];
+    icon(
+        &mask,
+        &[
+            ('P', [0.9, 0.82, 0.62]),
+            ('p', [0.98, 0.92, 0.76]),
+            ('r', [0.78, 0.14, 0.2]),
+            ('W', wood),
+            ('w', scale(wood, 0.7)),
+        ],
+    )
+}
+
+/// Une gerbe d'orge ou d'avoine : comme celle du blé, aux couleurs de la céréale (l'avoine en grappes
+/// qui pendent).
+fn grain(kind: &str) -> Image {
+    let mut image = Image::transparent();
+    let (stalk, ear) = if kind == "oats" {
+        ([0.66, 0.6, 0.36], [0.92, 0.88, 0.64])
+    } else {
+        ([0.62, 0.48, 0.2], [0.88, 0.7, 0.3])
+    };
+    for (cx, top) in [(5i32, 4i32), (9, 2), (12, 5)] {
+        for y in top..15 {
+            image.plot(cx - (y - top) / 7, y, stalk);
+        }
+        for y in top..top + 6 {
+            let dx = if (y - top) % 2 == 0 { -1 } else { 1 };
+            if kind == "oats" {
+                image.plot(cx + dx * 2, y + 1, ear);
+            } else {
+                image.plot(cx + dx, y, ear);
+                image.plot(cx + dx, y - 1, scale(ear, 1.08));
+            }
+            image.plot(cx, y, scale(ear, 0.85));
+        }
+    }
+    outlined(image)
+}
+
 /// Une pomme rouge, sa queue et une feuille.
 fn apple() -> Image {
     let mask = [
@@ -766,6 +858,13 @@ pub(super) fn item_icons(dir: &Path) -> Vec<(PathBuf, Image)> {
     add("cabbage", produce("cabbage"));
     add("melon_slice", produce("melon_slice"));
     add("melon_seeds", material("seeds", [0.2, 0.22, 0.12]));
+    add("barley_seeds", material("seeds", [0.7, 0.56, 0.28]));
+    add("oat_seeds", material("seeds", [0.78, 0.72, 0.5]));
+    add("barley", grain("barley"));
+    add("oats", grain("oats"));
+    add("sweet_berries", berries([0.82, 0.12, 0.15]));
+    add("blueberries", berries([0.22, 0.3, 0.72]));
+    add("porridge", porridge());
     add("pear", produce("pear"));
     add("nut", provisions("nut"));
     add("flask", flask(None));

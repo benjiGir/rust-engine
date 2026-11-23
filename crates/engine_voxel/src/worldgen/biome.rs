@@ -94,6 +94,9 @@ struct BiomeEntry {
     groves: f32,
     #[serde(default)]
     plants: Vec<PlantEntry>,
+    /// Les plantes des mondes v3, si elles diffèrent (les mondes v1 ne changent jamais).
+    #[serde(default)]
+    v3_plants: Option<Vec<PlantEntry>>,
     #[serde(default)]
     seaweed: f32,
     #[serde(default)]
@@ -128,6 +131,8 @@ const DEFAULT_PATCHES: f32 = 0.85;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlantDef {
     pub block: BlockId,
+    /// La tête d'une plante haute (voir `blocks::tall_plant`), posée au-dessus du pied.
+    pub top: Option<BlockId>,
     /// La probabilité moyenne par colonne.
     pub chance: f32,
     /// De 0 (répartie au hasard) à 1 (seulement en taches, plus denses).
@@ -171,8 +176,9 @@ pub struct BiomeDef {
     pub v3_tree_density: f32,
     /// De 0 (arbres répartis au hasard) à 1 (bosquets serrés et clairières).
     pub groves: f32,
-    /// Les plantes posées sur le sol.
+    /// Les plantes posées sur le sol (v1), et celles des mondes v3 (voir [`BiomeDef::plants_for`]).
     pub plants: Vec<PlantDef>,
+    pub v3_plants: Vec<PlantDef>,
     /// La probabilité d'algues par colonne sous l'eau, et de nénuphars en surface.
     pub seaweed: f32,
     pub lily_pads: f32,
@@ -185,6 +191,12 @@ pub struct BiomeDef {
 }
 
 impl BiomeDef {
+    /// Les plantes d'une génération : celles des mondes v3 en v3 (champs sauvages, buissons à baies,
+    /// plantes hautes), celles d'origine en v1, qui ne change jamais.
+    pub fn plants_for(&self, v3: bool) -> &[PlantDef] {
+        if v3 { &self.v3_plants } else { &self.plants }
+    }
+
     /// Les formes d'arbres et la densité d'une génération : celles des mondes v3 en v3 (des forêts
     /// plus denses et plus variées), celles d'origine en v1, qui ne change jamais.
     pub fn trees_for(&self, v3: bool) -> (&[(TreeKind, f32)], f32) {
@@ -325,6 +337,26 @@ impl BiomeRegistry {
             let id =
                 BiomeId(u8::try_from(self.biomes.len()).context("trop de biomes (256 au plus)")?);
             let color = |(r, g, b): (f32, f32, f32)| [r, g, b];
+            let plant_list = |entries: &Vec<PlantEntry>| -> Result<Vec<PlantDef>> {
+                entries
+                    .iter()
+                    .map(|entry| {
+                        let (name, chance, patches) = match entry {
+                            PlantEntry::Plain(name, chance) => (name, *chance, DEFAULT_PATCHES),
+                            PlantEntry::Patchy(name, chance, patches) => {
+                                (name, *chance, patches.clamp(0.0, 1.0))
+                            }
+                        };
+                        let id = block(name, &e.id)?;
+                        Ok(PlantDef {
+                            block: id,
+                            top: crate::blocks::tall_plant::top_of(blocks, id),
+                            chance,
+                            patches,
+                        })
+                    })
+                    .collect()
+            };
             let mut def = BiomeDef {
                 surface: block(&e.surface, &e.id)?,
                 subsurface: block(&e.subsurface, &e.id)?,
@@ -351,23 +383,8 @@ impl BiomeRegistry {
                 grass_color: color(e.grass_color),
                 foliage_color: color(e.foliage_color),
                 water_color: color(e.water_color),
-                plants: e
-                    .plants
-                    .iter()
-                    .map(|entry| {
-                        let (name, chance, patches) = match entry {
-                            PlantEntry::Plain(name, chance) => (name, *chance, DEFAULT_PATCHES),
-                            PlantEntry::Patchy(name, chance, patches) => {
-                                (name, *chance, patches.clamp(0.0, 1.0))
-                            }
-                        };
-                        Ok(PlantDef {
-                            block: block(name, &e.id)?,
-                            chance,
-                            patches,
-                        })
-                    })
-                    .collect::<Result<Vec<_>>>()?,
+                plants: plant_list(&e.plants)?,
+                v3_plants: plant_list(e.v3_plants.as_ref().unwrap_or(&e.plants))?,
                 v3_trees: e.v3_trees.unwrap_or_else(|| e.trees.clone()),
                 v3_tree_density: e.v3_tree_density.unwrap_or(e.tree_density),
                 trees: e.trees,
@@ -380,6 +397,7 @@ impl BiomeRegistry {
             };
             // Les plantes les plus rares d'abord : la végétation les tire dans cet ordre.
             def.plants.sort_by(|a, b| a.chance.total_cmp(&b.chance));
+            def.v3_plants.sort_by(|a, b| a.chance.total_cmp(&b.chance));
             self.by_key.insert(e.id, id);
             self.biomes.push(def);
         }

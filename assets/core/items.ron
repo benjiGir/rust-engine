@@ -255,6 +255,14 @@
         (id: "core:ruby", name: "Rubis", category: Material, color: (0.46242, 0.01127, 0.03013), icon: "ruby"),
         (id: "core:emerald", name: "Émeraude", category: Material, color: (0.01765, 0.43627, 0.09962), icon: "emerald"),
         (id: "core:quartz", name: "Quartz", category: Material, color: (0.61043, 0.53466, 0.40739), icon: "quartz"),
+        // Les prés et les champs (lot N5 de docs/plan-nature.md).
+        (id: "core:barley_seeds", name: "Graines d'orge", category: Material, color: (0.30, 0.24, 0.10), icon: "barley_seeds", plants: "core:barley_0"),
+        (id: "core:barley", name: "Orge", category: Material, color: (0.62, 0.48, 0.18), icon: "barley"),
+        (id: "core:oat_seeds", name: "Graines d'avoine", category: Material, color: (0.34, 0.30, 0.18), icon: "oat_seeds", plants: "core:oats_0"),
+        (id: "core:oats", name: "Avoine", category: Material, color: (0.72, 0.66, 0.42), icon: "oats"),
+        (id: "core:sweet_berries", name: "Baies sucrées", category: Food, color: (0.70, 0.10, 0.12), icon: "sweet_berries", plants: "core:sweet_berry_bush_0", food: (nutrition: 2.0, saturation: 1.2)),
+        (id: "core:blueberries", name: "Myrtilles", category: Food, color: (0.18, 0.22, 0.52), icon: "blueberries", plants: "core:blueberry_bush_0", food: (nutrition: 2.0, saturation: 1.2)),
+        (id: "core:porridge", name: "Porridge", category: Food, color: (0.82, 0.74, 0.56), icon: "porridge", food: (nutrition: 6.0, saturation: 7.2)),
     ],
     // Des groupes d'objets, utilisables dans les recettes (« #planks » : n'importe quelles planches).
     tags: {

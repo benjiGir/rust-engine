@@ -35,6 +35,8 @@
       <sourceFolder url="file://$MODULE_DIR$/tools/xtask/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/games/voxel/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine_voxel/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine_net/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/games/voxel_sim/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

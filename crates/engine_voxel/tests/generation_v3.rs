@@ -362,6 +362,8 @@ fn the_new_biomes_appear_in_v3_and_never_in_v1() {
         "core:maple_woods",
         // La cerisaie (lot N4 du plan nature).
         "core:cherry_grove",
+        // Les champs de tournesols (lot N5).
+        "core:sunflower_plains",
         // Vague 2.
         "core:tundra",
         "core:snowy_fir_forest",

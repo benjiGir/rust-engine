@@ -326,6 +326,7 @@ impl TerrainGenerator {
         let size = CHUNK_SIZE as i32;
         let b = self.plant_blocks;
         let inside = |y: i32| (origin.y..origin.y + size).contains(&y);
+        let v3 = self.v3.is_some();
         for (lx, row) in columns.iter().enumerate() {
             for (lz, &column) in row.iter().enumerate() {
                 let (x, z) = (origin.x + lx as i32, origin.z + lz as i32);
@@ -337,12 +338,15 @@ impl TerrainGenerator {
                     // Sur la terre : au plus une plante par colonne. Chaque plante du biome a
                     // son propre tirage, modulé par ses taches ; les plus rares passent
                     // d'abord (le registre les trie), pour que l'herbe ne les étouffe pas.
+                    // Une plante haute pose sa tête un bloc plus haut, parfois dans le chunk du dessus :
+                    // celui-ci refait le tirage de la colonne quand le pied est juste sous lui.
                     let y = column.height + 1;
-                    if !inside(y) || biome.plants.is_empty() {
+                    let plants = biome.plants_for(v3);
+                    if plants.is_empty() || !(inside(y) || inside(y + 1)) {
                         continue;
                     }
                     let ground = self.ground_block(x, z, column);
-                    for (i, plant) in biome.plants.iter().enumerate() {
+                    for (i, plant) in plants.iter().enumerate() {
                         let chance = plant.chance
                             * patch_factor(self.seed, x, z, plant.block, plant.patches);
                         if roll(self.seed, x, z, 620 + i as u64) >= chance {
@@ -357,9 +361,22 @@ impl TerrainGenerator {
                             // désert fleuri sur le sable) ; la v1 ne change pas.
                             b.is_soil(ground) || (biome.v3_only && ground == biome.surface)
                         };
-                        let ly = (y - origin.y) as usize;
-                        if ok && chunk.get(lx, ly, lz).is_air() {
-                            chunk.set(lx, ly, lz, plant.block);
+                        if ok {
+                            let foot = inside(y)
+                                && chunk.get(lx, (y - origin.y) as usize, lz).is_air()
+                                && {
+                                    chunk.set(lx, (y - origin.y) as usize, lz, plant.block);
+                                    true
+                                };
+                            if let Some(top) = plant.top
+                                && inside(y + 1)
+                                && (foot || !inside(y))
+                            {
+                                let ly = (y + 1 - origin.y) as usize;
+                                if chunk.get(lx, ly, lz).is_air() {
+                                    chunk.set(lx, ly, lz, top);
+                                }
+                            }
                         }
                         break;
                     }

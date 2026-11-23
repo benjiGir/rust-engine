@@ -53,7 +53,7 @@ pub use blocks::block_rules::{Settled, is_supported, settle};
 pub use blocks::connections::ConnectedShape;
 pub use blocks::farming::{
     FarmBlocks, IRRIGATION_REACH, fertilized, is_farmland, is_irrigated, is_ripe, next_stage,
-    tilled,
+    picked_bush, tilled,
 };
 pub use chunk::{BlockEntity, CHUNK_SIZE, Chunk, DEFAULT_LIGHT, WireError};
 pub use edited_surface::{ChunkSurface, EditedSurfaces};

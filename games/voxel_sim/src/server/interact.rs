@@ -98,6 +98,25 @@ impl crate::server::VoxelServer {
         true
     }
 
+    /// Un clic droit sur un buisson à baies mûr : on cueille ses baies (son butin de buisson mûr), et
+    /// il retombe d'un stade pour en refaire.
+    pub fn pick_berries(&mut self) -> bool {
+        let Some(hit) = self.aim().hit else {
+            return false;
+        };
+        let block = self.streamer().world().block(hit.block_pos);
+        let Some(picked) = engine_voxel::picked_bush(&self.registry, block) else {
+            return false;
+        };
+        if !self.edit(hit.block_pos, picked) {
+            return false;
+        }
+        self.drop_loot(hit.block_pos, block, None, true);
+        self.punch();
+        self.sound("core:break_soft");
+        true
+    }
+
     /// L'engrais en main, clic droit sur une culture : elle avance de deux stades.
     pub fn use_fertilizer(&mut self) -> bool {
         let Some(item) = self.players.me_mut().inventory.selected_item() else {

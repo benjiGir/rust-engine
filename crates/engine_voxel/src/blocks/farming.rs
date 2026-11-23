@@ -179,6 +179,58 @@ impl BlockBehavior for Crop {
     }
 }
 
+/// Le stade suivant d'un buisson à baies (`..._0` → `..._1` → `..._2`), `None` s'il est mûr ou si ce
+/// n'en est pas un.
+fn next_bush_stage(registry: &BlockRegistry, block: BlockId) -> Option<BlockId> {
+    let def = registry.def(block);
+    if def.behavior.as_deref() != Some(BERRY_BUSH) {
+        return None;
+    }
+    let (stem, stage) = def.key.rsplit_once('_')?;
+    let stage: u32 = stage.parse().ok()?;
+    registry.id(&format!("{stem}_{}", stage + 1))
+}
+
+/// Le comportement des buissons à baies (lot N5 de `docs/plan-nature.md`).
+pub const BERRY_BUSH: &str = "core:berry_bush";
+
+/// Un buisson à baies mûr, cueilli d'un clic droit : le stade où il retombe (il refera des baies).
+/// `None` s'il n'est pas mûr ou si ce n'est pas un buisson à baies.
+pub fn picked_bush(registry: &BlockRegistry, block: BlockId) -> Option<BlockId> {
+    let def = registry.def(block);
+    if def.behavior.as_deref() != Some(BERRY_BUSH) || next_bush_stage(registry, block).is_some() {
+        return None;
+    }
+    let (stem, stage) = def.key.rsplit_once('_')?;
+    let stage: u32 = stage.parse().ok()?;
+    registry.id(&format!("{stem}_{}", stage.checked_sub(1)?))
+}
+
+/// Les buissons à baies : comme une culture, mais sur l'herbe ou la terre, et plus lentement ; mûrs,
+/// ils attendent qu'on les cueille.
+pub struct BerryBush;
+
+impl BlockBehavior for BerryBush {
+    fn random_tick(&self, ctx: &mut MachineContext, positions: &[GridPos]) {
+        let Some(registry) = ctx.registry() else {
+            return;
+        };
+        for &at in positions {
+            let Some(next) = next_bush_stage(&registry, ctx.block(at)) else {
+                continue;
+            };
+            let light = {
+                let streamer = ctx.grids.world().borrow();
+                let (sky, lamp) = streamer.world().light(at.pos);
+                sky.max(lamp)
+            };
+            if light >= CROP_LIGHT && ctx.chance(8) {
+                ctx.set_block(at, next);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -231,6 +283,26 @@ mod tests {
             }
         }
         false
+    }
+
+    #[test]
+    fn a_ripe_berry_bush_is_picked_back_to_its_middle_stage() {
+        let registry = BlockRegistry::builtin();
+        let id = |k: &str| registry.id(k).unwrap();
+        let (young, middle, ripe) = (
+            id("core:sweet_berry_bush_0"),
+            id("core:sweet_berry_bush_1"),
+            id("core:sweet_berry_bush_2"),
+        );
+        assert_eq!(next_bush_stage(&registry, young), Some(middle));
+        assert_eq!(next_bush_stage(&registry, middle), Some(ripe));
+        assert_eq!(next_bush_stage(&registry, ripe), None);
+        assert_eq!(picked_bush(&registry, ripe), Some(middle));
+        // Pas mûr, ou pas un buisson : rien à cueillir.
+        assert_eq!(picked_bush(&registry, middle), None);
+        assert_eq!(picked_bush(&registry, id("core:wheat_3")), None);
+        // Ce n'est pas une culture : l'engrais et la récolte du blé ne le touchent pas.
+        assert_eq!(next_stage(&registry, young), None);
     }
 
     #[test]
