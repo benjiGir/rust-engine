@@ -339,7 +339,7 @@ mod tests {
 
     fn pattern(kinds: u16) -> Vec<BlockId> {
         (0..VOLUME)
-            .map(|i| BlockId((i as u16 * 7 + i as u16 / 3) % kinds))
+            .map(|i| BlockId(((i * 7 + i / 3) % kinds as usize) as u16))
             .collect()
     }
 
