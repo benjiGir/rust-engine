@@ -16,6 +16,7 @@ use glam::{Vec2, Vec3, Vec4};
 use crate::VoxelGame;
 use crate::client::entities::{ClientEntities, EntityView};
 use voxel_sim::mobs::MobRegistry;
+use voxel_sim::mobs::horse_coats::HorseCoat;
 use voxel_sim::mobs::model::{Bone, MobPart};
 use voxel_sim::mobs::sheep_colors::{SheepCoat, is_fleece_texture};
 use voxel_sim::net::entities::{EliteLook, EntityKind};
@@ -204,6 +205,8 @@ struct Model {
     stride: f32,
     look: f32,
     coat: Option<SheepCoat>,
+    /// La robe d'un cheval : teinte le poil et la crinière, montre ou cache les marques.
+    horse: Option<HorseCoat>,
     /// La couleur de la peau d'un animal tondu (sa toison n'est plus dessinée).
     shorn: Option<Vec3>,
     elite: Option<EliteLook>,
@@ -230,6 +233,7 @@ impl Model {
             stride: pose.stride,
             look: pose.look,
             coat: view.look.coat.map(SheepCoat),
+            horse: view.look.horse.map(HorseCoat),
             shorn: None,
             elite: view.look.elite,
             hurt: view.look.hurt,
@@ -271,6 +275,12 @@ fn draw_model(parts: &[MobPart], model: &Model, env: &DrawEnv, out: &mut Vec<Cub
             color = skin;
         } else if let Some(coat) = model.coat {
             color *= coat.tint_part(part);
+        } else if let Some(horse) = model.horse {
+            // Une marque que la robe n'a pas : la boîte blanche n'est pas dessinée.
+            let Some(tint) = horse.tint_part(part) else {
+                continue;
+            };
+            color *= tint;
         }
         if let Some(elite) = &model.elite {
             color = voxel_sim::mobs::elites::tinted(color, elite);

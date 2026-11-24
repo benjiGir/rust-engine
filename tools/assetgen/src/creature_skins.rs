@@ -12,6 +12,11 @@ const SKINS: &[(&str, &str)] = &[
     ("core", "mob_sheep_face"),
     ("core", "mob_alpaca_wool"),
     ("core", "mob_alpaca_fur"),
+    ("core", "mob_horse_coat"),
+    ("core", "mob_horse_mane"),
+    ("core", "mob_horse_blaze"),
+    ("core", "mob_horse_sock"),
+    ("core", "mob_horse_patch"),
     ("core", "mob_chicken_feathers"),
     ("core", "mob_fish_scales"),
     ("core", "mob_fish_fins"),
@@ -95,6 +100,21 @@ pub fn draw(name: &str, side: usize) -> Option<Vec<[u8; 4]>> {
                         [222, 216, 197],
                         0.93 + broad * 0.05 + strand * 0.07 - v * 0.03,
                     )
+                }
+                "mob_horse_coat" | "mob_horse_blaze" | "mob_horse_sock" | "mob_horse_patch" => {
+                    // Un poil ras et lustré, dessiné en gris clair pour être teinté par la robe :
+                    // de larges reflets et un fin grain, un peu plus clair sur le dessus.
+                    let sheen = noise(u * 0.6, v * 1.4, 4, 3441);
+                    let grain = noise(u, v * 0.5, if side == 32 { 19 } else { 10 }, 3443);
+                    shade(
+                        [236, 236, 236],
+                        0.93 + broad * 0.04 + sheen * 0.05 + grain * 0.05 - v * 0.04,
+                    )
+                }
+                "mob_horse_mane" => {
+                    // Des mèches longues et fines, qui tombent.
+                    let hair = noise(u * 6.0, v * 0.2, if side == 32 { 22 } else { 12 }, 3451);
+                    shade([236, 236, 236], 0.78 + hair * 0.28 + broad * 0.06)
                 }
                 "mob_sheep_face" => shade([126, 112, 88], 0.94 + fine * 0.08),
                 "mob_chicken_feathers" => {

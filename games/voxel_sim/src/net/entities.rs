@@ -122,6 +122,8 @@ pub struct Look {
     pub variant: u8,
     /// Un animal tondu : sa toison n'est pas dessinée (voir `mobs/fleece.rs`).
     pub shorn: bool,
+    /// La robe d'un cheval, de 0 à 34 (voir `mobs/horse_coats.rs`).
+    pub horse: Option<u8>,
     pub elite: Option<EliteLook>,
     /// La boîte de la créature (largeur, hauteur) : le client s'en sert pour la viser. Elle change
     /// quand un petit grandit.
@@ -291,6 +293,9 @@ pub fn collect(
                         .get::<crate::mobs::variants::Variant>(entity)
                         .map_or(0, |v| v.0),
                     shorn: world.has::<crate::mobs::fleece::Shorn>(entity),
+                    horse: world
+                        .get::<crate::mobs::horse_coats::HorseCoat>(entity)
+                        .map(|c| c.0),
                     elite: world
                         .get::<crate::mobs::elites::Elite>(entity)
                         .map(|e| EliteLook {

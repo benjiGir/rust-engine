@@ -61,7 +61,7 @@ cerisiers (sakura) dont les pétales tombent.
 | **N5, les prés et les champs (réalisé)** | **orge** et **avoine** : graines, quatre stades, récolte, recettes (pain d'orge, porridge ; l'avoine nourrit les chevaux) ; des **champs sauvages** de blé, d'orge et d'avoine en taches dans les plaines, les prairies et la steppe (on y trouve les graines) ; **herbe haute sur deux blocs** ; **buissons à baies** (baies sucrées en taïga, myrtilles en forêt froide) qu'on récolte d'un clic droit et qui repoussent ; des **champs de fleurs** : biome de tournesols et prairies de fleurs plus fournies, quelques fleurs nouvelles | captures des prés ; un test de pousse et de récolte |
 | **N6, les races de vaches (réalisé)** | un mécanisme de **variantes** pour les créatures (une variante tirée à l'apparition selon le biome ; textures ou teintes et parties propres ; transmise aux petits ; envoyée au client avec l'apparence) ; trois vaches : **tempérée** (l'actuelle), **des Highlands** (froid : longs poils roux, frange, grandes cornes larges), **à bosse** façon zébu (chaud : robe claire, bosse, cornes en lyre) ; elles se croisent entre elles | captures des trois ; tests du tirage par biome et de l'élevage |
 | **N7, les alpagas (réalisé)** | un alpaga (cou long, toison épaisse) dans les prairies alpines, les hauts plateaux et la steppe, en petits troupeaux ; robe naturelle tirée à l'apparition (blanc, crème, fauve, brun, gris, noir) ; **on le tond** (laine de sa couleur, qui repousse en mangeant) ; il crache sur qui le frappe | captures ; tests de la tonte et de la repousse |
-| **N8, les chevaux** | un cheval aux 35 robes (7 couleurs × 5 marques, avec les variantes de N6), en troupeaux de 2 à 6 dans les plaines, la prairie et la savane ; élevage à l'avoine ou à la pomme | captures de troupeaux et de robes |
+| **N8, les chevaux (réalisé)** | un cheval aux 35 robes (7 couleurs × 5 marques, avec les variantes de N6), en troupeaux de 2 à 6 dans les plaines, la prairie et la savane ; élevage à l'avoine ou à la pomme | captures de troupeaux et de robes |
 | **N9, monter à cheval** | apprivoiser (le monter plusieurs fois jusqu'à ce qu'il accepte), une **selle**, le diriger (avancer, tourner, sauter, galoper), descendre ; le serveur fait foi, comme pour les wagons ; vu des autres joueurs | essai en jeu, en local et en LAN |
 
 L'ordre propose d'abord le décor (N1 à N5), qui se voit partout, puis les animaux, qui reposent tous sur
@@ -187,6 +187,25 @@ d'œil en jeu.
   alpaga dans ses biomes, crachat et son délai) ; en jeu, sur la graine 7 : un troupeau d'alpagas de
   robes différentes, trois « Laine crème » tombées à la tonte, l'animal tondu dessiné maigre, et un
   coup d'alpaga rendu en crachat (20 → 18,5 points de vie).
+- **N8** : `games/voxel_sim/src/mobs/horse_coats.rs` et `assets/core/horse_coats.ron`. **35 robes** =
+  7 couleurs de poil (bai, alezan, noir, gris, isabelle, louvet, crème ; chacune avec sa crinière)
+  × 5 marques (sans marque, liste, balzanes, liste et balzanes, pie). Un seul corps de cheval, que le
+  client **teinte** : les boîtes de matière `_coat` prennent la couleur du poil, `_mane` celle de la
+  crinière ; les boîtes blanches `_blaze` (tête), `_sock` (bas des pattes) et `_patch` (taches du
+  corps) ne sont dessinées que si la marque les montre (`HorseCoat::tint_part` renvoie `None` sinon).
+  Le numéro de robe (`couleur × 5 + marque`, un octet, le composant `HorseCoat`) est tiré à
+  l'apparition, selon des poids par couleur et par marque (les robes claires sont rares), et voyage
+  dans `Look::horse` (**protocole 5**). Un poulain tient sa couleur d'un parent et sa marque de
+  l'autre, au sort (`HorseCoat::inherit`) : les robes se mélangent. **Cheval** (`core:horse`, 20 points de vie, 1,3 × 1,6) : en troupeaux de 2 à 6 dans les plaines, la prairie
+  fleurie et la savane ; on l'élève à l'**avoine ou à la pomme** (`breeds: (food, also_food: [...])`,
+  nouveau champ pour plusieurs aliments), pause de 400 s, croissance de 900 s ; il laisse un peu de
+  cuir. Déclaré par `horse_coat: true` dans `entities.ron`. `/summon core:horse bay:blaze` choisit la
+  robe (`couleur` ou `couleur:marque`). Cinq textures neuves dans les trois packs (`mob_horse_coat`,
+  `_mane`, `_blaze`, `_sock`, `_patch`, dessinées en gris clair pour être teintées). Les variantes de
+  N6 ne servent pas ici : la robe est une teinte, pas un autre corps. Vérifié : tests (35 robes
+  distinctes et toutes atteignables, héritage, marques qui montrent ou cachent les boîtes, biomes,
+  avoine et pomme mais pas le blé, naissance d'un poulain) ; en jeu, sur la graine 7 : les 35 robes
+  invoquées côte à côte sur une plage, avec leurs listes, balzanes et taches visibles.
 
 ## Choix à valider
 

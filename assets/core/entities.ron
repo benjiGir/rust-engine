@@ -26,7 +26,9 @@
 // - fleece : sa toison, (coats : Sheep ou Alpaca, count : (min, max) laines par tonte, regrow :
 //   secondes de pâture avant qu'elle repousse, skin : la peau dessous). Les boîtes dont la texture
 //   finit par `_wool` forment la toison, celles en `_fur` suivent la couleur sans être tondues ;
-// - spit : (range, interval, speed, damage, color), elle crache sur qui la frappe.
+// - spit : (range, interval, speed, damage, color), elle crache sur qui la frappe ;
+// - horse_coat : `true` : elle naît avec une robe de cheval (voir mobs/horse_coats.rs et
+//   horse_coats.ron) ; `breeds` peut aussi donner `also_food` : d'autres aliments qui l'élèvent.
 [
     (
         id: "core:pig", name: "Cochon", health: 10.0, speed: 1.6, size: (0.9, 0.9),
@@ -444,6 +446,56 @@
             (offset: (-0.34, 0.035, -0.19), size: (0.15, 0.07, 0.17), color: (0.05501, 0.03877, 0.02727), bone: Leg, texture: "core:mob_hoof"),
             (offset: (-0.34, 0.27, 0.19), size: (0.13, 0.54, 0.13), color: (0.8, 0.77, 0.68), bone: Leg, texture: "core:mob_alpaca_fur"),
             (offset: (-0.34, 0.035, 0.19), size: (0.15, 0.07, 0.17), color: (0.05501, 0.03877, 0.02727), bone: Leg, texture: "core:mob_hoof"),
+        ],
+    ),
+    // Le cheval : en troupeaux de 2 à 6 dans les plaines, la prairie fleurie et la savane. Sa robe
+    // (35 : 7 couleurs de poil × 5 marques blanches, voir horse_coats.ron) est tirée à la naissance
+    // et un poulain tient sa couleur d'un parent et sa marque de l'autre. On l'élève à l'avoine ou
+    // à la pomme. Un seul corps : le client le teinte (`_coat`, `_mane`) et ne dessine que les boîtes
+    // blanches (`_blaze`, `_sock`, `_patch`) que la marque montre.
+    (
+        id: "core:horse", name: "Cheval", health: 20.0, speed: 1.5, size: (1.3, 1.6),
+        spawn_on: ["core:grass"], biomes: ["core:plains", "core:flower_meadow", "core:savanna"], group: (2, 6),
+        breeds: (food: "core:oats", also_food: ["core:apple"], cooldown: 400.0, growth: 900.0),
+        drops: [(item: "core:leather", count: (0, 2))], xp: (1, 3),
+        horse_coat: true,
+        parts: [
+            (offset: (0.0, 1.08, 0.0), size: (1.5, 0.62, 0.68), color: (1.0, 1.0, 1.0), texture: "core:mob_horse_coat"),
+            (offset: (-0.6, 1.1, 0.0), size: (0.5, 0.66, 0.72), color: (1.0, 1.0, 1.0), texture: "core:mob_horse_coat"),
+            (offset: (0.62, 1.1, 0.0), size: (0.4, 0.66, 0.7), color: (1.0, 1.0, 1.0), texture: "core:mob_horse_coat"),
+            (offset: (0.8, 1.42, 0.0), size: (0.36, 0.54, 0.34), color: (1.0, 1.0, 1.0), texture: "core:mob_horse_coat"),
+            (offset: (0.9, 1.82, 0.0), size: (0.32, 0.5, 0.3), color: (1.0, 1.0, 1.0), texture: "core:mob_horse_coat"),
+            (offset: (0.6, 1.45, 0.0), size: (0.1, 0.5, 0.12), color: (1.0, 1.0, 1.0), texture: "core:mob_horse_mane"),
+            (offset: (0.72, 1.85, 0.0), size: (0.1, 0.5, 0.12), color: (1.0, 1.0, 1.0), texture: "core:mob_horse_mane"),
+            (offset: (1.08, 2.0, 0.0), size: (0.38, 0.36, 0.32), color: (1.0, 1.0, 1.0), bone: Head, texture: "core:mob_horse_coat"),
+            (offset: (1.4, 1.9, 0.0), size: (0.36, 0.26, 0.24), color: (1.0, 1.0, 1.0), bone: Head, texture: "core:mob_horse_coat"),
+            (offset: (1.08, 2.0, 0.0), size: (0.4, 0.38, 0.12), color: (1.0, 1.0, 1.0), bone: Head, texture: "core:mob_horse_blaze"),
+            (offset: (1.4, 1.9, 0.0), size: (0.38, 0.28, 0.1), color: (1.0, 1.0, 1.0), bone: Head, texture: "core:mob_horse_blaze"),
+            (offset: (1.0, 2.24, -0.1), size: (0.07, 0.18, 0.07), color: (1.0, 1.0, 1.0), bone: Head, texture: "core:mob_horse_coat"),
+            (offset: (1.0, 2.24, 0.1), size: (0.07, 0.18, 0.07), color: (1.0, 1.0, 1.0), bone: Head, texture: "core:mob_horse_coat"),
+            (offset: (0.99, 2.2, 0.0), size: (0.12, 0.2, 0.1), color: (1.0, 1.0, 1.0), bone: Head, texture: "core:mob_horse_mane"),
+            (offset: (1.1, 2.06, -0.167), size: (0.05, 0.06, 0.03), color: (0.02, 0.015, 0.015), bone: Head),
+            (offset: (1.1, 2.06, 0.167), size: (0.05, 0.06, 0.03), color: (0.02, 0.015, 0.015), bone: Head),
+            (offset: (1.585, 1.9, 0.0), size: (0.02, 0.1, 0.14), color: (0.1, 0.07, 0.07), bone: Head),
+            (offset: (-0.9, 1.12, 0.0), size: (0.14, 0.8, 0.16), color: (1.0, 1.0, 1.0), bone: Tail, texture: "core:mob_horse_mane"),
+            (offset: (0.15, 1.1, 0.345), size: (0.55, 0.34, 0.02), color: (1.0, 1.0, 1.0), texture: "core:mob_horse_patch"),
+            (offset: (-0.25, 1.0, -0.345), size: (0.5, 0.4, 0.02), color: (1.0, 1.0, 1.0), texture: "core:mob_horse_patch"),
+            (offset: (-0.7, 1.25, 0.365), size: (0.3, 0.3, 0.02), color: (1.0, 1.0, 1.0), texture: "core:mob_horse_patch"),
+            (offset: (0.7, 1.0, -0.355), size: (0.3, 0.34, 0.02), color: (1.0, 1.0, 1.0), texture: "core:mob_horse_patch"),
+            (offset: (0.5, 1.395, 0.0), size: (0.4, 0.02, 0.4), color: (1.0, 1.0, 1.0), texture: "core:mob_horse_patch"),
+            (offset: (-0.55, 1.435, 0.0), size: (0.3, 0.02, 0.34), color: (1.0, 1.0, 1.0), texture: "core:mob_horse_patch"),
+            (offset: (0.55, 0.43, -0.2), size: (0.18, 0.86, 0.18), color: (1.0, 1.0, 1.0), bone: Leg, texture: "core:mob_horse_coat"),
+            (offset: (0.55, 0.185, -0.2), size: (0.2, 0.23, 0.2), color: (1.0, 1.0, 1.0), bone: Leg, texture: "core:mob_horse_sock"),
+            (offset: (0.55, 0.035, -0.2), size: (0.22, 0.07, 0.22), color: (0.05501, 0.03877, 0.02727), bone: Leg, texture: "core:mob_hoof"),
+            (offset: (0.55, 0.43, 0.2), size: (0.18, 0.86, 0.18), color: (1.0, 1.0, 1.0), bone: Leg, texture: "core:mob_horse_coat"),
+            (offset: (0.55, 0.185, 0.2), size: (0.2, 0.23, 0.2), color: (1.0, 1.0, 1.0), bone: Leg, texture: "core:mob_horse_sock"),
+            (offset: (0.55, 0.035, 0.2), size: (0.22, 0.07, 0.22), color: (0.05501, 0.03877, 0.02727), bone: Leg, texture: "core:mob_hoof"),
+            (offset: (-0.6, 0.43, -0.2), size: (0.18, 0.86, 0.18), color: (1.0, 1.0, 1.0), bone: Leg, texture: "core:mob_horse_coat"),
+            (offset: (-0.6, 0.185, -0.2), size: (0.2, 0.23, 0.2), color: (1.0, 1.0, 1.0), bone: Leg, texture: "core:mob_horse_sock"),
+            (offset: (-0.6, 0.035, -0.2), size: (0.22, 0.07, 0.22), color: (0.05501, 0.03877, 0.02727), bone: Leg, texture: "core:mob_hoof"),
+            (offset: (-0.6, 0.43, 0.2), size: (0.18, 0.86, 0.18), color: (1.0, 1.0, 1.0), bone: Leg, texture: "core:mob_horse_coat"),
+            (offset: (-0.6, 0.185, 0.2), size: (0.2, 0.23, 0.2), color: (1.0, 1.0, 1.0), bone: Leg, texture: "core:mob_horse_sock"),
+            (offset: (-0.6, 0.035, 0.2), size: (0.22, 0.07, 0.22), color: (0.05501, 0.03877, 0.02727), bone: Leg, texture: "core:mob_hoof"),
         ],
     ),
 ]

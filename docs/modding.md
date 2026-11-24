@@ -1017,6 +1017,13 @@ dont la texture finit par `_wool` (elles deviennent une peau amincie) jusqu'à c
 brouté. Un petit ne se tond pas. `spit: (range, interval, speed, damage, color)` fait cracher
 (un projectile) une créature pacifique sur le joueur qui la frappe.
 
+Une créature peut avoir une **robe de cheval** : `horse_coat: true`. Le jeu tire alors une robe
+(couleur de poil et marque, `assets/core/horse_coats.ron`) et le client teinte le corps : les
+boîtes dont la texture finit par `_coat` prennent la couleur du poil, `_mane` celle de la crinière,
+et les boîtes `_blaze`, `_sock` et `_patch` (blanches) n'apparaissent que si la marque de la robe les
+montre. Dessinez ces textures en gris clair. Dans `breeds`, `also_food: ["mon_mod:objet"]` ajoute
+d'autres aliments qui mettent la créature en rut. `/summon mon_mod:cheval bay:blaze` choisit la robe.
+
 ```ron
 (offset: (0.0, 0.5, 0.0), size: (0.8, 0.6, 0.5),
  color: (0.2, 0.3, 0.1), texture: "pelage")

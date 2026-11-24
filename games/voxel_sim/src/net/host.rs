@@ -31,8 +31,8 @@ use crate::server::VoxelServer;
 
 /// La version du protocole : un client d'une autre version est refusé. 2 : la portée de l'hôte dans
 /// l'accueil, l'objet tenu et les gestes des joueurs dans leur apparence. 3 : la race des créatures. 4 : les
-/// animaux tondus.
-pub const PROTOCOL: u32 = 4;
+/// animaux tondus. 5 : la robe des chevaux.
+pub const PROTOCOL: u32 = 5;
 /// Le port par défaut (le suivant s'il est pris).
 pub const DEFAULT_PORT: u16 = 25600;
 /// Au-delà de ces octets en attente vers un joueur, ses chunks neufs attendent.

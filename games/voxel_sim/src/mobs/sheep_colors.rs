@@ -87,17 +87,7 @@ impl SheepCoat {
     }
     /// Teinte linéaire relative au blanc du motif, pour conserver ses fibres et ses ombres.
     pub fn tint(self) -> Vec3 {
-        let linear = |(r, g, b): (u8, u8, u8)| {
-            Vec3::from_array([r, g, b].map(|v| {
-                let s = v as f32 / 255.0;
-                if s <= 0.04045 {
-                    s / 12.92
-                } else {
-                    ((s + 0.055) / 1.055).powf(2.4)
-                }
-            }))
-        };
-        linear(self.data().rgb) / linear(palette()[0].rgb)
+        srgb_to_linear(self.data().rgb) / srgb_to_linear(palette()[0].rgb)
     }
     /// La toison et le pelage prennent la couleur : les matières dont le nom finit par `_wool` ou
     /// `_fur` (`mob_sheep_wool`, `mob_alpaca_fur`), dessinées en blanc pour être teintées.
@@ -108,6 +98,19 @@ impl SheepCoat {
             Vec3::ONE
         }
     }
+}
+
+/// Une couleur sRGB (0 à 255) en lumière linéaire : c'est dans cet espace qu'on multiplie les
+/// teintes (un gris à 50 % n'est pas la moitié de la lumière d'un blanc).
+pub fn srgb_to_linear((r, g, b): (u8, u8, u8)) -> Vec3 {
+    Vec3::from_array([r, g, b].map(|v| {
+        let s = v as f32 / 255.0;
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    }))
 }
 
 /// Cette matière suit la couleur de l'animal ?

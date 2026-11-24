@@ -1,0 +1,26 @@
+// Les robes du cheval : 7 couleurs × 5 marques = 35 robes. Le numéro d'une robe est
+// `couleur × (nombre de marques) + marque` ; les nouvelles couleurs et marques vont à la FIN des
+// listes (les numéros déjà donnés ne bougent pas).
+//
+// - color : la couleur du poil (sRGB) et de la crinière et de la queue ; weight : sa chance
+//   de naître (les robes rares sont les couleurs claires) ;
+// - marks : les marques blanches. `shows` liste les matières blanches affichées (`blaze` : la liste
+//   sur la tête, `sock` : les balzanes aux pattes, `patch` : les taches du corps) ; weight : sa chance.
+(
+    colors: [
+        (id: "bay", name: "Bai", body: (132, 80, 46), mane: (34, 26, 22), weight: 28),
+        (id: "chestnut", name: "Alezan", body: (164, 86, 42), mane: (130, 66, 34), weight: 24),
+        (id: "black", name: "Noir", body: (46, 43, 46), mane: (26, 24, 26), weight: 12),
+        (id: "gray", name: "Gris", body: (150, 152, 156), mane: (96, 98, 104), weight: 14),
+        (id: "palomino", name: "Isabelle", body: (206, 160, 88), mane: (238, 226, 196), weight: 8),
+        (id: "dun", name: "Louvet", body: (180, 148, 100), mane: (54, 44, 36), weight: 10),
+        (id: "cream", name: "Crème", body: (232, 216, 182), mane: (246, 240, 226), weight: 4),
+    ],
+    marks: [
+        (id: "plain", name: "sans marque", shows: [], weight: 40),
+        (id: "blaze", name: "à liste", shows: ["blaze"], weight: 20),
+        (id: "socks", name: "à balzanes", shows: ["sock"], weight: 18),
+        (id: "stockings", name: "à liste et balzanes", shows: ["blaze", "sock"], weight: 12),
+        (id: "pied", name: "pie", shows: ["patch"], weight: 10),
+    ],
+)

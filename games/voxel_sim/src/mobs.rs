@@ -6,6 +6,7 @@ pub mod brains;
 pub mod breeding;
 pub mod elites;
 pub mod fleece;
+pub mod horse_coats;
 pub mod model;
 pub mod navigation;
 pub mod projectiles;
@@ -105,6 +106,9 @@ struct MobFileEntry {
     /// Elle crache sur qui la frappe (voir `mobs/projectiles.rs`).
     #[serde(default)]
     spit: Option<crate::mobs::projectiles::RangedDef>,
+    /// Elle a une robe de cheval, tirée à la naissance (voir `mobs/horse_coats.rs`).
+    #[serde(default)]
+    horse_coat: bool,
 }
 
 /// Ce que lâche une créature à sa mort : un objet, un nombre (min, max), une chance.
@@ -159,6 +163,8 @@ pub struct MobDef {
     pub fleece: Option<crate::mobs::fleece::FleeceDef>,
     /// Son crachat quand on la frappe : portée, intervalle, vitesse, dégâts, couleur.
     pub spit: Option<crate::mobs::projectiles::RangedDef>,
+    /// Elle naît avec une robe de cheval (35 robes, voir `mobs/horse_coats.rs`).
+    pub horse_coat: bool,
 }
 
 /// Toutes les créatures connues. Leur numéro (`Mob::kind`) est leur place dans la liste.
@@ -272,6 +278,7 @@ impl MobRegistry {
                 variants: entry.variants.into_iter().map(Into::into).collect(),
                 fleece: entry.fleece,
                 spit: entry.spit,
+                horse_coat: entry.horse_coat,
             });
         }
         Ok(())
@@ -534,7 +541,15 @@ pub fn summon(world: &mut World, key: &str, breed: Option<&str>, at: Vec3) -> Re
         .id(key)
         .with_context(|| format!("créature inconnue « {key} »"))?;
     let def = registry.get(kind).unwrap();
-    let variant = match breed {
+    // Pour un cheval, « race » est sa robe : `couleur` ou `couleur:marque` (bay:blaze).
+    let horse_coat = match breed.filter(|_| def.horse_coat) {
+        None => None,
+        Some(text) => Some(
+            crate::mobs::horse_coats::HorseCoat::parse(text)
+                .with_context(|| format!("robe inconnue « {text} » (essayez bay ou gray:pied)"))?,
+        ),
+    };
+    let variant = match breed.filter(|_| !def.horse_coat) {
         None => 0,
         Some(id) => def.variant_id(id).with_context(|| {
             let ids: Vec<_> = def.variants.iter().map(|v| v.id.as_str()).collect();
@@ -544,6 +559,9 @@ pub fn summon(world: &mut World, key: &str, breed: Option<&str>, at: Vec3) -> Re
     let entity = spawn_mob(world, kind, at).context("impossible ici")?;
     if variant > 0 {
         world.insert(entity, crate::mobs::variants::Variant(variant));
+    }
+    if let Some(coat) = horse_coat {
+        world.insert(entity, coat);
     }
     Ok(entity)
 }
@@ -587,6 +605,16 @@ pub fn spawn_mob_with_coat(
         });
         log::debug!("{} : {} ({})", def.key, coat.data().name, coat.data().id);
         world.insert(entity, coat);
+    }
+    if def.horse_coat {
+        let (roll_color, roll_mark) = {
+            let mut rng = world.resource_mut::<GameRng>();
+            (rng.next_f32(), rng.next_f32())
+        };
+        world.insert(
+            entity,
+            crate::mobs::horse_coats::HorseCoat::choose(roll_color, roll_mark),
+        );
     }
     if def.aquatic {
         world.insert(entity, crate::components::Aquatic);

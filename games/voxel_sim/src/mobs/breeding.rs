@@ -40,6 +40,9 @@ fn default_growth() -> f32 {
 pub struct BreedingDef {
     /// L'objet qui la met en rut (`core:wheat`).
     pub food: String,
+    /// D'autres aliments qui font le même effet (le cheval aime l'avoine et la pomme).
+    #[serde(default)]
+    pub also_food: Vec<String>,
     /// Secondes avant que les parents puissent recommencer (300).
     #[serde(default = "default_cooldown")]
     pub cooldown: f32,
@@ -58,7 +61,7 @@ pub fn feed(world: &mut World, entity: Entity, item_key: &str) -> bool {
     let likes = registry
         .get(kind)
         .and_then(|d| d.breeds.as_ref())
-        .is_some_and(|b| b.food == item_key);
+        .is_some_and(|b| b.food == item_key || b.also_food.iter().any(|f| f == item_key));
     if !likes
         || world.has::<Baby>(entity)
         || world.has::<Love>(entity)
@@ -187,7 +190,21 @@ pub fn update(world: &mut World) {
             world.get::<Variant>(b).map_or(Variant(0), |v| *v),
             world.resource_mut::<crate::mobs::GameRng>().next_f32(),
         );
+        let horse_coat = {
+            use crate::mobs::horse_coats::HorseCoat;
+            let (a, b) = (
+                world.get::<HorseCoat>(a).map(|c| *c),
+                world.get::<HorseCoat>(b).map(|c| *c),
+            );
+            a.zip(b).map(|(a, b)| {
+                let mut rng = world.resource_mut::<crate::mobs::GameRng>();
+                HorseCoat::inherit(a, b, rng.next_f32(), rng.next_f32())
+            })
+        };
         if let Some(baby) = mobs::spawn_mob_with_coat(world, kind, at, inherited) {
+            if let Some(coat) = horse_coat {
+                world.insert(baby, coat);
+            }
             if variant.0 > 0 {
                 world.insert(baby, variant);
             }
