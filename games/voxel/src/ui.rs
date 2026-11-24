@@ -155,6 +155,19 @@ impl GameUi {
         event: &engine_core::winit::event::WindowEvent,
     ) -> bool {
         let response = self.state.on_window_event(window, event);
+        // Échap ferme la console : le champ de saisie le garderait pour lui (il perd le focus),
+        // alors le jeu doit aussi le voir.
+        let escape = matches!(
+            event,
+            engine_core::winit::event::WindowEvent::KeyboardInput { event, .. }
+                if event.physical_key
+                    == engine_core::winit::keyboard::PhysicalKey::Code(
+                        engine_core::winit::keyboard::KeyCode::Escape
+                    )
+        );
+        if escape && self.screen == Screen::Console {
+            return false;
+        }
         // La souris capturée (vue FPS) : l'interface ne reçoit rien.
         response.consumed && (self.inventory_open || self.inspector_open || self.menu_open)
     }
