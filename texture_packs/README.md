@@ -17,6 +17,11 @@ aquatiques ont des textures dessinées en 64 × 64. Leurs maillages dans le mond
 cactus ont des côtes en relief et les nénuphars une nervure relevée. Le reste du
 catalogue reprend les dessins existants avec un affinage des contours par Scale2x.
 
+Les packs 32 et 64 dessinent la laine, le pelage, les plumes et les écailles à
+leur résolution native. La lavande monte en grappes plus hautes. Le blé, l'orge
+et l'avoine ont des tiges séparées, avec des épis ou des panicules propres à
+chaque espèce, dans les champs comme à l'état sauvage.
+
 Le générateur `cargo run -p assetgen -- --pack64-only` écrit les PNG et le
 manifeste dans `texture_packs/earth-copper-64/`.
 
