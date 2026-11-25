@@ -45,7 +45,7 @@ La jungle commençait aussi à 0,2, collée aux forêts tempérées.
 
 ## Propositions pour la suite (à décider avec benji)
 
-1. **Humidité côtière et fluviale** (idée de Temperature Bands) : plus humide près de la mer et des rivières, plus
+1. **(Fait, choisi par benji) Humidité côtière et fluviale** (idée de Temperature Bands) : plus humide près de la mer et des rivières, plus
    sec à l'intérieur des continents. Donne des déserts d'intérieur et des jungles côtières, plus crédibles.
 2. **Garde-fou de taille minimale** : repérer les biomes de moins de N blocs (mesure sur la grille) pour éviter les
    confettis, avec une cible par biome.
@@ -60,3 +60,12 @@ La jungle commençait aussi à 0,2, collée aux forêts tempérées.
 Objet `core:compass` (4 lingots de cuivre et 1 de fer en croix). Dans la barre d'objets, une règle de cap s'affiche en
 haut de l'écran : N en rouge, NE, E, SE, S, SO, O, NO, et un repère central. Le nord est le sens des z négatifs, c'est
 aussi la direction du froid (le grand nord glacial).
+
+## Humidité côtière et fluviale (fait)
+
+`terrain_v4.ron` : l'humidité ajoute une courbe selon la continentalité (+0,22 au rivage, jusqu'à -0,22 au cœur des
+continents) et un petit bonus au fond des vallées (jusqu'à +0,1). Mesuré sur la graine 7 entre z = -1500 et 1500 :
+humidité moyenne +0,24 sur les côtes, -0,22 à l'intérieur ; +0,18 au fond des vallées contre +0,07 sur les crêtes
+(`v4_humidity_falls_with_the_distance_from_the_sea`). Effet attendu en jeu : forêts et jungles près des côtes,
+prairies, steppes et déserts à l'intérieur, et des rivières bordées de verdure. Les tests de bandes de latitude et de
+frontières cohérentes passent toujours.

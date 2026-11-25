@@ -230,3 +230,51 @@ fn v4_land_borders_follow_the_climate_ladder() {
         );
     }
 }
+
+/// L'humidité vient de la mer : à latitude égale, les côtes sont plus humides que l'intérieur des
+/// continents, et le fond des vallées un peu plus que les crêtes.
+#[test]
+fn v4_humidity_falls_with_the_distance_from_the_sea() {
+    let g = generator(GenerationVersion::V4, 7);
+    let (mut coast, mut inland, mut valley, mut ridge) = (vec![], vec![], vec![], vec![]);
+    for z in (-1500..1500).step_by(50) {
+        for x in (-12_000..12_000).step_by(50) {
+            let p = g.v3_parameters(x, z).unwrap();
+            if (-0.1..0.15).contains(&p.continentalness) {
+                coast.push(p.humidity);
+            } else if p.continentalness > 0.7 {
+                inland.push(p.humidity);
+            }
+            if p.continentalness > 0.0 {
+                if p.pv < -0.8 {
+                    valley.push(p.humidity);
+                } else if p.pv > 0.5 {
+                    ridge.push(p.humidity);
+                }
+            }
+        }
+    }
+    let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len().max(1) as f64;
+    println!(
+        "côte {:.3} ({}) intérieur {:.3} ({}) vallée {:.3} crête {:.3}",
+        mean(&coast),
+        coast.len(),
+        mean(&inland),
+        inland.len(),
+        mean(&valley),
+        mean(&ridge)
+    );
+    assert!(coast.len() > 50 && inland.len() > 50);
+    assert!(
+        mean(&coast) > mean(&inland) + 0.25,
+        "côte {} intérieur {}",
+        mean(&coast),
+        mean(&inland)
+    );
+    assert!(
+        mean(&valley) > mean(&ridge),
+        "vallée {} crête {}",
+        mean(&valley),
+        mean(&ridge)
+    );
+}

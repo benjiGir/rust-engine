@@ -79,7 +79,20 @@
             (location: 0.95, value: -0.5),
             (location: 1.0, value: -0.55),
         ]))),
-        "humidity": FlatCache(Add(Ref("humidity_bias"),
+        // L'humidité de la mer : plus humide près des côtes, plus sèche au cœur des continents (l'air
+        // humide ne va pas si loin). La continentalité vaut environ -0,115 au rivage, puis monte vers 1.
+        "humidity_coast": FlatCache(Spline((coordinate: Ref("continents"), points: [
+            (location: -0.2, value: 0.22),
+            (location: -0.115, value: 0.22),
+            (location: 0.15, value: 0.1),
+            (location: 0.45, value: -0.02),
+            (location: 0.8, value: -0.15),
+            (location: 1.1, value: -0.22),
+        ]))),
+        // L'humidité des rivières : un peu plus humide au fond des vallées (pv proche de -1), sans effet
+        // sur les crêtes.
+        "humidity_river": FlatCache(Mul(Constant(-0.1), Clamp(input: Ref("pv"), min: -1.0, max: 0.0))),
+        "humidity": FlatCache(Add(Add(Ref("humidity_bias"), Add(Ref("humidity_coast"), Ref("humidity_river"))),
             Mul(ShiftedNoise(noise: "humidity", xz_scale: 1.0, y_scale: 0.0,
                 shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z")), Constant(0.7)))),
         "variety": FlatCache(ShiftedNoise(noise: "variety", xz_scale: 1.0, y_scale: 0.0,
