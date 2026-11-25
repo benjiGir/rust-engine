@@ -1,6 +1,14 @@
 # Plan : des biomes plus grands et plus logiques (génération v3, révision du climat)
 
-**Statut : proposition, en attente de l'accord de benji. Rien n'est implémenté.**
+**Statut : implémenté (génération v4).** Réponses de benji : v4, période de 24 000 blocs, une teinte par
+arbre, nord = z négatif. Les mondes v1 et v3 existants ne changent pas ; les nouveaux mondes sont en v4.
+
+Ce qui existe : le nœud `ZTriangleWave` (`density_graph`), `terrain_v4.ron`, `biomes_v4.ron` et `surface_v4.ron`,
+les biomes `snowy_plains`, `fjord`, `rainforest`, `arid_desert`, `great_prairie` (blé, orge et avoine sauvages en
+grands champs) et `autumn_maples`, les arbres `MapleYellow/Gold/Red/Crimson` avec leurs feuilles et leurs textures
+(base, 32 et 64). Tests : `tests/generation_v4.rs` (température croissante du nord au sud, réflexion, biomes par
+bande de latitude). Carte : `cargo run --release -p engine_voxel --example worldmap -- --generator v4 ...`.
+Reste à régler à l'œil : proportions des biomes, relief des fjords, densité des champs de blé.
 
 ## Pourquoi
 

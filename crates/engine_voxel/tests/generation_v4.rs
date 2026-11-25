@@ -115,7 +115,7 @@ fn v4_biomes_follow_the_latitude() {
         0,
         "{middle:?}"
     );
-    assert!(share(&middle, &["core:prairie"]) >= 10, "{middle:?}");
+    assert!(share(&middle, &["core:great_prairie"]) >= 10, "{middle:?}");
     // Le sud humide : de la jungle et de la forêt humide.
     let south = band_biomes(&g, 3000, 4000);
     assert!(share(&south, &wet_south) >= 50, "{south:?}");
@@ -129,5 +129,5 @@ fn v4_biomes_follow_the_latitude() {
     );
     // Les érables vivent dans la bande fraîche, vers le nord.
     let cool = band_biomes(&g, -2200, -1000);
-    assert!(share(&cool, &["core:maple_woods"]) >= 10, "{cool:?}");
+    assert!(share(&cool, &["core:autumn_maples"]) >= 10, "{cool:?}");
 }

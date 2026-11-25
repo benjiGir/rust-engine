@@ -79,10 +79,14 @@
         (biome: "core:lavender_field", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-2.0, -0.35), variety: (0.3, 2.0)),
         // La grande prairie sauvage : de très larges plaques de hautes herbes et de blé sauvage, à la
         // lisière chaude du tempéré, sèche à moyenne.
-        (biome: "core:prairie", continentalness: (-0.115, 2.0), temperature: (-0.05, 0.4), humidity: (-0.4, -0.05), variety: (-0.45, 0.35)),
+        (biome: "core:great_prairie", continentalness: (-0.115, 2.0), temperature: (-0.05, 0.4), humidity: (-0.4, -0.05), variety: (-0.45, 0.35)),
+        // L'ancienne prairie : seulement dans une variante très rare.
+        (biome: "core:prairie", continentalness: (-0.115, 2.0), temperature: (-0.05, 0.4), humidity: (-0.4, -0.05), variety: (1.6, 2.0)),
         (biome: "core:orchard", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.1, 0.1), variety: (-2.0, -0.35)),
-        // L'érablière : une grande bande fraîche et humide entre la taïga et la forêt tempérée.
-        (biome: "core:maple_woods", continentalness: (-0.115, 2.0), temperature: (-0.38, -0.12), humidity: (-0.1, 0.35), variety: (0.0, 2.0)),
+        // L'érablière d'automne (cinq teintes, du jaune au rouge sombre) : une grande bande fraîche et humide entre la taïga et la forêt tempérée.
+        (biome: "core:autumn_maples", continentalness: (-0.115, 2.0), temperature: (-0.38, -0.12), humidity: (-0.1, 0.35), variety: (0.0, 2.0)),
+        // L'ancienne érablière (une seule teinte) : seulement dans une variante très rare.
+        (biome: "core:maple_woods", continentalness: (-0.115, 2.0), temperature: (-0.38, -0.12), humidity: (-0.1, 0.35), variety: (1.6, 2.0)),
         // Le froid et l'altitude :
         (biome: "core:tundra", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.25), humidity: (-0.35, 0.0), variety: (-2.0, 0.0)),
         (biome: "core:snowy_fir_forest", continentalness: (-0.115, 2.0), temperature: (-2.0, -0.45), humidity: (0.1, 2.0), variety: (0.0, 2.0)),

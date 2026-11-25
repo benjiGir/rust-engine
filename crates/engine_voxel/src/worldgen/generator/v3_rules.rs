@@ -336,7 +336,9 @@ mod tests {
             );
         }
         // Les biomes de la v4 seulement n'existent pas dans la table v3, qui ne change jamais.
-        const V4_ONLY: [&str; 4] = [
+        const V4_ONLY: [&str; 6] = [
+            "core:great_prairie",
+            "core:autumn_maples",
             "core:snowy_plains",
             "core:fjord",
             "core:rainforest",
