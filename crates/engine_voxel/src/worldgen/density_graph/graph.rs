@@ -100,6 +100,10 @@ enum Node {
         from_value: f64,
         to_value: f64,
     },
+    ZTriangleWave {
+        period: f64,
+        offset: f64,
+    },
     Spline(usize),
     /// L'indice dans la liste des nœuds interpolés.
     Interpolated(NodeId, usize),
@@ -534,6 +538,20 @@ impl Compiler<'_> {
                 },
                 (from_value.min(*to_value), from_value.max(*to_value)),
             ),
+            DensityDef::ZTriangleWave { period, offset } => {
+                if !(*period > 0.0) {
+                    return Err(DensityError::BadCones(format!(
+                        "onde triangulaire : période {period} invalide"
+                    )));
+                }
+                self.push(
+                    Node::ZTriangleWave {
+                        period: *period,
+                        offset: *offset,
+                    },
+                    (-1.0, 1.0),
+                )
+            }
             DensityDef::Spline(spline) => {
                 let index = self.spline(spline)?;
                 let bounds = self.graph.spline_bounds[index];
@@ -833,6 +851,7 @@ impl<'a> Eval<'a> {
                 let t = ((f64::from(y) - from_y) / (to_y - from_y)).clamp(0.0, 1.0);
                 lerp(t, *from_value, *to_value)
             }
+            Node::ZTriangleWave { period, offset } => triangle_wave(f64::from(z), *period, *offset),
             Node::Spline(s) => self.spline(*s, x, y, z),
             Node::Interpolated(child, slot) => match &self.grids {
                 Some(grids) if grids.contains(x, y, z) => grids.lookup(*slot, x, y, z),
@@ -929,5 +948,38 @@ impl<'a> Eval<'a> {
         let f = d0 * width - (y1 - y0);
         let g = -d1 * width + (y1 - y0);
         lerp(t, y0, y1) + t * (1.0 - t) * lerp(t, f, g)
+    }
+}
+
+/// L'onde triangulaire de la latitude : 0 en `offset`, +1 un quart de période plus loin, -1 un quart
+/// de période en arrière, de période `period`. (Voir `DensityDef::ZTriangleWave`.)
+fn triangle_wave(z: f64, period: f64, offset: f64) -> f64 {
+    let phase = ((z - offset) / period + 0.25).rem_euclid(1.0);
+    1.0 - 4.0 * (phase - 0.5).abs()
+}
+
+#[cfg(test)]
+mod triangle_tests {
+    use super::triangle_wave;
+
+    #[test]
+    fn wave_values_and_periodicity() {
+        let p = 24_000.0;
+        assert!(triangle_wave(0.0, p, 0.0).abs() < 1e-12);
+        assert!((triangle_wave(6_000.0, p, 0.0) - 1.0).abs() < 1e-12);
+        assert!((triangle_wave(-6_000.0, p, 0.0) + 1.0).abs() < 1e-12);
+        // Réfléchie : au-delà du pic, elle redescend.
+        assert!((triangle_wave(12_000.0, p, 0.0)).abs() < 1e-12);
+        assert!((triangle_wave(18_000.0, p, 0.0) + 1.0).abs() < 1e-12);
+        // Montée monotone du pôle nord à l'équateur chaud.
+        let mut last = -2.0;
+        for z in (-6_000..=6_000).step_by(500) {
+            let v = triangle_wave(f64::from(z), p, 0.0);
+            assert!(v > last);
+            last = v;
+        }
+        // Périodique, et décalable.
+        assert!((triangle_wave(1234.0, p, 0.0) - triangle_wave(1234.0 + p, p, 0.0)).abs() < 1e-9);
+        assert!(triangle_wave(500.0, p, 500.0).abs() < 1e-12);
     }
 }

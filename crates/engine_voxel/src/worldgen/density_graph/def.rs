@@ -79,6 +79,14 @@ pub enum DensityDef {
         from_value: f64,
         to_value: f64,
     },
+    /// Une onde triangulaire le long de z (la latitude du monde) : 0 à `z = offset`, +1 à
+    /// `offset + period / 4` (le sud), -1 à `offset - period / 4` (le nord), puis elle repart dans
+    /// l'autre sens : le climat se réfléchit au lieu de monter sans fin. Constante en x et en y.
+    ZTriangleWave {
+        period: f64,
+        #[serde(default)]
+        offset: f64,
+    },
     Spline(SplineDef),
     /// Calculée aux coins des cellules (4 × 8 × 4 blocs) et interpolée entre eux lors du
     /// remplissage d'un chunk : la part chère du relief ne coûte qu'aux coins.

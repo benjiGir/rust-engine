@@ -1,0 +1,239 @@
+// Le relief de la génération v3 (lot 2 de docs/plan-generation-v3.md) : une densité 3D, positive
+// dans la matière, négative dans le vide, sur le modèle de Minecraft moderne. Les valeurs sont les
+// nôtres (réglées sur captures), pas celles de Mojang.
+//
+// Unités : la densité « depth » vaut 0 à y = 64 et perd 1 tous les 128 blocs vers le haut. Un
+// décalage (offset) de +0,5 pose donc la surface vers y = 128 ; -0,25 vers y = 32. La mer est à 62.
+//
+// Paramètres (de -1 à 1 environ) :
+// - continentalness : océans (bas) -> côtes -> intérieur des terres (haut) ;
+// - erosion : bas = montagnes escarpées, haut = plaines usées ;
+// - ridges, plié en pv (« peaks and valleys ») : -1 au fond des vallées (où coulent les rivières, au
+//   niveau de la mer), +1 sur les crêtes ;
+// - temperature, humidity : le climat, pour les biomes.
+(
+    noises: {
+        "continentalness": (first_octave: -11, amplitudes: [1.0, 1.0, 1.5, 1.5, 1.0, 0.25, 0.1]),
+        "erosion": (first_octave: -10, amplitudes: [1.0, 1.0, 0.0, 1.0, 1.0]),
+        "ridges": (first_octave: -10, amplitudes: [1.0, 2.0, 1.0, 0.5, 0.0, 0.0]),
+        "temperature": (first_octave: -12, amplitudes: [1.5, 0.0, 0.4]),
+        "humidity": (first_octave: -11, amplitudes: [1.0, 0.4]),
+        // La variété : quelle variante d'un climat (forêt claire ou sombre, verger, érables...). À large
+        // échelle et indépendante du relief, pour des biomes en grandes plaques et non en bandes le long
+        // des crêtes.
+        "variety": (first_octave: -11, amplitudes: [1.0, 0.6]),
+        // Une déformation légère des paramètres : des côtes et des vallées moins régulières.
+        "shift": (first_octave: -5, amplitudes: [1.0, 1.0, 1.0, 0.0]),
+        // Les dentelures des sommets.
+        "jagged": (first_octave: -5, amplitudes: [1.0, 1.0, 1.0, 1.0, 1.0]),
+        // Le bruit 3D : bosses, surplombs et falaises là où le relief le permet.
+        "base_3d": (first_octave: -7, amplitudes: [1.0, 1.0, 1.0, 1.0]),
+        // Les grottes (lot 3) : grandes salles (« fromage »), tunnels (« spaghetti »), réseaux fins
+        // (« nouilles »), et les zones où des tunnels peuvent déboucher à la surface.
+        "cave_cheese": (first_octave: -8, amplitudes: [1.0, 1.0, 1.0, 0.5, 0.25]),
+        "cave_layer": (first_octave: -8, amplitudes: [1.0]),
+        "spaghetti_a": (first_octave: -7, amplitudes: [1.0, 0.5]),
+        "spaghetti_b": (first_octave: -7, amplitudes: [1.0, 0.5]),
+        "spaghetti_size": (first_octave: -9, amplitudes: [1.0]),
+        "noodle_a": (first_octave: -6, amplitudes: [1.0]),
+        "noodle_b": (first_octave: -6, amplitudes: [1.0]),
+        "noodle_toggle": (first_octave: -8, amplitudes: [1.0, 1.0]),
+        "entrance": (first_octave: -8, amplitudes: [0.4, 0.5, 1.0]),
+        // La nappe phréatique : un niveau d'eau souterrain qui varie doucement d'une région à l'autre.
+        "water_table": (first_octave: -9, amplitudes: [1.0, 1.0, 0.5]),
+        // Les bassins des sources chaudes (lot 5, vague 3).
+        "springs": (first_octave: -5, amplitudes: [1.0, 0.5]),
+        // Les biomes souterrains (lot 5, vague 4) : où il y en a, et lequel.
+        "cave_biome_amount": (first_octave: -7, amplitudes: [1.0, 0.5]),
+        "cave_biome_kind": (first_octave: -8, amplitudes: [1.0, 0.5]),
+    },
+    functions: {
+        "shift_x": FlatCache(Cache2d(Mul(Noise(noise: "shift", xz_scale: 1.0, y_scale: 0.0), Constant(16.0)))),
+        "shift_z": FlatCache(Cache2d(Mul(Noise(noise: "shift", xz_scale: 1.0, y_scale: 0.0), Constant(-16.0)))),
+        "continents": FlatCache(ShiftedNoise(noise: "continentalness", xz_scale: 1.0, y_scale: 0.0,
+            shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z"))),
+        "erosion": FlatCache(ShiftedNoise(noise: "erosion", xz_scale: 1.0, y_scale: 0.0,
+            shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z"))),
+        "ridges": FlatCache(ShiftedNoise(noise: "ridges", xz_scale: 1.0, y_scale: 0.0,
+            shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z"))),
+        // pv = 1 - |3 |ridges| - 2| : -1 quand ridges passe par 0 (vallées), +1 à |ridges| = 2/3.
+        "pv": FlatCache(Add(Constant(1.0), Mul(Constant(-1.0),
+            Abs(Add(Mul(Abs(Ref("ridges")), Constant(3.0)), Constant(-2.0)))))),
+        // v4 : la latitude. -1 au pôle nord (z = -6000), 0 au milieu (z = 0, où l'on apparaît), +1 au
+        // pôle chaud du sud (z = +6000), puis l'onde se réfléchit (période 24000).
+        "latitude": FlatCache(ZTriangleWave(period: 24000.0, offset: 0.0)),
+        // La température : surtout la latitude, plus une variation locale à large échelle (des plaques
+        // plus fraîches ou plus chaudes, sans jamais renverser le gradient).
+        "temperature": FlatCache(Add(Mul(Ref("latitude"), Constant(0.9)),
+            Mul(ShiftedNoise(noise: "temperature", xz_scale: 1.0, y_scale: 0.0,
+                shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z")), Constant(0.3)))),
+        // L'humidité : le bruit, plus un biais selon la latitude. Le nord est frais et humide (taïga),
+        // le milieu moyen, la zone chaude (lat ~0,5) détrempée (forêt humide, jungle), puis le sud
+        // extrême s'assèche (déserts de plus en plus arides).
+        "humidity_bias": FlatCache(Spline((coordinate: Ref("latitude"), points: [
+            (location: -1.0, value: 0.0),
+            (location: -0.3, value: 0.05),
+            (location: 0.1, value: 0.0),
+            (location: 0.5, value: 0.45),
+            (location: 0.75, value: 0.0),
+            (location: 0.95, value: -0.5),
+            (location: 1.0, value: -0.55),
+        ]))),
+        "humidity": FlatCache(Add(Ref("humidity_bias"),
+            Mul(ShiftedNoise(noise: "humidity", xz_scale: 1.0, y_scale: 0.0,
+                shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z")), Constant(0.7)))),
+        "variety": FlatCache(ShiftedNoise(noise: "variety", xz_scale: 1.0, y_scale: 0.0,
+            shift_x: Ref("shift_x"), shift_y: Constant(0.0), shift_z: Ref("shift_z"))),
+
+        // Le décalage : la hauteur moyenne du sol, selon la continentalité, puis (dans les terres)
+        // l'érosion et les pics et vallées. Le fond des vallées est toujours sous le niveau de la mer
+        // (-0,08 : y = 53) : une rivière ne peut pas être perchée.
+        "offset": FlatCache(Spline((coordinate: Ref("continents"), points: [
+            (location: -1.1, value: -0.30),
+            (location: -0.55, value: -0.26),
+            (location: -0.30, value: -0.16, derivative: 0.4),
+            (location: -0.18, value: -0.04, derivative: 0.4),
+            (location: -0.11, value: (coordinate: Ref("erosion"), points: [
+                (location: -0.8, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: 0.0, value: 0.10), (location: 1.0, value: 0.30)])),
+                (location: 0.0, value: 0.00),
+                (location: 0.6, value: -0.01),
+            ])),
+            (location: 0.03, value: (coordinate: Ref("erosion"), points: [
+                (location: -0.7, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.6, value: 0.18, derivative: 0.6),
+                    (location: 0.2, value: 0.62, derivative: 0.5), (location: 1.0, value: 1.05)])),
+                (location: -0.3, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.5, value: 0.12, derivative: 0.4),
+                    (location: 0.3, value: 0.38, derivative: 0.3), (location: 1.0, value: 0.55)])),
+                (location: 0.0, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.4, value: 0.05, derivative: 0.15),
+                    (location: 1.0, value: 0.26)])),
+                (location: 0.35, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.5, value: 0.03), (location: 1.0, value: 0.12)])),
+                (location: 0.7, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: 0.0, value: 0.015), (location: 1.0, value: 0.05)])),
+            ])),
+            (location: 0.6, value: (coordinate: Ref("erosion"), points: [
+                (location: -0.7, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.6, value: 0.22, derivative: 0.6),
+                    (location: 0.2, value: 0.70, derivative: 0.5), (location: 1.0, value: 1.20)])),
+                (location: -0.3, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.5, value: 0.16, derivative: 0.4),
+                    (location: 0.3, value: 0.45, derivative: 0.3), (location: 1.0, value: 0.65)])),
+                (location: 0.0, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.4, value: 0.08, derivative: 0.15),
+                    (location: 1.0, value: 0.30)])),
+                (location: 0.35, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: -0.5, value: 0.05), (location: 1.0, value: 0.16)])),
+                (location: 0.7, value: (coordinate: Ref("pv"), points: [
+                    (location: -1.0, value: -0.08), (location: 0.0, value: 0.02), (location: 1.0, value: 0.06)])),
+            ])),
+        ]))),
+
+        // Le facteur : grand, le relief suit le décalage de près (plaines nettes) ; petit, le bruit 3D
+        // prend plus de place (escarpements, surplombs).
+        "factor": FlatCache(Spline((coordinate: Ref("continents"), points: [
+            (location: -0.2, value: 4.0),
+            (location: 0.0, value: (coordinate: Ref("erosion"), points: [
+                (location: -0.7, value: 2.8),
+                (location: -0.3, value: 3.6),
+                (location: 0.0, value: 5.0),
+                (location: 0.4, value: 6.5),
+                (location: 0.8, value: 7.0),
+            ])),
+        ]))),
+
+        // Les dentelures : seulement sur les crêtes des massifs.
+        "jaggedness": FlatCache(Spline((coordinate: Ref("continents"), points: [
+            (location: -0.1, value: 0.0),
+            (location: 0.05, value: (coordinate: Ref("erosion"), points: [
+                (location: -0.7, value: (coordinate: Ref("pv"), points: [
+                    (location: 0.2, value: 0.0), (location: 0.6, value: 0.35), (location: 1.0, value: 0.63)])),
+                (location: -0.3, value: (coordinate: Ref("pv"), points: [
+                    (location: 0.5, value: 0.0), (location: 1.0, value: 0.25)])),
+                (location: -0.1, value: 0.0),
+            ])),
+        ]))),
+
+        // Les volcans (lot 5, vague 3) : des cônes dans les régions chaudes et assez sèches de l'intérieur,
+        // un par carré de 320 blocs au plus. Leur hauteur (en blocs) s'ajoute au relief : une pente de
+        // 1/128 par bloc dans « depth ».
+        "volcano_mask": Min(Add(Ref("temperature"), Constant(-0.55)),
+            Min(Add(Ref("humidity"), Constant(0.2)),
+            Min(Add(Constant(0.1), Mul(Ref("humidity"), Constant(-1.0))),
+                Add(Ref("continents"), Constant(0.05))))),
+        "volcano_cones": Cones(cell: 320, chance: 0.85, salt: 1, mask: Ref("volcano_mask"),
+            radius: 80.0, height: 75.0, crater_radius: 11.0, crater_depth: 16.0),
+        "volcano": FlatCache(Ref("volcano_cones")),
+        // Les bassins des sources chaudes : là où ce bruit est fort (voir la génération).
+        "springs": Noise(noise: "springs", xz_scale: 1.0, y_scale: 0.0),
+        "depth": Add(Add(YClampedGradient(from_y: -128, to_y: 256, from_value: 1.5, to_value: -1.5), Ref("offset")),
+            Mul(Ref("volcano"), Constant(0.0078125))),
+        "jagged": Mul(Ref("jaggedness"), HalfNegative(Noise(noise: "jagged", xz_scale: 1.0, y_scale: 0.0))),
+        // Gardée par position : la croûte et les grottes la relisent.
+        "sloped": CacheOnce(Add(
+            Mul(Constant(4.0), QuarterNegative(Mul(Add(Ref("depth"), Ref("jagged")), Ref("factor")))),
+            Mul(Noise(noise: "base_3d", xz_scale: 1.0, y_scale: 0.5), Constant(0.35)),
+        )),
+        // Les grottes : négatives dans le vide.
+        // Les grandes salles, rangées en étages (le bruit de couche les sépare verticalement).
+        "cheese": Add(
+            Add(Constant(0.30), Mul(Noise(noise: "cave_cheese", xz_scale: 1.0, y_scale: 1.6), Constant(-1.0))),
+            Mul(Square(Noise(noise: "cave_layer", xz_scale: 1.0, y_scale: 6.0)), Constant(1.5)),
+        ),
+        // Les tunnels : là où deux bruits sont tous deux proches de zéro, une épaisseur variable.
+        "spaghetti": Add(
+            Max(Abs(Noise(noise: "spaghetti_a", xz_scale: 1.0, y_scale: 1.5)),
+                Abs(Noise(noise: "spaghetti_b", xz_scale: 1.0, y_scale: 1.5))),
+            Mul(Add(Constant(0.07), Mul(Noise(noise: "spaghetti_size", xz_scale: 1.0, y_scale: 1.0), Constant(0.03))), Constant(-1.0)),
+        ),
+        // Les réseaux fins, seulement par endroits.
+        "noodle": RangeChoice(
+            input: Noise(noise: "noodle_toggle", xz_scale: 1.0, y_scale: 1.0),
+            min_inclusive: 0.0, max_exclusive: 10.0,
+            when_in_range: Add(
+                Max(Abs(Noise(noise: "noodle_a", xz_scale: 1.0, y_scale: 1.0)),
+                    Abs(Noise(noise: "noodle_b", xz_scale: 1.0, y_scale: 1.0))),
+                Constant(-0.045)),
+            when_out_of_range: Constant(1.0),
+        ),
+        // Le niveau de la nappe, en blocs : de -110 (régions sèches) à -5 environ.
+        "water_table": FlatCache(Add(Constant(-60.0), Mul(Noise(noise: "water_table", xz_scale: 1.0, y_scale: 0.0), Constant(55.0)))),
+        // Les biomes souterrains : un biome là où « cave_amount » dépasse 0,3, sous y = 30 ; « cave_kind »
+        // choisit (sous -0,2 le gouffre cristallin, au-dessus de 0,25 la grotte fongique, entre les deux la
+        // grotte luminescente). Les gouffres cristallins creusent de plus grandes salles.
+        "cave_amount": Noise(noise: "cave_biome_amount", xz_scale: 1.0, y_scale: 1.0),
+        "cave_kind": Noise(noise: "cave_biome_kind", xz_scale: 1.0, y_scale: 0.7),
+        "chasm": Mul(
+            YClampedGradient(from_y: 0, to_y: 30, from_value: 1.0, to_value: 0.0),
+            RangeChoice(
+                input: Ref("cave_kind"), min_inclusive: -10.0, max_exclusive: -0.2,
+                when_in_range: Mul(Max(Constant(0.0), Add(Ref("cave_amount"), Constant(-0.3))), Constant(-1.2)),
+                when_out_of_range: Constant(0.0),
+            ),
+        ),
+        "caves": Min(Add(Ref("cheese"), Ref("chasm")), Min(Ref("spaghetti"), Ref("noodle"))),
+        // Une croûte protège la surface (et le fond des mers) : pas de grotte à moins d'une dizaine
+        // de blocs du sol, sauf aux entrées.
+        // Deux gardes : la densité du relief (épaisse sous les pentes), et la profondeur sous la surface
+        // approchée (15 blocs au moins, même sous les plaines plates où la densité monte vite).
+        "guard": Max(
+            Add(Constant(1.2), Mul(Ref("sloped"), Constant(-1.0))),
+            Mul(Add(Constant(0.12), Mul(Ref("depth"), Constant(-1.0))), Constant(20.0)),
+        ),
+        // Pas d'entrée sous la mer, sur les côtes basses ni au fond des vallées (l'eau s'y engouffrerait).
+        "low_ground": FlatCache(Max(Constant(0.0), Mul(Add(Ref("offset"), Constant(-0.03)), Constant(-60.0)))),
+        "entrances": Max(
+            Add(Add(Constant(0.8), Mul(Noise(noise: "entrance", xz_scale: 1.0, y_scale: 1.0), Constant(-2.5))), Ref("low_ground")),
+            Ref("spaghetti"),
+        ),
+        "carved": Min(Ref("sloped"), Min(Max(Ref("guard"), Ref("caves")), Ref("entrances"))),
+        // Le haut du monde se vide, le bas reste plein.
+        "slides": Min(
+            Max(Ref("carved"), YClampedGradient(from_y: -128, to_y: -112, from_value: 2.0, to_value: -4.0)),
+            YClampedGradient(from_y: 232, to_y: 256, from_value: 4.0, to_value: -2.0),
+        ),
+        "final": Interpolated(Ref("slides")),
+    },
+)

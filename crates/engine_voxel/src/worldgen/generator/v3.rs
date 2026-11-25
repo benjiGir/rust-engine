@@ -19,6 +19,7 @@ use super::column_cache::{ColumnCache, ColumnKey};
 use super::v3_rules::{BiomeTable, Climate6, Material, SurfaceRules, SurfaceSpot};
 use super::{CHUNK_SIZE, Chunk, Column, FREEZING, SEA_LEVEL, TerrainGenerator, World, hash3};
 use crate::BlockId;
+use crate::GenerationVersion;
 use crate::registry::BlockRegistry;
 use crate::worldgen::biome::{BiomeId, BiomeRegistry};
 use crate::worldgen::density_graph::{CELL_HEIGHT, CELL_WIDTH, DensityGraph, NodeId};
@@ -26,9 +27,12 @@ use crate::worldgen::generator::{MAX_CHUNK_Y, MIN_CHUNK_Y};
 
 /// Le relief v3, embarqué dans le binaire (comme les autres données de génération du jeu de base).
 const TERRAIN: &str = include_str!("../../../../../assets/core/worldgen/terrain_v3.ron");
+const TERRAIN_V4: &str = include_str!("../../../../../assets/core/worldgen/terrain_v4.ron");
 /// Les biomes par paramètres et les règles de surface (lot 4).
 const BIOMES: &str = include_str!("../../../../../assets/core/worldgen/biomes_v3.ron");
 const SURFACE: &str = include_str!("../../../../../assets/core/worldgen/surface_v3.ron");
+const BIOMES_V4: &str = include_str!("../../../../../assets/core/worldgen/biomes_v4.ron");
+const SURFACE_V4: &str = include_str!("../../../../../assets/core/worldgen/surface_v4.ron");
 
 const SIZE: i32 = CHUNK_SIZE as i32;
 /// Le bas et le haut du monde v3, en blocs.
@@ -87,8 +91,19 @@ impl std::fmt::Debug for V3State {
 }
 
 impl V3State {
-    pub(super) fn new(seed: u32, blocks: &BlockRegistry, biomes: &BiomeRegistry) -> Result<Self> {
-        let graph = DensityGraph::parse(TERRAIN, u64::from(seed)).context("relief v3")?;
+    pub(super) fn new(
+        version: GenerationVersion,
+        seed: u32,
+        blocks: &BlockRegistry,
+        biomes: &BiomeRegistry,
+    ) -> Result<Self> {
+        // La v4 a ses propres fichiers : les mondes v3 gardent exactement les leurs.
+        let (terrain, biome_text, surface_text) = if version == GenerationVersion::V4 {
+            (TERRAIN_V4, BIOMES_V4, SURFACE_V4)
+        } else {
+            (TERRAIN, BIOMES, SURFACE)
+        };
+        let graph = DensityGraph::parse(terrain, u64::from(seed)).context("relief v3")?;
         let id = |name: &str| {
             graph
                 .function(name)
@@ -118,8 +133,8 @@ impl V3State {
             caves: CaveBiomes::resolve(blocks, biomes),
             springs_biome: biomes.id("core:hot_springs"),
             graph,
-            biome_table: BiomeTable::parse(BIOMES, biomes)?,
-            surface: SurfaceRules::parse(SURFACE, u64::from(seed), blocks, biomes)?,
+            biome_table: BiomeTable::parse(biome_text, biomes)?,
+            surface: SurfaceRules::parse(surface_text, u64::from(seed), blocks, biomes)?,
             contexts: ColumnCache::with_limit(CONTEXT_LIMIT),
         })
     }

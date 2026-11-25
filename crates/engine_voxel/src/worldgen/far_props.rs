@@ -125,7 +125,7 @@ pub(crate) fn props_for_tile(
                         continue;
                     };
                     // Les grands arbres de la v3 (sauf les géants, déjà à leur taille).
-                    let (radius, height) = if generator.version() == crate::GenerationVersion::V3
+                    let (radius, height) = if generator.version().is_density()
                         && !matches!(
                             site.kind,
                             TreeKind::Jungle

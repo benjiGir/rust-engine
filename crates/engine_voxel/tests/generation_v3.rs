@@ -41,7 +41,7 @@ fn v3_is_the_new_worlds_version_numbered_3_with_the_tall_range() {
         GenerationVersion::for_new_world_with(Some("v3")),
         GenerationVersion::V3
     );
-    assert_eq!(GenerationVersion::FOR_NEW_WORLDS, GenerationVersion::V3);
+    assert_eq!(GenerationVersion::FOR_NEW_WORLDS, GenerationVersion::V4);
     assert_eq!(v3(1).chunk_range(), MIN_CHUNK_Y..MAX_CHUNK_Y);
     assert!(v3(1).v3_parameters(0, 0).is_some());
     assert!(TerrainGenerator::new(1).v3_parameters(0, 0).is_none());

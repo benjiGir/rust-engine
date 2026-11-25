@@ -325,7 +325,7 @@ impl TerrainGenerator {
         self.column_cache = Arc::default();
         self.dimension_tag = self.compute_dimension_tag();
         if self.v3.is_some() {
-            self.v3 = v3::V3State::new(self.seed, &self.registry, &self.biomes)
+            self.v3 = v3::V3State::new(self.version, self.seed, &self.registry, &self.biomes)
                 .ok()
                 .map(Arc::new);
         }
@@ -1444,7 +1444,8 @@ impl TerrainGenerator {
     pub fn with_version(mut self, version: GenerationVersion) -> Result<Self> {
         self.version = version;
         self.v3 = match version {
-            GenerationVersion::V3 => Some(Arc::new(v3::V3State::new(
+            GenerationVersion::V3 | GenerationVersion::V4 => Some(Arc::new(v3::V3State::new(
+                version,
                 self.seed,
                 &self.registry,
                 &self.biomes,
@@ -1453,7 +1454,7 @@ impl TerrainGenerator {
         };
         // Les grands arbres : à l'échelle du relief v3 ; la v1 garde les siens.
         if let Some(blocks) = &mut self.tree_blocks {
-            blocks.tall = version == GenerationVersion::V3;
+            blocks.tall = version.is_density();
         }
         // Les arbres et les colonnes dépendent de la version : on repart de caches neufs.
         self.tree_cache = Arc::default();

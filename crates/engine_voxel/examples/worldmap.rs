@@ -10,7 +10,7 @@
 //! cargo xtask map --section z=0 --from -256 --to 256 --ymin -128 --ymax 192 --scale 3
 //! ```
 //!
-//! Options : `--generator v1|v3` (v3 par défaut, celle des nouveaux mondes ; v1 : les mondes
+//! Options : `--generator v1|v3|v4` (v4 par défaut, celle des nouveaux mondes ; v1 : les mondes
 //! historiques) ; les cartes de `MapKind` (altitude, pente, humidite, temperature, continentalite,
 //! biomes ; toutes par défaut) et, issues des **blocs** du générateur, `hauteur-blocs`, `materiau`,
 //! `eau-blocs`, `parois`, `surplombs` ; `--section x=N|z=N --from A --to B [--ymin 0 --ymax 192
@@ -37,6 +37,7 @@ enum Generator {
     V1,
     /// La génération v3 (densité 3D), celle des nouveaux mondes.
     V3,
+    V4,
 }
 
 struct Options {
@@ -58,7 +59,7 @@ struct Options {
 
 fn options() -> Result<Options> {
     let mut options = Options {
-        generator: Generator::V3,
+        generator: Generator::V4,
         seed: 42,
         area: MapArea {
             x: 0,
@@ -98,7 +99,8 @@ fn options() -> Result<Options> {
                 options.generator = match value()?.as_str() {
                     "v1" => Generator::V1,
                     "v3" => Generator::V3,
-                    other => bail!("--generator : v1 ou v3, pas « {other} »"),
+                    "v4" => Generator::V4,
+                    other => bail!("--generator : v1, v3 ou v4, pas « {other} »"),
                 };
             }
             "--maps" => {
@@ -151,6 +153,7 @@ fn generator(options: &Options) -> Result<TerrainGenerator> {
     let version = match options.generator {
         Generator::V1 => GenerationVersion::V1,
         Generator::V3 => GenerationVersion::V3,
+        Generator::V4 => GenerationVersion::V4,
     };
     TerrainGenerator::new(options.seed).with_version(version)
 }

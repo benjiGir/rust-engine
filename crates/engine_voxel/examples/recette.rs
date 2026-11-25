@@ -129,6 +129,7 @@ fn measure(seed: u32, version: GenerationVersion, extent: i32, step: i32) -> Row
         version: match version {
             GenerationVersion::V1 => "v1",
             GenerationVersion::V3 => "v3",
+            GenerationVersion::V4 => "v4",
         },
         land: fraction(land, total),
         deep: fraction(deep, total),
