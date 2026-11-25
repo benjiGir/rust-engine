@@ -6,6 +6,7 @@
 //! l'état (survol, clics). Pas d'objets « bouton » à créer et à garder à jour.
 
 pub mod chest_preview;
+pub mod compass;
 pub mod console;
 pub mod info;
 pub mod input;
@@ -584,6 +585,14 @@ impl VoxelGame {
                     fill.set_width(fill.width() * progress.clamp(0.0, 1.0));
                     ui.painter().rect_filled(fill, 0.0, skin::COPPER);
                 });
+        }
+        // La boussole, si on en porte une dans la barre d'objets : le cap en haut de l'écran.
+        let has_compass = hotbar
+            .iter()
+            .flatten()
+            .any(|stack| self.client.content.items.get(stack.item).key == "core:compass");
+        if has_compass {
+            compass::draw(ctx, compass::bearing_degrees(self.client.camera.yaw));
         }
         let target_bottom = self.draw_target_info(ctx);
         self.client.ui.target_bottom = target_bottom;

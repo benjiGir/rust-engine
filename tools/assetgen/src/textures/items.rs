@@ -193,6 +193,37 @@ fn shears() -> Image {
     )
 }
 
+/// Une boussole : un boîtier de cuivre, une aiguille dont la pointe rouge montre le nord.
+fn compass() -> Image {
+    let mask = [
+        "................",
+        ".....cccccc.....",
+        "...ccIIIIIIcc...",
+        "..cIIIIRIIIIIc..",
+        "..cIIIIRRIIIIc..",
+        ".cIIIIIRRIIIIIc.",
+        ".cIIIIIRRIIIIIc.",
+        ".cIIIIIKKIIIIIc.",
+        ".cIIIIIKKIIIIIc.",
+        ".cIIIIIKKIIIIIc.",
+        "..cIIIIKKIIIIc..",
+        "..cIIIIIKIIIIc..",
+        "...ccIIIIIIcc...",
+        ".....cccccc.....",
+        "................",
+        "................",
+    ];
+    icon(
+        &mask,
+        &[
+            ('c', COPPER),
+            ('I', [0.86, 0.84, 0.74]),
+            ('R', [0.82, 0.18, 0.12]),
+            ('K', [0.2, 0.2, 0.22]),
+        ],
+    )
+}
+
 /// Un seau, vide ou plein d'un fluide (la couleur du contenu).
 fn bucket(content: Option<[f32; 3]>) -> Image {
     let mask = [
@@ -874,6 +905,7 @@ pub(super) fn item_icons(dir: &Path) -> Vec<(PathBuf, Image)> {
         }
     }
     add("shears", shears());
+    add("compass", compass());
     add("bucket", bucket(None));
     add("water_bucket", bucket(Some([0.25, 0.45, 0.95])));
     add("lava_bucket", bucket(Some([1.0, 0.5, 0.1])));

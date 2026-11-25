@@ -81,6 +81,7 @@
         (pattern: [" c ", "cgc", " c "], key: {"c": "cinnabar_dust", "g": "glowstone"}, result: ("lamp", 1)),
         (pattern: [" i", "i "], key: {"i": "iron_ingot"}, result: ("shears", 1)),
         (pattern: ["i i", " i "], key: {"i": "iron_ingot"}, result: ("bucket", 1)),
+        (pattern: [" c ", "cic", " c "], key: {"c": "copper_ingot", "i": "iron_ingot"}, result: ("compass", 1)),
         (pattern: ["MMM", " S ", " S "], key: {"M": "#planks", "S": "stick"}, result: ("wooden_pickaxe", 1)),
         (pattern: ["MM", "MS", " S"], key: {"M": "#planks", "S": "stick"}, result: ("wooden_axe", 1)),
         (pattern: ["M", "S", "S"], key: {"M": "#planks", "S": "stick"}, result: ("wooden_shovel", 1)),

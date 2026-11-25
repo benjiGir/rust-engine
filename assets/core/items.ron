@@ -114,6 +114,7 @@
         (id: "core:sapphire_boots", name: "Bottes en saphir", category: Armor, color: (0.0602, 0.1716, 0.2532), icon: "sapphire_boots", durability: 480, armor: (slot: Feet, protection: 3)),
         // Le seau : il prend la quantité de fluide d'une cellule (jusqu'à un bloc) et la
         // reverse ailleurs. Un seau plein garde sa quantité (affichée en pourcentage).
+        (id: "core:compass", name: "Boussole", category: Tool, color: (0.4675, 0.1695, 0.0676), icon: "compass", max_stack: 1),
         (id: "core:bucket", name: "Seau", category: Tool, color: (0.1989, 0.2316, 0.2288), icon: "bucket", max_stack: 16),
         (id: "core:water_bucket", name: "Seau d'eau", category: Tool, color: (0.2035, 0.2490, 0.3247), icon: "water_bucket", max_stack: 1),
         (id: "core:lava_bucket", name: "Seau de lave", category: Tool, color: (0.3059, 0.2559, 0.2256), icon: "lava_bucket", max_stack: 1),
