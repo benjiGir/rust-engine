@@ -1,10 +1,12 @@
-// Le choix des biomes de la génération v3 (lot 4 de docs/plan-generation-v3.md) : chaque biome occupe
-// une case dans l'espace des six paramètres (voir terrain_v3.ron), et une colonne prend le
+// Le choix des biomes de la génération v4 (docs/plan-biomes.md, d'après le lot 4 de docs/plan-generation-v3.md) : chaque biome occupe
+// une case dans l'espace des six paramètres (voir terrain_v4.ron), et une colonne prend le
 // biome dont la case est la plus proche (distance nulle dedans, carré de l'écart dehors, plus un petit
 // `offset` qui départage les recouvrements). Un paramètre omis couvre tout.
 //
 // Repères (de -1 à 1 environ) :
-// - temperature : -1 glacial, -0,45 froid, -0,15 tempéré, 0,2 chaud, 0,55 brûlant ;
+// - temperature : la LATITUDE (v4) : -1 pôle nord, -0,45 limite du glacial, -0,15 / 0,2 le tempéré, 0,55 brûlant,
+//   +1 pôle chaud du sud ; en marchant vers le nord (z négatif) on traverse la taïga, la neige, la glace ;
+//   vers le sud : forêt humide, jungle, puis des déserts de plus en plus arides ;
 // - humidity : -0,35 sec, -0,1 moyen, 0,1 humide, 0,3 détrempé ;
 // - continentalness : < -0,45 mer profonde, < -0,15 mer, < -0,115 côte (plages étroites), puis les terres ;
 // - erosion : bas = montagnes escarpées, haut = plaines usées ;
@@ -25,6 +27,9 @@
         (biome: "core:snowy_beach", continentalness: (-0.15, -0.115), erosion: (-0.3, 2.0), temperature: (-2.0, -0.45)),
         (biome: "core:stony_shore", continentalness: (-0.15, -0.115), erosion: (-2.0, -0.3)),
 
+        // Les fjords : côtes froides et escarpées, entaillées de bras de mer sombres.
+        (biome: "core:fjord", continentalness: (-0.115, 0.15), erosion: (-2.0, 0.0), temperature: (-2.0, -0.3), offset: 0.04),
+
         // Les rivières, au fond des vallées de l'intérieur.
         (biome: "core:river", continentalness: (-0.115, 2.0), pv: (-2.0, -0.9), erosion: (-0.45, 2.0)),
 
@@ -36,59 +41,59 @@
         (biome: "core:alpine_meadow", continentalness: (-0.115, 2.0), erosion: (-0.6, -0.2), pv: (0.15, 0.7), temperature: (-0.15, 0.55), humidity: (-0.35, 0.2), offset: 0.05),
         (biome: "core:wooded_hills", continentalness: (-0.115, 2.0), erosion: (-0.3, 0.05), pv: (0.2, 0.7), temperature: (-0.45, 0.55), humidity: (-0.1, 2.0)),
 
-        // Les terres, selon le climat. Glacial :
-        (biome: "core:snowy_tundra", continentalness: (-0.115, 2.0), temperature: (-2.0, -0.45), humidity: (-2.0, -0.1)),
-        (biome: "core:snowy_taiga", continentalness: (-0.115, 2.0), temperature: (-2.0, -0.45), humidity: (-0.1, 2.0), offset: 0.03),
-        // Froid :
+        // Les terres, selon la latitude. Glacial (le grand nord) :
+        (biome: "core:snowy_tundra", continentalness: (-0.115, 2.0), temperature: (-2.0, -0.45), humidity: (-2.0, -0.35)),
+        (biome: "core:snowy_plains", continentalness: (-0.115, 2.0), temperature: (-2.0, -0.45), humidity: (-0.35, 0.05), offset: 0.03),
+        (biome: "core:snowy_taiga", continentalness: (-0.115, 2.0), temperature: (-2.0, -0.45), humidity: (0.05, 2.0), offset: 0.03),
+        // Froid (la taïga) :
         (biome: "core:steppe", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (-2.0, -0.35)),
-        (biome: "core:birch_forest", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (-0.35, 0.1), offset: 0.05),
-        (biome: "core:taiga", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (0.1, 0.3), offset: 0.05),
+        (biome: "core:birch_forest", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (-0.35, 0.0), offset: 0.05),
+        (biome: "core:taiga", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (0.0, 0.3), offset: 0.05),
         (biome: "core:old_taiga", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (0.3, 2.0), offset: 0.05),
-        // Tempéré :
+        // Tempéré (le milieu) :
         (biome: "core:plains", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-2.0, -0.1), offset: 0.05),
         (biome: "core:flower_meadow", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.35, -0.1), variety: (0.3, 2.0)),
         (biome: "core:forest", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.1, 0.3), variety: (-2.0, 0.25), offset: 0.05),
         (biome: "core:dark_forest", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.1, 0.3), variety: (0.25, 2.0)),
         (biome: "core:mixed_forest", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (0.3, 2.0), erosion: (-2.0, 0.45), offset: 0.05),
         (biome: "core:swamp", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (0.3, 2.0), erosion: (0.45, 2.0), pv: (-2.0, 0.0)),
-        // Chaud :
+        // Chaud (le sud humide : forêt humide très dense, puis jungle) :
         (biome: "core:savanna", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-2.0, -0.35)),
         (biome: "core:shrubland", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-0.35, -0.1), offset: 0.05),
         (biome: "core:sparse_jungle", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-0.1, 0.3), offset: 0.05),
         (biome: "core:jungle", continentalness: (-0.115, 2.0), temperature: (0.2, 2.0), humidity: (0.3, 2.0), erosion: (-2.0, 0.45)),
-        // Brûlant :
-        (biome: "core:desert", continentalness: (-0.115, 2.0), temperature: (0.55, 2.0), humidity: (-2.0, -0.35), erosion: (-0.3, 2.0), offset: 0.03),
+        // Brûlant (le grand sud : l'aridité monte avec la latitude) :
+        (biome: "core:desert", continentalness: (-0.115, 2.0), temperature: (0.55, 0.8), humidity: (-2.0, -0.35), erosion: (-0.3, 2.0), offset: 0.03),
+        (biome: "core:arid_desert", continentalness: (-0.115, 2.0), temperature: (0.8, 2.0), humidity: (-2.0, 0.3), erosion: (-0.3, 2.0), offset: 0.06),
         (biome: "core:badlands", continentalness: (-0.115, 2.0), temperature: (0.55, 2.0), humidity: (-2.0, -0.1), erosion: (-2.0, -0.3)),
-        (biome: "core:shrubland", continentalness: (-0.115, 2.0), temperature: (0.55, 2.0), humidity: (-0.35, -0.1), offset: 0.01),
-        (biome: "core:sparse_jungle", continentalness: (-0.115, 2.0), temperature: (0.55, 2.0), humidity: (-0.1, 0.3), offset: 0.05),
-        // La vague 1 du lot 5 : des cases plus étroites, logées dans celles des biomes larges (qui ont un
-        // petit décalage) ; dedans, elles l'emportent.
+        (biome: "core:shrubland", continentalness: (-0.115, 2.0), temperature: (0.55, 0.8), humidity: (-0.35, -0.1), offset: 0.01),
+        (biome: "core:sparse_jungle", continentalness: (-0.115, 2.0), temperature: (0.55, 0.8), humidity: (-0.1, 0.3), offset: 0.05),
+
+        // La forêt humide, avant la jungle quand on descend du tempéré : dense, haute, sous-bois épais.
+        (biome: "core:rainforest", continentalness: (-0.115, 2.0), temperature: (0.1, 0.45), humidity: (0.1, 2.0), erosion: (-2.0, 0.45), offset: 0.04),
+
+        // Les cases étroites, logées dans celles des biomes larges (qui ont un petit décalage) ; dedans,
+        // elles l'emportent.
         (biome: "core:redwood_forest", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (0.3, 2.0), erosion: (-2.0, 0.45), variety: (0.2, 2.0)),
-        (biome: "core:bayou", continentalness: (-0.115, 2.0), temperature: (0.2, 2.0), humidity: (0.3, 2.0), erosion: (0.45, 2.0), pv: (-2.0, 0.2)),
+        (biome: "core:bayou", continentalness: (-0.115, 2.0), temperature: (0.2, 0.7), humidity: (0.3, 2.0), erosion: (0.45, 2.0), pv: (-2.0, 0.2)),
         (biome: "core:lavender_field", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-2.0, -0.35), variety: (0.3, 2.0)),
-        (biome: "core:prairie", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-0.35, -0.1), variety: (0.3, 2.0)),
+        // La grande prairie sauvage : de très larges plaques de hautes herbes et de blé sauvage, à la
+        // lisière chaude du tempéré, sèche à moyenne.
+        (biome: "core:prairie", continentalness: (-0.115, 2.0), temperature: (-0.05, 0.4), humidity: (-0.4, -0.05), variety: (-0.45, 0.35)),
         (biome: "core:orchard", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.1, 0.1), variety: (-2.0, -0.35)),
-        (biome: "core:maple_woods", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.15), humidity: (-0.1, 0.3), variety: (0.25, 2.0)),
-        // La vague 2 (froid et altitude), logée de même : la toundra dans le froid sec des plaines usées,
-        // la sapinière sur les hauteurs du glacial humide, les hautes terres sur les collines sèches de
-        // l'intérieur, les landes dans le froid détrempé des plaines, les escarpements dans les massifs
-        // secs et froids.
+        // L'érablière : une grande bande fraîche et humide entre la taïga et la forêt tempérée.
+        (biome: "core:maple_woods", continentalness: (-0.115, 2.0), temperature: (-0.38, -0.12), humidity: (-0.1, 0.35), variety: (0.0, 2.0)),
+        // Le froid et l'altitude :
         (biome: "core:tundra", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.25), humidity: (-0.35, 0.0), variety: (-2.0, 0.0)),
         (biome: "core:snowy_fir_forest", continentalness: (-0.115, 2.0), temperature: (-2.0, -0.45), humidity: (0.1, 2.0), variety: (0.0, 2.0)),
         (biome: "core:highland", continentalness: (0.0, 2.0), erosion: (-0.2, 0.2), temperature: (-0.35, 0.2), humidity: (-0.4, -0.05), variety: (-2.0, 0.0)),
         (biome: "core:moor", continentalness: (-0.115, 2.0), temperature: (-0.45, -0.1), humidity: (0.25, 2.0), variety: (-2.0, -0.2)),
         (biome: "core:crag", continentalness: (-0.115, 2.0), erosion: (-2.0, -0.25), pv: (0.2, 0.75), temperature: (-0.45, -0.1), humidity: (-2.0, 0.0)),
-        // La vague 3 (chaud et volcanique) : les plaines volcaniques là où les volcans se posent (chaud,
-        // ni sec ni humide, voir « volcano_mask » dans terrain_v3.ron), les sources chaudes dans les
-        // plaines usées du chaud moyen, le maquis sur les hauteurs du chaud assez sec, le désert fleuri
-        // au bord le moins sec du désert. Le volcan lui-même suit les cônes, pas le climat.
-        (biome: "core:volcanic_plains", continentalness: (-0.05, 2.0), temperature: (0.55, 2.0), humidity: (-0.2, 0.1)),
+        // Chaud et volcanique : tout au sud.
+        (biome: "core:volcanic_plains", continentalness: (-0.05, 2.0), temperature: (0.6, 0.9), humidity: (-0.15, 0.05)),
         (biome: "core:hot_springs", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-0.1, 0.1), variety: (0.35, 2.0)),
         (biome: "core:maquis", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-0.35, -0.1), variety: (-2.0, -0.3)),
-        (biome: "core:flowering_desert", continentalness: (-0.115, 2.0), temperature: (0.55, 2.0), humidity: (-0.4, -0.2), erosion: (-0.3, 2.0)),
-        // La cerisaie (lot N4 de docs/plan-nature.md) : sur les collines (érosion moyenne, pentes et
-        // hauteurs mais pas les crêtes des massifs) du tempéré ni sec ni détrempé ; plus bas que la neige.
-        // Les champs de tournesols (lot N5) : la variante la plus rare des plaines sèches du tempéré.
+        (biome: "core:flowering_desert", continentalness: (-0.115, 2.0), temperature: (0.55, 0.75), humidity: (-0.4, -0.25), erosion: (-0.3, 2.0)),
         (biome: "core:sunflower_plains", continentalness: (-0.115, 2.0), temperature: (-0.15, 0.2), humidity: (-0.35, -0.1), variety: (-2.0, -0.4)),
         (biome: "core:cherry_grove", continentalness: (-0.05, 2.0), temperature: (-0.15, 0.2), humidity: (-0.2, 0.1), erosion: (-0.25, 0.1), pv: (0.1, 0.6)),
     ],

@@ -319,23 +319,46 @@ mod tests {
         let (blocks, biomes) = registries();
         let text = include_str!("../../../../../assets/core/worldgen/biomes_v3.ron");
         let file: BiomeFile = ron::from_str(text).unwrap();
-        for e in &file.biomes {
+        // La v4 (climat par latitude) : mêmes vérifications, avec ses biomes de plus.
+        let v4_text = include_str!("../../../../../assets/core/worldgen/biomes_v4.ron");
+        let v4_file: BiomeFile = ron::from_str(v4_text).unwrap();
+        for e in file.biomes.iter().chain(&v4_file.biomes) {
             assert!(biomes.id(&e.biome).is_some(), "biome inconnu : {}", e.biome);
         }
-        // Chaque biome du jeu de base a au moins une case : aucun n'est oublié (sauf le volcan, qui suit
-        // les cônes du relief et non le climat, et les biomes souterrains).
         for (_, def) in biomes
             .iter()
             .filter(|(_, d)| d.key != "core:volcano" && !d.underground)
         {
+            assert!(
+                v4_file.biomes.iter().any(|e| e.biome == def.key),
+                "{} n'a pas de case dans biomes_v4.ron",
+                def.key
+            );
+        }
+        // Les biomes de la v4 seulement n'existent pas dans la table v3, qui ne change jamais.
+        const V4_ONLY: [&str; 4] = [
+            "core:snowy_plains",
+            "core:fjord",
+            "core:rainforest",
+            "core:arid_desert",
+        ];
+        // Chaque biome du jeu de base a au moins une case : aucun n'est oublié (sauf le volcan, qui suit
+        // les cônes du relief et non le climat, et les biomes souterrains).
+        for (_, def) in biomes.iter().filter(|(_, d)| {
+            d.key != "core:volcano" && !d.underground && !V4_ONLY.contains(&d.key.as_str())
+        }) {
             assert!(
                 file.biomes.iter().any(|e| e.biome == def.key),
                 "{} n'a pas de case dans biomes_v3.ron",
                 def.key
             );
         }
-        let surface = include_str!("../../../../../assets/core/worldgen/surface_v3.ron");
-        SurfaceRules::parse(surface, 1, &blocks, &biomes).unwrap();
+        for surface in [
+            include_str!("../../../../../assets/core/worldgen/surface_v3.ron"),
+            include_str!("../../../../../assets/core/worldgen/surface_v4.ron"),
+        ] {
+            SurfaceRules::parse(surface, 1, &blocks, &biomes).unwrap();
+        }
     }
 
     #[test]

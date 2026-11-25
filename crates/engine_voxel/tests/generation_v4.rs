@@ -56,3 +56,78 @@ fn v3_worlds_keep_their_own_climate() {
     let south = band_temperature(&g, 5_500);
     assert!((south - north).abs() < 0.8, "{north} {south}");
 }
+
+/// Les biomes de terre d'une bande de latitude, avec leur part (en %), du plus fréquent au plus rare.
+fn band_biomes(g: &TerrainGenerator, z0: i32, z1: i32) -> Vec<(String, u32)> {
+    let mut counts = std::collections::HashMap::<String, u32>::new();
+    let mut total = 0;
+    for z in (z0..z1).step_by(250) {
+        for x in (-12_000..12_000).step_by(250) {
+            let biome = g.biome(g.biome_at(x, 100, z));
+            if matches!(
+                biome.kind,
+                engine_voxel::BiomeKind::Land | engine_voxel::BiomeKind::Mountains
+            ) {
+                *counts.entry(biome.key.clone()).or_default() += 1;
+                total += 1;
+            }
+        }
+    }
+    let mut list: Vec<_> = counts
+        .into_iter()
+        .map(|(k, n)| (k, n * 100 / total.max(1)))
+        .collect();
+    list.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    list
+}
+
+/// La part (en %) d'un groupe de biomes dans une bande de latitude.
+fn share(list: &[(String, u32)], keys: &[&str]) -> u32 {
+    list.iter()
+        .filter(|(k, _)| keys.contains(&k.as_str()))
+        .map(|(_, n)| n)
+        .sum()
+}
+
+#[test]
+fn v4_biomes_follow_the_latitude() {
+    let g = generator(GenerationVersion::V4, 7);
+    let snowy = [
+        "core:snowy_plains",
+        "core:snowy_taiga",
+        "core:snowy_fir_forest",
+        "core:snowy_tundra",
+    ];
+    let wet_south = ["core:jungle", "core:rainforest", "core:sparse_jungle"];
+    let deserts = [
+        "core:desert",
+        "core:arid_desert",
+        "core:badlands",
+        "core:flowering_desert",
+    ];
+    // Le grand nord : presque tout est enneigé.
+    let far_north = band_biomes(&g, -6000, -5000);
+    assert!(share(&far_north, &snowy) >= 90, "{far_north:?}");
+    // Le milieu : ni neige ni désert, des prairies.
+    let middle = band_biomes(&g, -500, 500);
+    assert_eq!(
+        share(&middle, &snowy) + share(&middle, &deserts),
+        0,
+        "{middle:?}"
+    );
+    assert!(share(&middle, &["core:prairie"]) >= 10, "{middle:?}");
+    // Le sud humide : de la jungle et de la forêt humide.
+    let south = band_biomes(&g, 3000, 4000);
+    assert!(share(&south, &wet_south) >= 50, "{south:?}");
+    // L'extrême sud : des déserts, rien de glacé.
+    let far_south = band_biomes(&g, 5000, 6000);
+    assert!(share(&far_south, &deserts) >= 40, "{far_south:?}");
+    assert_eq!(share(&far_south, &snowy), 0, "{far_south:?}");
+    assert!(
+        share(&far_south, &["core:arid_desert"]) >= 10,
+        "{far_south:?}"
+    );
+    // Les érables vivent dans la bande fraîche, vers le nord.
+    let cool = band_biomes(&g, -2200, -1000);
+    assert!(share(&cool, &["core:maple_woods"]) >= 10, "{cool:?}");
+}

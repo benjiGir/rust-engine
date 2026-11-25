@@ -34,7 +34,7 @@
         (when: [Biomes(["core:stony_peaks"]), Depth(max: 3)], then: Block("core:stone")),
 
         // Le froid pose la neige sur le dessus (sauf sur le sable).
-        (when: [Depth(max: 0), Cold, Not(Biomes(["core:beach", "core:desert", "core:badlands"]))], then: Block("core:snow")),
+        (when: [Depth(max: 0), Cold, Not(Biomes(["core:beach", "core:desert", "core:arid_desert", "core:badlands"]))], then: Block("core:snow")),
 
         // Les strates colorées (badlands) sous le dessus.
         (when: [Biomes(["core:badlands"]), Depth(max: 1)], then: BiomeSurface),
