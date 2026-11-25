@@ -108,6 +108,10 @@ fn spacing(kind: TreeKind) -> i32 {
         TreeKind::Swamp
         | TreeKind::Acacia
         | TreeKind::Maple
+        | TreeKind::MapleYellow
+        | TreeKind::MapleGold
+        | TreeKind::MapleRed
+        | TreeKind::MapleCrimson
         | TreeKind::DarkOak
         | TreeKind::Cherry => 5,
         TreeKind::BigOak | TreeKind::Jungle | TreeKind::Redwood | TreeKind::GiantSpruce => 6,

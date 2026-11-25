@@ -8,6 +8,10 @@ pub(super) fn leaves(wood: &str) -> Vec<Pixel> {
         "birch" => ([62, 91, 42], [164, 182, 83], 5., 2.8),
         "olive" => ([60, 80, 55], [156, 167, 115], 5.4, 1.65),
         "maple" => ([123, 55, 34], [222, 138, 58], 6.4, 3.9),
+        "maple_yellow" => ([150, 112, 30], [245, 214, 74], 6.4, 3.9),
+        "maple_gold" => ([138, 76, 24], [240, 164, 52], 6.4, 3.9),
+        "maple_red" => ([96, 30, 26], [208, 62, 40], 6.4, 3.9),
+        "maple_crimson" => ([62, 16, 24], [140, 28, 34], 6.4, 3.9),
         "acacia" => ([70, 88, 41], [159, 166, 83], 4.1, 1.8),
         "jungle" => ([37, 74, 48], [119, 160, 81], 8.4, 3.6),
         "blossom" => ([115, 67, 83], [237, 178, 190], 4.8, 3.3),
@@ -49,7 +53,7 @@ pub(super) fn leaves(wood: &str) -> Vec<Pixel> {
                         let along = (xx * u + yy * v) / length;
                         let across = (-xx * v + yy * u) / width;
                         let mut outline = (1. - along.abs().powf(1.45)).max(0.);
-                        if wood == "oak" || wood == "maple" {
+                        if wood == "oak" || wood.starts_with("maple") {
                             outline *= 0.87 + 0.13 * (along * 12.).cos();
                         }
                         if across.abs() < outline {

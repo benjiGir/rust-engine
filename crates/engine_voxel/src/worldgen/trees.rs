@@ -38,6 +38,12 @@ pub enum TreeKind {
     Redwood,
     /// Un érable : tronc de chêne, large couronne rouge et orangée.
     Maple,
+    /// Les autres teintes de l'érable d'automne (v4) : même arbre, feuillage jaune, or, rouge, rouge
+    /// sombre. Le `Maple` d'origine est orangé ; une érablière mêle les cinq, un arbre une teinte.
+    MapleYellow,
+    MapleGold,
+    MapleRed,
+    MapleCrimson,
     /// Un arbre fruitier en fleurs : petit tronc, boule de fleurs roses et blanches.
     Fruit,
     /// Un cyprès de bayou : tronc haut et fin, petite couronne, lianes.
@@ -89,6 +95,8 @@ pub struct TreeBlocks {
     /// test réduit, ou un jeu d'avant la vague 1) : leurs arbres prennent alors le chêne.
     pub redwood: Option<Wood>,
     pub maple_leaves: Option<BlockId>,
+    /// Les feuilles d'érable jaune, or, rouge et rouge sombre (voir [`TreeKind::MapleYellow`]).
+    pub maple_hues: [Option<BlockId>; 4],
     pub blossom_leaves: Option<BlockId>,
     /// La vague 2 : les aiguilles de sapin et les rochers (moellons, moellons moussus).
     pub fir_leaves: Option<BlockId>,
@@ -125,6 +133,12 @@ impl TreeBlocks {
             jungle: wood("jungle")?,
             redwood: wood("redwood").ok(),
             maple_leaves: registry.id("core:maple_leaves"),
+            maple_hues: [
+                registry.id("core:maple_yellow_leaves"),
+                registry.id("core:maple_gold_leaves"),
+                registry.id("core:maple_red_leaves"),
+                registry.id("core:maple_crimson_leaves"),
+            ],
             blossom_leaves: registry.id("core:blossom_leaves"),
             fir_leaves: registry.id("core:fir_leaves"),
             boulder: registry
@@ -160,6 +174,23 @@ impl TreeBlocks {
                 log: self.oak.log,
                 leaves: self.maple_leaves.unwrap_or(self.oak.leaves),
             },
+            TreeKind::MapleYellow
+            | TreeKind::MapleGold
+            | TreeKind::MapleRed
+            | TreeKind::MapleCrimson => {
+                let hue = match kind {
+                    TreeKind::MapleYellow => 0,
+                    TreeKind::MapleGold => 1,
+                    TreeKind::MapleRed => 2,
+                    _ => 3,
+                };
+                Wood {
+                    log: self.oak.log,
+                    leaves: self.maple_hues[hue]
+                        .or(self.maple_leaves)
+                        .unwrap_or(self.oak.leaves),
+                }
+            }
             TreeKind::Fruit => Wood {
                 log: self.oak.log,
                 leaves: self.blossom_leaves.unwrap_or(self.oak.leaves),
@@ -357,7 +388,11 @@ pub fn grow_in_grove(
             }
         }
         TreeKind::Redwood => redwood(base, rng, wood, put),
-        TreeKind::Maple => {
+        TreeKind::Maple
+        | TreeKind::MapleYellow
+        | TreeKind::MapleGold
+        | TreeKind::MapleRed
+        | TreeKind::MapleCrimson => {
             let height = pick(rng, (6, 8), (8, 10));
             let crown = if tall { 3.9 } else { 3.3 };
             for y in 0..height {

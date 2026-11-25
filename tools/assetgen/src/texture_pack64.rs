@@ -137,7 +137,16 @@ fn generate_at(root: &Path, folder: PathBuf) -> Result<Vec<PathBuf>> {
             &canopy::leaves(species),
         )?;
     }
-    for species in ["blossom", "maple", "fir", "olive"] {
+    for species in [
+        "blossom",
+        "maple",
+        "maple_yellow",
+        "maple_gold",
+        "maple_red",
+        "maple_crimson",
+        "fir",
+        "olive",
+    ] {
         pack.write(
             "core",
             "textures",

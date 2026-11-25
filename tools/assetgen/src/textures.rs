@@ -1746,6 +1746,22 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
             leaves([0.78, 0.3, 0.09], 143),
         ),
         (
+            core.join("maple_yellow_leaves.png"),
+            leaves([0.92, 0.78, 0.14], 170),
+        ),
+        (
+            core.join("maple_gold_leaves.png"),
+            leaves([0.9, 0.58, 0.08], 171),
+        ),
+        (
+            core.join("maple_red_leaves.png"),
+            leaves([0.72, 0.14, 0.07], 172),
+        ),
+        (
+            core.join("maple_crimson_leaves.png"),
+            leaves([0.45, 0.07, 0.07], 173),
+        ),
+        (
             core.join("maple_sapling.png"),
             sapling([0.3, 0.19, 0.08], [0.78, 0.3, 0.09]),
         ),

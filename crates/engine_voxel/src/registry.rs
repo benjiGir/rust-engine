@@ -1628,8 +1628,8 @@ pub(crate) mod tests {
         assert!(!registry.is_solid(BlockId::AIR) && registry.is_transparent(BlockId::AIR));
         assert_eq!(
             registry.placeable().count(),
-            165,
-            "quatre portes constructibles, les moitiés hautes et états ouverts restent internes ; huit minerais v3 ; l'établi de taille (la case de formes ne se pose pas) ; le cerisier et les pétales roses ; la grande herbe, le tournesol, la tulipe et l'ail des ours (les cultures, les buissons et les têtes des plantes hautes ne se posent pas seuls)"
+            169,
+            "quatre portes constructibles, les moitiés hautes et états ouverts restent internes ; huit minerais v3 ; l'établi de taille (la case de formes ne se pose pas) ; le cerisier et les pétales roses ; la grande herbe, le tournesol, la tulipe et l'ail des ours ; quatre teintes d'érable d'automne (les cultures, les buissons et les têtes des plantes hautes ne se posent pas seuls)"
         );
         let water = registry.id("core:water").unwrap();
         assert!(registry.def(water).liquid && registry.is_translucent(water));

@@ -82,7 +82,11 @@ fn leaf_kinds(registry: &BlockRegistry) -> HashMap<BlockId, LeafKind> {
         .filter(|(_, def)| def.behavior.as_deref() == Some("core:leaves"))
         .map(|(id, def)| {
             let (shedding, petals) = match def.key.as_str() {
-                "core:maple_leaves" => (2.5, false),
+                "core:maple_leaves"
+                | "core:maple_yellow_leaves"
+                | "core:maple_gold_leaves"
+                | "core:maple_red_leaves"
+                | "core:maple_crimson_leaves" => (2.5, false),
                 "core:blossom_leaves" => (3.0, true),
                 "core:cherry_leaves" => (4.5, true),
                 _ => (1.0, false),
