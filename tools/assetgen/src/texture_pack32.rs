@@ -219,13 +219,19 @@ pub fn generate(root: &Path) -> Result<Vec<PathBuf>> {
             for source in sources {
                 let name = source.file_stem().unwrap().to_string_lossy();
                 let (size, pixels) = read(&source)?;
-                let ground = if namespace == "core" && kind == "textures" {
-                    refine_core_ground(&dir, &name)?
+                let native = if namespace == "core" && kind == "textures" {
+                    if let Some(crop) = crate::texture_pack64::draw_cultivated(&name, SIDE) {
+                        let mut image = draw::Canvas(crop);
+                        harmonize(&mut image, &pixels, None);
+                        Some(image.finish())
+                    } else {
+                        refine_core_ground(&dir, &name)?
+                    }
                 } else {
                     None
                 };
-                let pixels = if let Some(ground) = ground {
-                    ground
+                let pixels = if let Some(native) = native {
+                    native
                 } else if size == SIDE {
                     pixels
                 } else {

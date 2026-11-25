@@ -15,6 +15,8 @@ mod terrain;
 mod tools;
 mod workshop;
 
+pub(crate) use meadow::draw_cultivated;
+
 const SIDE: usize = 64;
 const FOLDER: &str = "texture_packs/earth-copper-64";
 type Pixel = [u8; 4];
@@ -201,10 +203,14 @@ fn generate_at(root: &Path, folder: PathBuf) -> Result<Vec<PathBuf>> {
                 {
                     continue;
                 }
-                let meadow = (ns == "core" && kind == "textures")
-                    .then(|| meadow::draw(&name))
-                    .flatten();
-                let pixels = if let Some(pixels) = meadow {
+                let native = if ns == "core" && kind == "textures" {
+                    crate::creature_skins::draw_animal(&name, SIDE)
+                        .or_else(|| draw_cultivated(&name, SIDE))
+                        .or_else(|| meadow::draw(&name))
+                } else {
+                    None
+                };
+                let pixels = if let Some(pixels) = native {
                     pixels
                 } else {
                     let detailed = root
@@ -370,6 +376,27 @@ mod tests {
             let tile = pixels(name);
             assert!(tile.iter().any(|p| p[3] == 0), "{name}");
             assert!(tile.iter().filter(|p| p[3] == 255).count() > SIDE, "{name}");
+        }
+    }
+
+    #[test]
+    fn each_cereal_tile_supplies_four_rooted_stalks_in_both_resolutions() {
+        for side in [32, 64] {
+            for species in ["wheat", "barley", "oats"] {
+                for stage in 0..4 {
+                    let tile = draw_cultivated(&format!("{species}_{stage}"), side).unwrap();
+                    for stalk in tile[(side - 1) * side..].chunks_exact(side / 4) {
+                        assert!(
+                            stalk.iter().any(|p| p[3] == 255),
+                            "{species} {stage} ({side})"
+                        );
+                        assert!(
+                            stalk.iter().any(|p| p[3] == 0),
+                            "{species} {stage} ({side})"
+                        );
+                    }
+                }
+            }
         }
     }
 }

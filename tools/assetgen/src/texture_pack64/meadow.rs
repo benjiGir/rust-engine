@@ -3,6 +3,12 @@ use super::{Pixel, SIDE, color, shade, terrain::mix};
 use crate::Rng;
 use std::f32::consts::{PI, TAU};
 
+mod cultivated;
+
+pub(crate) fn draw_cultivated(name: &str, side: usize) -> Option<Vec<Pixel>> {
+    cultivated::draw(name, side)
+}
+
 type Point = (f32, f32);
 type Rgb = [u8; 3];
 const STEM: Rgb = [74, 107, 48];
@@ -11,6 +17,7 @@ const SHOOT: Rgb = [116, 143, 58];
 const BARK: Rgb = [100, 74, 53];
 
 struct Plant {
+    resolution: usize,
     height: usize,
     pixels: Vec<Pixel>,
 }
@@ -21,9 +28,14 @@ fn between(a: Point, b: Point, t: f32) -> Point {
 
 impl Plant {
     fn new(height: usize) -> Self {
+        Self::with_resolution(height, SIDE)
+    }
+
+    fn with_resolution(height: usize, resolution: usize) -> Self {
         Self {
+            resolution,
             height,
-            pixels: vec![[0; 4]; SIDE * height],
+            pixels: vec![[0; 4]; resolution * (height * resolution / SIDE)],
         }
     }
 
@@ -33,11 +45,19 @@ impl Plant {
         max: Point,
         mut sample: impl FnMut(f32, f32, f32) -> Option<Rgb>,
     ) {
-        for y in min.1.floor().max(0.0) as usize..=(max.1.ceil() as usize).min(self.height - 1) {
-            for x in min.0.floor().max(0.0) as usize..=(max.0.ceil() as usize).min(SIDE - 1) {
+        let side = self.resolution;
+        let scale = side as f32 / SIDE as f32;
+        let height = self.pixels.len() / side;
+        for y in (min.1 * scale).floor().max(0.0) as usize
+            ..=((max.1 * scale).ceil() as usize).min(height - 1)
+        {
+            for x in (min.0 * scale).floor().max(0.0) as usize
+                ..=((max.0 * scale).ceil() as usize).min(side - 1)
+            {
                 let noise = (crate::textures::texel_hash(x, y, 61441) & 31) as f32 / 31.0;
-                if let Some(rgb) = sample(x as f32 + 0.5, y as f32 + 0.5, noise) {
-                    self.pixels[y * SIDE + x] = color(rgb);
+                if let Some(rgb) = sample((x as f32 + 0.5) / scale, (y as f32 + 0.5) / scale, noise)
+                {
+                    self.pixels[y * side + x] = color(rgb);
                 }
             }
         }
@@ -275,8 +295,7 @@ fn wildflower(p: &mut Plant, name: &str) {
     }
 }
 
-fn spikes(p: &mut Plant, name: &str) {
-    let heather = name == "heather";
+fn heather(p: &mut Plant) {
     for (i, (x, y)) in [(12., 34.), (22., 20.), (32., 13.), (41., 23.), (51., 29.)]
         .into_iter()
         .enumerate()
@@ -286,23 +305,19 @@ fn spikes(p: &mut Plant, name: &str) {
             (x, y),
             1.25,
             (32.0 - x) * 0.14,
-            if heather { BARK } else { STEM },
+            BARK,
         );
         for j in 0..6 {
             let t = 0.15 + j as f32 * 0.087;
             let (x, y) = a(t);
             let s = if j % 2 == 0 { -1.0 } else { 1.0 };
-            let size = if heather { 5.0 } else { 10.0 };
+            let size = 5.0;
             p.blade((x, y), (x + s * size, y - size * 0.7), 1.8, s, LEAF, 0.0);
         }
         for j in 0..13 {
             let (x, y) = a(0.52 + j as f32 * 0.039);
             let s = if j % 2 == 0 { -1.0 } else { 1.0 };
-            let tint = if heather {
-                [183, 98, 143]
-            } else {
-                [137, 112, 179]
-            };
+            let tint = [183, 98, 143];
             p.ellipse(
                 (x + s * 2.1, y),
                 (1.9, 2.5),
@@ -403,7 +418,6 @@ fn woody(p: &mut Plant, name: &str) {
 }
 
 fn crop(p: &mut Plant, name: &str, stage: usize) {
-    let cereal = matches!(name, "wheat" | "barley" | "oats");
     let max_height = [15.0, 27.0, 41.0, 54.0][stage];
     let mut rng = Rng::new(233);
     for i in 0..[3, 5, 7, 8][stage] {
@@ -412,110 +426,61 @@ fn crop(p: &mut Plant, name: &str, stage: usize) {
         let height = max_height * (0.68 + rng.next_f32() * 0.30);
         let tip = (root.0 + sign * (3.0 + rng.next_f32() * 16.0), 64.0 - height);
         let tint = shade(LEAF, 0.83 + rng.next_f32() * 0.45);
-        if cereal {
-            let ripe = match name {
-                "barley" => [182, 145, 70],
-                "oats" => [177, 156, 101],
-                _ => [192, 150, 72],
-            };
-            let at = p.stem(
-                root,
-                tip,
-                1.17,
-                sign * 2.0,
-                if stage == 3 { ripe } else { STEM },
-            );
-            let leaf = at(0.40);
-            p.blade(
-                leaf,
-                (leaf.0 + sign * 12.0, leaf.1 - 13.0),
-                1.75,
-                sign * 3.0,
-                tint,
-                0.0,
-            );
-            if stage >= 2 {
-                for j in 0..7 {
-                    let a = at(0.73 + j as f32 * 0.044);
-                    let dy = if j % 2 == 0 { -1.0 } else { 1.0 };
-                    let grain = if stage == 3 { ripe } else { SHOOT };
-                    if name == "oats" {
-                        let b = (a.0 + dy * (6.0 - j as f32 * 0.6), a.1 + 1.5);
-                        let _ = p.stem(a, b, 0.75, 0.0, grain);
-                        p.ellipse(b, (1.45, 2.1), dy * 0.38, grain);
-                    } else {
-                        let b = (a.0 + dy * 1.55, a.1);
-                        p.ellipse(b, (1.53, 2.3), dy * 0.52, grain);
-                        if name == "barley" {
-                            p.blade(
-                                b,
-                                (b.0 + dy * 3.0, b.1 - 9.0),
-                                0.72,
-                                0.0,
-                                shade(grain, 1.17),
-                                0.0,
-                            );
-                        }
-                    }
-                }
-            }
-        } else {
-            let reach = 6.0 + stage as f32 * 3.0;
-            let tip = (tip.0 + sign * reach * 0.51, 64.0 - height * 0.70);
-            match name {
-                "carrot" => {
-                    let at = p.stem(root, tip, 1.05, sign * 2.0, STEM);
-                    for j in 0..6 {
-                        let t = 0.35 + 0.11 * j as f32;
-                        let a = at(t);
-                        for dir in [-1.0, 1.0] {
-                            p.blade(
-                                a,
-                                (a.0 + dir * reach * (1.0 - t), a.1 - 4.5),
-                                1.6,
-                                dir,
-                                tint,
-                                0.32,
-                            );
-                        }
-                    }
-                }
-                "potato" => {
-                    let at = p.stem(root, tip, 1.4, sign, STEM);
-                    for j in 0..4 {
-                        let a = at(0.33 + j as f32 * 0.19);
-                        let s = if j % 2 == 0 { 1.0 } else { -1.0 };
+        let reach = 6.0 + stage as f32 * 3.0;
+        let tip = (tip.0 + sign * reach * 0.51, 64.0 - height * 0.70);
+        match name {
+            "carrot" => {
+                let at = p.stem(root, tip, 1.05, sign * 2.0, STEM);
+                for j in 0..6 {
+                    let t = 0.35 + 0.11 * j as f32;
+                    let a = at(t);
+                    for dir in [-1.0, 1.0] {
                         p.blade(
                             a,
-                            (a.0 + reach * s, a.1 - 6.0),
-                            2.1 + stage as f32 * 0.8,
-                            s,
-                            tint,
-                            0.1,
-                        );
-                    }
-                }
-                "cabbage" => p.blade(
-                    root,
-                    (tip.0, 63.0 - height * 0.48),
-                    3.5 + stage as f32 * 1.8,
-                    sign * 5.0,
-                    mix(tint, [89, 145, 122], 0.62),
-                    0.13,
-                ),
-                _ => {
-                    let at = p.stem(root, (tip.0, 64.0 - height * 0.37), 1.15, sign * -3.0, STEM);
-                    for j in 0..4 {
-                        let a = at(0.37 + j as f32 * 0.19);
-                        p.blade(
-                            a,
-                            (a.0 + sign * 8.1, a.1 - 8.5),
-                            2.8 + stage as f32,
-                            sign,
+                            (a.0 + dir * reach * (1.0 - t), a.1 - 4.5),
+                            1.6,
+                            dir,
                             tint,
                             0.32,
                         );
                     }
+                }
+            }
+            "potato" => {
+                let at = p.stem(root, tip, 1.4, sign, STEM);
+                for j in 0..4 {
+                    let a = at(0.33 + j as f32 * 0.19);
+                    let s = if j % 2 == 0 { 1.0 } else { -1.0 };
+                    p.blade(
+                        a,
+                        (a.0 + reach * s, a.1 - 6.0),
+                        2.1 + stage as f32 * 0.8,
+                        s,
+                        tint,
+                        0.1,
+                    );
+                }
+            }
+            "cabbage" => p.blade(
+                root,
+                (tip.0, 63.0 - height * 0.48),
+                3.5 + stage as f32 * 1.8,
+                sign * 5.0,
+                mix(tint, [89, 145, 122], 0.62),
+                0.13,
+            ),
+            _ => {
+                let at = p.stem(root, (tip.0, 64.0 - height * 0.37), 1.15, sign * -3.0, STEM);
+                for j in 0..4 {
+                    let a = at(0.37 + j as f32 * 0.19);
+                    p.blade(
+                        a,
+                        (a.0 + sign * 8.1, a.1 - 8.5),
+                        2.8 + stage as f32,
+                        sign,
+                        tint,
+                        0.32,
+                    );
                 }
             }
         }
@@ -802,7 +767,7 @@ pub(super) fn draw(name: &str) -> Option<Vec<Pixel>> {
     match name {
         "tall_grass" => grass(&mut p, false),
         "fern" => fern(&mut p),
-        "lavender" | "heather" => spikes(&mut p, name),
+        "heather" => heather(&mut p),
         "poppy" | "cornflower" | "daisy" | "dandelion" | "marigold" | "tulip" | "allium" => {
             wildflower(&mut p, name)
         }
@@ -823,14 +788,11 @@ pub(super) fn draw(name: &str) -> Option<Vec<Pixel>> {
             }
         }
         _ if name.ends_with("_sapling") => woody(&mut p, name.trim_end_matches("_sapling")),
-        _ if name.starts_with("wild_") => crop(&mut p, name.trim_start_matches("wild_"), 3),
         _ => {
             let (species, stage) = name.rsplit_once('_')?;
             let stage = stage.parse::<usize>().ok()?;
             match species {
-                "wheat" | "barley" | "oats" | "carrot" | "potato" | "cabbage" | "melon"
-                    if stage < 4 =>
-                {
+                "carrot" | "potato" | "cabbage" | "melon" if stage < 4 => {
                     crop(&mut p, species, stage)
                 }
                 "sweet_berry_bush" | "blueberry_bush" if stage < 3 => {
