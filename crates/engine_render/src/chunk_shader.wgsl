@@ -598,8 +598,12 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     }
     // Une feuille au cœur du feuillage : ses trous deviennent un vert sombre (la couleur
     // de la feuille, assombrie), comme le fond d'un buisson dense.
+    // Le dernier mip est la couleur moyenne des pixels opaques (pondérée par l'alpha) : un
+    // gris fixe ressortait clair, comme de la neige, sur les feuilles sans teinte (sapin).
     if (in.flags & FLAG_FILLED) != 0u && texel.a < 0.5 {
-        texel = vec4<f32>(vec3<f32>(0.32), 1.0);
+        let mip = i32(textureNumLevels(block_textures) - 1u);
+        let mean = textureLoad(block_textures, vec2<i32>(0), in.texture, mip);
+        texel = vec4<f32>(mean.rgb * 0.45, 1.0);
     }
     // Feuilles et plantes : les pixels transparents de la texture sont jetés. Le reste
     // est opaque, dessiné dans la passe opaque (pas de tri, pas de mélange).
