@@ -39,7 +39,7 @@
         (biome: "core:mountains", continentalness: (-0.115, 2.0), erosion: (-2.0, -0.3), pv: (0.15, 0.6), humidity: (-2.0, 0.1), offset: 0.05),
         (biome: "core:wooded_mountains", continentalness: (-0.115, 2.0), erosion: (-2.0, -0.3), pv: (0.15, 0.6), humidity: (0.1, 2.0)),
         (biome: "core:alpine_meadow", continentalness: (-0.115, 2.0), erosion: (-0.6, -0.2), pv: (0.15, 0.7), temperature: (-0.15, 0.55), humidity: (-0.35, 0.2), offset: 0.05),
-        (biome: "core:wooded_hills", continentalness: (-0.115, 2.0), erosion: (-0.3, 0.05), pv: (0.2, 0.7), temperature: (-0.45, 0.55), humidity: (-0.1, 2.0)),
+        (biome: "core:wooded_hills", continentalness: (-0.115, 2.0), erosion: (-0.3, 0.05), pv: (0.2, 0.7), temperature: (-0.3, 0.15), humidity: (-0.1, 2.0)),
 
         // Les terres, selon la latitude. Glacial (le grand nord) :
         (biome: "core:snowy_tundra", continentalness: (-0.115, 2.0), temperature: (-2.0, -0.45), humidity: (-2.0, -0.35)),
@@ -61,7 +61,7 @@
         (biome: "core:savanna", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-2.0, -0.35)),
         (biome: "core:shrubland", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-0.35, -0.1), offset: 0.05),
         (biome: "core:sparse_jungle", continentalness: (-0.115, 2.0), temperature: (0.2, 0.55), humidity: (-0.1, 0.3), offset: 0.05),
-        (biome: "core:jungle", continentalness: (-0.115, 2.0), temperature: (0.2, 2.0), humidity: (0.3, 2.0), erosion: (-2.0, 0.45)),
+        (biome: "core:jungle", continentalness: (-0.115, 2.0), temperature: (0.32, 2.0), humidity: (0.3, 2.0), erosion: (-2.0, 0.45)),
         // Brûlant (le grand sud : l'aridité monte avec la latitude) :
         (biome: "core:desert", continentalness: (-0.115, 2.0), temperature: (0.55, 0.8), humidity: (-2.0, -0.35), erosion: (-0.3, 2.0), offset: 0.03),
         (biome: "core:arid_desert", continentalness: (-0.115, 2.0), temperature: (0.8, 2.0), humidity: (-2.0, 0.3), erosion: (-0.3, 2.0), offset: 0.06),

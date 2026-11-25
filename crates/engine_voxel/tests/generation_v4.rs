@@ -131,3 +131,102 @@ fn v4_biomes_follow_the_latitude() {
     let cool = band_biomes(&g, -2200, -1000);
     assert!(share(&cool, &["core:autumn_maples"]) >= 10, "{cool:?}");
 }
+
+/// Le rang d'un biome de terre sur l'échelle des climats, du pôle à l'équateur : deux biomes qui se
+/// touchent ne doivent pas être à plus d'un rang l'un de l'autre (pas de jungle collée à une forêt
+/// de chênes). `None` : un biome de relief, d'eau ou souterrain, qui ne compte pas.
+fn climate_rank(key: &str) -> Option<(f32, &'static str)> {
+    let rank = match key {
+        "core:snowy_plains"
+        | "core:snowy_taiga"
+        | "core:snowy_fir_forest"
+        | "core:snowy_tundra"
+        | "core:fjord" => (0.0, "polaire"),
+        "core:taiga" | "core:old_taiga" | "core:birch_forest" | "core:steppe" | "core:tundra"
+        | "core:moor" | "core:maple_woods" | "core:autumn_maples" | "core:highland"
+        | "core:crag" => (1.0, "froid"),
+        "core:forest"
+        | "core:dark_forest"
+        | "core:plains"
+        | "core:flower_meadow"
+        | "core:great_prairie"
+        | "core:prairie"
+        | "core:orchard"
+        | "core:cherry_grove"
+        | "core:lavender_field"
+        | "core:sunflower_plains"
+        | "core:redwood_forest"
+        | "core:mixed_forest"
+        | "core:swamp"
+        | "core:wooded_hills" => (2.0, "tempéré"),
+        "core:savanna" | "core:shrubland" | "core:sparse_jungle" | "core:maquis"
+        | "core:hot_springs" | "core:rainforest" | "core:bayou" => (3.0, "chaud"),
+        "core:jungle" => (4.0, "tropical"),
+        "core:desert"
+        | "core:badlands"
+        | "core:arid_desert"
+        | "core:flowering_desert"
+        | "core:volcanic_plains" => (4.0, "aride"),
+        _ => return None,
+    };
+    Some(rank)
+}
+
+/// La part (en ‰) des frontières de terre entre deux biomes que l'échelle des climats interdit, et la
+/// liste des paires fautives les plus fréquentes.
+fn incoherent_borders(g: &TerrainGenerator, z0: i32, z1: i32) -> (u32, Vec<(String, u32)>) {
+    let step = 128;
+    let xs: Vec<i32> = (-4_000..4_000).step_by(step as usize).collect();
+    let zs: Vec<i32> = (z0..z1).step_by(step as usize).collect();
+    // Un seul calcul par point de la grille.
+    let grid: Vec<Vec<String>> = zs
+        .iter()
+        .map(|&z| {
+            xs.iter()
+                .map(|&x| g.biome(g.biome_at(x, 100, z)).key.clone())
+                .collect()
+        })
+        .collect();
+    let mut pairs = std::collections::HashMap::<String, u32>::new();
+    let (mut borders, mut bad) = (0u32, 0u32);
+    for (zi, row) in grid.iter().enumerate() {
+        for (xi, a) in row.iter().enumerate() {
+            let right = row.get(xi + 1);
+            let down = grid.get(zi + 1).map(|r| &r[xi]);
+            for b in [right, down].into_iter().flatten() {
+                if a == b {
+                    continue;
+                }
+                let (Some((ra, fa)), Some((rb, fb))) = (climate_rank(a), climate_rank(b)) else {
+                    continue;
+                };
+                borders += 1;
+                let tropical_arid =
+                    (fa == "tropical" && fb == "aride") || (fb == "tropical" && fa == "aride");
+                if (ra - rb).abs() > 1.0 || tropical_arid {
+                    bad += 1;
+                    let mut names = [a.clone(), b.clone()];
+                    names.sort();
+                    *pairs.entry(names.join(" | ")).or_default() += 1;
+                }
+            }
+        }
+    }
+    let mut list: Vec<_> = pairs.into_iter().collect();
+    list.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    (bad * 1000 / borders.max(1), list)
+}
+
+/// Deux biomes de terre qui se touchent restent voisins sur l'échelle des climats : pas de jungle collée
+/// à une forêt de chênes. Une marge (1,5 %) pour les frontières de relief que la grille grossière voit mal.
+#[test]
+fn v4_land_borders_follow_the_climate_ladder() {
+    for seed in [7, 99] {
+        let g = generator(GenerationVersion::V4, seed);
+        let (permille, worst) = incoherent_borders(&g, -6000, 6000);
+        assert!(
+            permille <= 15,
+            "graine {seed} : {permille} ‰, pires paires {worst:?}"
+        );
+    }
+}
