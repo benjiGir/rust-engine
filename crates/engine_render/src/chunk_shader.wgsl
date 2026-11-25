@@ -23,6 +23,9 @@ struct Camera {
     shadow_projection_next: mat4x4<f32>,
     // xy : direction du vent (unitaire, dans le plan horizontal), z : sa force (0 à 1).
     wind: vec4<f32>,
+    // xyz : cellule minée, w : avancement (0 : aucune fissure).
+    mining_block: vec4<f32>,
+    mining_impact: vec4<f32>,
 };
 
 @group(0) @binding(0)
@@ -118,8 +121,7 @@ fn project_vertex(vertex: VertexIn, projection: mat4x4<f32>, foliage_wind: bool)
     let detailed_plant = (vertex.texture & FLAG_PLANT_UV) != 0u;
     if detailed_plant {
         let uv = vec2<f32>(f32(vertex.position.w & 255u), f32(vertex.position.w >> 8u)) / 128.0;
-        // Les bords correspondent aux centres des texels extrêmes, sans répéter l'autre bord.
-        tex_position = vec3((uv * 63.0 + 0.5) / 64.0, 0.0);
+        tex_position = vec3(uv, 0.0);
     }
     // Une rotation de modèle transforme aussi les côtés (axe de projection des UV).
     if (vertex.texture & FLAG_MODEL_UV) != 0u {
@@ -464,7 +466,9 @@ fn voxel_terrain(input: TerrainEffect) -> vec4<f32> {
 
 fn block_uv(in: VertexOut) -> vec2<f32> {
     if (in.flags & FLAG_PLANT_UV) != 0u {
-        return in.tex_position.xy;
+        // Les bords correspondent aux centres des texels extrêmes dans chaque pack.
+        let side = vec2<f32>(textureDimensions(block_textures));
+        return (in.tex_position.xy * (side - 1.0) + 0.5) / side;
     }
     var uv = face_uv(in.tex_position, in.tex_normal);
     // Un rail : le même dessin tourné d'un, deux ou trois quarts de tour (sens horaire, vu d'en haut).
@@ -581,6 +585,44 @@ fn solar_visibility(world: vec3<f32>, normal: vec3<f32>) -> f32 {
     return mix(1.0, mix(a, b, camera.shadow_strength.w), strength);
 }
 
+fn crack_zigzag(value: vec3<f32>) -> vec3<f32> {
+    return 1.0 - 4.0 * abs(fract(value) - 0.5);
+}
+
+// Des plans dentelés traversent la matière. Leur intersection avec les faces
+// dessine la même fente de part et d'autre d'une arête.
+fn mining_fissure(local: vec3<f32>, progress: f32, footprint: f32) -> vec2<f32> {
+    let p = local - camera.mining_impact.xyz;
+    let phase = fract(dot(camera.mining_block.xyz, vec3(0.173, 0.389, 0.217)));
+    let offset = phase + vec3(0.18, 0.57, 0.81);
+    let wave = vec3(dot(p, vec3(5.7, 2.8, 4.1)), dot(p, vec3(-3.1, 6.7, 2.1)),
+                    dot(p, vec3(2.7, -3.4, 6.2)));
+    let q = p + 0.018 * (crack_zigzag(wave + offset) - crack_zigzag(offset));
+    let spine = vec3(dot(q, vec3(0.78, 0.41, -0.48)), dot(q, vec3(-0.43, 0.76, 0.49)),
+                     dot(q, vec3(0.39, -0.48, 0.78)));
+    var distance = min(abs(spine.x), min(abs(spine.y), abs(spine.z)));
+
+    // Les ramifications se séparent des fissures principales quand leur front les atteint.
+    if progress > 0.26 {
+        let along = vec3(dot(q, vec3(0.41, 0.65, 0.59)), dot(q, vec3(-0.6, 0.25, 0.76)),
+                         dot(q, vec3(0.80, 0.59, -0.13)));
+        let fork = abs(along) - vec3(0.19, 0.28, 0.35);
+        let split = abs(spine + sign(along) * fork * vec3(0.68, -0.79, 0.63));
+        let branches = select(vec3(2.0), split + 0.004, fork > vec3(0.0));
+        let branch = min(branches.x, min(branches.y, branches.z));
+        distance = min(distance, branch + 0.034 * (1.0 - smoothstep(0.26, 0.54, progress)));
+    }
+
+    let reach = 0.06 + 1.69 * progress;
+    let front = 1.0 - smoothstep(reach - 0.08, reach, length(p));
+    let opacity = front * smoothstep(0.01, 0.12, progress);
+    let width = mix(0.005, 0.012, progress);
+    let aa = clamp(footprint * 0.63, 0.002, 0.022);
+    let core = 1.0 - smoothstep(max(0.0, width - aa), width + aa, distance);
+    let edge = 1.0 - smoothstep(width + 0.002, width + 0.008 + aa, distance);
+    return vec2(core, max(0.0, edge - core)) * opacity;
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let time = camera.sun_color.w;
@@ -634,16 +676,17 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     }
     let daylight = camera.sun.w;
     let sun_direction = normalize(camera.sun.xyz);
+    let normal = normalize(in.normal);
 
     // Le ciel : sa lumière stockée, multipliée par l'intensité du jour. Le soleil
     // éclaire plus les faces tournées vers lui (éclairage diffus) ; sous l'horizon,
     // il n'éclaire plus directement.
-    let facing = max(dot(normalize(in.normal), sun_direction), 0.0) * step(0.0, sun_direction.y);
-    let visibility = solar_visibility(in.world_position, normalize(in.normal));
+    let facing = max(dot(normal, sun_direction), 0.0) * step(0.0, sun_direction.y);
+    let visibility = solar_visibility(in.world_position, normal);
     let lunar = camera.shadow_strength.y;
     let diffuse = 0.6 + 0.4 * facing;
     let solar_light = diffuse - (1.0 - visibility) * (diffuse - 0.29);
-    let moon_facing = max(dot(normalize(in.normal), -sun_direction), 0.0);
+    let moon_facing = max(dot(normal, -sun_direction), 0.0);
     let lunar_light = 0.44 + (0.27 + 0.80 * moon_facing) * visibility;
     let sky = brightness(in.light.x) * daylight * mix(solar_light, lunar_light, lunar)
         * camera.sun_color.rgb;
@@ -657,9 +700,11 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     light *= 0.45 + 0.55 * in.light.z;
     var lit = albedo.rgb * light;
     var alpha = albedo.a;
+    let world_dx = max(length(dpdx(in.world_position)), 0.001);
+    let world_dy = max(length(dpdy(in.world_position)), 0.001);
     let shore_slope = length(vec2<f32>(
-        dpdx(in.water_depth) / max(length(dpdx(in.world_position)), 0.001),
-        dpdy(in.water_depth) / max(length(dpdy(in.world_position)), 0.001)));
+        dpdx(in.water_depth) / world_dx,
+        dpdy(in.water_depth) / world_dy));
     if is_water {
         let surface = water_surface(in, albedo, light, sun_direction, visibility, shore_slope);
         lit = surface.rgb;
@@ -683,6 +728,16 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         if pixel.x >= 4.0 && pixel.x < 12.0 && pixel.y >= 14.0 - height && pixel.y < 14.0 {
             // Les flammes éclairent leur propre surface, même dans une grotte.
             lit = select(vec3<f32>(1.0, 0.22, 0.015), vec3<f32>(1.0, 0.72, 0.12), pixel.y >= 12.0);
+        }
+    }
+    let progress = camera.mining_block.w;
+    if progress > 0.0 && !is_water {
+        let local = in.world_position - camera.mining_block.xyz;
+        // Sur une face commune, le léger retrait de la normale désigne le bon bloc.
+        let inside = local - normal * 0.002;
+        if all(inside >= vec3(0.0)) && all(inside < vec3(1.0)) {
+            let crack = mining_fissure(local, progress, max(world_dx, world_dy));
+            lit = lit * (1.0 - 0.85 * crack.x) + min(light, vec3(1.0)) * (0.10 * crack.y);
         }
     }
 
@@ -710,7 +765,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         lit,
         alpha,
         in.world_position,
-        normalize(in.normal),
+        normal,
         camera.fog_color_end.rgb,
         fog,
         length(offset),

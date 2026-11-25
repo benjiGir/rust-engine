@@ -1,4 +1,4 @@
-//! Cartes découpées du pack 64. Les plis donnent du volume et déplacent les
+//! Cartes découpées des packs détaillés. Les plis donnent du volume et déplacent les
 //! sommets au vent, tandis que les UV restent attachés à la feuille.
 
 use glam::{IVec3, Vec3};
@@ -63,7 +63,8 @@ pub(super) fn profile(key: &str, shape: Shape) -> Option<Plant> {
         "cornflower" | "daisy" | "dandelion" | "marigold" | "allium" => {
             Plant::new(0.77, 0.72, 0.13, 2)
         }
-        "lavender" | "heather" => Plant::new(0.86, 0.67, 0.14, 3),
+        "lavender" => Plant::new(1.06, 1.13, 0.16, 3),
+        "heather" => Plant::new(0.86, 0.67, 0.14, 3),
         "brown_mushroom" | "red_mushroom" | "glowcap" => Plant::new(0.73, 0.59, 0.05, 2),
         "dead_bush" => Plant::new(0.79, 0.65, 0.12, 3),
         "vine" => Plant::new(0.90, 1.0, 0.09, 2),
@@ -71,12 +72,10 @@ pub(super) fn profile(key: &str, shape: Shape) -> Option<Plant> {
         "oak_sapling" | "birch_sapling" | "spruce_sapling" | "acacia_sapling"
         | "jungle_sapling" | "redwood_sapling" | "maple_sapling" | "fir_sapling"
         | "olive_sapling" | "cherry_sapling" => Plant::new(0.82, 0.91, 0.08, 3),
-        "wild_wheat" | "wild_barley" | "wild_oats" => Plant::new(0.84, 0.94, 0.13, 2),
         _ => {
             let (species, stage) = name.rsplit_once('_')?;
             let stage: u8 = stage.parse().ok()?;
             match species {
-                "wheat" | "barley" | "oats" if stage < 4 => Plant::new(0.79, 0.94, 0.13, 2),
                 "carrot" | "potato" if stage < 4 => Plant::new(0.82, 0.91, 0.19, 2),
                 "cabbage" | "melon" if stage < 4 => Plant::new(0.86, 0.84, 0.24, 3),
                 "sweet_berry_bush" | "blueberry_bush" if stage < 3 => Plant::berry_bush(stage),
@@ -85,6 +84,94 @@ pub(super) fn profile(key: &str, shape: Shape) -> Option<Plant> {
         }
     };
     Some(plant)
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct Cereal {
+    stage: usize,
+    height_scale: f32,
+    wild: bool,
+}
+
+pub(super) fn cereal_profile(key: &str) -> Option<Cereal> {
+    let name = key.strip_prefix("core:")?;
+    let (species, stage, wild) = if let Some(species) = name.strip_prefix("wild_") {
+        (species, 3, true)
+    } else {
+        let (species, stage) = name.rsplit_once('_')?;
+        (species, stage.parse::<usize>().ok()?, false)
+    };
+    let height_scale = match species {
+        "wheat" => 1.0,
+        "barley" => 1.02,
+        "oats" => 1.11,
+        _ => return None,
+    };
+    (stage < 4).then_some(Cereal {
+        stage,
+        height_scale,
+        wild,
+    })
+}
+
+/// Plusieurs pieds distincts par case, en deux rangs dans les champs et
+/// irrégulièrement espacés dans les graminées sauvages.
+pub(super) fn cereal(
+    mesh: &mut ChunkMesh,
+    crop: Cereal,
+    cell: IVec3,
+    tint: [f32; 4],
+    light: [f32; 3],
+    texture: u32,
+) {
+    let base = cell.as_vec3();
+    let height = [0.27, 0.51, 0.87, 1.09][crop.stage] * crop.height_scale;
+    let spacing = if crop.wild { 0.15 } else { 0.049 };
+    let sways = texture & FLAG_SWAY != 0;
+    let offsets = [
+        (0.26, 0.17),
+        (0.74, 0.5),
+        (0.26, 0.83),
+        (0.74, 0.17),
+        (0.26, 0.50),
+        (0.74, 0.83),
+    ];
+    for (i, &(x, z)) in offsets[..[3, 4, 5, 6][crop.stage]].iter().enumerate() {
+        let hash = hash_cell(cell + IVec3::new(13 * i as i32 + 1, 251, -37 * i as i32));
+        let sample = |shift| ((hash >> shift) & 255u32) as f32 / 255.0;
+        let root = Vec3::new(
+            x + (2.0 * sample(0) - 1.0) * spacing,
+            0.0,
+            z + (2.0 * sample(8) - 1.0) * spacing,
+        );
+        let height = height * (0.85 + 0.28 * sample(16));
+        let yaw = sample(24) * std::f32::consts::TAU;
+        let lean = Vec3::new(yaw.cos(), 0.0, yaw.sin()) * height * (0.06 + 0.09 * sample(0));
+        let width = [0.255, 0.26, 0.29, 0.33][crop.stage] * (0.93 + 0.12 * sample(8));
+        let u = ((hash >> 12) as u16 & 3) * 32;
+        for direction in [yaw, yaw + std::f32::consts::FRAC_PI_2] {
+            let half = Vec3::new(direction.cos(), 0.0, direction.sin()) * (width * 0.5);
+            let row = |fraction: f32| {
+                let bend = fraction * fraction;
+                let center = root + Vec3::Y * (height * fraction) + lean * bend;
+                let v = ((1.0 - fraction) * 128.0).round() as u16;
+                let sway = if sways {
+                    bend * height.min(1.0) * 0.82
+                } else {
+                    0.0
+                };
+                [
+                    (center - half, [u, v], sway),
+                    (center + half, [u + 32, v], sway),
+                ]
+            };
+            let [a, b] = row(0.0);
+            let [d, c] = row(0.5);
+            let [f, e] = row(1.0);
+            write_face(mesh, base, [a, b, c, d], tint, light, texture);
+            write_face(mesh, base, [d, c, e, f], tint, light, texture);
+        }
+    }
 }
 
 pub(super) fn mesh(
@@ -440,6 +527,35 @@ mod tests {
             assert!(span.x > 1.4 && span.z > 1.4 && span.y > 0.95, "{span}");
             let young = bounds[0].1 - bounds[0].0;
             assert!(span.cmpgt(young * 1.5).all());
+        }
+    }
+
+    #[test]
+    fn both_detailed_packs_grow_cereals_as_separate_rooted_stalks() {
+        let p = IVec3::new(31, 4, 31);
+        for size in [32, 64] {
+            for species in ["wheat", "barley", "oats"] {
+                let mut last_height = 0.0;
+                for (stage, stalks) in [3, 4, 5, 6].into_iter().enumerate() {
+                    let mut world = world(size);
+                    place(&mut world, &format!("core:{species}_{stage}"), p);
+                    let mesh = mesh_binary(&world, IVec3::ZERO);
+                    assert_eq!(mesh.vertices.len(), stalks * 16);
+                    for stalk in mesh.vertices.as_chunks::<16>().0 {
+                        let left = stalk[0].position[3] & 255;
+                        assert!(stalk.iter().all(|v| {
+                            let u = v.position[3] & 255;
+                            v.texture & FLAG_PLANT_UV != 0 && (u == left || u == left + 32)
+                        }));
+                        assert_eq!(stalk[0].local_position().y, p.y as f32);
+                        assert_eq!(stalk[0].light[3], 0);
+                        assert!(stalk[6].light[3] > 0);
+                    }
+                    let height = mesh.bounds().unwrap().1.y - p.y as f32;
+                    assert!(height > last_height);
+                    last_height = height;
+                }
+            }
         }
     }
 }

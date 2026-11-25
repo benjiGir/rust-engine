@@ -781,6 +781,23 @@ impl VoxelGame {
         self.flush_mod_ui();
         self.client.ui.handle_output(&ctx.window, platform);
         self.update_chest_lids();
+        self.client.renderer.mining_crack = self
+            .client
+            .mining
+            .filter(|mining| {
+                self.mode == Mode::Playing
+                    && !self.client.ui.inventory_open
+                    && self
+                        .client
+                        .target
+                        .is_some_and(|hit| hit.block_pos == mining.pos)
+                    && self.view_world().block(mining.pos) == mining.block
+            })
+            .map(|mining| engine_render::MiningCrack {
+                block: mining.pos,
+                impact: mining.impact,
+                progress: mining.progress,
+            });
 
         // Les structures mobiles (bateaux, contraptions) viennent aussi de la réplique.
         self.client.grid_meshes.sync(
@@ -826,6 +843,7 @@ impl VoxelGame {
         self.client.renderer.set_instances(&[]);
         self.client.renderer.set_hand(&[], [1.0, 0.0]);
         self.client.renderer.outline = None;
+        self.client.renderer.mining_crack = None;
         self.client.renderer
     }
 }

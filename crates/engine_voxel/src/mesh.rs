@@ -872,6 +872,7 @@ fn tints(biomes: &BiomeRegistry, chunk: &Chunk) -> [Vec<[f32; 3]>; 3] {
 /// Chaque panneau est émis deux fois, une par face : on le voit des deux côtés.
 fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
     let origin = World::chunk_origin(hood.position);
+    let visual_size = hood.registry.texture_size();
     let center = match &hood.chunks[13] {
         Some(chunk) => chunk.clone(),
         None => return,
@@ -905,8 +906,21 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                 let vertex_light = [sky as f32 / 15.0, light as f32 / 15.0, 1.0];
                 let base = (origin + p).as_vec3();
                 let flags = block_flags(def) | FLAG_CUTOUT;
-                if hood.registry.texture_size() == 64 {
-                    if def.key == "core:cactus" && def.shape == Shape::Model {
+                if visual_size >= 32 {
+                    if def.shape == Shape::Cross
+                        && let Some(crop) = vegetation::cereal_profile(&def.key)
+                    {
+                        vegetation::cereal(
+                            mesh,
+                            crop,
+                            origin + p,
+                            color,
+                            vertex_light,
+                            def.face_textures[1] | flags,
+                        );
+                        continue;
+                    }
+                    if visual_size == 64 && def.key == "core:cactus" && def.shape == Shape::Model {
                         vegetation::cactus(
                             mesh,
                             base,
@@ -920,7 +934,9 @@ fn plants(hood: &Neighbourhood, mesh: &mut ChunkMesh) {
                         );
                         continue;
                     }
-                    if let Some(plant) = vegetation::profile(&def.key, def.shape) {
+                    if (visual_size == 64 || def.key == "core:lavender")
+                        && let Some(plant) = vegetation::profile(&def.key, def.shape)
+                    {
                         vegetation::mesh(
                             mesh,
                             &def.key,

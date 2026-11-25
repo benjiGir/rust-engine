@@ -20,8 +20,8 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use engine_render::{Camera, MeshId, RenderStats, Renderer};
-use engine_voxel::RayHit;
-use glam::IVec3;
+use engine_voxel::{BlockId, RayHit};
+use glam::{IVec3, Vec3};
 
 use crate::{
     Demo, Request, audio, control::bench, control::screenshots, render::chest_lids,
@@ -29,6 +29,15 @@ use crate::{
 };
 use voxel_sim::server::stats::FrameStats;
 use voxel_sim::{net::protocol, settings, world::soundscape};
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Mining {
+    pub pos: IVec3,
+    pub block: BlockId,
+    /// Premier point touché, conservé tant qu'on mine le même bloc.
+    pub impact: Vec3,
+    pub progress: f32,
+}
 
 /// L'état de la fenêtre : ce que le serveur ne doit pas lire (lot 4 du multijoueur,
 /// `docs/plan-multijoueur.md`). Le rendu, la caméra, l'interface, le son, les effets, la réplique
@@ -107,7 +116,7 @@ pub(crate) struct ClientSide {
     pub(crate) content: voxel_sim::content::Content,
     /// Le bloc en cours de minage (bouton gauche maintenu) et l'avancement prédit, de 0 à 1 ; le
     /// serveur contrôle le sien (`PlayerState::dig`).
-    pub(crate) mining: Option<(glam::IVec3, f32)>,
+    pub(crate) mining: Option<Mining>,
     /// Le bouton gauche est tenu sans rien à casser : le bras frappe quand même, en boucle.
     pub(crate) air_swing: bool,
     /// La barre envoyée en dernier (`ClientMsg::Steer`).

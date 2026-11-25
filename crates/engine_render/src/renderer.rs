@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use bytemuck::{Pod, Zeroable};
-use glam::Vec3;
+use glam::{IVec3, Vec3};
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
@@ -333,6 +333,15 @@ impl Default for Sun {
     }
 }
 
+/// Fissure affichée sur le bloc en cours de minage.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MiningCrack {
+    pub block: IVec3,
+    /// Point du premier impact, dans le repère du bloc (de 0 à 1).
+    pub impact: Vec3,
+    pub progress: f32,
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct CameraUniform {
@@ -355,6 +364,9 @@ struct CameraUniform {
     shadow_projection_next: [[f32; 4]; 4],
     /// Direction du vent (xy, un vecteur unitaire dans le plan horizontal) et sa force (z).
     wind: [f32; 4],
+    /// Position monde du bloc (xyz) et progression du minage (w, 0 : désactivé).
+    mining_block: [f32; 4],
+    mining_impact: [f32; 4],
 }
 
 pub struct Renderer {
@@ -395,6 +407,7 @@ pub struct Renderer {
     lines: Lines,
     /// Une boîte dont on dessine les arêtes, par exemple le bloc visé.
     pub outline: Option<Aabb>,
+    pub mining_crack: Option<MiningCrack>,
     /// Une croix au centre de l'écran.
     pub crosshair: bool,
     /// Couleur du ciel.
@@ -694,6 +707,7 @@ impl Renderer {
             egui_free: Vec::new(),
             lines,
             outline: None,
+            mining_crack: None,
             crosshair: false,
             meshes: HashMap::new(),
             arena: GeometryArena::new(),
@@ -1226,6 +1240,17 @@ impl Renderer {
             .map_or(0.0, |frame| frame.strength);
         let projections = shadow.map_or([glam::Mat4::IDENTITY; 2], |frame| frame.projections);
         let shadow_blend = shadow.map_or(0.0, |frame| frame.blend);
+        let (mining_block, mining_impact) =
+            self.mining_crack.map_or(([0.0; 4], [0.0; 4]), |crack| {
+                (
+                    crack
+                        .block
+                        .as_vec3()
+                        .extend(crack.progress.clamp(0.0, 1.0))
+                        .to_array(),
+                    crack.impact.extend(0.0).to_array(),
+                )
+            });
         let uniform = CameraUniform {
             view_proj: view_proj.to_cols_array_2d(),
             camera_fog_start: camera.position.extend(fog.start).to_array(),
@@ -1257,6 +1282,8 @@ impl Renderer {
                 self.wind.strength.clamp(0.0, 1.0),
                 0.0,
             ],
+            mining_block,
+            mining_impact,
         };
         let frustum = Frustum::from_view_proj(view_proj);
         if let Some(timer) = &mut self.gpu_timer {

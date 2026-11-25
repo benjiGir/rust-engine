@@ -8,6 +8,7 @@
 //! avance, le bras qui frappe, le son d'un coup. Le minage est **prédit** : la fissure grandit
 //! chez le client, le simulateur compte son propre temps et vérifie `Dig Finish`.
 
+use crate::client::Mining;
 use crate::key_codes::KeyCodes;
 use crate::*;
 use voxel_sim::net::protocol::{ClientMsg, DigPhase};
@@ -271,31 +272,41 @@ impl VoxelGame {
             return;
         };
         let pos = hit.block_pos;
-        let block = self.server.streamer().world().block(pos);
+        let block = self.view_world().block(pos);
         let Some(time) = self.server.mining_time(pos, block) else {
             // Incassable.
             self.stop_mining();
             return;
         };
-        let progress = match self.client.mining {
-            Some((p, progress)) if p == pos => Some(progress),
-            _ => None,
+        let mut mining = match self.client.mining {
+            Some(active) if active.pos == pos && active.block == block => active,
+            _ => {
+                self.stop_mining();
+                let aim = self.window_aim();
+                let impact = (self.client.camera.position
+                    + self.client.camera.forward() * hit.distance
+                    - pos.as_vec3())
+                .clamp(Vec3::ZERO, Vec3::ONE);
+                self.send(ClientMsg::Dig {
+                    aim,
+                    phase: DigPhase::Start,
+                    pos,
+                    face: hit.normal,
+                });
+                Mining {
+                    pos,
+                    block,
+                    impact,
+                    progress: 0.0,
+                }
+            }
         };
-        if progress.is_none() {
-            let aim = self.window_aim();
-            self.send(ClientMsg::Dig {
-                aim,
-                phase: DigPhase::Start,
-                pos,
-                face: hit.normal,
-            });
-        }
-        let progress = if time <= 0.0 {
+        mining.progress = if time <= 0.0 {
             1.0
         } else {
-            progress.unwrap_or(0.0) + dt / time
+            mining.progress + dt / time
         };
-        if progress >= 1.0 {
+        if mining.progress >= 1.0 {
             self.client.mining = None;
             let aim = self.window_aim();
             self.send(ClientMsg::Dig {
@@ -305,18 +316,18 @@ impl VoxelGame {
                 face: hit.normal,
             });
         } else {
-            self.client.mining = Some((pos, progress));
+            self.client.mining = Some(mining);
         }
     }
 
     /// Le minage s'arrête avant la fin (bouton lâché, un menu s'ouvre, plus de bloc visé).
     pub(crate) fn stop_mining(&mut self) {
-        if let Some((pos, _)) = self.client.mining.take() {
+        if let Some(mining) = self.client.mining.take() {
             let aim = self.window_aim();
             self.send(ClientMsg::Dig {
                 aim,
                 phase: DigPhase::Abort,
-                pos,
+                pos: mining.pos,
                 face: IVec3::ZERO,
             });
         }

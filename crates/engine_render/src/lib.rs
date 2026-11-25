@@ -25,7 +25,7 @@ pub use frustum::{Aabb, Frustum};
 pub use mesh::ColorVertex;
 pub use renderer::{
     CHUNK_SHADER_PATH, CHUNK_SHADER_SOURCE, Capture, CubeInstance, Fog, HandInstance, MeshId,
-    RenderStats, Renderer, Sun, TEXTURE_SIZE, UiFrame, Wind, texture_side,
+    MiningCrack, RenderStats, Renderer, Sun, TEXTURE_SIZE, UiFrame, Wind, texture_side,
 };
 pub use shader_pack::{ShaderEffects, ShaderSources};
 pub use sky::{SKY_SHADER_PATH, SKY_SHADER_SOURCE, Sky};

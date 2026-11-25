@@ -568,7 +568,7 @@ impl VoxelGame {
         let selected_slot = usize::from(self.client.view.me.inventory.selected);
         let held_stack = self.client.view.me.inventory.selected_stack();
         // La barre sous le réticule : le minage, ou le repas en cours.
-        if let Some(progress) = self.client.mining.map(|(_, p)| p).or(self
+        if let Some(progress) = self.client.mining.map(|mining| mining.progress).or(self
             .server
             .players
             .me_mut()
