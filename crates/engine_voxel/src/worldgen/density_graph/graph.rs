@@ -539,7 +539,7 @@ impl Compiler<'_> {
                 (from_value.min(*to_value), from_value.max(*to_value)),
             ),
             DensityDef::ZTriangleWave { period, offset } => {
-                if !(*period > 0.0) {
+                if period.is_nan() || *period <= 0.0 {
                     return Err(DensityError::BadCones(format!(
                         "onde triangulaire : période {period} invalide"
                     )));
