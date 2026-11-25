@@ -193,6 +193,57 @@ impl crate::server::VoxelServer {
             .map(|d| d.key.clone())
     }
 
+    /// Clic droit sur un cheval : l'apprivoiser (il se cabre jusqu'à accepter), lui poser une selle
+    /// (`core:saddle` en main), puis le monter. Tout se joue ici, sur le serveur (voir
+    /// `mobs/mounts.rs`).
+    pub fn use_mount(&mut self) -> bool {
+        use crate::mobs::mounts::{self, Mounting};
+        let Some(horse) = self.aim().mob else {
+            return false;
+        };
+        if mounts::def_of(&self.ecs, horse).is_none() {
+            return false;
+        }
+        let held = self
+            .players
+            .me_mut()
+            .inventory
+            .selected_item()
+            .map(|item| self.content.items.get(item).key.clone());
+        let saddle = held.as_deref() == Some("core:saddle");
+        let rider = self.players.entity();
+        match mounts::try_mount(&mut self.ecs, rider, horse, saddle) {
+            Mounting::NotAMount => return false,
+            Mounting::Mounted => self.sound("core:place_soft"),
+            Mounting::Bucked { .. } => {
+                // Jeté à terre, loin du cheval.
+                let at = crate::player::body(&self.ecs, rider).position;
+                let from = self
+                    .ecs
+                    .get::<components::Transform>(horse)
+                    .map_or(at, |t| t.position);
+                let away = glam::Vec3::new(at.x - from.x, 0.0, at.z - from.z).normalize_or_zero();
+                self.push_player(5.0, away * 5.0);
+                self.toast("Le cheval se cabre et te jette à terre. Insiste !");
+                self.sound("core:break_soft");
+            }
+            Mounting::Tamed => {
+                self.toast("Le cheval t'accepte. Il lui faut une selle.");
+                self.sound("core:place_soft");
+            }
+            Mounting::Saddled => {
+                self.players.me_mut().inventory.consume_selected();
+                self.toast("Selle posée : tu peux le monter (Maj pour descendre).");
+                self.sound("core:place_soft");
+            }
+            Mounting::NeedsSaddle => self.toast("Il lui faut une selle."),
+            Mounting::TooYoung => self.toast("Ce poulain est trop jeune pour être monté."),
+            Mounting::Taken => self.toast("Quelqu'un le monte déjà."),
+        }
+        self.punch();
+        true
+    }
+
     /// Un aliment en main, clic droit sur un animal qui l'aime : il entre en rut.
     pub fn feed_mob(&mut self) -> bool {
         let Some(item) = self.players.me_mut().inventory.selected_item() else {

@@ -282,6 +282,41 @@ fn leather() -> Image {
     icon(&mask, &[('H', hide), ('h', scale(hide, 0.65))])
 }
 
+/// Une selle (lot N9) : le siège de cuir, son pommeau et son troussequin, et un étrier de métal.
+fn saddle() -> Image {
+    let mask = [
+        "................",
+        "................",
+        "................",
+        "......PP........",
+        "..CC..PPP..CC...",
+        "..CCSSSSSSSCC...",
+        ".CCSSSSsSSSSCC..",
+        ".CSSSSSSSSSSSC..",
+        "..SSsSSSSsSSS...",
+        "..cSSSSSSSSSc...",
+        "...cccccccc.....",
+        "....I....I......",
+        "....I....I......",
+        "...II...II......",
+        "................",
+        "................",
+    ];
+    let leather = [0.58, 0.36, 0.2];
+    let dark = scale(leather, 0.7);
+    icon(
+        &mask,
+        &[
+            ('S', leather),
+            ('s', scale(leather, 0.82)),
+            ('C', scale(leather, 0.9)),
+            ('P', scale(leather, 1.12)),
+            ('c', dark),
+            ('I', [0.72, 0.72, 0.76]),
+        ],
+    )
+}
+
 /// Une grappe de baies (lot N5 du plan nature) : six petites boules et deux feuilles.
 fn berries(color: [f32; 3]) -> Image {
     let mask = [
@@ -847,6 +882,7 @@ pub(super) fn item_icons(dir: &Path) -> Vec<(PathBuf, Image)> {
     add("raw_beef", chop([0.75, 0.22, 0.2], [0.95, 0.85, 0.8]));
     add("cooked_beef", chop([0.42, 0.24, 0.13], [0.7, 0.5, 0.3]));
     add("leather", leather());
+    add("saddle", saddle());
     add("shadow_dust", material("dust", [0.3, 0.22, 0.42]));
     add("spores", material("seeds", [0.78, 0.82, 0.35]));
     add("apple", apple());

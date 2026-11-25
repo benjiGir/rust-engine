@@ -751,13 +751,14 @@ impl crate::server::VoxelServer {
                     e.elite.clone(),
                     e.coat,
                     e.shorn,
+                    e.saddled,
                     e.killer,
                 )
             })
             .collect();
         let player_at = player::body(&self.ecs, self.players.entity()).position;
         let me = self.players.local_id();
-        for (kind, position, elite, coat, shorn, killer) in died {
+        for (kind, position, elite, coat, shorn, saddled, killer) in died {
             let (drops, xp, hostile, boss) = self
                 .ecs
                 .resource::<std::sync::Arc<crate::mobs::MobRegistry>>()
@@ -774,6 +775,15 @@ impl crate::server::VoxelServer {
                     self.credit_kill(boss);
                 }
                 self.adventure_loot(position, hostile, elite.as_ref());
+            }
+            // Un cheval sellé laisse sa selle (voir `mobs/mounts.rs`).
+            if saddled && let Some(item) = self.content.items.id("core:saddle") {
+                let near = position.distance(player_at) <= XP_RADIUS;
+                self.give_loot(
+                    position.floor().as_ivec3(),
+                    crate::player::inventory::ItemStack::new(item, 1),
+                    near,
+                );
             }
             for drop in drops {
                 let mut rng = engine_voxel::Rng64::new(self.next_random());

@@ -35,9 +35,9 @@ pub fn instances(
         .max_by(|a, b| volume(a).total_cmp(&volume(b)))
         .map(|p| (p.offset.0 + p.size.0 * 0.4, p.offset.2));
     parts.iter().map(move |part| {
-        let (mut x, y, mut z) = part.offset;
+        let (mut x, mut y, mut z) = part.offset;
         let mut yaw = 0.0;
-        let mut swing = [0.0; 2];
+        let mut swing = [part.pitch, 0.0];
         match part.bone {
             Bone::Fixed => {}
             Bone::Head => {
@@ -74,7 +74,16 @@ pub fn instances(
                     })
                     .map(|q| q.offset.1 + q.size.1 * 0.5)
                     .fold(f32::MIN, f32::max);
-                swing = [0.65 * stride * (phase + offset).sin(), hip - y];
+                let angle = 0.65 * stride * (phase + offset).sin();
+                if part.pitch == 0.0 {
+                    swing = [angle, hip - y];
+                } else {
+                    // Le membre pivote d'abord au repos sur sa boîte, puis à la hanche.
+                    let (sin, cos) = angle.sin_cos();
+                    x -= (y - hip) * sin;
+                    y = hip + (y - hip) * cos;
+                    swing = [angle + part.pitch, 0.0];
+                }
             }
         }
         let tint = if part.texture_layer == 0 {
@@ -89,6 +98,7 @@ pub fn instances(
         )
         .with_yaw(yaw);
         cube.textures = [part.texture_layer; 3];
+        cube.cutout = u32::from(part.cutout);
         cube.swing = swing;
         cube
     })
@@ -99,6 +109,27 @@ mod tests {
     use super::*;
     use engine_voxel::BlockRegistry;
     use voxel_sim::mobs::model::{MobPart, bind_textures};
+
+    #[test]
+    fn sloped_hoof_keeps_its_hip_pivot_and_mark_accepts_transparency() {
+        let parts: Vec<MobPart> = ron::from_str(
+            r#"[
+                (offset: (0.4, 0.46, 0.2), size: (0.2, 0.8, 0.2), color: (1.0, 1.0, 1.0), bone: Leg),
+                (offset: (0.4, 0.05, 0.2), size: (0.2, 0.1, 0.2), color: (1.0, 1.0, 1.0), bone: Leg, pitch: 0.12),
+                (offset: (0.7, 1.3, 0.0), size: (0.3, 0.01, 0.15), color: (1.0, 1.0, 1.0), bone: Head, pitch: -0.53, cutout: true),
+            ]"#,
+        )
+        .unwrap();
+        let posed: Vec<_> = instances(&parts, 1.0, 0.8, 0.2).collect();
+        let angle = posed[0].swing[0];
+        let hip = Vec3::new(0.4, 0.86, 0.2);
+        let hoof = hip + glam::Quat::from_rotation_z(angle) * Vec3::new(0.0, -0.81, 0.0);
+        assert!(hoof.distance(Vec3::from_array(posed[1].center)) < 1e-5);
+        assert_eq!(posed[1].swing, [angle + 0.12, 0.0]);
+        assert_eq!(posed[2].swing, [-0.53, 0.0]);
+        assert_eq!(posed[2].cutout, 1);
+    }
+
     #[test]
     fn tail_and_caudal_fin_keep_a_common_pivot_during_the_swim() {
         let parts: Vec<MobPart> = ron::from_str(

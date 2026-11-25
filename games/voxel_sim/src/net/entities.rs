@@ -124,6 +124,8 @@ pub struct Look {
     pub shorn: bool,
     /// La robe d'un cheval, de 0 à 34 (voir `mobs/horse_coats.rs`).
     pub horse: Option<u8>,
+    /// Un cheval sellé : sa selle est dessinée (voir `mobs/mounts.rs`).
+    pub saddled: bool,
     pub elite: Option<EliteLook>,
     /// La boîte de la créature (largeur, hauteur) : le client s'en sert pour la viser. Elle change
     /// quand un petit grandit.
@@ -296,6 +298,7 @@ pub fn collect(
                     horse: world
                         .get::<crate::mobs::horse_coats::HorseCoat>(entity)
                         .map(|c| c.0),
+                    saddled: world.has::<crate::mobs::mounts::Saddled>(entity),
                     elite: world
                         .get::<crate::mobs::elites::Elite>(entity)
                         .map(|e| EliteLook {

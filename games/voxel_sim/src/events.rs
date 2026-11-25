@@ -47,6 +47,8 @@ pub struct EntityDied {
     pub coat: Option<crate::mobs::sheep_colors::SheepCoat>,
     /// Tondue quand elle est morte : elle ne laisse pas de laine.
     pub shorn: bool,
+    /// Sellé quand elle est morte : la selle tombe.
+    pub saddled: bool,
     /// Le joueur qui l'a tuée (`None` : chute, feu, soleil...).
     pub killer: Option<PlayerId>,
 }

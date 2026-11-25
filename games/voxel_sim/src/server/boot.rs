@@ -311,6 +311,7 @@ impl VoxelServer {
                 "créatures : trajets des scripts",
                 mobs::brains::follow_goals,
             )
+            .add(Stage::FixedUpdate, "montures", mobs::mounts::steer)
             .add(Stage::FixedUpdate, "structures mobiles", ships::update)
             .add(Stage::FixedUpdate, "physique", mobs::physics)
             .add(Stage::FixedUpdate, "wagons", carts::update)

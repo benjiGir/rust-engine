@@ -1,10 +1,16 @@
-//! Matières originales des créatures, dessinées à la résolution 16 ou 32 du pack.
+//! Matières originales des créatures, avec des détails natifs pour les animaux en 32 et 64.
 use anyhow::Result;
 use std::{
     fs,
     io::BufWriter,
     path::{Path, PathBuf},
 };
+
+mod animals;
+
+pub(crate) fn draw_animal(name: &str, side: usize) -> Option<Vec<[u8; 4]>> {
+    animals::draw(name, side)
+}
 
 const SKINS: &[(&str, &str)] = &[
     ("core", "mob_pig_skin"),
@@ -17,6 +23,7 @@ const SKINS: &[(&str, &str)] = &[
     ("core", "mob_horse_blaze"),
     ("core", "mob_horse_sock"),
     ("core", "mob_horse_patch"),
+    ("core", "mob_horse_saddle"),
     ("core", "mob_chicken_feathers"),
     ("core", "mob_fish_scales"),
     ("core", "mob_fish_fins"),
@@ -69,6 +76,9 @@ fn quantize(c: u8) -> u8 {
 }
 
 pub fn draw(name: &str, side: usize) -> Option<Vec<[u8; 4]>> {
+    if let Some(pixels) = draw_animal(name, side) {
+        return Some(pixels);
+    }
     if !SKINS.iter().any(|(_, n)| *n == name) {
         return None;
     }
@@ -101,7 +111,7 @@ pub fn draw(name: &str, side: usize) -> Option<Vec<[u8; 4]>> {
                         0.93 + broad * 0.05 + strand * 0.07 - v * 0.03,
                     )
                 }
-                "mob_horse_coat" | "mob_horse_blaze" | "mob_horse_sock" | "mob_horse_patch" => {
+                "mob_horse_coat" => {
                     // Un poil ras et lustré, dessiné en gris clair pour être teinté par la robe :
                     // de larges reflets et un fin grain, un peu plus clair sur le dessus.
                     let sheen = noise(u * 0.6, v * 1.4, 4, 3441);
@@ -109,6 +119,21 @@ pub fn draw(name: &str, side: usize) -> Option<Vec<[u8; 4]>> {
                     shade(
                         [236, 236, 236],
                         0.93 + broad * 0.04 + sheen * 0.05 + grain * 0.05 - v * 0.04,
+                    )
+                }
+                "mob_horse_saddle" => {
+                    // Un cuir brun, grainé, avec une couture claire près des bords : il ne se teinte
+                    // pas, c'est la couleur de la selle.
+                    let grain = noise(u * 2.0, v * 2.0, if side == 32 { 14 } else { 8 }, 3461);
+                    let edge = u.min(1.0 - u).min(v).min(1.0 - v);
+                    let stitch = (0.07..0.11).contains(&edge) && (u * 24.0).fract() < 0.55;
+                    shade(
+                        if stitch {
+                            [196, 160, 112]
+                        } else {
+                            [118, 72, 40]
+                        },
+                        0.92 + broad * 0.06 + grain * 0.1,
                     )
                 }
                 "mob_horse_mane" => {

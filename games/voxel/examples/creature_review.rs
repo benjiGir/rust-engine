@@ -1,4 +1,4 @@
-//! Vrais modèles et articulations des créatures, skins 16/32, sans fenêtre ni sauvegarde.
+//! Vrais modèles et articulations des créatures, skins 16/32/64, sans fenêtre ni sauvegarde.
 #[path = "../src/render"]
 mod render {
     pub mod mobs;
@@ -17,7 +17,10 @@ use engine_voxel::BlockRegistry;
 use glam::{Mat4, Vec3};
 use serde::Deserialize;
 use std::{collections::HashMap, path::Path};
-use voxel_sim::{mobs, mobs::sheep_colors};
+use voxel_sim::{
+    mobs,
+    mobs::{horse_coats::HorseCoat, sheep_colors},
+};
 
 #[derive(Clone, Deserialize)]
 struct Creature {
@@ -146,16 +149,24 @@ fn main() -> Result<()> {
     anyhow::ensure!(
         (args.len() == 3
             || (args.len() == 4
-                && matches!(args[3].as_str(), "--fauna" | "--sheep-colors" | "--breeds")))
-            && matches!(args[1].as_str(), "16" | "32"),
-        "creature_review <racine RON> <16|32> <sortie.png> [--fauna|--sheep-colors|--breeds]"
+                && matches!(
+                    args[3].as_str(),
+                    "--fauna" | "--sheep-colors" | "--breeds" | "--alpacas-horses"
+                )))
+            && matches!(args[1].as_str(), "16" | "32" | "64"),
+        "creature_review <racine RON> <16|32|64> <sortie.png> [--fauna|--sheep-colors|--breeds|--alpacas-horses]"
     );
     let source = Path::new(&args[0]);
     let sheep_colors = args.get(3).is_some_and(|a| a == "--sheep-colors");
+    let alpacas_horses = args.get(3).is_some_and(|a| a == "--alpacas-horses");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut blocks = BlockRegistry::load(&root.join("assets"), Some(&root.join("mods")))?;
-    if args[1] == "32" {
-        blocks.set_visual_pack(Some(root.join("texture_packs/earth-copper-32/assets")), 32)?;
+    let side: u32 = args[1].parse()?;
+    if side > 16 {
+        blocks.set_visual_pack(
+            Some(root.join(format!("texture_packs/earth-copper-{side}/assets"))),
+            side,
+        )?;
     }
     let mut creatures = Vec::new();
     for path in [
@@ -167,6 +178,9 @@ fn main() -> Result<()> {
             .with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME)
             .from_str(&std::fs::read_to_string(source.join(path))?)?;
         for mut c in entries {
+            if alpacas_horses && !matches!(c.id.as_str(), "core:alpaca" | "core:horse") {
+                continue;
+            }
             if sheep_colors && c.id != "core:sheep" {
                 continue;
             }
@@ -215,7 +229,29 @@ fn main() -> Result<()> {
     let ctx = egui::Context::default();
     let mut frames = Vec::new();
     let mut wool_icons = Vec::new();
+    let cream = sheep_colors::palette()
+        .iter()
+        .position(|color| color.id == "cream")
+        .map(|index| sheep_colors::SheepCoat(index as u8));
+    let bay = HorseCoat::parse("bay:stockings");
     for (index, c) in creatures.iter().enumerate() {
+        let fleece = if sheep_colors {
+            Some(sheep_colors::SheepCoat(index as u8))
+        } else if c.id == "core:alpaca" {
+            cream
+        } else {
+            None
+        };
+        let horse = if c.id == "core:horse" { bay } else { None };
+        let height = if alpacas_horses {
+            c.parts.iter().fold(c.size.1, |height, part| {
+                let (sin, cos) = part.pitch.sin_cos();
+                height
+                    .max(part.offset.1 + 0.5 * (part.size.0 * sin.abs() + part.size.1 * cos.abs()))
+            })
+        } else {
+            c.size.1
+        };
         if sheep_colors {
             let path = blocks
                 .asset_path(&sheep_colors::palette()[index].item, "items", "png")
@@ -239,24 +275,28 @@ fn main() -> Result<()> {
         .enumerate()
         .take(if sheep_colors { 1 } else { 4 })
         {
-            let mut parts: Vec<_> = crate::render::mobs::instances(
+            let parts: Vec<_> = crate::render::mobs::instances(
                 &c.parts,
                 1.0,
                 if i == 3 { 0.85 } else { 0.0 },
                 if i == 3 { 0.65 } else { 0.0 },
             )
+            .zip(&c.parts)
+            .filter_map(|(mut cube, part)| {
+                let tint = if let Some(coat) = horse {
+                    coat.tint_part(part, false)?
+                } else {
+                    fleece.map_or(Vec3::ONE, |coat| coat.tint_part(part))
+                };
+                cube.color = (Vec3::from_array(cube.color) * tint).to_array();
+                Some(cube)
+            })
             .collect();
-            if sheep_colors {
-                let coat = sheep_colors::SheepCoat(index as u8);
-                for (part, cube) in c.parts.iter().zip(&mut parts) {
-                    cube.color = (Vec3::from_array(cube.color) * coat.tint_part(part)).to_array();
-                }
-            }
             row.push(ctx.load_texture(
                 format!("{}:{i}", c.id),
                 egui::ColorImage::from_rgba_unmultiplied(
                     [288, 196],
-                    &render(&parts, &textures, direction, c.size.1),
+                    &render(&parts, &textures, direction, height),
                 ),
                 egui::TextureOptions::NEAREST,
             ));

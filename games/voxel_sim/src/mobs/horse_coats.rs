@@ -124,11 +124,14 @@ impl HorseCoat {
         Some(Self::new(color, mark))
     }
     /// Comment cette robe teinte une boîte : `None` si la boîte ne doit pas être dessinée (une
-    /// marque que la robe n'a pas), sinon la teinte à multiplier à sa couleur.
-    pub fn tint_part(self, part: &MobPart) -> Option<Vec3> {
+    /// marque que la robe n'a pas, ou la selle d'un cheval qui n'en porte pas), sinon la teinte à
+    /// multiplier à sa couleur.
+    pub fn tint_part(self, part: &MobPart, saddled: bool) -> Option<Vec3> {
         let name = part.texture.as_deref().unwrap_or("");
         let base = srgb_to_linear(TEXTURE_BASE);
-        if name.ends_with("_coat") {
+        if name.ends_with("_saddle") {
+            saddled.then_some(Vec3::ONE)
+        } else if name.ends_with("_coat") {
             Some(srgb_to_linear(self.color().body) / base)
         } else if name.ends_with("_mane") {
             Some(srgb_to_linear(self.color().mane) / base)
@@ -192,23 +195,49 @@ mod tests {
             size: (1.0, 1.0, 1.0),
             color: (1.0, 1.0, 1.0),
             bone: Default::default(),
+            pitch: 0.0,
             texture: Some(texture.to_owned()),
+            cutout: true,
             texture_layer: 0,
         };
         let stockings = HorseCoat::new(0, 3);
-        assert!(stockings.tint_part(&part("core:mob_horse_blaze")).is_some());
-        assert!(stockings.tint_part(&part("core:mob_horse_sock")).is_some());
-        assert!(stockings.tint_part(&part("core:mob_horse_patch")).is_none());
+        assert!(
+            stockings
+                .tint_part(&part("core:mob_horse_blaze"), false)
+                .is_some()
+        );
+        assert!(
+            stockings
+                .tint_part(&part("core:mob_horse_sock"), false)
+                .is_some()
+        );
+        assert!(
+            stockings
+                .tint_part(&part("core:mob_horse_patch"), false)
+                .is_none()
+        );
         assert!(
             HorseCoat::new(0, 0)
-                .tint_part(&part("core:mob_horse_sock"))
+                .tint_part(&part("core:mob_horse_sock"), false)
                 .is_none()
         );
         // Le poil est teinté, un sabot (autre matière) ne l'est pas.
         let bay = HorseCoat::new(0, 0);
-        let tint = bay.tint_part(&part("core:mob_horse_coat")).unwrap();
+        let tint = bay.tint_part(&part("core:mob_horse_coat"), false).unwrap();
         assert!(tint.x > tint.z, "un bai est brun-roux");
-        assert_eq!(bay.tint_part(&part("core:mob_hoof")), Some(Vec3::ONE));
+        assert_eq!(
+            bay.tint_part(&part("core:mob_hoof"), false),
+            Some(Vec3::ONE)
+        );
+        // La selle n'est dessinée que sur un cheval sellé, et garde sa couleur de cuir.
+        assert!(
+            bay.tint_part(&part("core:mob_horse_saddle"), false)
+                .is_none()
+        );
+        assert_eq!(
+            bay.tint_part(&part("core:mob_horse_saddle"), true),
+            Some(Vec3::ONE)
+        );
     }
 
     #[test]

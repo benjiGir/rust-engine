@@ -208,6 +208,14 @@ pub fn update(world: &mut World) {
             if variant.0 > 0 {
                 world.insert(baby, variant);
             }
+            // Un poulain tient l'allure de ses parents (vitesse, saut).
+            use crate::mobs::mounts::Gait;
+            if let (Some(ga), Some(gb)) = (
+                world.get::<Gait>(a).map(|g| *g),
+                world.get::<Gait>(b).map(|g| *g),
+            ) {
+                crate::mobs::mounts::init(world, baby, Some((ga, gb)));
+            }
             world.insert(
                 baby,
                 Baby {

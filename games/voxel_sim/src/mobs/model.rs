@@ -10,9 +10,15 @@ pub struct MobPart {
     pub color: (f32, f32, f32),
     #[serde(default)]
     pub bone: Bone,
+    /// Inclinaison de repos autour de l'axe latéral, en radians.
+    #[serde(default)]
+    pub pitch: f32,
     /// Texture optionnelle, qualifiée par l'espace de noms de la créature.
     #[serde(default)]
     pub texture: Option<String>,
+    /// Les pixels transparents sont découpés, par exemple aux bords d'une marque du pelage.
+    #[serde(default)]
+    pub cutout: bool,
     #[serde(skip)]
     pub texture_layer: u32,
 }

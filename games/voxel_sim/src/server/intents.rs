@@ -348,6 +348,7 @@ impl crate::server::VoxelServer {
             || self.trade_with_villager()
             || self.shear_mob()
             || self.feed_mob()
+            || self.use_mount()
             || self.pick_berries()
             || self.use_hoe()
             || self.use_fertilizer()

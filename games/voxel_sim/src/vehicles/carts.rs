@@ -862,11 +862,13 @@ fn carry_riders(world: &mut World) {
         let previous = world
             .get::<PreviousPosition>(cart)
             .map_or(cart_position, |p| p.0);
+        // Un cheval a son propre siège (voir `mobs/mounts.rs`), qui suit son cap.
+        let seat = crate::mobs::mounts::seat(world, cart).map_or(SEAT, |s| s - cart_position);
         if let Some(mut transform) = world.get_mut::<Transform>(rider) {
-            transform.position = cart_position + SEAT;
+            transform.position = cart_position + seat;
         }
         if let Some(mut p) = world.get_mut::<PreviousPosition>(rider) {
-            p.0 = previous + SEAT;
+            p.0 = previous + seat;
         }
         if let Some(mut velocity) = world.get_mut::<Velocity>(rider) {
             velocity.0 = Vec3::ZERO;

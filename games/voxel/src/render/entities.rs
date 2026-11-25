@@ -49,7 +49,9 @@ fn player_parts() -> &'static [MobPart] {
             size,
             color,
             bone,
+            pitch: 0.0,
             texture: None,
+            cutout: false,
             texture_layer: 0,
         };
         let skin = (0.87, 0.68, 0.52);
@@ -207,6 +209,8 @@ struct Model {
     coat: Option<SheepCoat>,
     /// La robe d'un cheval : teinte le poil et la crinière, montre ou cache les marques.
     horse: Option<HorseCoat>,
+    /// Le cheval porte sa selle.
+    saddled: bool,
     /// La couleur de la peau d'un animal tondu (sa toison n'est plus dessinée).
     shorn: Option<Vec3>,
     elite: Option<EliteLook>,
@@ -234,6 +238,7 @@ impl Model {
             look: pose.look,
             coat: view.look.coat.map(SheepCoat),
             horse: view.look.horse.map(HorseCoat),
+            saddled: view.look.saddled,
             shorn: None,
             elite: view.look.elite,
             hurt: view.look.hurt,
@@ -277,7 +282,7 @@ fn draw_model(parts: &[MobPart], model: &Model, env: &DrawEnv, out: &mut Vec<Cub
             color *= coat.tint_part(part);
         } else if let Some(horse) = model.horse {
             // Une marque que la robe n'a pas : la boîte blanche n'est pas dessinée.
-            let Some(tint) = horse.tint_part(part) else {
+            let Some(tint) = horse.tint_part(part, model.saddled) else {
                 continue;
             };
             color *= tint;

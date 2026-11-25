@@ -81,6 +81,8 @@ pub struct PlayerBody {
     /// La gravité, en blocs par seconde au carré : [`GRAVITY`] par défaut, autre dans une dimension
     /// à la gravité différente.
     pub gravity: f32,
+    /// La vitesse verticale d'un saut ([`JUMP_SPEED`] par défaut) : une monture bien née saute plus haut.
+    pub jump_speed: f32,
 }
 
 /// L'amortissement de la poussée, par seconde : au sol, en l'air.
@@ -118,6 +120,7 @@ impl PlayerBody {
             height: PLAYER_HEIGHT,
             impulse: Vec3::ZERO,
             gravity: GRAVITY,
+            jump_speed: JUMP_SPEED,
         }
     }
 
@@ -196,7 +199,7 @@ impl PlayerBody {
             self.velocity.x = walk.x + self.impulse.x;
             self.velocity.z = walk.z + self.impulse.z;
             if jump && self.on_ground {
-                self.velocity.y = JUMP_SPEED;
+                self.velocity.y = self.jump_speed;
             } else if jump && self.exit_boost {
                 // À la surface, le dernier élan pour passer par-dessus la berge.
                 self.velocity.y = self.velocity.y.max(EXIT_SPEED);

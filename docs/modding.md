@@ -1024,6 +1024,14 @@ et les boîtes `_blaze`, `_sock` et `_patch` (blanches) n'apparaissent que si la
 montre. Dessinez ces textures en gris clair. Dans `breeds`, `also_food: ["mon_mod:objet"]` ajoute
 d'autres aliments qui mettent la créature en rut. `/summon mon_mod:cheval bay:blaze` choisit la robe.
 
+Une créature peut être une **monture** : `mount: (speed: (6.0, 10.5), jump: (1.3, 2.6), tries: (2, 5),
+seat: (-0.1, 1.15))`. `speed` (galop, blocs par seconde) et `jump` (hauteur de saut, en blocs) sont
+tirés entre ces bornes pour chaque individu ; `tries` est le nombre d'essais (clic droit à mains nues)
+avant qu'elle accepte d'être montée ; `seat` place le cavalier (vers l'avant, hauteur). Il faut ensuite
+une `core:saddle` en main pour la seller, puis un clic droit pour monter et Maj pour descendre. Les
+boîtes dont la texture finit par `_saddle` ne sont dessinées que sur une monture sellée. Voir
+[plan-monture.md](plan-monture.md).
+
 ```ron
 (offset: (0.0, 0.5, 0.0), size: (0.8, 0.6, 0.5),
  color: (0.2, 0.3, 0.1), texture: "pelage")

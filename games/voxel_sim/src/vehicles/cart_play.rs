@@ -362,12 +362,17 @@ impl crate::server::VoxelServer {
 }
 
 impl crate::server::VoxelServer {
-    /// Descendre du wagonnet (Maj).
+    /// Descendre du wagonnet ou du cheval (Maj).
     pub fn dismount(&mut self) -> bool {
-        if !self.ecs.has::<carts::Riding>(self.players.entity()) {
+        let rider = self.players.entity();
+        if !self.ecs.has::<carts::Riding>(rider) {
             return false;
         }
-        carts::dismount(&mut self.ecs, self.players.entity());
+        if crate::mobs::mounts::is_riding(&self.ecs, rider) {
+            crate::mobs::mounts::dismount(&mut self.ecs, rider);
+        } else {
+            carts::dismount(&mut self.ecs, rider);
+        }
         true
     }
 }

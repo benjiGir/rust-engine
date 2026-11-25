@@ -8,6 +8,7 @@ pub mod elites;
 pub mod fleece;
 pub mod horse_coats;
 pub mod model;
+pub mod mounts;
 pub mod navigation;
 pub mod projectiles;
 pub mod sheep_colors;
@@ -109,6 +110,9 @@ struct MobFileEntry {
     /// Elle a une robe de cheval, tirée à la naissance (voir `mobs/horse_coats.rs`).
     #[serde(default)]
     horse_coat: bool,
+    /// On peut la monter (voir `mobs/mounts.rs`).
+    #[serde(default)]
+    mount: Option<crate::mobs::mounts::MountDef>,
 }
 
 /// Ce que lâche une créature à sa mort : un objet, un nombre (min, max), une chance.
@@ -165,6 +169,8 @@ pub struct MobDef {
     pub spit: Option<crate::mobs::projectiles::RangedDef>,
     /// Elle naît avec une robe de cheval (35 robes, voir `mobs/horse_coats.rs`).
     pub horse_coat: bool,
+    /// Sa monture : vitesse, saut, apprivoisement, siège (voir `mobs/mounts.rs`).
+    pub mount: Option<crate::mobs::mounts::MountDef>,
 }
 
 /// Toutes les créatures connues. Leur numéro (`Mob::kind`) est leur place dans la liste.
@@ -279,6 +285,7 @@ impl MobRegistry {
                 fleece: entry.fleece,
                 spit: entry.spit,
                 horse_coat: entry.horse_coat,
+                mount: entry.mount,
             });
         }
         Ok(())
@@ -504,6 +511,12 @@ pub fn physics(world: &mut World) {
                 body.in_liquid = collider.in_liquid;
                 body.exit_boost = collider.exit_boost;
                 body.gravity = gravity;
+                // Un cheval monté saute selon sa race (`mobs/mounts.rs`).
+                if world.has::<crate::mobs::mounts::Ridden>(entity)
+                    && let Some(gait) = world.get::<crate::mobs::mounts::Gait>(entity)
+                {
+                    body.jump_speed = gait.jump_speed(gravity);
+                }
                 body.impulse = world.get::<Impulse>(entity).map_or(Vec3::ZERO, |i| i.0);
                 collider.frozen = !surroundings_ready(&streamer, &body);
                 if collider.frozen {
@@ -616,6 +629,9 @@ pub fn spawn_mob_with_coat(
             crate::mobs::horse_coats::HorseCoat::choose(roll_color, roll_mark),
         );
     }
+    if def.mount.is_some() {
+        crate::mobs::mounts::init(world, entity, None);
+    }
     if def.aquatic {
         world.insert(entity, crate::components::Aquatic);
     }
@@ -659,6 +675,10 @@ pub fn wander(world: &mut World) {
                 };
                 // Une créature à comportement est dirigée par son script (`mobs/brains.rs`).
                 if def.brain {
+                    return;
+                }
+                // Un cheval monté obéit à son cavalier (`mobs/mounts.rs`).
+                if world.has::<crate::mobs::mounts::Ridden>(entity) {
                     return;
                 }
                 let position = transform.position;
@@ -933,6 +953,7 @@ pub fn cleanup(world: &mut World) {
                             .get::<crate::mobs::sheep_colors::SheepCoat>(entity)
                             .map(|c| *c),
                         shorn: world.has::<crate::mobs::fleece::Shorn>(entity),
+                        saddled: world.has::<crate::mobs::mounts::Saddled>(entity),
                         killer: world
                             .get::<crate::player::players::LastHitBy>(entity)
                             .map(|k| k.0),
@@ -942,6 +963,7 @@ pub fn cleanup(world: &mut World) {
             } else if spots
                 .iter()
                 .all(|s| transform.position.distance(s.position) > DESPAWN_DISTANCE)
+                && !world.has::<crate::mobs::mounts::Tamed>(entity)
             {
                 // Loin de tous les joueurs : elle disparaît.
                 world.commands().despawn(entity);
@@ -968,6 +990,13 @@ pub fn hit_mob(world: &World, origin: Vec3, dir: Vec3, max: f32) -> Option<(Enti
         .query::<(&Transform, &Collider, &Mob)>()
         .for_each(|entity, (transform, collider, _)| {
             let half = Vec3::new(collider.width / 2.0, 0.0, collider.width / 2.0);
+            // Un cavalier ne vise pas sa monture : son regard part de dessus.
+            if world.has::<crate::mobs::mounts::Ridden>(entity)
+                && (origin.x - transform.position.x).abs() < half.x + 0.3
+                && (origin.z - transform.position.z).abs() < half.z + 0.3
+            {
+                return;
+            }
             let min = transform.position - half;
             let max_corner = transform.position + half + Vec3::Y * collider.height;
             if let Some(t) = ray_aabb(origin, dir, min, max_corner)
@@ -1587,6 +1616,7 @@ pub mod tests {
                 elite: None,
                 coat: None,
                 shorn: false,
+                saddled: false,
                 killer: None,
             }]
         );

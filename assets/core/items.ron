@@ -266,6 +266,8 @@
         // Les couleurs naturelles de l'alpaga (lot N7) : à la fin, les numéros existants ne bougent pas.
         (id: "core:wool_cream", name: "Laine crème", category: Material, color: (0.54251, 0.41490, 0.22743), icon: "wool_cream"),
         (id: "core:wool_fawn", name: "Laine fauve", category: Material, color: (0.31802, 0.17599, 0.07082), icon: "wool_fawn"),
+        // La selle (lot N9) : à la fin aussi.
+        (id: "core:saddle", name: "Selle", category: Tool, color: (0.1887, 0.0667, 0.0304), icon: "saddle", max_stack: 1),
     ],
     // Des groupes d'objets, utilisables dans les recettes (« #planks » : n'importe quelles planches).
     tags: {

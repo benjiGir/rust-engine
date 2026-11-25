@@ -150,6 +150,7 @@
         (pattern: ["ccc", "chc", "ccc"], key: {"c": "copper_ingot", "h": "chest"}, result: ("upgrade_restock", 1)),
         (pattern: ["ggg", "gbg", "ggg"], key: {"g": "gold_ingot", "b": "bread"}, result: ("upgrade_feed", 1)),
         (pattern: ["l l", "lcl", "lll"], key: {"l": "leather", "c": "chest"}, result: ("backpack_leather", 1)),
+        (pattern: ["lll", "i i"], key: {"l": "leather", "i": "iron_ingot"}, result: ("saddle", 1)),
         (pattern: ["#i#", "# #", "###"], key: {"#": "iron_ingot", "i": "sapphire"}, result: ("storage_controller", 1)),
     ],
     shapeless: [
